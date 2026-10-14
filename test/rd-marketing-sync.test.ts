@@ -44,7 +44,12 @@ describe("RD Marketing: avisos e transições comerciais", () => {
     expect(event.occurredAt).toBeNull();
     expect(event.identifier).toBe(hook.id);
     expect(event.data.label).toBe("Passou na qualificação");
-    expect(parseRdNotification({ ...raw, timestamp: "2026-10-14T12:20:00Z" }, { ...hook, kind: "AUTOMATION", label: "Passou na qualificação" })[0].eventKey).toBe(event.eventKey);
+    expect(
+      parseRdNotification(
+        { ...raw, timestamp: "2026-10-14T12:20:00Z" },
+        { ...hook, kind: "AUTOMATION", label: "Passou na qualificação" },
+      )[0].eventKey,
+    ).toBe(event.eventKey);
   });
   test("vendas e perdas são ocorrências por transição, com reabertura independente", () => {
     expect(commercialTransition("open", "lost")).toBe("OPPORTUNITY_LOST");

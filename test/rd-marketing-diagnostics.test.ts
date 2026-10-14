@@ -69,6 +69,10 @@ describe("RD Marketing: qualidade e diagnóstico", () => {
       ),
     };
     expect(mapLead(lead, legacy).contact.phone).toBe(lead.personal_phone);
+    const phoneOnly = { ...lead, personal_phone: null, phone: "+551177777777" };
+    expect(mapLead(phoneOnly, settings).contact.phone).toBe(phoneOnly.phone);
+    expect(mapLead(phoneOnly, legacy).contact.phone).toBe(phoneOnly.phone);
+    expect(mapLead(phoneOnly, explicit).contact.phone).toBeUndefined();
   });
 
   test("não aceita placeholders como Fonte ou Campanha obrigatórias, sem misturar conversões", () => {

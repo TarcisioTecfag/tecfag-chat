@@ -199,6 +199,7 @@ async function resolveContact(
             (term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,
           ),
           email ? sql`lower(${contacts.email}) = ${email}` : undefined,
+          sql`FALSE`,
         ),
       ),
     )
@@ -227,7 +228,9 @@ async function resolveContact(
     // Enriquecer campos vazios; preservar alterações feitas pela equipe comercial.
     const customFields: Record<string, unknown> = {};
     for (const candidate of [...sortedMatches].reverse()) {
-      for (const [key, value] of Object.entries((candidate.customFields || {}) as Record<string, unknown>)) {
+      for (const [key, value] of Object.entries(
+        (candidate.customFields || {}) as Record<string, unknown>,
+      )) {
         if (value !== undefined && value !== null && value !== "") customFields[key] = value;
       }
     }
@@ -241,7 +244,14 @@ async function resolveContact(
       phone && matches.some((m) => m.id !== existing.id && cleanDigits(m.phone) === phone),
     );
     const nextPhone = existing.phone || (!phoneOwnedByOther && phone ? phone : null);
-    const nextEmail = existing.email || email || sortedMatches.find((m) => m.email)?.email || null;
+    const emailOwnedByOther = Boolean(
+      email &&
+      matches.some(
+        (candidate) =>
+          candidate.id !== existing.id && candidate.email?.trim().toLowerCase() === email,
+      ),
+    );
+    const nextEmail = existing.email || (!emailOwnedByOther ? email : null) || null;
     const nextAccountId =
       existing.accountId || sortedMatches.find((m) => m.accountId)?.accountId || null;
     await tx

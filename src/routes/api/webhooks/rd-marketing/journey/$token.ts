@@ -23,7 +23,20 @@ export const Route = createFileRoute("/api/webhooks/rd-marketing/journey/$token"
       POST: async ({ request, params }) => {
         try {
           // Tenant/account/point come exclusively from the random endpoint secret, never the body.
-          const hook = await journeyEndpointForToken(params.token);
+          const hook = await journeyEndpointForToken(params.token, true);
+          if (!hook.enabled)
+            return Response.json(
+              { accepted: true, paused: true, stored: 0 },
+              { status: 202, headers },
+            );
+          if (
+            hook.registrationStatus === "registering" &&
+            (!request.body || request.headers.get("content-length") === "0")
+          )
+            return Response.json(
+              { accepted: true, validation: true, stored: 0 },
+              { status: 202, headers },
+            );
           const receipt = await storeJourneyNotification(hook, await readIntegrationJson(request));
           return Response.json(receipt, { status: 202, headers });
         } catch (error) {

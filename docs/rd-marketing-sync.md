@@ -41,14 +41,14 @@ Não há idempotência remota documentada que permita repetir uma venda após ti
 
 ## Cobertura e pendências externas
 
-| Informação | Caminho |
-| --- | --- |
-| Conversões e oportunidades antigas | Consulta pública paginada |
-| Novas conversões e oportunidades | Assinaturas públicas |
-| Passagens em pontos de automação escolhidos | Ações de webhook configuradas no fluxo |
-| Oportunidade, venda e perda deste CRM | Eventos públicos enviados pela fila |
-| Visitas/cliques, aberturas de email, entradas/conclusões nativas antigas de automações | Não disponibilizados pelos endpoints/gatilhos públicos pesquisados |
-| “Negociação atualizada” e “Tarefa criada” da integração nativa RD CRM | Não foi demonstrado um evento público equivalente para reproduzir a mesma representação |
+| Informação                                                                             | Caminho                                                                                 |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Conversões e oportunidades antigas                                                     | Consulta pública paginada                                                               |
+| Novas conversões e oportunidades                                                       | Assinaturas públicas                                                                    |
+| Passagens em pontos de automação escolhidos                                            | Ações de webhook configuradas no fluxo                                                  |
+| Oportunidade, venda e perda deste CRM                                                  | Eventos públicos enviados pela fila                                                     |
+| Visitas/cliques, aberturas de email, entradas/conclusões nativas antigas de automações | Não disponibilizados pelos endpoints/gatilhos públicos pesquisados                      |
+| “Negociação atualizada” e “Tarefa criada” da integração nativa RD CRM                  | Não foi demonstrado um evento público equivalente para reproduzir a mesma representação |
 
 Para as últimas categorias, é necessário obter um recurso oficial ampliado do RD ou implementar coleta futura no site. O código do site não está neste repositório; não foi instalado um rastreador nem reconstruído histórico a partir de nomes de botões ou UTMs.
 

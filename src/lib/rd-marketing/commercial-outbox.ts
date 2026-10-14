@@ -80,7 +80,7 @@ export async function enqueueRdCommercial(
   if (eventType === "SALE") payload.value = deal.value === null ? null : Number(deal.value);
   const reason = !contact
     ? "Vincule o contato principal antes de enviar ao RD."
-    : !payload.email && !payload.phone
+    : !payload.email && !payload.phone && !link?.rdUuid
       ? "Contato sem e-mail ou telefone para o RD."
       : eventType === "SALE" &&
           (payload.value === null ||
@@ -218,14 +218,24 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
         identity,
         fetchImpl,
       );
-      if (rdUuid && contact.uuid !== rdUuid) throw Object.assign(new Error("Lead RD não corresponde ao vínculo salvo."), { code: "RD_CONTACT_MISMATCH" });
+      if (rdUuid && contact.uuid !== rdUuid)
+        throw Object.assign(new Error("Lead RD não corresponde ao vínculo salvo."), {
+          code: "RD_CONTACT_MISMATCH",
+        });
       const payload = { ...row.payload };
+      const root = contact.raw as Record<string, unknown>;
+      const profile = (root.uuid ? root : root.contact || root.data || {}) as Record<
+        string,
+        unknown
+      >;
+      // Only `phone` is an RD identifier; personal/mobile numbers are profile information.
+      const identifierPhone = typeof profile.phone === "string" ? rdPhoneDigits(profile.phone) : "";
       // UUID binds the person even after an email edit; use the current identifier of that lead.
       if (contact.email) {
         payload.email = contact.email.trim().toLowerCase();
         delete payload.phone;
-      } else if (contact.phone) {
-        payload.phone = `+${rdPhoneDigits(contact.phone)}`;
+      } else if (/^\d{10,15}$/.test(identifierPhone)) {
+        payload.phone = `+${identifierPhone}`;
         delete payload.email;
       } else
         throw Object.assign(new Error("Lead RD sem identificador de envio."), {
@@ -234,14 +244,29 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
       if (
         !rdUuid &&
         row.payload.email &&
-        contact.email?.toLowerCase() !== String(row.payload.email).toLowerCase()
+        contact.email?.trim().toLowerCase() !== String(row.payload.email).trim().toLowerCase()
       )
         throw Object.assign(new Error("Lead RD não corresponde ao contato."), {
           code: "RD_CONTACT_MISMATCH",
         });
-      const [currentOptIn] = await db.select().from(rdMarketingSyncSettings).where(eq(rdMarketingSyncSettings.tenantId, tenantId));
-      if (!currentOptIn?.outboundEnabled || currentOptIn.connectionVersion !== row.connectionVersion) {
-        await db.update(outbox).set({ status: "pending", leaseToken: null, leaseUntil: null }).where(scope);
+      if (!rdUuid && !row.payload.email) {
+        if (identifierPhone !== rdPhoneDigits(String(row.payload.phone || "")))
+          throw Object.assign(new Error("Lead RD não corresponde ao telefone solicitado."), {
+            code: "RD_CONTACT_MISMATCH",
+          });
+      }
+      const [currentOptIn] = await db
+        .select()
+        .from(rdMarketingSyncSettings)
+        .where(eq(rdMarketingSyncSettings.tenantId, tenantId));
+      if (
+        !currentOptIn?.outboundEnabled ||
+        currentOptIn.connectionVersion !== row.connectionVersion
+      ) {
+        await db
+          .update(outbox)
+          .set({ status: "pending", leaseToken: null, leaseUntil: null })
+          .where(scope);
         break;
       }
       const result = (await writeRd(

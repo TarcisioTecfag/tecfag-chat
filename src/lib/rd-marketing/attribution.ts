@@ -38,7 +38,12 @@ function currentTrafficSession(value: unknown): Fields {
     const extra = record(session.extra_params);
     return {
       source: text(params.get("utm_source"), session.utm_source, session.source, extra.utm_source),
-      campaign: text(params.get("utm_campaign"), session.utm_campaign, session.campaign, extra.utm_campaign),
+      campaign: text(
+        params.get("utm_campaign"),
+        session.utm_campaign,
+        session.campaign,
+        extra.utm_campaign,
+      ),
       medium: text(params.get("utm_medium"), session.utm_medium, session.medium, extra.utm_medium),
     };
   } catch {

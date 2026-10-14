@@ -91,7 +91,11 @@ export type Mapping = FlowSettings["mappings"][number];
 export const defaultMappings: Mapping[] = [
   { source: "name", target: "contact.name" },
   { source: "email", target: "contact.email" },
-  { source: "mobile_phone", sourceAlternatives: ["personal_phone"], target: "contact.phone" },
+  {
+    source: "mobile_phone",
+    sourceAlternatives: ["personal_phone", "phone"],
+    target: "contact.phone",
+  },
   { source: "name", target: "deal.title" },
   { source: "rd_attribution.source", target: "deal.source", fallback: "Não informada" },
   { source: "rd_attribution.campaign", target: "deal.campaign" },
@@ -173,7 +177,7 @@ export function mappingSourceAlternatives(mapping: Mapping): string[] {
   return (
     mapping.sourceAlternatives ??
     (mapping.target === "contact.phone" && mapping.source === "mobile_phone"
-      ? ["personal_phone"]
+      ? ["personal_phone", "phone"]
       : [])
   );
 }

@@ -25,7 +25,15 @@ const date = (value: unknown) =>
 export const rdIdentityHash = (value: string) => createHash("sha256").update(value).digest("hex");
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  if (value && typeof value === "object") return "{" + Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => JSON.stringify(key) + ":" + canonical(item)).join(",") + "}";
+  if (value && typeof value === "object")
+    return (
+      "{" +
+      Object.entries(value)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, item]) => JSON.stringify(key) + ":" + canonical(item))
+        .join(",") +
+      "}"
+    );
   return JSON.stringify(value) ?? "null";
 }
 export function notificationKey(
@@ -36,7 +44,13 @@ export function notificationKey(
   fallback: unknown,
 ) {
   return rdIdentityHash(
-    JSON.stringify([uuid, type, time?.toISOString(), identifier, time ? null : canonical(fallback)]),
+    JSON.stringify([
+      uuid,
+      type,
+      time?.toISOString(),
+      identifier,
+      time ? null : canonical(fallback),
+    ]),
   );
 }
 type Endpoint = typeof endpoints.$inferSelect;
@@ -81,8 +95,16 @@ export function parseRdNotification(
         : text(root.event_identifier) ||
           text(conversion.identifier) ||
           (endpoint.kind === "OPPORTUNITY" ? "default" : null);
-    const identityTime = occurredAt || (endpoint.kind === "AUTOMATION" ? date(root.event_timestamp) || date(conversion.occurredAt) : null);
-    const identityLead = { ...lead, rd_event: { ...object(lead.rd_event), timestamp: undefined }, timestamp: undefined };
+    const identityTime =
+      occurredAt ||
+      (endpoint.kind === "AUTOMATION"
+        ? date(root.event_timestamp) || date(conversion.occurredAt)
+        : null);
+    const identityLead = {
+      ...lead,
+      rd_event: { ...object(lead.rd_event), timestamp: undefined },
+      timestamp: undefined,
+    };
     const last = object(lead.last_conversion);
     const lastIdentity = conversionForLead({ last_conversion: last });
     const matched =
@@ -123,13 +145,13 @@ export function parseRdNotification(
     };
   });
 }
-export async function journeyEndpointForToken(token: string) {
+export async function journeyEndpointForToken(token: string, acknowledgeRetired = false) {
   if (!/^[a-f0-9]{64}$/.test(token)) throw new CrmError("Webhook inválido.", "UNAUTHORIZED", 401);
   // Public route authority: a random secret uniquely resolves tenant and account version.
   const [row] = await db
     .select({ endpoint: endpoints, connection: rdMarketingConnections })
     .from(endpoints)
-    .innerJoin(
+    .leftJoin(
       rdMarketingConnections,
       and(
         eq(rdMarketingConnections.tenantId, endpoints.tenantId),
@@ -137,15 +159,22 @@ export async function journeyEndpointForToken(token: string) {
       ),
     )
     .where(eq(endpoints.tokenHash, rdIdentityHash(token)));
-  if (!row?.connection.accessTokenEncrypted || !row.connection.refreshTokenEncrypted)
+  if (!row) throw new CrmError("Webhook inválido.", "UNAUTHORIZED", 401);
+  if (!row.connection?.accessTokenEncrypted || !row.connection.refreshTokenEncrypted) {
+    if (acknowledgeRetired) return { ...row.endpoint, enabled: false };
     throw new CrmError("Webhook inválido ou conexão alterada.", "UNAUTHORIZED", 401);
+  }
   return row.endpoint;
 }
 export async function storeJourneyNotification(endpoint: Endpoint, raw: unknown) {
   if (!endpoint.enabled) return { accepted: true, paused: true, stored: 0 };
-  // RD validates a new subscription before registering it. Accept an empty validation only
+  // RD validates a new subscription before registering it. Accept a validation probe only
   // during the server-controlled registration window, never as a journey occurrence.
-  if (endpoint.registrationStatus === "registering" && Object.keys(object(raw)).length === 0)
+  const root = object(raw);
+  if (
+    endpoint.registrationStatus === "registering" &&
+    !(text(root.event_type) && date(root.event_timestamp) && root.contact)
+  )
     return { accepted: true, validation: true, stored: 0 };
   const inputs = parseRdNotification(raw, endpoint);
   return db.transaction(async (tx) => {

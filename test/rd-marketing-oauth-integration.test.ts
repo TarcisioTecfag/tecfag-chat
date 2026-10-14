@@ -452,8 +452,25 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect(first.events).toHaveLength(1);
     expect(first.events[0].deals).toHaveLength(0);
     expect(first.relatedDeals?.map((deal) => deal.id)).toEqual([dealA]);
-    const savedPages = await database.db.select().from(schema.rdMarketingJourneyPages).where(eq(schema.rdMarketingJourneyPages.tenantId, tenantId));
-    for (const saved of savedPages) await database.db.update(schema.rdMarketingJourneyPages).set({ data: { ...saved.data, events: saved.data.events.map(event => ({ ...event, source: null })) } }).where(and(eq(schema.rdMarketingJourneyPages.tenantId, tenantId), eq(schema.rdMarketingJourneyPages.id, saved.id)));
+    const savedPages = await database.db
+      .select()
+      .from(schema.rdMarketingJourneyPages)
+      .where(eq(schema.rdMarketingJourneyPages.tenantId, tenantId));
+    for (const saved of savedPages)
+      await database.db
+        .update(schema.rdMarketingJourneyPages)
+        .set({
+          data: {
+            ...saved.data,
+            events: saved.data.events.map((event) => ({ ...event, source: null })),
+          },
+        })
+        .where(
+          and(
+            eq(schema.rdMarketingJourneyPages.tenantId, tenantId),
+            eq(schema.rdMarketingJourneyPages.id, saved.id),
+          ),
+        );
     const oldSync = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     await database.db
       .update(schema.rdMarketingJourneyLinks)
@@ -690,6 +707,9 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
         created++;
         const validation = await notifications.journeyEndpointForToken(token);
         expect((await notifications.storeJourneyNotification(validation, {})).stored).toBe(0);
+        expect(
+          (await notifications.storeJourneyNotification(validation, { test: true })).stored,
+        ).toBe(0);
         return Response.json(row, { status: 201 });
       }
       return provider(input as RequestInfo, init);
@@ -708,17 +728,71 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     );
     expect(created).toBe(1);
     expect(remote[0].include_relations).toEqual(["COMPANY", "CONTACT_FUNNEL"]);
-    const [pipeline] = await database.db.select().from(schema.crmPipelines).where(eq(schema.crmPipelines.tenantId, tenantId)).limit(1);
-    const [stage] = await database.db.select().from(schema.crmStages).where(and(eq(schema.crmStages.tenantId, tenantId), eq(schema.crmStages.pipelineId, pipeline.id))).limit(1);
-    await database.db.insert(schema.rdMarketingFlows).values({ id: randomUUID(), tenantId, tokenHash: hook.tokenHash, settings: { name: "Aquisição", enabled: true, pipelineId: pipeline.id, stageId: stage.id, operatorId: null, deduplication: "event", eventIdPath: "rd_conversion.id", mappings: [] } });
-    const cardPost = (await import("../src/routes/api/webhooks/rd-marketing/$token")).Route.options.server!.handlers!.POST!;
-    const ignored = await cardPost({ request: new Request("http://localhost/api/webhooks/rd-marketing/" + token, { method: "POST", body: JSON.stringify({ ...envelope, event_type: "WEBHOOK.MARKED_OPPORTUNITY" }) }), params: { token } } as never);
+    const [pipeline] = await database.db
+      .select()
+      .from(schema.crmPipelines)
+      .where(eq(schema.crmPipelines.tenantId, tenantId))
+      .limit(1);
+    const [stage] = await database.db
+      .select()
+      .from(schema.crmStages)
+      .where(
+        and(eq(schema.crmStages.tenantId, tenantId), eq(schema.crmStages.pipelineId, pipeline.id)),
+      )
+      .limit(1);
+    await database.db.insert(schema.rdMarketingFlows).values({
+      id: randomUUID(),
+      tenantId,
+      tokenHash: hook.tokenHash,
+      settings: {
+        name: "Aquisição",
+        enabled: true,
+        pipelineId: pipeline.id,
+        stageId: stage.id,
+        operatorId: null,
+        deduplication: "event",
+        eventIdPath: "rd_conversion.id",
+        mappings: [],
+      },
+    });
+    const cardPost = (await import("../src/routes/api/webhooks/rd-marketing/$token")).Route.options
+      .server!.handlers!.POST!;
+    const ignored = await cardPost({
+      request: new Request("http://localhost/api/webhooks/rd-marketing/" + token, {
+        method: "POST",
+        body: JSON.stringify({ ...envelope, event_type: "WEBHOOK.MARKED_OPPORTUNITY" }),
+      }),
+      params: { token },
+    } as never);
     expect(ignored.status).toBe(202);
     expect((await ignored.json()).ignored).toContain("Evento comercial");
-    expect(await database.db.select().from(schema.crmDeals).where(eq(schema.crmDeals.tenantId, tenantId))).toHaveLength(dealsBefore.length);
-    const journeyPost = (await import("../src/routes/api/webhooks/rd-marketing/journey/$token")).Route.options.server!.handlers!.POST!;
-    expect((await journeyPost({ request: new Request("http://localhost/api/webhooks/rd-marketing/journey/" + token, { method: "POST", body: JSON.stringify(envelope) }), params: { token } } as never)).status).toBe(202);
-    expect((await journeyPost({ request: new Request("http://localhost"), params: { token: "invalid" } } as never)).status).toBe(401);
+    expect(
+      await database.db
+        .select()
+        .from(schema.crmDeals)
+        .where(eq(schema.crmDeals.tenantId, tenantId)),
+    ).toHaveLength(dealsBefore.length);
+    const journeyPost = (await import("../src/routes/api/webhooks/rd-marketing/journey/$token"))
+      .Route.options.server!.handlers!.POST!;
+    expect(
+      (
+        await journeyPost({
+          request: new Request("http://localhost/api/webhooks/rd-marketing/journey/" + token, {
+            method: "POST",
+            body: JSON.stringify(envelope),
+          }),
+          params: { token },
+        } as never)
+      ).status,
+    ).toBe(202);
+    expect(
+      (
+        await journeyPost({
+          request: new Request("http://localhost"),
+          params: { token: "invalid" },
+        } as never)
+      ).status,
+    ).toBe(401);
     const handlers = (await import("../src/routes/api/settings/rd-marketing/sync")).Route.options
       .server!.handlers!;
     const get = handlers.GET!;
@@ -745,11 +819,36 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       ),
     } as never);
     expect((await status.json()).endpoints).toHaveLength(1);
-    expect((await handlers.POST!({ request: new Request("http://localhost/api/settings/rd-marketing/sync", { method: "POST", headers: { Cookie: adminCookie, Origin: "https://attacker.example", "Content-Type": "application/json" }, body: JSON.stringify({ action: "save", tenantId: otherTenantId, outboundEnabled: true, currency: "BRL" }) }) } as never)).status).toBe(400);
+    expect(
+      (
+        await handlers.POST!({
+          request: new Request("http://localhost/api/settings/rd-marketing/sync", {
+            method: "POST",
+            headers: {
+              Cookie: adminCookie,
+              Origin: "https://attacker.example",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action: "save",
+              tenantId: otherTenantId,
+              outboundEnabled: true,
+              currency: "BRL",
+            }),
+          }),
+        } as never)
+      ).status,
+    ).toBe(400);
     await service.disconnectRd(tenantId);
     expect(await rejected(notifications.journeyEndpointForToken(token))).toMatchObject({
       code: "UNAUTHORIZED",
     });
+    const retired = await journeyPost({
+      request: new Request("http://localhost", { method: "POST", body: JSON.stringify(envelope) }),
+      params: { token },
+    } as never);
+    expect(retired.status).toBe(202);
+    expect((await retired.json()).stored).toBe(0);
   }, 30000);
   test("retorno comercial preserva venda/perda de cards distintos, evita ecos e não repete timeout", async () => {
     await connect();
@@ -783,6 +882,7 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       marketingOrigin: true,
     };
     const a = await crmService.createDeal(tenantId, actor, data);
+    await crmService.updateDeal(tenantId, a.id, actor, { operatorId: tenantId + "-agent" });
     const b = await crmService.createDeal(tenantId, actor, data);
     const manual = await crmService.createDeal(tenantId, actor, {
       ...data,
@@ -792,9 +892,14 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     await crmService.updateDeal(tenantId, b.id, actor, { status: "won" });
     await crmService.updateDeal(tenantId, b.id, actor, { title: "Título editado", status: "won" });
     const sent: Record<string, unknown>[] = [];
-    let timeout = false;
+    let timeout = false,
+      rateLimit = false;
     const commercialProvider = (async (input: unknown, init: RequestInit) => {
       if (String(input).endsWith("/platform/events") && init.method === "POST") {
+        if (rateLimit) {
+          rateLimit = false;
+          return new Response(null, { status: 429 });
+        }
         sent.push(JSON.parse(String(init.body)));
         if (timeout) throw new Error("Simula resposta perdida após aceitação");
         return Response.json({ event_uuid: randomUUID() });
@@ -807,13 +912,18 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
         .from(schema.rdMarketingCommercialOutbox)
         .where(eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId));
     expect(await outboxRows()).toHaveLength(3);
-    const rollback = await rejected(database.db.transaction(async tx => {
-      await crmService.createDeal(tenantId, actor, { ...data, marketingOrigin: false }, tx);
-      throw new Error("Rollback esperado");
-    }));
+    const rollback = await rejected(
+      database.db.transaction(async (tx) => {
+        await crmService.createDeal(tenantId, actor, { ...data, marketingOrigin: false }, tx);
+        throw new Error("Rollback esperado");
+      }),
+    );
     expect(rollback).toMatchObject({ message: "Rollback esperado" });
     expect(await outboxRows()).toHaveLength(3);
-    await Promise.all([runRdCommercialWorker(tenantId, commercialProvider), runRdCommercialWorker(tenantId, commercialProvider)]);
+    await Promise.all([
+      runRdCommercialWorker(tenantId, commercialProvider),
+      runRdCommercialWorker(tenantId, commercialProvider),
+    ]);
     expect(sent.map((event) => event.event_type).sort()).toEqual([
       "OPPORTUNITY",
       "OPPORTUNITY_LOST",
@@ -826,6 +936,22 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     await runRdCommercialWorker(tenantId, commercialProvider);
     expect(sent).toHaveLength(3);
     await crmService.updateDeal(tenantId, b.id, actor, { status: "open" });
+    rateLimit = true;
+    await runRdCommercialWorker(tenantId, commercialProvider);
+    const deferred = (await outboxRows()).find((row) => row.status === "pending")!;
+    expect(deferred.nextRetryAt.getTime()).toBeGreaterThan(Date.now());
+    expect(sent).toHaveLength(3);
+    await runRdCommercialWorker(tenantId, commercialProvider);
+    expect(sent).toHaveLength(3);
+    await database.db
+      .update(schema.rdMarketingCommercialOutbox)
+      .set({ nextRetryAt: new Date(Date.now() - 1) })
+      .where(
+        and(
+          eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId),
+          eq(schema.rdMarketingCommercialOutbox.id, deferred.id),
+        ),
+      );
     await runRdCommercialWorker(tenantId, commercialProvider);
     await crmService.updateDeal(tenantId, b.id, actor, { status: "won" });
     timeout = true;
@@ -854,7 +980,38 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
         (event) => event.eventType === "OPPORTUNITY_LOST" && event.deals[0]?.id === a.id,
       ),
     ).toBe(true);
+    const restricted = await (
+      await import("../src/lib/rd-marketing/journey")
+    ).dealRdJourney(
+      tenantId,
+      a.id,
+      { operatorId: tenantId + "-agent", canViewAll: false },
+      { contactId },
+      commercialProvider,
+    );
+    expect(restricted.events.filter((event) => event.eventType === "SALE")).toHaveLength(0);
+    expect(
+      restricted.events.some(
+        (event) => event.eventType === "OPPORTUNITY_LOST" && event.deals[0]?.id === a.id,
+      ),
+    ).toBe(true);
     await crmService.updateDeal(tenantId, manual.id, actor, { status: "lost" });
+    const interrupted = (await outboxRows()).find(
+      (row) => row.status === "pending" && row.dealId === manual.id,
+    )!;
+    await database.db
+      .update(schema.rdMarketingCommercialOutbox)
+      .set({ status: "processing", leaseToken: randomUUID(), leaseUntil: new Date(Date.now() - 1) })
+      .where(
+        and(
+          eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId),
+          eq(schema.rdMarketingCommercialOutbox.id, interrupted.id),
+        ),
+      );
+    await runRdCommercialWorker(tenantId, commercialProvider);
+    expect((await outboxRows()).find((row) => row.id === interrupted.id)?.status).toBe("unknown");
+    expect(sent).toHaveLength(attempts);
+    await sync.reviewRdDelivery(tenantId, interrupted.id, actor, "not_recorded");
     await connect();
     expect((await sync.rdSyncStatus(tenantId, "https://local.example")).outboundEnabled).toBe(
       false,
@@ -864,6 +1021,94 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       (await outboxRows()).some((row) => row.status === "blocked" && row.dealId === manual.id),
     ).toBe(true);
     expect(sent).toHaveLength(attempts);
+  }, 30000);
+  test("retorno por UUID usa o telefone identificador e bloqueia números apenas informativos", async () => {
+    await connect();
+    const { crmService } = await import("../src/lib/crm/crm-service");
+    const { saveRdSyncSettings } = await import("../src/lib/rd-marketing/sync-settings");
+    const { runRdCommercialWorker } = await import("../src/lib/rd-marketing/commercial-outbox");
+    const pipelineId = randomUUID(),
+      stageId = randomUUID();
+    await database.db
+      .insert(schema.crmPipelines)
+      .values({ id: pipelineId, tenantId, name: "Identificadores RD" });
+    await database.db
+      .insert(schema.crmStages)
+      .values({ id: stageId, tenantId, pipelineId, name: "Entrada", orderIndex: 0 });
+    const [connection] = await database.db
+      .select()
+      .from(schema.rdMarketingConnections)
+      .where(eq(schema.rdMarketingConnections.tenantId, tenantId));
+    await saveRdSyncSettings(tenantId, true, "BRL");
+    const ids = [randomUUID(), randomUUID(), randomUUID()];
+    const uuids = [randomUUID(), randomUUID()];
+    const deals = [];
+    for (let i = 0; i < ids.length; i++) {
+      await database.db.insert(schema.contacts).values({
+        id: ids[i],
+        tenantId,
+        name: "Teste sem email",
+        mainChannel: "whatsapp",
+        phone: i === 2 ? "5511999990000" : null,
+      });
+      if (i < 2)
+        await database.db.insert(schema.rdMarketingJourneyLinks).values({
+          id: randomUUID(),
+          tenantId,
+          contactId: ids[i],
+          connectionVersion: connection.version,
+          rdUuid: uuids[i],
+          snapshotId: randomUUID(),
+        });
+      const deal = await crmService.createDeal(tenantId, tenantId + "-admin", {
+        title: "Identificador",
+        pipelineId,
+        stageId,
+        contactId: ids[i],
+        value: "100",
+        marketingOrigin: true,
+      });
+      await crmService.updateDeal(tenantId, deal.id, tenantId + "-admin", { status: "won" });
+      deals.push(deal.id);
+    }
+    const posts: Record<string, unknown>[] = [];
+    const phoneProvider = (async (input: unknown, init: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/platform/events") && init.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return Response.json({ event_uuid: randomUUID() });
+      }
+      if (url.includes("/platform/contacts/uuid:")) {
+        const requested = url.split("uuid:")[1];
+        return Response.json({
+          uuid: requested,
+          phone: requested === uuids[0] ? "+5511888880000" : undefined,
+          personal_phone: "+5511999990000",
+          mobile_phone: "+5511999990000",
+        });
+      }
+      if (url.includes("/platform/contacts/phone:"))
+        return Response.json({
+          uuid: randomUUID(),
+          email: "different@example.com",
+          phone: "+5511777770000",
+          personal_phone: "+5511999990000",
+        });
+      return provider(input as RequestInfo, init);
+    }) as typeof fetch;
+    await runRdCommercialWorker(tenantId, phoneProvider);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({
+      event_type: "SALE",
+      payload: { phone: "+5511888880000", value: 100 },
+    });
+    const rows = await database.db
+      .select()
+      .from(schema.rdMarketingCommercialOutbox)
+      .where(eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId));
+    expect(rows.find((row) => row.dealId === deals[0])?.status).toBe("sent");
+    expect(rows.find((row) => row.dealId === deals[1])?.status).toBe("blocked");
+    expect(rows.find((row) => row.dealId === deals[2])?.status).toBe("blocked");
   }, 30000);
   test("dois contatos locais não recebem o mesmo UUID RD na conexão ativa", async () => {
     await connect();

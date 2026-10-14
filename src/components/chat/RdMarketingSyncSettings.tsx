@@ -51,6 +51,7 @@ export function RdMarketingSyncSettings() {
         setStatus(data);
         setEnabled(data.outboundEnabled);
         setCurrency(data.currency);
+        setReviewed({});
       }
       return !controller.signal.aborted;
     } catch (reason) {
@@ -188,7 +189,7 @@ export function RdMarketingSyncSettings() {
                     </button>
                   </div>
                   {hook.lastError && <p className="text-xs text-destructive">{hook.lastError}</p>}
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {hook.kind !== "AUTOMATION" && hook.currentConnection && (
                       <button
                         type="button"
@@ -283,7 +284,17 @@ export function RdMarketingSyncSettings() {
                         : "Oportunidade"}{" "}
                     · {new Date(item.createdAt).toLocaleString("pt-BR")}
                   </p>
-                  {item.lastError && <p className="text-xs text-destructive">{item.lastError}</p>}
+                  {item.lastError && (
+                    <p
+                      className={
+                        item.status === "sent"
+                          ? "text-xs text-muted-foreground"
+                          : "text-xs text-destructive"
+                      }
+                    >
+                      {item.lastError}
+                    </p>
+                  )}
                   {["blocked", "failed"].includes(item.status) && (
                     <button
                       className={buttonClass}
