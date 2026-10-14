@@ -673,9 +673,20 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [reactingMsgId, setReactingMsgId] = useState<string | null>(null);
 
+  const lastInboundClientMsgId = useMemo(() => {
+    const msgs = activeChat?.messages || [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m && m.side === "in" && !m.isInternalNote && m.author !== "Sistema") {
+        return m.id;
+      }
+    }
+    return null;
+  }, [activeChat?.messages]);
+
   useEffect(() => {
-    setShowMetaTemplateModal(false);
     if (activeProvider !== "meta" || activeChat?.channel !== "whatsapp" || !activeChat?.id) {
+      setShowMetaTemplateModal(false);
       setMetaWindow(null);
       currentMetaChatIdRef.current = null;
       return;
@@ -683,23 +694,29 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     // Apenas redefine o estado ao alternar para uma conversa diferente
     if (currentMetaChatIdRef.current !== activeChat.id) {
       currentMetaChatIdRef.current = activeChat.id;
+      setShowMetaTemplateModal(false);
       setMetaWindow(null);
     }
     let cancelled = false;
     const refresh = () =>
       fetch(
         `${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}`,
-        { credentials: "include" },
+        { credentials: "include", cache: "no-store" },
       )
         .then((response) => (response.ok ? response.json() : null))
         .then((data) => {
-          if (!cancelled && data?.window) setMetaWindow(data.window);
+          if (!cancelled && data?.window) {
+            setMetaWindow(data.window);
+            if (data.window.open) {
+              setShowMetaTemplateModal(false);
+            }
+          }
         })
         .catch(() => {});
     void refresh();
-    const timer = window.setInterval(refresh, 60000);
+    const timer = window.setInterval(refresh, 15000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [activeProvider, activeChat?.id]);
+  }, [activeProvider, activeChat?.id, activeChat?.channel, lastInboundClientMsgId]);
 
   const loadMetaTemplates = async () => {
     if (!activeChat) return;

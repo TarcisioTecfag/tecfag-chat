@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -9,12 +9,14 @@ import {
   CheckCheck,
   ChevronDown,
   ChevronUp,
+  Clock,
   Download,
   ExternalLink,
   FileText,
   Forward,
   GripVertical,
   Image as ImageIcon,
+  LayoutTemplate,
   Loader2,
   Lock,
   Maximize2,
@@ -29,7 +31,8 @@ import {
   Play,
   Search,
   Send,
-  Sparkles,
+  Square,
+  Trash2,
   User,
   Video as VideoIcon,
   X,
@@ -53,10 +56,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
-import {
-  MetaTemplateSelectModal,
-  type ApprovedMetaTemplate,
-} from "@/components/chat/MetaTemplateSelectModal";
+import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
 import { toast } from "sonner";
 import type { Conversation, Message } from "@/lib/mockData";
 
@@ -462,6 +462,393 @@ function MiniMediaRenderer({
   return <p className="whitespace-pre-wrap break-words">{renderTextWithLinks(text, isMe)}</p>;
 }
 
+function MiniChatTemplateSelector({
+  templates,
+  customerName = "Cliente",
+  operatorName = "Atendente",
+  loading = false,
+  onClose,
+  onSend,
+}: {
+  templates: ApprovedMetaTemplate[];
+  customerName?: string;
+  operatorName?: string;
+  loading?: boolean;
+  onClose: () => void;
+  onSend: (template: ApprovedMetaTemplate, parameters: string[]) => Promise<boolean>;
+}) {
+  const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [selectedTemplate, setSelectedTemplate] = useState<ApprovedMetaTemplate | null>(null);
+  const [parameters, setParameters] = useState<string[]>([]);
+  const [sending, setSending] = useState(false);
+
+  const categories = useMemo(() => {
+    const cats = new Set<string>();
+    templates.forEach((t) => {
+      if (t.category) cats.add(t.category.toUpperCase());
+    });
+    return Array.from(cats);
+  }, [templates]);
+
+  const filteredTemplates = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return templates.filter((t) => {
+      if (!t.supported) return false;
+      const matchesSearch =
+        !q ||
+        t.name.toLowerCase().includes(q) ||
+        t.bodyText.toLowerCase().includes(q);
+      const matchesCat =
+        selectedCategory === "ALL" ||
+        t.category?.toUpperCase() === selectedCategory;
+      return matchesSearch && matchesCat;
+    });
+  }, [templates, search, selectedCategory]);
+
+  const handleSelect = (template: ApprovedMetaTemplate) => {
+    setSelectedTemplate(template);
+    const initialParams = Array.from({ length: template.variableCount }, (_, idx) => {
+      const binding = template.bindings?.[String(idx + 1)];
+      if (binding === "customer_name") return customerName;
+      if (binding === "operator_name") return operatorName;
+      return "";
+    });
+    setParameters(initialParams);
+  };
+
+  const handleBack = () => {
+    setSelectedTemplate(null);
+    setParameters([]);
+  };
+
+  const handleConfirmSend = async () => {
+    if (!selectedTemplate) return;
+    if (
+      parameters.length !== selectedTemplate.variableCount ||
+      parameters.some((p) => !p.trim())
+    ) {
+      return;
+    }
+    setSending(true);
+    try {
+      const ok = await onSend(selectedTemplate, parameters);
+      if (ok) {
+        handleBack();
+        onClose();
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const previewText = useMemo(() => {
+    if (!selectedTemplate) return "";
+    return selectedTemplate.bodyText.replace(/\{\{(\d+)\}\}/g, (_, num) => {
+      const idx = Number(num) - 1;
+      const val = parameters[idx]?.trim();
+      if (val) return val;
+      const binding = selectedTemplate.bindings?.[num];
+      if (binding === "customer_name") return `@${customerName}`;
+      if (binding === "operator_name") return `@${operatorName}`;
+      return `{{${num}}}`;
+    });
+  }, [selectedTemplate, parameters, customerName, operatorName]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 12 }}
+      transition={{ duration: 0.16, ease: "easeOut" }}
+      className="absolute inset-0 z-20 flex flex-col bg-card"
+    >
+      {/* Sub-header interno do seletor de templates */}
+      <div className="flex shrink-0 items-center justify-between border-b border-border/70 bg-muted/25 px-3 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          {selectedTemplate ? (
+            <button
+              type="button"
+              onClick={handleBack}
+              className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
+              title="Voltar para a lista de templates"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <div className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+              <LayoutTemplate className="h-3.5 w-3.5" />
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="truncate text-xs font-bold text-foreground">
+              {selectedTemplate ? selectedTemplate.name : "Templates Meta Oficiais"}
+            </div>
+            <div className="truncate text-[10px] text-muted-foreground">
+              {selectedTemplate
+                ? "Configure os campos antes de enviar"
+                : "Selecione um template aprovado para iniciar"}
+            </div>
+          </div>
+        </div>
+        <SystemTooltip content="Fechar templates">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar templates"
+            className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </SystemTooltip>
+      </div>
+
+      {loading && templates.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          <p className="text-xs font-medium">Carregando templates aprovados...</p>
+        </div>
+      ) : !selectedTemplate ? (
+        <>
+          {/* Busca + Filtro por Categoria */}
+          <div className="shrink-0 space-y-2 border-b border-border/60 bg-background/60 p-2.5">
+            <div className="relative flex items-center">
+              <Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Pesquisar template por nome ou texto..."
+                className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/20"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
+            {categories.length > 0 && (
+              <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory("ALL")}
+                  className={`shrink-0 rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
+                    selectedCategory === "ALL"
+                      ? "bg-primary text-primary-foreground shadow-2xs"
+                      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  TODOS
+                </button>
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`shrink-0 rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
+                      selectedCategory === cat
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    {cat === "UTILITY" ? "UTILIDADE" : cat}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Lista compacta de Templates para o Mini Chat */}
+          <div className="min-h-0 flex-1 overflow-y-auto p-2.5 space-y-2 scrollbar-thin">
+            {filteredTemplates.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center my-4">
+                <LayoutTemplate className="h-6 w-6 text-muted-foreground/50 mb-1.5" />
+                <p className="text-xs font-semibold text-foreground">Nenhum template encontrado</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Tente outro termo de busca ou categoria.
+                </p>
+              </div>
+            ) : (
+              filteredTemplates.map((template) => {
+                const buttonsComponent = template.components?.find((c) => c.type === "BUTTONS");
+                return (
+                  <button
+                    key={`${template.name}:${template.language}`}
+                    type="button"
+                    onClick={() => handleSelect(template)}
+                    className="group w-full text-left rounded-xl border border-border/80 bg-background hover:border-primary/50 hover:bg-primary/5 p-2.5 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                          <LayoutTemplate className="h-3 w-3" />
+                        </div>
+                        <span className="truncate text-[11px] font-bold text-foreground font-mono group-hover:text-primary transition-colors">
+                          {template.name}
+                        </span>
+                      </div>
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">
+                        {template.category === "UTILITY" ? "UTILIDADE" : template.category}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                      {template.bodyText.replace(/\{\{(\d+)\}\}/g, (_, num) => {
+                        const binding = template.bindings?.[num];
+                        if (binding === "customer_name") return `@${customerName}`;
+                        if (binding === "operator_name") return `@${operatorName}`;
+                        return `{{${num}}}`;
+                      })}
+                    </p>
+
+                    {buttonsComponent?.buttons && buttonsComponent.buttons.length > 0 && (
+                      <div className="mt-2 pt-1.5 border-t border-border/50 flex flex-wrap gap-1">
+                        {buttonsComponent.buttons.map((btn, bIdx) => (
+                          <span
+                            key={bIdx}
+                            className="rounded bg-muted/70 border border-border/60 px-1.5 py-0.5 text-[9.5px] font-semibold text-foreground"
+                          >
+                            {btn.text}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </>
+      ) : (
+        /* Etapa 2: Configurar variáveis e enviar dentro do Mini Chat */
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
+            {/* Prévia estilo balão do WhatsApp */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Prévia da mensagem
+                </span>
+                <span className="text-[10px] text-muted-foreground font-medium">
+                  {selectedTemplate.category === "UTILITY" ? "UTILIDADE" : selectedTemplate.category} · {selectedTemplate.language}
+                </span>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-muted/35 p-2.5">
+                <div className="rounded-xl rounded-br-xs bg-primary px-3 py-2 text-primary-foreground shadow-xs space-y-1.5">
+                  <p className="text-xs whitespace-pre-wrap leading-relaxed">
+                    {previewText}
+                  </p>
+                  {selectedTemplate.components?.some((c) => c.type === "BUTTONS") && (
+                    <div className="pt-1.5 border-t border-white/20 flex flex-col gap-1">
+                      {selectedTemplate.components
+                        ?.find((c) => c.type === "BUTTONS")
+                        ?.buttons?.map((btn, bIdx) => (
+                          <div
+                            key={bIdx}
+                            className="rounded-lg bg-white/15 py-1 text-center text-[11px] font-semibold text-white"
+                          >
+                            {btn.text}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  <div className="flex justify-end text-[9.5px] text-primary-foreground/75 font-medium">
+                    Agora
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Variáveis */}
+            <div className="space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Variáveis ({selectedTemplate.variableCount})
+              </div>
+              {selectedTemplate.variableCount === 0 ? (
+                <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                  Este template não possui variáveis editáveis e está pronto para envio.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {Array.from({ length: selectedTemplate.variableCount }, (_, idx) => {
+                    const num = String(idx + 1);
+                    const binding = selectedTemplate.bindings?.[num] || "manual";
+                    const isAuto = binding === "customer_name" || binding === "operator_name";
+
+                    return (
+                      <div key={idx} className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-foreground">
+                            Variável {`{{${num}}}`}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {binding === "customer_name"
+                              ? "Automático (Contato)"
+                              : binding === "operator_name"
+                                ? "Automático (Atendente)"
+                                : "Manual"}
+                          </span>
+                        </div>
+                        <input
+                          value={parameters[idx] || ""}
+                          readOnly={isAuto}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setParameters((prev) =>
+                              prev.map((item, i) => (i === idx ? val : item)),
+                            );
+                          }}
+                          placeholder={`Informe o valor para {{${num}}}`}
+                          className={`h-8 w-full rounded-lg border px-2.5 text-xs outline-none transition ${
+                            isAuto
+                              ? "border-border/60 bg-muted/50 text-muted-foreground cursor-not-allowed"
+                              : "border-border bg-background text-foreground focus:border-primary/60 focus:ring-1 focus:ring-primary/20"
+                          }`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/70 bg-card/95 px-3 py-2.5">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              Voltar
+            </button>
+            <button
+              type="button"
+              disabled={
+                sending ||
+                parameters.length !== selectedTemplate.variableCount ||
+                parameters.some((p) => !p.trim())
+              }
+              onClick={() => void handleConfirmSend()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground shadow-xs hover:bg-primary/90 disabled:opacity-50 transition cursor-pointer"
+            >
+              {sending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+              <span>{sending ? "Enviando..." : "Enviar Template"}</span>
+            </button>
+          </div>
+        </>
+      )}
+    </motion.div>
+  );
+}
+
 /**
  * CrmChatWidget — Redesign completo do Mini Chat Flutuante
  * Harmonia com o sistema dark, animações Framer Motion, balões com estética WhatsApp/SaaS,
@@ -478,6 +865,7 @@ export function CrmChatWidget() {
 
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const currentMetaChatIdRef = useRef<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -504,6 +892,91 @@ export function CrmChatWidget() {
 
   const aiPersona = getAiPersona(tenant || "valem");
   const aiConversation = conversations.find((conversation) => conversation.id === "valentina");
+
+  // ── Gravação de Áudio no Mini Chat ──────────────────────────────────────────
+  const [recordingState, setRecordingState] = useState<"idle" | "recording" | "preview">("idle");
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cancelRecordingRef = useRef(false);
+
+  const fmtSec = (s: number) =>
+    `${Math.floor(s / 60)
+      .toString()
+      .padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
+
+  const discardRecording = useCallback(() => {
+    cancelRecordingRef.current = true;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingSeconds(0);
+    setRecordingState("idle");
+  }, [audioUrl]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let recorderOptions: MediaRecorderOptions = {};
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          recorderOptions = { mimeType: "audio/webm;codecs=opus" };
+        } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+          recorderOptions = { mimeType: "audio/ogg;codecs=opus" };
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          recorderOptions = { mimeType: "audio/mp4" };
+        }
+      }
+      cancelRecordingRef.current = false;
+      const mr = new MediaRecorder(stream, recorderOptions);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (cancelRecordingRef.current) {
+          chunksRef.current = [];
+          return;
+        }
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        const url = URL.createObjectURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(url);
+        setRecordingState("preview");
+      };
+      mediaRecorderRef.current = mr;
+      setRecordingSeconds(0);
+      setRecordingState("recording");
+      mr.start();
+      timerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } catch {
+      toast.error("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
+    }
+  };
+
+  const stopRecording = () => {
+    cancelRecordingRef.current = false;
+    mediaRecorderRef.current?.stop();
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
 
   // Lista de conversas arquivadas localmente apenas no Mini Chat
   const archivedKey = `mini_chat_archived_${currentOperatorId || "global"}`;
@@ -616,7 +1089,6 @@ export function CrmChatWidget() {
       });
       if (sent) {
         setShowMetaTemplateModal(false);
-        setMetaWindowOpen(true);
         toast.success("Template Meta enviado com sucesso!");
         return true;
       }
@@ -692,6 +1164,95 @@ export function CrmChatWidget() {
           : conversations.find((conversation) => conversation.id === selectedChatId))
       : undefined;
 
+  // ── Histórico completo de mensagens no Mini Chat + sincronização em tempo real ──
+  const [history, setHistory] = useState<{ chatId: string; messages: Message[] } | null>(null);
+
+  useEffect(() => {
+    if (!open || view !== "thread" || !selected?.id || selected.id === "valentina") {
+      return;
+    }
+    const chatId = selected.id;
+    let disposed = false;
+
+    const fetchMessages = async () => {
+      if (disposed || document.hidden) return;
+      try {
+        const res = await fetch(
+          `${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/messages?limit=100`,
+          { credentials: "include", cache: "no-store" },
+        );
+        if (!res.ok || disposed) return;
+        const data = await res.json();
+        if (disposed || !Array.isArray(data?.messages)) return;
+        setHistory((prev) => {
+          const base = prev && prev.chatId === chatId ? prev.messages : [];
+          const byId = new Map<string, Message>(base.map((m) => [m.id, m]));
+          for (const msg of data.messages as Message[]) {
+            byId.set(msg.id, msg);
+          }
+          const merged = Array.from(byId.values()).sort((a, b) =>
+            (a.sentAtISO || "").localeCompare(b.sentAtISO || ""),
+          );
+          return { chatId, messages: merged };
+        });
+      } catch {}
+    };
+
+    void fetchMessages();
+    const pollTimer = window.setInterval(fetchMessages, 4000);
+    window.addEventListener("chat:reconnected", fetchMessages);
+    return () => {
+      disposed = true;
+      window.clearInterval(pollTimer);
+      window.removeEventListener("chat:reconnected", fetchMessages);
+    };
+  }, [open, view, selected?.id]);
+
+  // Mescla mensagens carregadas do histórico com as mensagens em tempo real de `selected.messages`
+  const threadMessages = useMemo<Message[]>(() => {
+    if (!selected) return [];
+    if (selected.id === "valentina" || !history || history.chatId !== selected.id) {
+      return selected.messages || [];
+    }
+    const map = new Map<string, Message>();
+    for (const msg of history.messages) {
+      map.set(msg.id, msg);
+    }
+    for (const msg of selected.messages || []) {
+      const existing = map.get(msg.id);
+      map.set(msg.id, existing ? { ...existing, ...msg } : msg);
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      if (!a.sentAtISO) return 1;
+      if (!b.sentAtISO) return -1;
+      return a.sentAtISO.localeCompare(b.sentAtISO);
+    });
+  }, [selected, history]);
+
+  // Identifica a última mensagem recebida do cliente (side === 'in')
+  const lastInboundMessage = useMemo<Message | null>(() => {
+    for (let i = threadMessages.length - 1; i >= 0; i--) {
+      const msg = threadMessages[i];
+      if (
+        msg &&
+        msg.side === "in" &&
+        !msg.isInternalNote &&
+        msg.author !== "Sistema" &&
+        !(msg as any).isWarning
+      ) {
+        return msg;
+      }
+    }
+    return null;
+  }, [threadMessages]);
+
+  // Limpar gravação e modal de template ao trocar de conversa ou fechar
+  useEffect(() => {
+    setShowMetaTemplateModal(false);
+    discardRecording();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, open, view]);
+
   const query = search.trim().toLocaleLowerCase("pt-BR");
   const filtered = [...assigned]
     .sort((a, b) => {
@@ -736,6 +1297,8 @@ export function CrmChatWidget() {
           setTransferTargetChat(null);
         } else if (showMetaTemplateModal) {
           setShowMetaTemplateModal(false);
+        } else if (recordingState !== "idle") {
+          discardRecording();
         } else if (contextMenu) {
           setContextMenu(null);
         } else if (previewImage) {
@@ -749,7 +1312,17 @@ export function CrmChatWidget() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, visible, view, previewImage, contextMenu, transferTargetChat, showMetaTemplateModal]);
+  }, [
+    open,
+    visible,
+    view,
+    previewImage,
+    contextMenu,
+    transferTargetChat,
+    showMetaTemplateModal,
+    recordingState,
+    discardRecording,
+  ]);
 
   // Listener para eventos globais crm:open-mini-chat
   useEffect(() => {
@@ -784,44 +1357,67 @@ export function CrmChatWidget() {
     return () => window.removeEventListener("crm:open-mini-chat", handleOpenMiniChat);
   }, [conversations, markAsRead, setSelectedChatId]);
 
-  // Validação de janela de 24h na Meta API
+  // Desbloqueio imediato da janela de 24h assim que uma mensagem recente do cliente é detectada
   useEffect(() => {
-    if (!open || activeProvider !== "meta" || selected?.channel !== "whatsapp") {
+    if (!open || activeProvider !== "meta" || selected?.channel !== "whatsapp" || !lastInboundMessage) {
+      return;
+    }
+    const sentTime = lastInboundMessage.sentAtISO
+      ? new Date(lastInboundMessage.sentAtISO).getTime()
+      : NaN;
+    const isWithin24h = !isNaN(sentTime) && Date.now() - sentTime < 24 * 60 * 60 * 1000;
+    if (isWithin24h) {
+      setMetaWindowOpen(true);
+      setShowMetaTemplateModal(false);
+    }
+  }, [open, activeProvider, selected?.id, selected?.channel, lastInboundMessage?.id, lastInboundMessage?.sentAtISO]);
+
+  // Validação de janela de 24h na Meta API (reativa a novas mensagens do cliente)
+  useEffect(() => {
+    if (!open || activeProvider !== "meta" || selected?.channel !== "whatsapp" || selected?.id === "valentina") {
       setMetaWindowOpen(null);
+      currentMetaChatIdRef.current = null;
       return;
     }
     const conversationId = selected.id;
     let cancelled = false;
-    setMetaWindowOpen(null);
+    if (currentMetaChatIdRef.current !== conversationId) {
+      currentMetaChatIdRef.current = conversationId;
+      setMetaWindowOpen(null);
+    }
     const refresh = async () => {
       try {
         const response = await fetch(
           `/api/whatsapp/meta-state?conversationId=${encodeURIComponent(conversationId)}`,
-          { credentials: "include" },
+          { credentials: "include", cache: "no-store" },
         );
         const data = response.ok ? await response.json() : null;
-        if (!cancelled)
-          setMetaWindowOpen(
-            data?.activeProvider === "meta" ? data.window?.open === true : response.ok,
-          );
+        if (!cancelled) {
+          const isOpen =
+            data?.activeProvider === "meta" ? data.window?.open === true : response.ok;
+          setMetaWindowOpen(isOpen);
+          if (isOpen) {
+            setShowMetaTemplateModal(false);
+          }
+        }
       } catch {
         if (!cancelled) setMetaWindowOpen(false);
       }
     };
     void refresh();
-    const timer = window.setInterval(refresh, 60000);
+    const timer = window.setInterval(refresh, 15000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [open, activeProvider, selected?.id, selected?.channel]);
+  }, [open, activeProvider, selected?.id, selected?.channel, lastInboundMessage?.id]);
 
   // Scroll automático ao final da conversa
   useEffect(() => {
     if (open && view === "thread") {
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [open, view, selected?.id, selected?.messages.length]);
+  }, [open, view, selected?.id, threadMessages.length]);
 
   // Posição horizontal do widget (distância em px a partir da borda direita da viewport)
   const STORAGE_KEY = "crm_chat_widget_right_offset";
@@ -967,6 +1563,29 @@ export function CrmChatWidget() {
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 50);
+    }
+  };
+
+  const handleSendAudio = async () => {
+    if (!audioBlob || sending || metaRestricted || !selected || selected.id !== selectedChatId) return;
+    setSending(true);
+    try {
+      const ext = audioBlob.type.includes("ogg")
+        ? "ogg"
+        : audioBlob.type.includes("mp4")
+          ? "mp4"
+          : "webm";
+      const mimeType = audioBlob.type || "audio/webm";
+      const audioFile = new File([audioBlob], `audio-${Date.now()}.${ext}`, {
+        type: mimeType,
+        lastModified: Date.now(),
+      });
+      const ok = await sendMessage("", false, [audioFile]);
+      if (ok) {
+        discardRecording();
+      }
+    } finally {
+      setSending(false);
     }
   };
 
@@ -1142,185 +1761,316 @@ export function CrmChatWidget() {
                       </div>
                     </header>
 
-                    {/* Área de Mensagens com Balões Refinados */}
-                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background/85 px-3 py-3.5 text-xs scrollbar-thin">
-                      {selected.messages.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
-                          <div className="grid h-10 w-10 place-items-center rounded-full bg-muted/80 mb-2 border border-border/50">
-                            <MessageCircle className="h-5 w-5 text-muted-foreground/60" />
+                    {/* Corpo da Thread (Mensagens + Composer + Seletor Interno de Templates) */}
+                    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                      <AnimatePresence>
+                        {showMetaTemplateModal && selected.id !== "valentina" && (
+                          <MiniChatTemplateSelector
+                            templates={metaTemplates}
+                            customerName={selected.name || "Cliente"}
+                            operatorName={operatorProfile?.name || "Atendente"}
+                            loading={metaTemplatesLoading}
+                            onClose={() => setShowMetaTemplateModal(false)}
+                            onSend={handleSendMetaTemplate}
+                          />
+                        )}
+                      </AnimatePresence>
+
+                      {/* Área de Mensagens com Balões Refinados */}
+                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background/85 px-3 py-3.5 text-xs scrollbar-thin">
+                        {threadMessages.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
+                            <div className="grid h-10 w-10 place-items-center rounded-full bg-muted/80 mb-2 border border-border/50">
+                              <MessageCircle className="h-5 w-5 text-muted-foreground/60" />
+                            </div>
+                            <p className="text-xs font-semibold text-foreground">Início da conversa</p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              Nenhuma mensagem registrada nesta conversa.
+                            </p>
                           </div>
-                          <p className="text-xs font-semibold text-foreground">Início da conversa</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            Nenhuma mensagem registrada nesta conversa.
-                          </p>
-                        </div>
-                      ) : (
-                        selected.messages.map((message: any, i: number) => {
-                          const isMe = message.side === "out";
-                          const isSystem = message.author === "Sistema";
+                        ) : (
+                          threadMessages.map((message: any, i: number) => {
+                            const isMe = message.side === "out";
+                            const isSystem = message.author === "Sistema";
 
-                          // Mensagem de Sistema
-                          if (isSystem) {
-                            return (
-                              <div key={message.id || i} className="flex justify-center my-2">
-                                <span className="rounded-full bg-muted/90 border border-border/70 px-3 py-0.5 text-[10px] font-medium text-muted-foreground uppercase shadow-2xs select-none">
-                                  {message.text} · {message.time}
-                                </span>
-                              </div>
-                            );
-                          }
-
-                          // Nota Interna
-                          if (message.isInternalNote) {
-                            return (
-                              <div key={message.id || i} className="flex justify-center my-1 w-full">
-                                <div className="w-full max-w-[92%] rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-950 dark:text-amber-200 shadow-xs">
-                                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1">
-                                    <Lock className="h-3 w-3 shrink-0" />
-                                    Nota interna · {message.time}
-                                  </div>
-                                  <p className="leading-relaxed whitespace-pre-wrap">{message.text}</p>
+                            // Mensagem de Sistema
+                            if (isSystem) {
+                              return (
+                                <div key={message.id || i} className="flex justify-center my-2">
+                                  <span className="rounded-full bg-muted/90 border border-border/70 px-3 py-0.5 text-[10px] font-medium text-muted-foreground uppercase shadow-2xs select-none">
+                                    {message.text} · {message.time}
+                                  </span>
                                 </div>
-                              </div>
-                            );
-                          }
+                              );
+                            }
 
-                          // Mensagem do Operador (Enviada / Eu)
-                          if (isMe) {
+                            // Nota Interna
+                            if (message.isInternalNote) {
+                              return (
+                                <div key={message.id || i} className="flex justify-center my-1 w-full">
+                                  <div className="w-full max-w-[92%] rounded-xl border border-primary/25 bg-primary/10 px-3.5 py-2.5 text-xs text-foreground shadow-xs">
+                                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary mb-1">
+                                      <Lock className="h-3 w-3 shrink-0" />
+                                      Nota interna · {message.time}
+                                    </div>
+                                    <p className="leading-relaxed whitespace-pre-wrap">{message.text}</p>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            // Mensagem do Operador (Enviada / Eu)
+                            if (isMe) {
+                              return (
+                                <div key={message.id || i} className="flex justify-end w-full group">
+                                  <div className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text">
+                                    {message.quotedMessageContent && (
+                                      <div className="mb-1.5 rounded-lg border-l-2 border-white/70 bg-white/15 px-2 py-1 text-[10px] text-white/95">
+                                        <div className="font-bold opacity-90">{message.quotedMessageSender || "Mensagem"}</div>
+                                        <div className="truncate opacity-80">{message.quotedMessageContent}</div>
+                                      </div>
+                                    )}
+                                    <MiniMediaRenderer
+                                      text={message.text}
+                                      isMe={true}
+                                      onImageClick={(url) => setPreviewImage(url)}
+                                    />
+                                    <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-primary-foreground/75 font-medium select-none">
+                                      <span>{message.time}</span>
+                                      <CheckCheck className="h-3 w-3 text-primary-foreground/90 inline" />
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            // Mensagem do Cliente (Recebida) com Foto ao Lado
                             return (
-                              <div key={message.id || i} className="flex justify-end w-full group">
-                                <div className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text">
+                              <div key={message.id || i} className="flex items-end gap-2 w-full group">
+                                <CustomerAvatar
+                                  avatar={selected.avatar}
+                                  name={selected.name}
+                                  initials={selected.initials}
+                                  initialsBg={selected.initialsBg}
+                                  channel={selected.channel}
+                                  size="xs"
+                                  showChannel={false}
+                                  className="mb-1"
+                                />
+                                <div className="max-w-[85%] rounded-2xl rounded-bl-xs border border-border/80 bg-card px-3.5 py-2.5 text-foreground shadow-xs text-xs leading-relaxed select-text">
                                   {message.quotedMessageContent && (
-                                    <div className="mb-1.5 rounded-lg border-l-2 border-white/70 bg-white/15 px-2 py-1 text-[10px] text-white/95">
-                                      <div className="font-bold opacity-90">{message.quotedMessageSender || "Mensagem"}</div>
-                                      <div className="truncate opacity-80">{message.quotedMessageContent}</div>
+                                    <div className="mb-1.5 rounded-lg border-l-2 border-primary bg-muted/60 px-2 py-1 text-[10px] text-muted-foreground">
+                                      <div className="font-bold text-primary">{message.quotedMessageSender || "Mensagem"}</div>
+                                      <div className="truncate">{message.quotedMessageContent}</div>
                                     </div>
                                   )}
                                   <MiniMediaRenderer
                                     text={message.text}
-                                    isMe={true}
+                                    isMe={false}
                                     onImageClick={(url) => setPreviewImage(url)}
                                   />
-                                  <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-primary-foreground/75 font-medium select-none">
+                                  <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-muted-foreground font-medium select-none">
                                     <span>{message.time}</span>
-                                    <CheckCheck className="h-3 w-3 text-primary-foreground/90 inline" />
                                   </div>
                                 </div>
                               </div>
                             );
-                          }
+                          })
+                        )}
+                        <div ref={endRef} />
+                      </div>
 
-                          // Mensagem do Cliente (Recebida) com Foto ao Lado
-                          return (
-                            <div key={message.id || i} className="flex items-end gap-2 w-full group">
-                              <CustomerAvatar
-                                avatar={selected.avatar}
-                                name={selected.name}
-                                initials={selected.initials}
-                                initialsBg={selected.initialsBg}
-                                channel={selected.channel}
-                                size="xs"
-                                showChannel={false}
-                                className="mb-1"
-                              />
-                              <div className="max-w-[85%] rounded-2xl rounded-bl-xs border border-border/80 bg-card px-3.5 py-2.5 text-foreground shadow-xs text-xs leading-relaxed select-text">
-                                {message.quotedMessageContent && (
-                                  <div className="mb-1.5 rounded-lg border-l-2 border-primary bg-muted/60 px-2 py-1 text-[10px] text-muted-foreground">
-                                    <div className="font-bold text-primary">{message.quotedMessageSender || "Mensagem"}</div>
-                                    <div className="truncate">{message.quotedMessageContent}</div>
-                                  </div>
-                                )}
-                                <MiniMediaRenderer
-                                  text={message.text}
-                                  isMe={false}
-                                  onImageClick={(url) => setPreviewImage(url)}
-                                />
-                                <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-muted-foreground font-medium select-none">
-                                  <span>{message.time}</span>
-                                </div>
+                      {/* Caixa de Composição (Composer) */}
+                      <div className="shrink-0 border-t border-border/70 bg-card/95 p-2.5 backdrop-blur-md">
+                        {metaRestricted && (
+                          <div className="mb-2 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-2.5 py-1.5 text-[11px] text-foreground">
+                            {metaWindowOpen === null ? (
+                              <div className="flex items-center gap-1.5 text-muted-foreground">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
+                                <span>Verificando janela de atendimento de 24h...</span>
                               </div>
-                            </div>
-                          );
-                        })
-                      )}
-                      <div ref={endRef} />
-                    </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 text-muted-foreground min-w-0">
+                                  <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
+                                  <span className="truncate">Janela de 24h encerrada.</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (selected) {
+                                      void loadMetaTemplates(selected.id);
+                                      setShowMetaTemplateModal(true);
+                                    }
+                                  }}
+                                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-xs hover:bg-primary/90 transition cursor-pointer shrink-0"
+                                >
+                                  <LayoutTemplate className="h-3.5 w-3.5" />
+                                  Enviar Template
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
-                    {/* Caixa de Composição (Composer) */}
-                    <div className="shrink-0 border-t border-border/70 bg-card/95 p-2.5 backdrop-blur-md">
-                      {metaRestricted && (
-                        <div className="mb-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
-                          {metaWindowOpen === null ? (
-                            "Verificando janela de atendimento de 24h..."
-                          ) : (
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                              <span>Janela Meta de 24h encerrada.</span>
+                        {recordingState === "recording" ? (
+                          /* Modo Gravação de Áudio Ativa */
+                          <div className="flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 px-2.5 py-1.5">
+                            <SystemTooltip content="Cancelar gravação">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (selected) {
-                                    void loadMetaTemplates(selected.id);
-                                    setShowMetaTemplateModal(true);
-                                  }
-                                }}
-                                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-xs hover:bg-primary/90 transition cursor-pointer shrink-0"
+                                onClick={discardRecording}
+                                aria-label="Cancelar gravação"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition cursor-pointer"
                               >
-                                <Sparkles className="h-3.5 w-3.5" />
-                                Enviar Template
+                                <Trash2 className="h-4 w-4" />
                               </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                            </SystemTooltip>
 
-                      <div className="flex items-end gap-2">
-                        {activeProvider === "meta" && selected?.channel === "whatsapp" && selected?.id !== "valentina" && (
-                          <SystemTooltip content="Enviar Template Meta Oficial">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (selected) {
-                                  void loadMetaTemplates(selected.id);
-                                  setShowMetaTemplateModal(true);
-                                }
-                              }}
-                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
-                            >
-                              <Sparkles className="h-4 w-4 text-amber-500" />
-                            </button>
-                          </SystemTooltip>
+                            <div className="flex flex-1 items-center gap-2 min-w-0 px-1">
+                              <span className="h-2 w-2 shrink-0 rounded-full bg-red-500 animate-ping" />
+                              <div className="flex items-center gap-[3px] shrink-0">
+                                {[0.5, 0.9, 0.65, 1, 0.7, 1.1, 0.6, 0.85].map((h, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-[3px] rounded-full bg-primary animate-pulse"
+                                    style={{
+                                      height: `${h * 14}px`,
+                                      animationDelay: `${i * 75}ms`,
+                                      animationDuration: `${550 + i * 65}ms`,
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-xs font-bold text-primary tabular-nums ml-1">
+                                {fmtSec(recordingSeconds)}
+                              </span>
+                            </div>
+
+                            <SystemTooltip content="Parar e ouvir áudio">
+                              <button
+                                type="button"
+                                onClick={stopRecording}
+                                aria-label="Parar gravação"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 transition cursor-pointer"
+                              >
+                                <Square className="h-3.5 w-3.5 fill-current" />
+                              </button>
+                            </SystemTooltip>
+                          </div>
+                        ) : recordingState === "preview" && audioUrl ? (
+                          /* Modo Pré-visualização de Áudio (Ouvir / Excluir / Enviar) */
+                          <div className="flex items-center gap-2">
+                            <SystemTooltip content="Excluir áudio">
+                              <button
+                                type="button"
+                                onClick={discardRecording}
+                                disabled={sending}
+                                aria-label="Excluir áudio gravado"
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive transition cursor-pointer disabled:opacity-50"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </SystemTooltip>
+
+                            <div className="flex-1 min-w-0 flex justify-center">
+                              <MiniAudioBubble src={audioUrl} isMe={false} />
+                            </div>
+
+                            <SystemTooltip content="Enviar áudio">
+                              <button
+                                type="button"
+                                onClick={() => void handleSendAudio()}
+                                disabled={sending || metaRestricted}
+                                aria-label="Enviar áudio"
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/90 active:scale-95 disabled:opacity-40 cursor-pointer"
+                              >
+                                {sending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Send className="h-4 w-4" />
+                                )}
+                              </button>
+                            </SystemTooltip>
+                          </div>
+                        ) : (
+                          /* Modo Padrão (Digitação ou Botão de Microfone quando vazio) */
+                          <div className="flex items-end gap-2">
+                            {activeProvider === "meta" &&
+                              selected?.channel === "whatsapp" &&
+                              selected?.id !== "valentina" && (
+                                <SystemTooltip content="Templates Meta Oficiais">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!selected) return;
+                                      if (!showMetaTemplateModal) {
+                                        void loadMetaTemplates(selected.id);
+                                      }
+                                      setShowMetaTemplateModal((prev) => !prev);
+                                    }}
+                                    aria-label="Abrir templates Meta"
+                                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition cursor-pointer ${
+                                      showMetaTemplateModal
+                                        ? "border-primary/40 bg-primary/10 text-primary"
+                                        : "border-border bg-background text-muted-foreground hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+                                    }`}
+                                  >
+                                    <LayoutTemplate className="h-4 w-4" />
+                                  </button>
+                                </SystemTooltip>
+                              )}
+                            <textarea
+                              ref={textareaRef}
+                              value={draft}
+                              onChange={handleTextareaInput}
+                              onKeyDown={handleComposerKeyDown}
+                              disabled={metaRestricted}
+                              rows={1}
+                              placeholder={
+                                selected?.id === "valentina"
+                                  ? `Pergunte algo para ${aiPersona.name}...`
+                                  : "Digite uma mensagem (Enter para enviar)..."
+                              }
+                              aria-label="Mensagem para o cliente"
+                              className="min-h-9 max-h-28 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/20 disabled:opacity-50"
+                            />
+                            {!draft.trim() && selected?.id !== "valentina" ? (
+                              <SystemTooltip content="Gravar áudio">
+                                <button
+                                  type="button"
+                                  onClick={() => void startRecording()}
+                                  disabled={sending || metaRestricted}
+                                  aria-label="Gravar áudio"
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:hover:bg-primary cursor-pointer"
+                                >
+                                  {sending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Mic className="h-4 w-4" />
+                                  )}
+                                </button>
+                              </SystemTooltip>
+                            ) : (
+                              <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                }}
+                                onClick={() => void handleSend()}
+                                disabled={!draft.trim() || sending || metaRestricted}
+                                aria-label="Enviar mensagem"
+                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:hover:bg-primary cursor-pointer"
+                              >
+                                {sending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Send className="h-4 w-4" />
+                                )}
+                              </button>
+                            )}
+                          </div>
                         )}
-                        <textarea
-                          ref={textareaRef}
-                          value={draft}
-                          onChange={handleTextareaInput}
-                          onKeyDown={handleComposerKeyDown}
-                          disabled={metaRestricted}
-                          rows={1}
-                          placeholder={
-                            selected?.id === "valentina"
-                              ? `Pergunte algo para ${aiPersona.name}...`
-                              : "Digite uma mensagem (Enter para enviar)..."
-                          }
-                          aria-label="Mensagem para o cliente"
-                          className="min-h-9 max-h-28 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/20 disabled:opacity-50"
-                        />
-                        <button
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                          }}
-                          onClick={() => void handleSend()}
-                          disabled={!draft.trim() || sending || metaRestricted}
-                          aria-label="Enviar mensagem"
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:hover:bg-primary cursor-pointer"
-                        >
-                          {sending ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Send className="h-4 w-4" />
-                          )}
-                        </button>
                       </div>
                     </div>
                   </motion.div>
@@ -1527,7 +2277,7 @@ export function CrmChatWidget() {
                                 <div className="mt-0.5 flex items-center justify-between gap-2">
                                   <span className="truncate text-[11px] text-muted-foreground flex items-center gap-1">
                                     {isLastInternal && (
-                                      <span className="text-amber-500 font-semibold shrink-0">
+                                      <span className="text-primary font-semibold shrink-0">
                                         [Nota]
                                       </span>
                                     )}
@@ -1620,19 +2370,6 @@ export function CrmChatWidget() {
           </span>
         </motion.button>
       </div>
-
-      {/* Modal Selecionador de Templates Meta Oficial */}
-      {selected && selected.id !== "valentina" && (
-        <MetaTemplateSelectModal
-          isOpen={showMetaTemplateModal}
-          onClose={() => setShowMetaTemplateModal(false)}
-          templates={metaTemplates}
-          customerName={selected.name || "Cliente"}
-          operatorName={operatorProfile?.name || "Atendente"}
-          onSend={handleSendMetaTemplate}
-          loading={metaTemplatesLoading}
-        />
-      )}
 
       {/* Mini Pop-up de Menu de Contexto (botão direito) */}
       <AnimatePresence>
