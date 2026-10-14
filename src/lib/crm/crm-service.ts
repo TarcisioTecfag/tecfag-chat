@@ -3317,8 +3317,18 @@ export class CrmService {
       const dealFields = updates.customFields !== undefined || updates.stageId !== undefined || pipelineChanged
         ? await listCustomFields(tenantId, "deal", tx) : [];
       if (updates.customFields !== undefined) {
-        const patch = validateFieldValues(dealFields, updates.customFields, { pipelineId: current.pipelineId });
-        setPayload.customFields = { ...(current.customFields as CustomFieldValues), ...patch };
+        const patch = validateFieldValues(dealFields, updates.customFields, { pipelineId: targetPipelineId });
+        const currentCf =
+          typeof current.customFields === "string"
+            ? (() => {
+                try {
+                  return JSON.parse(current.customFields) || {};
+                } catch {
+                  return {};
+                }
+              })()
+            : (current.customFields as CustomFieldValues) || {};
+        setPayload.customFields = { ...currentCf, ...patch };
         await assertDealCustomFieldsUnique(
           tenantId,
           dealFields,

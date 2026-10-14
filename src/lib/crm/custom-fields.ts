@@ -59,12 +59,26 @@ export function conflictsWithStandardField(entity: CustomFieldEntity, name: stri
   return standardNames[entity].includes(name.trim().toLocaleLowerCase("pt-BR"));
 }
 
+export function parseJsonArray<T>(raw: unknown): T[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as T[];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed as T[];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export async function listCustomFields(
   tenantId: string,
   entityType: CustomFieldEntity,
   executor: Pick<typeof db, "select"> = db,
 ): Promise<CustomFieldDefinition[]> {
-  return executor
+  const rows = await executor
     .select()
     .from(crmCustomFieldDefinitions)
     .where(
@@ -75,6 +89,12 @@ export async function listCustomFields(
       ),
     )
     .orderBy(asc(crmCustomFieldDefinitions.sortOrder), asc(crmCustomFieldDefinitions.createdAt));
+
+  return rows.map((row) => ({
+    ...row,
+    options: parseJsonArray<{ id: string; label: string }>(row.options),
+    pipelineIds: parseJsonArray<string>(row.pipelineIds),
+  }));
 }
 
 export function normalizePipelineId(id?: string | null): string {
@@ -174,7 +194,8 @@ export function validateFieldValues(
       result[id] = null;
       continue;
     }
-    const optionsById = new Set(field.options.map((option) => option.id));
+    const normalizedOptions = parseJsonArray<{ id: string; label: string }>(field.options);
+    const optionsById = new Set(normalizedOptions.map((option) => option.id));
     switch (field.fieldType) {
       case "text":
         if (typeof value !== "string" || value.length > 5000)

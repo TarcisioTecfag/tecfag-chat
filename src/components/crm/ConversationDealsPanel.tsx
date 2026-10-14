@@ -34,6 +34,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DEAL_STATUS_OPTIONS, DealStatusBadge } from "./deal-status-config";
+import {
+  changedCustomFieldValues,
+  normalizeFieldOptions,
+  normalizePipelineIds,
+} from "./CustomFieldsEditor";
+import { normalizePipelineId } from "@/lib/crm/custom-fields";
 
 interface ConversationDealsPanelProps {
   conversationId: string;
@@ -41,7 +47,7 @@ interface ConversationDealsPanelProps {
   customerName?: string;
 }
 
-interface CustomFieldDef {
+export interface CustomFieldDef {
   id: string;
   name: string;
   fieldType: string;
@@ -52,7 +58,7 @@ interface CustomFieldDef {
   pipelineIds?: string[];
 }
 
-interface DealEditForm {
+export interface DealEditForm {
   title: string;
   value: string;
   pipelineId: string;
@@ -60,6 +66,129 @@ interface DealEditForm {
   operatorId: string;
   status: "open" | "won" | "lost" | "paused";
   customFields: Record<string, any>;
+}
+
+export function normalizeCustomFieldDefs(raw: unknown): CustomFieldDef[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((f): f is Record<string, any> => Boolean(f && typeof f === "object"))
+    .map((f) => ({
+      id: String(f.id || ""),
+      name: String(f.name || ""),
+      fieldType: String(f.fieldType || "text"),
+      options: normalizeFieldOptions(f.options),
+      required: Boolean(f.required),
+      visibleOnCreate: f.visibleOnCreate !== false,
+      allPipelines: Boolean(f.allPipelines),
+      pipelineIds: normalizePipelineIds(f.pipelineIds),
+    }))
+    .filter((f) => Boolean(f.id && f.name));
+}
+
+export function doesDealFieldApplyToPipeline(
+  def: CustomFieldDef,
+  pipelineId?: string | null
+): boolean {
+  if (def.allPipelines) return true;
+  const pIds = normalizePipelineIds(def.pipelineIds);
+  if (pIds.length === 0) return true;
+  if (!pipelineId) return false;
+  const currentNorm = normalizePipelineId(pipelineId);
+  return pIds.some(
+    (id) =>
+      id === pipelineId ||
+      (currentNorm && normalizePipelineId(id) === currentNorm) ||
+      (typeof id === "string" &&
+        typeof pipelineId === "string" &&
+        (id.includes(pipelineId) || pipelineId.includes(id)))
+  );
+}
+
+export function normalizeDealCustomFields(raw: unknown): Record<string, any> {
+  if (!raw) return {};
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, any>;
+  }
+  return {};
+}
+
+export function extractDealCustomFieldsByFieldId(
+  rawCustomFields: unknown,
+  definitions: CustomFieldDef[]
+): Record<string, any> {
+  const normalized = normalizeDealCustomFields(rawCustomFields);
+  const byFieldId: Record<string, any> = {};
+  for (const def of definitions) {
+    const val =
+      normalized[def.id] !== undefined
+        ? normalized[def.id]
+        : normalized[def.name] !== undefined
+          ? normalized[def.name]
+          : normalized[def.name.toLowerCase()] !== undefined
+            ? normalized[def.name.toLowerCase()]
+            : undefined;
+    if (val !== undefined) {
+      if (def.fieldType === "multiple") {
+        byFieldId[def.id] = Array.isArray(val)
+          ? val.map(String)
+          : typeof val === "string" && val.trim()
+            ? [val.trim()]
+            : [];
+      } else {
+        byFieldId[def.id] = val;
+      }
+    }
+  }
+  return byFieldId;
+}
+
+export function buildDealUpdatePayload(
+  originalDeal: any,
+  editForm: DealEditForm,
+  definitions: CustomFieldDef[]
+): Record<string, any> {
+  const payload: Record<string, any> = {
+    title: editForm.title.trim(),
+    value: editForm.value.trim() !== "" ? Number(editForm.value) : null,
+    operatorId: editForm.operatorId === "__none__" ? null : editForm.operatorId,
+  };
+
+  if (editForm.pipelineId && editForm.pipelineId !== originalDeal?.pipelineId) {
+    payload.pipelineId = editForm.pipelineId;
+  }
+  if (editForm.stageId && editForm.stageId !== originalDeal?.stageId) {
+    payload.stageId = editForm.stageId;
+  }
+  if (editForm.status && editForm.status !== originalDeal?.status) {
+    payload.status = editForm.status;
+  }
+
+  const initialCustomFields = extractDealCustomFieldsByFieldId(
+    originalDeal?.customFields,
+    definitions
+  );
+  const applicableIds = new Set(
+    definitions
+      .filter((def) => doesDealFieldApplyToPipeline(def, editForm.pipelineId || originalDeal?.pipelineId))
+      .map((def) => def.id)
+  );
+  const filteredCurrentCustomFields = Object.fromEntries(
+    Object.entries(editForm.customFields || {}).filter(([id]) => applicableIds.has(id))
+  );
+  const changedCf = changedCustomFieldValues(initialCustomFields, filteredCurrentCustomFields);
+  if (Object.keys(changedCf).length > 0) {
+    payload.customFields = changedCf;
+  }
+
+  return payload;
 }
 
 export function ConversationDealsPanel({
@@ -112,12 +241,16 @@ export function ConversationDealsPanel({
   useEffect(() => {
     fetch("/api/crm/pipelines")
       .then((res) => (res.ok ? res.json() : { pipelines: [] }))
-      .then((data) => setPipelines(data.pipelines || []))
+      .then((data) => setPipelines(Array.isArray(data?.pipelines) ? data.pipelines : []))
       .catch(() => {});
 
     fetch("/api/operators")
       .then((res) => (res.ok ? res.json() : { operators: [] }))
-      .then((data) => setOperators(Array.isArray(data) ? data : data.operators || []))
+      .then((data) =>
+        setOperators(
+          Array.isArray(data) ? data : Array.isArray(data?.operators) ? data.operators : []
+        )
+      )
       .catch(() => {});
   }, []);
 
@@ -129,25 +262,25 @@ export function ConversationDealsPanel({
       const res = await fetch(`/api/chats/${conversationId}/deals`);
       if (!res.ok) throw new Error("Erro ao carregar negociações da conversa.");
       const data = await res.json();
-      const loadedDeals = data.deals || [];
+      const loadedDeals = Array.isArray(data?.deals) ? data.deals : [];
       setDeals(loadedDeals);
 
-      if (data.customFieldDefinitions) {
-        setCustomFieldDefinitions(data.customFieldDefinitions);
+      if (data?.customFieldDefinitions) {
+        setCustomFieldDefinitions(normalizeCustomFieldDefs(data.customFieldDefinitions));
       } else {
         // Fallback para buscar definições
         fetch("/api/crm/custom-fields?entity=deal")
           .then((r) => (r.ok ? r.json() : { fields: [] }))
-          .then((fData) => setCustomFieldDefinitions(fData.fields || []))
+          .then((fData) => setCustomFieldDefinitions(normalizeCustomFieldDefs(fData?.fields)))
           .catch(() => {});
       }
 
-      if (data.contact) {
+      if (data?.contact) {
         setContactInfo(data.contact);
       }
 
       // Se houver apenas 1 negócio, expande-o automaticamente
-      if (loadedDeals.length === 1) {
+      if (loadedDeals.length === 1 && loadedDeals[0]?.id) {
         setExpandedDealIds(new Set([loadedDeals[0].id]));
       }
     } catch (err: any) {
@@ -184,7 +317,7 @@ export function ConversationDealsPanel({
       stageId: deal.stageId || "",
       operatorId: deal.operatorId || "__none__",
       status: (deal.status as any) || "open",
-      customFields: { ...(deal.customFields || {}) },
+      customFields: extractDealCustomFieldsByFieldId(deal.customFields, customFieldDefinitions),
     });
   };
 
@@ -196,7 +329,8 @@ export function ConversationDealsPanel({
   // Troca de funil no formulário de edição
   const handlePipelineChange = (newPipelineId: string) => {
     const selectedPipeline = pipelines.find((p) => p.id === newPipelineId);
-    const firstStageId = selectedPipeline?.stages?.[0]?.id || "";
+    const stages = Array.isArray(selectedPipeline?.stages) ? selectedPipeline.stages : [];
+    const firstStageId = stages[0]?.id || "";
     setEditForm((prev) => ({
       ...prev,
       pipelineId: newPipelineId,
@@ -213,15 +347,8 @@ export function ConversationDealsPanel({
 
     setSavingDealId(dealId);
     try {
-      const payload: Record<string, any> = {
-        title: editForm.title.trim(),
-        value: editForm.value.trim() !== "" ? Number(editForm.value) : null,
-        pipelineId: editForm.pipelineId,
-        stageId: editForm.stageId,
-        status: editForm.status,
-        operatorId: editForm.operatorId === "__none__" ? null : editForm.operatorId,
-        customFields: editForm.customFields,
-      };
+      const currentDeal = deals.find((d) => d.id === dealId);
+      const payload = buildDealUpdatePayload(currentDeal, editForm, customFieldDefinitions);
 
       const res = await fetch(`/api/crm/deals/${dealId}`, {
         method: "PATCH",
@@ -274,7 +401,8 @@ export function ConversationDealsPanel({
       if (res.ok) {
         const data = await res.json();
         const linkedIds = new Set(deals.map((d) => d.id));
-        setAvailableDealsToLink((data.deals || []).filter((d: any) => !linkedIds.has(d.id)));
+        const rawList = Array.isArray(data?.deals) ? data.deals : [];
+        setAvailableDealsToLink(rawList.filter((d: any) => !linkedIds.has(d.id)));
       }
     } catch (e) {
       console.error("[ConversationDealsPanel] Erro ao buscar deals existentes:", e);
@@ -315,38 +443,47 @@ export function ConversationDealsPanel({
   };
 
   // Helper para formatar e extrair valor de campo personalizado
-  const getFieldValue = (customFields: Record<string, any> | undefined | null, field: CustomFieldDef): string | null => {
-    if (!customFields || typeof customFields !== "object") return null;
+  const getFieldValue = (
+    rawCustomFields: Record<string, any> | undefined | null,
+    field: CustomFieldDef
+  ): string | null => {
+    const customFields = normalizeDealCustomFields(rawCustomFields);
     const val =
       customFields[field.id] !== undefined
         ? customFields[field.id]
         : customFields[field.name] !== undefined
-        ? customFields[field.name]
-        : customFields[field.name.toLowerCase()] !== undefined
-        ? customFields[field.name.toLowerCase()]
-        : undefined;
+          ? customFields[field.name]
+          : customFields[field.name.toLowerCase()] !== undefined
+            ? customFields[field.name.toLowerCase()]
+            : undefined;
 
     if (val === undefined || val === null || val === "") return null;
+
+    const options = normalizeFieldOptions(field.options);
 
     if (Array.isArray(val)) {
       if (val.length === 0) return null;
       return val
         .map((item) => {
-          if (field.options && Array.isArray(field.options)) {
-            const match = field.options.find(
+          if (options.length > 0) {
+            const match = options.find(
               (o: any) =>
                 (typeof o === "string" ? o : o.id || o.value) === item ||
                 (typeof o === "string" ? o : o.label) === item
             );
-            return match ? (typeof match === "string" ? match : String(match.label || match.value || item)) : String(item);
+            return match
+              ? typeof match === "string"
+                ? match
+                : String((match as any).label || (match as any).value || item)
+              : String(item);
           }
           return String(item);
         })
         .join(", ");
     }
 
-    if (field.options && Array.isArray(field.options)) {
-      const match = field.options.find(
+    if (options.length > 0) {
+      const match = options.find(
         (o: any) =>
           (typeof o === "string" ? o : o.id || o.value) === val ||
           (typeof o === "string" ? o : o.label) === val
@@ -436,11 +573,7 @@ export function ConversationDealsPanel({
 
             // Coleta os campos personalizados que possuem valor preenchido e pertencem ao funil da negociação
             const filledCustomFields = customFieldDefinitions
-              .filter(
-                (def) =>
-                  def.allPipelines ||
-                  (deal.pipelineId && def.pipelineIds?.includes(deal.pipelineId))
-              )
+              .filter((def) => doesDealFieldApplyToPipeline(def, deal.pipelineId))
               .map((def) => {
                 const val = getFieldValue(deal.customFields, def);
                 return { def, value: val };
@@ -449,7 +582,9 @@ export function ConversationDealsPanel({
 
             // Estágios do funil atualmente selecionado na edição
             const currentEditPipeline = pipelines.find((p) => p.id === editForm.pipelineId);
-            const currentEditStages = currentEditPipeline?.stages || [];
+            const currentEditStages = Array.isArray(currentEditPipeline?.stages)
+              ? currentEditPipeline.stages
+              : [];
 
             return (
               <div
@@ -616,26 +751,28 @@ export function ConversationDealsPanel({
                           </span>
 
                           {customFieldDefinitions
-                            .filter(
-                              (def) =>
-                                def.allPipelines ||
-                                (editForm.pipelineId && def.pipelineIds?.includes(editForm.pipelineId))
-                            )
+                            .filter((def) => doesDealFieldApplyToPipeline(def, editForm.pipelineId))
                             .map((field) => {
                               const val =
                                 editForm.customFields[field.id] ??
                                 editForm.customFields[field.name] ??
                                 "";
-                              const options = (field.options as any[]) || [];
+                              const options = normalizeFieldOptions(field.options);
 
-                              if (field.fieldType === "single" || field.fieldType === "multiple") {
+                              if (field.fieldType === "single") {
+                                const singleValue =
+                                  typeof val === "string" && val.trim() !== ""
+                                    ? val
+                                    : Array.isArray(val) && val[0]
+                                      ? String(val[0])
+                                      : "__none__";
                                 return (
                                   <div key={field.id} className="space-y-1">
                                     <label className="text-[9px] font-bold text-muted-foreground uppercase">
                                       {field.name}
                                     </label>
                                     <Select
-                                      value={val ? String(val) : "__none__"}
+                                      value={singleValue}
                                       onValueChange={(newVal) =>
                                         setEditForm((prev) => ({
                                           ...prev,
@@ -667,6 +804,61 @@ export function ConversationDealsPanel({
                                 );
                               }
 
+                              if (field.fieldType === "multiple") {
+                                const selectedValues: string[] = Array.isArray(val)
+                                  ? val.map(String)
+                                  : typeof val === "string" && val.trim()
+                                    ? [val.trim()]
+                                    : [];
+                                return (
+                                  <div key={field.id} className="space-y-1">
+                                    <label className="text-[9px] font-bold text-muted-foreground uppercase">
+                                      {field.name}
+                                    </label>
+                                    <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-card p-2">
+                                      {options.length === 0 ? (
+                                        <span className="text-[10px] text-muted-foreground italic">
+                                          Nenhuma opção cadastrada
+                                        </span>
+                                      ) : (
+                                        options.map((opt: any) => {
+                                          const optId = typeof opt === "string" ? opt : opt.id || opt.value;
+                                          const optLabel = typeof opt === "string" ? opt : opt.label || opt.value;
+                                          if (!optId) return null;
+                                          const isChecked = selectedValues.includes(optId);
+                                          return (
+                                            <button
+                                              key={optId}
+                                              type="button"
+                                              onClick={() => {
+                                                const next = isChecked
+                                                  ? selectedValues.filter((item) => item !== optId)
+                                                  : [...selectedValues, optId];
+                                                setEditForm((prev) => ({
+                                                  ...prev,
+                                                  customFields: {
+                                                    ...prev.customFields,
+                                                    [field.id]: next,
+                                                  },
+                                                }));
+                                              }}
+                                              className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-semibold transition cursor-pointer ${
+                                                isChecked
+                                                  ? "border-primary bg-primary/10 text-primary"
+                                                  : "border-border bg-muted/20 text-muted-foreground hover:text-foreground"
+                                              }`}
+                                            >
+                                              {isChecked && <Check className="h-2.5 w-2.5 shrink-0" />}
+                                              <span>{optLabel}</span>
+                                            </button>
+                                          );
+                                        })
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
                               if (field.fieldType === "date") {
                                 return (
                                   <div key={field.id} className="space-y-1">
@@ -675,7 +867,7 @@ export function ConversationDealsPanel({
                                     </label>
                                     <input
                                       type="date"
-                                      value={val || ""}
+                                      value={typeof val === "string" ? val : ""}
                                       onChange={(e) =>
                                         setEditForm((prev) => ({
                                           ...prev,
@@ -697,7 +889,7 @@ export function ConversationDealsPanel({
                                     <input
                                       type="number"
                                       step="any"
-                                      value={val || ""}
+                                      value={val !== null && val !== undefined ? String(val) : ""}
                                       onChange={(e) =>
                                         setEditForm((prev) => ({
                                           ...prev,
@@ -718,7 +910,7 @@ export function ConversationDealsPanel({
                                   </label>
                                   <input
                                     type="text"
-                                    value={val || ""}
+                                    value={val !== null && val !== undefined ? String(val) : ""}
                                     onChange={(e) =>
                                       setEditForm((prev) => ({
                                         ...prev,
