@@ -8,11 +8,14 @@ import {
   classifySessionToColumn,
   BENCHMARK_SDR_SESSIONS,
   KanbanColumnKey,
+  computeOffscreenKanbanIndicators,
+  getColumnScrollTarget,
+  OffscreenColumnMetric,
 } from "../src/components/valentina/sdr-kanban-data";
 import { getAiPersona } from "../src/lib/ai-persona";
 
 describe("SDR Kanban Board — Funis de Triagem", () => {
-  it("deve conter exatamente as 11 colunas de funil na ordem especificada", () => {
+  it("deve conter exatamente as 9 colunas de funil na ordem especificada (sem avulso e problemas)", () => {
     const expectedKeys: KanbanColumnKey[] = [
       "triagem",
       "assistencia_tecnica",
@@ -21,17 +24,17 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
       "personalite",
       "financeiro",
       "pecas",
-      "avulso",
       "outros",
-      "problemas",
       "sem_resposta",
     ];
 
-    expect(KANBAN_COLUMNS.length).toBe(11);
+    expect(KANBAN_COLUMNS.length).toBe(9);
     expect(KANBAN_COLUMNS.map((c) => c.key)).toEqual(expectedKeys);
+    expect(KANBAN_COLUMNS.map((c) => c.key)).not.toContain("avulso");
+    expect(KANBAN_COLUMNS.map((c) => c.key)).not.toContain("problemas");
   });
 
-  it("deve possuir os rótulos em caixa alta idênticos às fotos de referência", () => {
+  it("deve possuir os rótulos em caixa alta das 9 etapas ativas", () => {
     const labels = KANBAN_COLUMNS.map((c) => c.label);
     expect(labels).toContain("TRIAGEM");
     expect(labels).toContain("ASSISTÊNCIA TÉCNICA");
@@ -40,10 +43,10 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
     expect(labels).toContain("PERSONNALITÉ");
     expect(labels).toContain("FINANCEIRO");
     expect(labels).toContain("PEÇAS");
-    expect(labels).toContain("AVULSO");
     expect(labels).toContain("OUTROS");
-    expect(labels).toContain("PROBLEMAS");
     expect(labels).toContain("SEM RESPOSTA");
+    expect(labels).not.toContain("AVULSO");
+    expect(labels).not.toContain("PROBLEMAS");
   });
 
   it("deve classificar sessões abandonadas ou sem resposta na coluna sem_resposta", () => {
@@ -77,7 +80,7 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
     expect(classifySessionToColumn(sessionNoReply)).toBe("sem_resposta");
   });
 
-  it("deve classificar problemas e escalações na coluna problemas", () => {
+  it("deve redirecionar sessões legadas de problemas ou avulso com segurança para outros", () => {
     const sessionProblem = {
       id: "test-3",
       conversationId: "conv-3",
@@ -91,7 +94,14 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
       outcome: "problem",
       messages: [],
     };
-    expect(classifySessionToColumn(sessionProblem)).toBe("problemas");
+    expect(classifySessionToColumn(sessionProblem)).toBe("outros");
+
+    const sessionLegacyFunnelStage = {
+      ...sessionProblem,
+      id: "test-3b",
+      funnelStage: "avulso",
+    } as any;
+    expect(classifySessionToColumn(sessionLegacyFunnelStage)).toBe("outros");
   });
 
   it("deve classificar setores específicos (máquinas, peças, assistência, personnalite, financeiro)", () => {
@@ -178,13 +188,13 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
     expect(classifySessionToColumn(sessionNew)).toBe("triagem");
   });
 
-  it("deve conter os contatos do benchmark das fotos anexadas (Teirs, Florencio, Lara, STARK, Rodrigo)", () => {
+  it("deve conter os contatos do benchmark ativo (Teirs, Florencio, Lara, Rodrigo) e não conter os de problemas", () => {
     const names = BENCHMARK_SDR_SESSIONS.map((s) => s.contactName);
     expect(names).toContain("Teirs acessórios para maquinas");
     expect(names).toContain("Florencio Nascimento");
     expect(names).toContain("Lara");
-    expect(names).toContain("STARK");
     expect(names).toContain("Rodrigo");
+    expect(names).not.toContain("STARK");
   });
 
   it("deve respeitar a persona correta por tenant (Fagner para tecfag, Valentina para valem)", () => {
@@ -194,4 +204,57 @@ describe("SDR Kanban Board — Funis de Triagem", () => {
     const personaValem = getAiPersona("valem");
     expect(personaValem.name).toBe("Valentina");
   });
+
+  it("deve ativar o indicador discreto direito quando a tela inicial cobre até PEÇAS e há clientes em OUTROS, calculando o scroll automático", () => {
+    // Simula viewport inicial cobrindo de TRIAGEM (col 0) até PEÇAS (col 6): width = 1892px
+    const containerWidth = 1892;
+    const colWidth = 260;
+    const gap = 12;
+
+    const metrics: OffscreenColumnMetric[] = KANBAN_COLUMNS.map((col, idx) => {
+      const left = idx * (colWidth + gap);
+      return {
+        key: col.key,
+        label: col.label,
+        accentColor: col.accentColor,
+        count: col.key === "outros" ? 3 : col.key === "triagem" ? 4 : 0,
+        visibleLeft: left,
+        visibleRight: left + colWidth,
+      };
+    });
+
+    const indicators = computeOffscreenKanbanIndicators(containerWidth, metrics);
+    expect(indicators.left).toBeNull();
+    expect(indicators.right).not.toBeNull();
+    expect(indicators.right?.targetColumnKey).toBe("outros");
+    expect(indicators.right?.targetColumnLabel).toBe("OUTROS");
+    expect(indicators.right?.targetCount).toBe(3);
+
+    // Ao clicar no indicador, calcula o scrollLeft exato para trazer OUTROS até a tela
+    const outrosMetric = metrics.find((m) => m.key === "outros")!;
+    const targetScrollLeft = getColumnScrollTarget({
+      direction: "right",
+      currentScrollLeft: 0,
+      containerWidth,
+      columnVisibleLeft: outrosMetric.visibleLeft,
+      columnVisibleRight: outrosMetric.visibleRight,
+      paddingPx: 8,
+    });
+
+    expect(targetScrollLeft).toBeGreaterThan(0);
+
+    // Após rolar para targetScrollLeft, OUTROS passa a estar visível e o indicador direito some
+    const metricsAfterScroll = metrics.map((m) => ({
+      ...m,
+      visibleLeft: m.visibleLeft - targetScrollLeft,
+      visibleRight: m.visibleRight - targetScrollLeft,
+    }));
+    const indicatorsAfter = computeOffscreenKanbanIndicators(containerWidth, metricsAfterScroll);
+    expect(indicatorsAfter.right).toBeNull();
+    // E TRIAGEM (com 4 cards) que ficou para trás à esquerda ativa o indicador esquerdo
+    expect(indicatorsAfter.left).not.toBeNull();
+    expect(indicatorsAfter.left?.targetColumnKey).toBe("triagem");
+    expect(indicatorsAfter.left?.targetCount).toBe(4);
+  });
 });
+

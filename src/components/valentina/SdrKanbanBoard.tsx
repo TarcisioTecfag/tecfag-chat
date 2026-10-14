@@ -2,22 +2,28 @@
 // 📋 SDR KANBAN BOARD — Visão de Funil de Triagem Fagner / Valentina
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   Clock,
   CheckCircle2,
-  Bot,
   ChevronDown,
+  ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import { SdrTriageSession } from "./SdrTab";
 import {
   KANBAN_COLUMNS,
-  KanbanColumnDef,
+  KanbanColumnKey,
   classifySessionToColumn,
   SdrFilterState,
+  computeOffscreenKanbanIndicators,
+  getColumnScrollTarget,
+  OffscreenIndicatorInfo,
+  OffscreenColumnMetric,
 } from "./sdr-kanban-data";
 import { getAiPersona } from "@/lib/ai-persona";
 import { useChat } from "@/hooks/useChatState";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 export interface SdrKanbanBoardProps {
   sessions: SdrTriageSession[];
@@ -35,8 +41,10 @@ export function SdrKanbanBoard({
   const { tenant } = useChat();
   const persona = getAiPersona(tenant || "tecfag");
 
-  // Ref principal do container rolável do Kanban
+  // Ref principal do container rolável do Kanban e refs individuais por coluna
   const boardContainerRef = useRef<HTMLDivElement>(null);
+  const columnRefs = useRef<Partial<Record<KanbanColumnKey, HTMLDivElement | null>>>({});
+  const scrollRafRef = useRef<number | null>(null);
 
   // ── ESTADO: PAN SCROLL HORIZONTAL (CLICAR E ARRASTAR A TELA COM O MOUSE) ──
   const [isPanning, setIsPanning] = useState(false);
@@ -181,9 +189,9 @@ export function SdrKanbanBoard({
     });
   }, [sessions, searchQuery, unreadOnly, showCompleted, statusFilter, selectedDate]);
 
-  // Agrupamento por colunas
+  // Agrupamento pelas 9 colunas ativas
   const sessionsByColumn = useMemo(() => {
-    const map: Record<string, SdrTriageSession[]> = {
+    const map: Record<KanbanColumnKey, SdrTriageSession[]> = {
       triagem: [],
       assistencia_tecnica: [],
       pos_venda: [],
@@ -191,9 +199,7 @@ export function SdrKanbanBoard({
       personalite: [],
       financeiro: [],
       pecas: [],
-      avulso: [],
       outros: [],
-      problemas: [],
       sem_resposta: [],
     };
 
@@ -209,6 +215,146 @@ export function SdrKanbanBoard({
     return map;
   }, [filteredSessions]);
 
+  // ── ESTADO: INDICADORES DE AVISO PARA COLUNAS FORA DA ÁREA VISÍVEL ──
+  const [offscreenIndicators, setOffscreenIndicators] = useState<{
+    left: OffscreenIndicatorInfo | null;
+    right: OffscreenIndicatorInfo | null;
+  }>({ left: null, right: null });
+  const [hasNewRightArrival, setHasNewRightArrival] = useState(false);
+  const prevSessionIdsByColRef = useRef<Record<string, Set<string>> | null>(null);
+
+  const updateOffscreenIndicators = useCallback(() => {
+    const container = boardContainerRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const containerWidth = container.clientWidth;
+
+    const metrics: OffscreenColumnMetric[] = [];
+    for (const col of KANBAN_COLUMNS) {
+      const el = columnRefs.current[col.key];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      metrics.push({
+        key: col.key,
+        label: col.label,
+        accentColor: col.accentColor,
+        count: (sessionsByColumn[col.key] || []).length,
+        visibleLeft: rect.left - containerRect.left,
+        visibleRight: rect.right - containerRect.left,
+      });
+    }
+
+    const next = computeOffscreenKanbanIndicators(containerWidth, metrics);
+    setOffscreenIndicators(next);
+
+    if (!next.right) {
+      setHasNewRightArrival(false);
+    }
+  }, [sessionsByColumn]);
+
+  // Detecta entrada de novos clientes em colunas ocultas à direita (ex: OUTROS)
+  useEffect(() => {
+    const currentMap: Record<string, Set<string>> = {};
+    for (const col of KANBAN_COLUMNS) {
+      currentMap[col.key] = new Set(
+        (sessionsByColumn[col.key] || []).map((s) => s.id)
+      );
+    }
+
+    if (prevSessionIdsByColRef.current && boardContainerRef.current) {
+      const container = boardContainerRef.current;
+      const containerRect = container.getBoundingClientRect();
+      const containerWidth = container.clientWidth;
+
+      let detectedNewRight = false;
+      for (const col of KANBAN_COLUMNS) {
+        const el = columnRefs.current[col.key];
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        const visibleRight = rect.right - containerRect.left;
+        const isHiddenRight = visibleRight > containerWidth + 12;
+
+        if (isHiddenRight) {
+          const prevSet = prevSessionIdsByColRef.current[col.key] || new Set();
+          for (const id of currentMap[col.key]) {
+            if (!prevSet.has(id)) {
+              detectedNewRight = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (detectedNewRight) {
+        setHasNewRightArrival(true);
+      }
+    }
+
+    prevSessionIdsByColRef.current = currentMap;
+    updateOffscreenIndicators();
+  }, [sessionsByColumn, updateOffscreenIndicators]);
+
+  useEffect(() => {
+    const container = boardContainerRef.current;
+    if (!container) return;
+
+    updateOffscreenIndicators();
+
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => updateOffscreenIndicators())
+        : null;
+    ro?.observe(container);
+    window.addEventListener("resize", updateOffscreenIndicators);
+
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", updateOffscreenIndicators);
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    };
+  }, [updateOffscreenIndicators]);
+
+  const handleBoardScroll = useCallback(() => {
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      updateOffscreenIndicators();
+    });
+  }, [updateOffscreenIndicators]);
+
+  const handleScrollToColumn = useCallback(
+    (direction: "left" | "right", targetKey: KanbanColumnKey) => {
+      const container = boardContainerRef.current;
+      const colEl = columnRefs.current[targetKey];
+      if (!container || !colEl) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const colRect = colEl.getBoundingClientRect();
+
+      const targetScrollLeft = getColumnScrollTarget({
+        direction,
+        currentScrollLeft: container.scrollLeft,
+        containerWidth: container.clientWidth,
+        columnVisibleLeft: colRect.left - containerRect.left,
+        columnVisibleRight: colRect.right - containerRect.left,
+        paddingPx: 8,
+      });
+
+      if (direction === "right") {
+        setHasNewRightArrival(false);
+      }
+
+      container.scrollTo({
+        left: targetScrollLeft,
+        behavior: "smooth",
+      });
+    },
+    []
+  );
+
   // Manipulação do clique do card com scroll suave para o chat
   const handleCardClick = (session: SdrTriageSession) => {
     onSelectSession(session);
@@ -223,10 +369,83 @@ export function SdrKanbanBoard({
   };
 
   return (
-    <div className="flex flex-col shrink-0">
-      {/* ── QUADRO KANBAN COM PAN SCROLL POR CLIQUE E ARRASTE (11 COLUNAS) ── */}
+    <div className="relative flex flex-col shrink-0">
+      {/* ── INDICADOR DISCRETO ESQUERDO (COLUNAS COM CARDS À ESQUERDA FORA DE VISÃO) ── */}
+      {offscreenIndicators.left && (
+        <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 z-20">
+          <SystemTooltip
+            content={`${offscreenIndicators.left.targetCount} atendimento(s) em ${offscreenIndicators.left.targetColumnLabel} — Clique para rolar até ${offscreenIndicators.left.targetColumnLabel}`}
+          >
+            <button
+              type="button"
+              data-no-pan="true"
+              onClick={() =>
+                offscreenIndicators.left &&
+                handleScrollToColumn("left", offscreenIndicators.left.targetColumnKey)
+              }
+              className="pointer-events-auto group/nav flex items-center gap-1.5 h-8 px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border border-border/90 hover:border-primary/60 shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer"
+            >
+              <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground group-hover/nav:text-primary group-hover/nav:-translate-x-0.5 transition-all shrink-0" />
+              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground leading-none">
+                {offscreenIndicators.left.targetCount}
+              </span>
+              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground group-hover/nav:text-foreground transition-colors">
+                {offscreenIndicators.left.targetColumnLabel}
+              </span>
+            </button>
+          </SystemTooltip>
+        </div>
+      )}
+
+      {/* ── INDICADOR DISCRETO DIREITO (EX: CLIENTES EM OUTROS FORA DA TELA INICIAL) ── */}
+      {offscreenIndicators.right && (
+        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 z-20">
+          <SystemTooltip
+            content={
+              offscreenIndicators.right.hiddenColumnsWithCards.length > 1
+                ? `${offscreenIndicators.right.targetCount} em ${offscreenIndicators.right.targetColumnLabel} (${offscreenIndicators.right.totalHiddenCount} no total à direita) — Clique para rolar até ${offscreenIndicators.right.targetColumnLabel}`
+                : `${offscreenIndicators.right.targetCount} atendimento(s) em ${offscreenIndicators.right.targetColumnLabel} — Clique para rolar até ${offscreenIndicators.right.targetColumnLabel}`
+            }
+          >
+            <button
+              type="button"
+              data-no-pan="true"
+              onClick={() =>
+                offscreenIndicators.right &&
+                handleScrollToColumn("right", offscreenIndicators.right.targetColumnKey)
+              }
+              className={`pointer-events-auto group/nav flex items-center gap-1.5 h-8 px-2.5 rounded-full bg-card/95 dark:bg-zinc-900/95 backdrop-blur-md border shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer ${
+                hasNewRightArrival
+                  ? "border-primary ring-2 ring-primary/30"
+                  : "border-border/90 hover:border-primary/60"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                  hasNewRightArrival ? "bg-primary animate-ping" : ""
+                }`}
+                style={{
+                  backgroundColor: hasNewRightArrival
+                    ? undefined
+                    : offscreenIndicators.right.accentColor,
+                }}
+              />
+              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground group-hover/nav:text-foreground transition-colors">
+                {offscreenIndicators.right.targetColumnLabel}
+              </span>
+              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground leading-none">
+                {offscreenIndicators.right.targetCount}
+              </span>
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover/nav:text-primary group-hover/nav:translate-x-0.5 transition-all shrink-0" />
+            </button>
+          </SystemTooltip>
+        </div>
+      )}
+
+      {/* ── QUADRO KANBAN COM PAN SCROLL POR CLIQUE E ARRASTE (9 COLUNAS) ── */}
       <div
         ref={boardContainerRef}
+        onScroll={handleBoardScroll}
         onPointerDown={handleBoardPointerDown}
         onWheel={handleBoardWheel}
         className={`w-full overflow-x-auto overflow-y-hidden pb-3 pt-1 select-none transition-colors ${
@@ -242,6 +461,10 @@ export function SdrKanbanBoard({
             return (
               <div
                 key={column.key}
+                ref={(el) => {
+                  columnRefs.current[column.key] = el;
+                }}
+                data-kanban-col={column.key}
                 className="w-[260px] shrink-0 flex flex-col bg-muted/15 dark:bg-zinc-900/30 rounded-2xl border border-border/80 overflow-hidden shadow-xs"
               >
                 {/* Cabeçalho da Coluna */}
