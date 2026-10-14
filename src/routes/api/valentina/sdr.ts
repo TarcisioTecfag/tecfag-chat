@@ -181,8 +181,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 status,
                 outcome: fs.outcome || undefined,
                 responsibleName,
-                unreadCount: conv?.unread || 0,
-                channel: conv?.channel || "whatsapp",
+                unreadCount: conv?.unreadCount || 0,
+                channel: contact?.mainChannel || "whatsapp",
                 funnelStage: meta.funnelStage || meta.targetArea || undefined,
                 messages: formattedMessages.length > 0 ? formattedMessages : [
                   { sender: "bot", text: "Atendimento em andamento...", time: "Agora" }
@@ -242,7 +242,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   };
                 });
 
-                const isFinished = c.status === "closed" || c.queueState === "finalizados";
+                const isFinished = c.queueState === "finalizados";
 
                 sessions.push({
                   id: `fs-auto-${c.id}`,
@@ -257,8 +257,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   status: isFinished ? "completed" : "active",
                   outcome: isFinished ? "completed" : "in_progress",
                   responsibleName: operator?.name || "IA (Em Triagem)",
-                  unreadCount: c.unread || 0,
-                  channel: c.channel || "whatsapp",
+                  unreadCount: c.unreadCount || 0,
+                  channel: contact?.mainChannel || "whatsapp",
                   messages: formattedMessages.length > 0 ? formattedMessages : [
                     { sender: "bot", text: "Atendimento iniciado...", time: "Agora" }
                   ],
