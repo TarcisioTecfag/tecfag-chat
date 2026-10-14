@@ -106,12 +106,18 @@ export async function processRdEvent(event: Event, receive = receiveLeads) {
       await db.update(rdMarketingEvents).set({ outcomes, updatedAt: new Date() }).where(owned);
     }
     const failed = outcomes.filter((result) => result.status === "error");
+    const reasons = failed
+      .map((item) => item.error)
+      .filter(Boolean)
+      .join(" | ");
     await db
       .update(rdMarketingEvents)
       .set({
         status: failed.length ? "error" : "processed",
         outcomes,
-        errorMessage: failed.length ? `${failed.length} item(ns) aguardando revisão.` : null,
+        errorMessage: failed.length
+          ? reasons || `${failed.length} item(ns) aguardando revisão.`
+          : null,
         leaseToken: null,
         leaseUntil: null,
         updatedAt: new Date(),
@@ -123,7 +129,7 @@ export async function processRdEvent(event: Event, receive = receiveLeads) {
         tenantId: event.tenantId,
         flowId: event.flowId,
         status: "error",
-        message: `Evento ${event.id.slice(0, 12)}: ${failed.length} item(ns) preservado(s) para reprocessamento.`,
+        message: `Evento ${event.id.slice(0, 12)}: ${failed.length} item(ns) preservado(s) para reprocessamento.${reasons ? ` Motivo: ${reasons}` : ""}`,
       });
   } catch (error) {
     const known = error as { statusCode?: number; message?: string };
@@ -146,6 +152,15 @@ export async function processRdEvent(event: Event, receive = receiveLeads) {
         updatedAt: new Date(),
       })
       .where(owned);
+    if (permanent) {
+      await db.insert(rdMarketingLogs).values({
+        id: randomUUID(),
+        tenantId: event.tenantId,
+        flowId: event.flowId,
+        status: "error",
+        message: `Evento ${event.id.slice(0, 12)}: ${known.message || "Evento inválido."}`,
+      });
+    }
   }
 }
 

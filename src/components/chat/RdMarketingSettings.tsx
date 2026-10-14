@@ -1895,6 +1895,7 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                 flows.find((f) => f.id === log.flowId)?.settings.name || "Fluxo Geral";
               const isSuccess = log.status === "created";
               const isDuplicate = log.status === "duplicate";
+              const isQueued = log.status === "queued";
 
               return (
                 <div
@@ -1907,6 +1908,8 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                         <CheckCircle className="h-4 w-4 text-emerald-500" />
                       ) : isDuplicate ? (
                         <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      ) : isQueued ? (
+                        <RefreshCw className="h-4 w-4 text-sky-500" />
                       ) : (
                         <XCircle className="h-4 w-4 text-destructive" />
                       )}
@@ -1916,7 +1919,11 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                       <div className="flex items-center gap-2">
                         <Badge
                           variant={
-                            isSuccess ? "default" : isDuplicate ? "secondary" : "destructive"
+                            isSuccess
+                              ? "default"
+                              : isDuplicate || isQueued
+                                ? "secondary"
+                                : "destructive"
                           }
                           className={cn(
                             "text-[10px] font-bold",
@@ -1924,14 +1931,18 @@ export function RdMarketingSettings({ tenant }: { tenant: string }) {
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                               : isDuplicate
                                 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                                : "bg-destructive/10 text-destructive border border-destructive/20",
+                                : isQueued
+                                  ? "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20"
+                                  : "bg-destructive/10 text-destructive border border-destructive/20",
                           )}
                         >
                           {isSuccess
                             ? "Card Criado no CRM"
                             : isDuplicate
                               ? "Reenvio Ignorado"
-                              : "Falha de Processamento"}
+                              : isQueued
+                                ? "Reprocessamento Solicitado"
+                                : "Falha de Processamento"}
                         </Badge>
                         <span className="text-xs font-bold text-foreground">{flowName}</span>
                       </div>

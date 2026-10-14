@@ -14,7 +14,12 @@ import {
   validateFlow,
 } from "../../../lib/rd-marketing/service";
 import { integrationError, readIntegrationJson } from "../../../lib/rd-marketing/http";
-import { listRdEvents, replayRdEvent } from "../../../lib/rd-marketing/inbox";
+import {
+  claimRdEvent,
+  listRdEvents,
+  processRdEvent,
+  replayRdEvent,
+} from "../../../lib/rd-marketing/inbox";
 
 export const Route = createFileRoute("/api/settings/rd-marketing")({
   server: {
@@ -61,15 +66,15 @@ export const Route = createFileRoute("/api/settings/rd-marketing")({
           if (body.action === "replay") {
             if (typeof body.eventId !== "string")
               throw new CrmError("Informe o evento.", "BAD_REQUEST", 400);
-            return Response.json(
-              await replayRdEvent(
-                tenantId,
-                body.eventId,
-                session.operator.id,
-                body.useCurrentSettings === true,
-              ),
-              { status: 202 },
+            const replayed = await replayRdEvent(
+              tenantId,
+              body.eventId,
+              session.operator.name || session.operator.id,
+              body.useCurrentSettings === true,
             );
+            const claimed = await claimRdEvent(tenantId, replayed.eventId);
+            if (claimed) await processRdEvent(claimed);
+            return Response.json(replayed, { status: 202 });
           }
           if (body.action === "preview")
             return Response.json(await previewFlow(tenantId, body.settings, body.payload));

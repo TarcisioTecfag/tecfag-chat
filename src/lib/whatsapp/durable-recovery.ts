@@ -2,6 +2,7 @@ import { and, asc, eq, isNull, lt, lte, or, sql, inArray } from "drizzle-orm";
 import { db } from "../../db";
 import { channelConfigs, messages, pendingInbounds } from "../../db/schema";
 import { runtimeSingleton } from "../runtime-singleton";
+import { runRdMarketingRecovery } from "../rd-marketing/inbox";
 import { dispatchStored } from "./dispatch";
 import { inboundProcessor } from "./inbound";
 import { metaAdapter } from "./adapters/meta";
@@ -200,10 +201,14 @@ export class WhatsAppRecoveryService {
   startRecoveryWorker(intervalMs = 30000) {
     if (this.intervalTimer) return;
     console.log("[Recovery] Worker durável iniciado.");
-    const run = () =>
+    const run = () => {
       this.runRecoveryCycle().catch(() =>
         console.error("[Recovery] Falha de ciclo; pendências preservadas."),
       );
+      runRdMarketingRecovery().catch(() =>
+        console.error("[RD Marketing] Falha no ciclo de recuperação de eventos."),
+      );
+    };
     void run();
     this.intervalTimer = setInterval(run, intervalMs);
     this.intervalTimer.unref();
