@@ -390,6 +390,7 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
         id: dealA,
         tenantId,
         title: "Negociação A",
+        value: "1250.00",
         pipelineId,
         stageId,
         operatorId: `${tenantId}-agent`,
@@ -398,6 +399,8 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
         id: dealB,
         tenantId,
         title: "Negociação B",
+        value: "6500.00",
+        status: "won",
         pipelineId,
         stageId,
         operatorId: `${tenantId}-admin`,
@@ -443,6 +446,16 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect(first.events).toHaveLength(1);
     expect(first.events[0].deals).toHaveLength(0);
     expect(first.relatedDeals?.map((deal) => deal.id)).toEqual([dealA]);
+    const oldSync = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    await database.db
+      .update(schema.rdMarketingJourneyLinks)
+      .set({ syncedAt: oldSync })
+      .where(
+        and(
+          eq(schema.rdMarketingJourneyLinks.tenantId, tenantId),
+          eq(schema.rdMarketingJourneyLinks.contactId, contactId),
+        ),
+      );
     const cached = await dealRdJourney(
       tenantId,
       dealB,
@@ -452,9 +465,20 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     );
     expect(cached.cached).toBe(true);
     expect(cached.snapshotId).toBe(first.snapshotId);
+    expect(cached.syncedAt).toBe(oldSync.toISOString());
     expect(calls.length - before).toBe(3);
     expect(cached.events[0].deals).toEqual([{ id: dealB, title: "Negociação B" }]);
     expect(cached.relatedDeals).toHaveLength(2);
+    expect(cached.relatedDeals?.find((deal) => deal.id === dealB)).toMatchObject({
+      title: "Negociação B",
+      status: "won",
+      value: "6500.00",
+      currency: "BRL",
+      pipelineName: "Teste",
+      stageName: "Entrada",
+      operatorName: "admin",
+      createdAt: expect.any(String),
+    });
     const second = await dealRdJourney(
       tenantId,
       dealA,
@@ -477,6 +501,21 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       ).cached,
     ).toBe(true);
     expect(calls.length).toBe(pageCalls);
+    const reopened = await dealRdJourney(
+      tenantId,
+      dealB,
+      { ...viewer, canViewAll: true },
+      { contactId },
+      provider,
+    );
+    expect(reopened.cached).toBe(true);
+    expect(reopened.snapshotId).toBe(first.snapshotId);
+    expect(reopened.pages.map((page) => `${page.eventType}:${page.page}`).sort()).toEqual([
+      "CONVERSION:1",
+      "CONVERSION:2",
+      "OPPORTUNITY:1",
+    ]);
+    expect(calls.length).toBe(pageCalls);
     expect(
       (await rejected(dealRdJourney(tenantId, dealB, viewer, { contactId }, provider))) as Error,
     ).toMatchObject({ code: "FORBIDDEN" });
@@ -495,6 +534,27 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       await rejected(dealRdJourney(tenantId, dealA, viewer, { contactId: "unlinked" }, provider)),
     ).toMatchObject({ code: "RD_CONTACT_REQUIRED" });
     expect(calls.length).toBe(pageCalls);
+    expect(
+      await rejected(
+        dealRdJourney(
+          tenantId,
+          dealA,
+          viewer,
+          { contactId, refresh: true },
+          (async () => new Response(null, { status: 429 })) as typeof fetch,
+        ),
+      ),
+    ).toMatchObject({ code: "RD_HTTP_429" });
+    const afterFailedRefresh = await dealRdJourney(
+      tenantId,
+      dealA,
+      viewer,
+      { contactId },
+      provider,
+    );
+    expect(afterFailedRefresh.snapshotId).toBe(first.snapshotId);
+    expect(afterFailedRefresh.pages).toHaveLength(3);
+    expect(calls.length).toBe(pageCalls);
     const updated = await dealRdJourney(
       tenantId,
       dealA,
@@ -503,6 +563,13 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
       provider,
     );
     expect(updated.snapshotId).not.toBe(first.snapshotId);
+    expect(updated.cached).toBe(false);
+    expect(updated.pages).toHaveLength(2);
+    expect(calls.length).toBe(pageCalls + 2);
+    expect((await dealRdJourney(tenantId, dealA, viewer, { contactId }, provider)).snapshotId).toBe(
+      updated.snapshotId,
+    );
+    expect(calls.length).toBe(pageCalls + 2);
     expect(
       await rejected(
         dealRdJourney(

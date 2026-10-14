@@ -13,5 +13,15 @@ export type RdJourney = {
   cached: boolean;
   pages: RdEventPage[];
   events: JourneyEvent[];
-  relatedDeals?: { id: string; title: string; status: string }[];
+  relatedDeals?: {
+    id: string;
+    title: string;
+    status: string;
+    value: string | null;
+    currency: string;
+    pipelineName: string | null;
+    stageName: string | null;
+    operatorName: string | null;
+    createdAt: string;
+  }[];
 };

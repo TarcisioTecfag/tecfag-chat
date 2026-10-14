@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { ArrowUpRight, BriefcaseBusiness, Loader2, UserRound } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -10,6 +10,7 @@ import type { RdJourney } from "@/lib/rd-marketing/journey-types";
 import type { RdEventPage } from "@/lib/rd-marketing/api-types";
 
 type Props = {
+  currentDealId: string;
   contacts: { id: string; name: string }[];
   contactId: string;
   onContact: (id: string) => void;
@@ -24,6 +25,7 @@ type Props = {
   };
 };
 export function RdMarketingJourneyControls({
+  currentDealId,
   contacts,
   contactId,
   onContact,
@@ -78,34 +80,122 @@ export function RdMarketingJourneyControls({
       {journey.data && (
         <>
           {!!journey.data.relatedDeals?.length && (
-            <details className="text-xs">
-              <summary className="cursor-pointer text-primary">
-                Negociações deste contato ({journey.data.relatedDeals.length})
-              </summary>
-              <div className="mt-2 max-h-48 overflow-auto space-y-1">
-                {journey.data.relatedDeals.map((deal) => (
-                  <a
-                    key={deal.id}
-                    href={`/crm/deals/${encodeURIComponent(deal.id)}`}
-                    className="block text-primary"
-                  >
-                    {deal.title} ·{" "}
-                    {deal.status === "won"
-                      ? "Ganha"
-                      : deal.status === "lost"
-                        ? "Perdida"
-                        : deal.status === "paused"
-                          ? "Pausada"
-                          : "Em andamento"}
-                  </a>
-                ))}
+            <section
+              aria-label="Negociações vinculadas ao contato"
+              className="rounded-xl border border-border bg-card p-3 sm:p-4 space-y-3"
+            >
+              <div className="flex items-center gap-2">
+                <BriefcaseBusiness className="h-4 w-4 text-primary shrink-0" />
+                <h3 className="text-sm font-semibold text-foreground">Negociações deste contato</h3>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">
+                  {journey.data.relatedDeals.length}
+                </span>
               </div>
-            </details>
+              <p className="text-xs text-muted-foreground">
+                Acompanhe os cards vinculados a este contato e abra cada negociação.
+              </p>
+              <div className="grid gap-3 md:grid-cols-2 max-h-80 overflow-y-auto pr-1">
+                {[...journey.data.relatedDeals]
+                  .sort((a, b) => Number(b.id === currentDealId) - Number(a.id === currentDealId))
+                  .map((deal) => {
+                    const current = deal.id === currentDealId;
+                    const status =
+                      deal.status === "won"
+                        ? {
+                            label: "Ganha",
+                            color:
+                              "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+                          }
+                        : deal.status === "lost"
+                          ? {
+                              label: "Perdida",
+                              color: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
+                            }
+                          : deal.status === "paused"
+                            ? {
+                                label: "Pausada",
+                                color:
+                                  "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+                              }
+                            : {
+                                label: "Em andamento",
+                                color: "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
+                              };
+                    let value = "Valor não informado";
+                    if (deal.value !== null && Number.isFinite(Number(deal.value))) {
+                      try {
+                        value = new Intl.NumberFormat("pt-BR", {
+                          style: "currency",
+                          currency: deal.currency,
+                        }).format(Number(deal.value));
+                      } catch {
+                        value = `${deal.value} ${deal.currency}`;
+                      }
+                    }
+                    return (
+                      <a
+                        key={deal.id}
+                        href={`/crm/deals/${encodeURIComponent(deal.id)}`}
+                        aria-current={current ? "page" : undefined}
+                        className={`group min-w-0 rounded-lg border p-3 space-y-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${current ? "border-primary/30 bg-primary/5" : "border-border bg-background"}`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${status.color}`}
+                          >
+                            {status.label}
+                          </span>
+                          {current && (
+                            <span className="text-[11px] font-semibold text-primary">
+                              Card atual
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-sm font-semibold text-foreground break-words">
+                            {deal.title}
+                          </span>
+                          <ArrowUpRight
+                            className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary"
+                            aria-hidden="true"
+                          />
+                        </div>
+                        <dl className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="min-w-0">
+                            <dt className="text-muted-foreground">Funil</dt>
+                            <dd className="mt-0.5 break-words text-foreground">
+                              {deal.pipelineName || "Não informado"}
+                            </dd>
+                          </div>
+                          <div className="min-w-0">
+                            <dt className="text-muted-foreground">Etapa</dt>
+                            <dd className="mt-0.5 break-words text-foreground">
+                              {deal.stageName || "Não informada"}
+                            </dd>
+                          </div>
+                        </dl>
+                        <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                          <UserRound className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          <span className="break-words">
+                            {deal.operatorName || "Sem responsável"}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap justify-between gap-2 border-t border-border pt-2 text-xs">
+                          <span className="font-semibold text-foreground">{value}</span>
+                          <span className="text-muted-foreground">
+                            Criada em {new Date(deal.createdAt).toLocaleDateString("pt-BR")}
+                          </span>
+                        </div>
+                      </a>
+                    );
+                  })}
+              </div>
+            </section>
           )}
           <p className="text-[11px] text-muted-foreground">
-            Consultado em {new Date(journey.data.syncedAt).toLocaleString("pt-BR")}
-            {journey.data.cached ? " · Dados em cache" : ""}. Visitas, cliques e automações só
-            aparecem se disponibilizados pela API.
+            Última consulta ao RD: {new Date(journey.data.syncedAt).toLocaleString("pt-BR")}.{" "}
+            Histórico salvo. Use Atualizar jornada para buscar novos eventos. Visitas, cliques e
+            automações só aparecem se disponibilizados pela API.
           </p>
           {journey.data.pages.some((page) => !page.recognized) && (
             <p className="text-xs text-amber-700">

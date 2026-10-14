@@ -1,10 +1,13 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "../../db";
 import {
   contacts,
   crmDealContacts,
   crmDeals,
+  crmPipelines,
+  crmStages,
+  operators,
   rdMarketingConnections,
   rdMarketingFlows,
   rdMarketingJourneyLinks as links,
@@ -29,7 +32,6 @@ type Query = {
 const canRead = (owner: string | null, viewer: Viewer) =>
   viewer.canViewAll || !owner || owner === viewer.operatorId;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-const CACHE_MS = 5 * 60 * 1000;
 const rawObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -122,9 +124,8 @@ export async function dealRdJourney(
       "RD_SNAPSHOT_CHANGED",
       409,
     );
-  const refresh =
-    !query.eventType &&
-    (!sameConnection || query.refresh || Date.now() - existing.syncedAt.getTime() >= CACHE_MS);
+  // Saved journeys do not expire. Opening a card must not spend another RD request.
+  const refresh = !query.eventType && (!sameConnection || query.refresh);
   const scope = existing
     ? and(
         eq(pages.tenantId, tenantId),
@@ -140,7 +141,7 @@ export async function dealRdJourney(
           .where(
             query.eventType
               ? and(scope, eq(pages.eventType, query.eventType), eq(pages.page, query.page!))
-              : and(scope, eq(pages.page, 1)),
+              : scope,
           )
       : [];
   let fetched: import("./api-types").RdEventPage[] = [];
@@ -256,8 +257,7 @@ export async function dealRdJourney(
         } else if (
           link &&
           link.connectionVersion === version &&
-          link.snapshotId !== existing?.snapshotId &&
-          Date.now() - link.syncedAt.getTime() < CACHE_MS
+          link.snapshotId !== existing?.snapshotId
         ) {
           // Another reader completed the same refresh; share that snapshot.
           data = await tx
@@ -268,7 +268,6 @@ export async function dealRdJourney(
                 eq(pages.tenantId, tenantId),
                 eq(pages.linkId, link.id),
                 eq(pages.snapshotId, link.snapshotId),
-                eq(pages.page, 1),
               ),
             );
         } else {
@@ -421,11 +420,26 @@ export async function dealRdJourney(
       title: crmDeals.title,
       status: crmDeals.status,
       owner: crmDeals.operatorId,
+      value: crmDeals.value,
+      currency: crmDeals.currency,
+      pipelineName: crmPipelines.name,
+      stageName: crmStages.name,
+      operatorName: operators.name,
+      createdAt: crmDeals.createdAt,
     })
     .from(crmDealContacts)
     .innerJoin(
       crmDeals,
       and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
+    )
+    .leftJoin(
+      crmPipelines,
+      and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId)),
+    )
+    .leftJoin(crmStages, and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId)))
+    .leftJoin(
+      operators,
+      and(eq(operators.id, crmDeals.operatorId), eq(operators.tenantId, tenantId)),
     )
     .where(
       and(
@@ -433,7 +447,8 @@ export async function dealRdJourney(
         eq(crmDealContacts.contactId, contact.id),
         eq(crmDeals.tenantId, tenantId),
       ),
-    );
+    )
+    .orderBy(desc(crmDeals.createdAt), crmDeals.id);
   return {
     contactId: contact.id,
     contactName: contact.name || "Contato",
@@ -444,6 +459,9 @@ export async function dealRdJourney(
     events,
     relatedDeals: related
       .filter((deal) => canRead(deal.owner, viewer))
-      .map(({ id, title, status }) => ({ id, title, status })),
+      .map(({ owner: _owner, createdAt, ...deal }) => ({
+        ...deal,
+        createdAt: createdAt.toISOString(),
+      })),
   };
 }

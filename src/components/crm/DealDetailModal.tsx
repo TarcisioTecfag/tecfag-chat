@@ -3943,6 +3943,7 @@ export function DealDetailModal({
 
                     {/* Campo Animado para Criar e Salvar Anotação (Conforme Foto 3) */}
                     {(historySourceFilter === "all" || historySourceFilter === "marketing") && <RdMarketingJourneyControls
+                      currentDealId={dealId || ""}
                       contacts={journeyContacts} contactId={journeyContactId}
                       onContact={contactId=>setJourneySelection({ dealId: dealId || "", contactId })}
                       onLoad={()=>{ setJourneyEnabledFor(journeyContext); if (rdJourney.error) void rdJourney.refresh(); }} journey={rdJourney}
