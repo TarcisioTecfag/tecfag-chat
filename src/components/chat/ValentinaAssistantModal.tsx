@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   ArrowRight,
+  ArrowLeft,
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ interface ValentinaAssistantModalProps {
   tenantId?: string;
   operatorName?: string;
   onApplyText: (text: string, asInternalNote?: boolean) => void;
+  inline?: boolean;
 }
 
 type AssistantAction = "best_response" | "grammar_fix" | "lead_summary";
@@ -81,6 +83,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
   tenantId = "valem",
   operatorName = "Vendedor",
   onApplyText,
+  inline = true,
 }) => {
   const aiPersona = getAiPersona(tenantId || "valem");
   const actionCards = getActionCards(aiPersona.name);
@@ -160,200 +163,221 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
     setIsLoading(false);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div
-        className="relative w-full max-w-xl rounded-2xl border border-border bg-card shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
-          <div className="flex items-center gap-3">
-            <AiAvatar tenantId={tenantId || "valem"} className="h-9 w-9 rounded-xl border border-primary/20 shadow-xs" />
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-foreground">Assistente {aiPersona.name}</h3>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary border border-primary/20">
-                  {aiPersona.name === "Valentina" ? "IA Comercial" : "IA Técnica"}
-                </span>
+  const handleClose = () => {
+    handleReset();
+    onClose();
+  };
+
+  const panelBody = (
+    <>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-muted/25 shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {(generatedText || errorMessage || isLoading) && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+              title="Voltar às opções"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          )}
+          <AiAvatar
+            tenantId={tenantId || "valem"}
+            className="h-7 w-7 rounded-lg border border-primary/20 shadow-2xs shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs md:text-sm font-bold text-foreground truncate">
+                Assistente {aiPersona.name}
+              </h3>
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary border border-primary/20 shrink-0">
+                {aiPersona.name === "Valentina" ? "IA Comercial" : "IA Técnica"}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground truncate">
+              {contactName
+                ? `Atendimento: ${contactName}`
+                : aiPersona.name === "Valentina"
+                ? "Suporte inteligente para o vendedor"
+                : "Suporte inteligente para o consultor técnico"}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleClose}
+          title="Fechar assistente"
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer shrink-0"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Content Area */}
+      <div className="p-3.5 overflow-y-auto flex-1 space-y-3 min-h-0">
+        {/* Se nenhuma ação foi gerada e não está carregando, mostra as opções */}
+        {!isLoading && !generatedText && !errorMessage && (
+          <div className="space-y-2.5">
+            <div className="text-[11px] text-muted-foreground font-semibold">
+              Selecione uma função de inteligência artificial:
+            </div>
+
+            <div className="grid gap-2">
+              {actionCards.map((card) => {
+                const Icon = card.icon;
+                const isGrammarDisabled =
+                  card.requiresDraft && (!currentDraftText || !currentDraftText.trim());
+
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => handleExecute(card.id)}
+                    disabled={isGrammarDisabled}
+                    className={`group relative flex items-start gap-3 rounded-xl border p-3 text-left transition-all cursor-pointer ${
+                      isGrammarDisabled
+                        ? "opacity-55 border-border/60 bg-muted/20 cursor-not-allowed"
+                        : "border-border/80 bg-background hover:border-primary/50 hover:bg-primary/5 hover:shadow-2xs"
+                    }`}
+                  >
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted border border-border group-hover:bg-primary/10 group-hover:text-primary group-hover:border-primary/20 transition">
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs font-bold text-foreground group-hover:text-primary transition">
+                          {card.title}
+                        </span>
+                        {card.badge && (
+                          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
+                            {card.badge}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {card.description}
+                      </p>
+                      {card.requiresDraft && isGrammarDisabled && (
+                        <p className="mt-1 text-[10px] text-amber-600 font-medium">
+                          Digite um rascunho no campo abaixo para habilitar a correção.
+                        </p>
+                      )}
+                    </div>
+
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition mt-1.5" />
+                  </button>
+                );
+              })}
+            </div>
+
+            {currentDraftText && currentDraftText.trim() && (
+              <div className="rounded-xl border border-border bg-muted/20 p-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+                  Rascunho atual no chat:
+                </div>
+                <p className="text-xs text-foreground italic line-clamp-2">
+                  "{currentDraftText}"
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {contactName
-                  ? `Atendimento: ${contactName}`
-                  : aiPersona.name === "Valentina"
-                  ? "Suporte inteligente para o vendedor"
-                  : "Suporte inteligente para o consultor técnico"}
+            )}
+          </div>
+        )}
+
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex flex-col items-center justify-center py-8 px-4 space-y-3">
+            <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 animate-pulse">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+            <div className="text-center space-y-1">
+              <h4 className="text-xs md:text-sm font-bold text-foreground">
+                {aiPersona.name} analisando a conversa...
+              </h4>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                {selectedAction === "best_response" &&
+                  (aiPersona.name === "Valentina"
+                    ? "Lendo o histórico e formulando a melhor proposta comercial..."
+                    : "Lendo o histórico e formulando a melhor orientação técnica...")}
+                {selectedAction === "grammar_fix" &&
+                  "Revisando ortografia, pontuação e gramática em português..."}
+                {selectedAction === "lead_summary" &&
+                  (aiPersona.name === "Valentina"
+                    ? "Consolidando necessidade, perfil e próximos passos do atendimento..."
+                    : "Consolidando necessidade técnica e próximos passos do chamado...")}
               </p>
             </div>
           </div>
+        )}
 
-          <button
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Content Area */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-4 min-h-0">
-          {/* Se nenhuma ação foi gerada e não está carregando, mostra as opções */}
-          {!isLoading && !generatedText && !errorMessage && (
-            <div className="space-y-3">
-              <div className="text-xs text-muted-foreground font-medium mb-1">
-                Selecione uma função de inteligência artificial:
-              </div>
-
-              <div className="grid gap-2.5">
-                {actionCards.map((card) => {
-                  const Icon = card.icon;
-                  const isGrammarDisabled =
-                    card.requiresDraft && (!currentDraftText || !currentDraftText.trim());
-
-                  return (
-                    <button
-                      key={card.id}
-                      onClick={() => handleExecute(card.id)}
-                      disabled={isGrammarDisabled}
-                      className={`group relative flex items-start gap-3.5 rounded-xl border p-3.5 text-left transition-all cursor-pointer ${
-                        isGrammarDisabled
-                          ? "opacity-50 border-border/60 bg-muted/20 cursor-not-allowed"
-                          : "border-border hover:border-primary/50 hover:bg-primary/5 hover:shadow-xs"
-                      }`}
-                    >
-                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted border border-border group-hover:bg-primary/10 group-hover:text-primary group-hover:border-primary/20 transition">
-                        <Icon className="h-4 w-4" />
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-xs font-bold text-foreground group-hover:text-primary transition">
-                            {card.title}
-                          </span>
-                          {card.badge && (
-                            <span className="rounded bg-primary/10 px-1.5 py-0.2 text-[9px] font-semibold text-primary">
-                              {card.badge}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
-                          {card.description}
-                        </p>
-                        {card.requiresDraft && isGrammarDisabled && (
-                          <p className="mt-1 text-[10px] text-amber-600 font-medium">
-                            Digite um rascunho no chat para habilitar a correção.
-                          </p>
-                        )}
-                      </div>
-
-                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition mt-2" />
-                    </button>
-                  );
-                })}
-              </div>
-
-              {currentDraftText && currentDraftText.trim() && (
-                <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                    Rascunho atual no chat:
-                  </div>
-                  <p className="text-xs text-foreground italic line-clamp-2">
-                    "{currentDraftText}"
-                  </p>
-                </div>
-              )}
+        {/* Error State */}
+        {errorMessage && !isLoading && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 space-y-2.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-destructive">
+              <X className="h-4 w-4" />
+              <span>Ocorreu um erro</span>
             </div>
-          )}
+            <p className="text-xs text-muted-foreground">{errorMessage}</p>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline cursor-pointer"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Tentar novamente
+            </button>
+          </div>
+        )}
 
-          {/* Loading State */}
-          {isLoading && (
-            <div className="flex flex-col items-center justify-center py-12 px-4 space-y-4">
-              <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 animate-pulse">
-                <Loader2 className="h-7 w-7 animate-spin" />
+        {/* Result State */}
+        {generatedText && !isLoading && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 text-primary text-[10px] font-bold">
+                  <Sparkles className="h-3 w-3" />
+                </span>
+                <span className="text-xs font-bold text-foreground">
+                  {selectedAction === "best_response" && "Melhor Resposta Sugerida"}
+                  {selectedAction === "grammar_fix" && "Texto Corrigido"}
+                  {selectedAction === "lead_summary" && "Resumo Estruturado do Atendimento"}
+                </span>
               </div>
-              <div className="text-center space-y-1">
-                <h4 className="text-sm font-bold text-foreground">
-                  {aiPersona.name} analisando a conversa...
-                </h4>
-                <p className="text-xs text-muted-foreground max-w-sm">
-                  {selectedAction === "best_response" &&
-                    (aiPersona.name === "Valentina"
-                      ? "Lendo o histórico e formulando a melhor proposta comercial..."
-                      : "Lendo o histórico e formulando a melhor orientação técnica...")}
-                  {selectedAction === "grammar_fix" &&
-                    "Revisando ortografia, pontuação e gramática em português..."}
-                  {selectedAction === "lead_summary" &&
-                    (aiPersona.name === "Valentina"
-                      ? "Consolidando necessidade, perfil e próximos passos do atendimento..."
-                      : "Consolidando necessidade técnica e próximos passos do chamado...")}
-                </p>
-              </div>
-            </div>
-          )}
 
-          {/* Error State */}
-          {errorMessage && !isLoading && (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-destructive">
-                <X className="h-4 w-4" />
-                <span>Ocorreu um erro</span>
-              </div>
-              <p className="text-xs text-muted-foreground">{errorMessage}</p>
               <button
-                onClick={handleReset}
-                className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline cursor-pointer"
+                type="button"
+                onClick={() => handleExecute(selectedAction!)}
+                className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition cursor-pointer"
               >
-                <RefreshCw className="h-3.5 w-3.5" /> Tentar novamente
+                <RefreshCw className="h-3 w-3" /> Gerar outra
               </button>
             </div>
-          )}
 
-          {/* Result State */}
-          {generatedText && !isLoading && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 text-primary text-[10px] font-bold">
-                    <Sparkles className="h-3 w-3" />
-                  </span>
-                  <span className="text-xs font-bold text-foreground">
-                    {selectedAction === "best_response" && "Melhor Resposta Sugerida"}
-                    {selectedAction === "grammar_fix" && "Texto Corrigido"}
-                    {selectedAction === "lead_summary" && "Resumo Estruturado do Lead"}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleExecute(selectedAction!)}
-                    className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition cursor-pointer"
-                  >
-                    <RefreshCw className="h-3 w-3" /> Gerar outra
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-background p-4 shadow-2xs">
-                <textarea
-                  value={generatedText}
-                  onChange={(e) => setGeneratedText(e.target.value)}
-                  rows={6}
-                  className="w-full bg-transparent text-xs text-foreground leading-relaxed focus:outline-none resize-none scrollbar-thin"
-                />
-              </div>
-
-              <div className="text-[11px] text-muted-foreground">
-                Você pode editar o texto acima antes de inserir no chat.
-              </div>
+            <div className="rounded-xl border border-border bg-background p-3 shadow-2xs">
+              <textarea
+                value={generatedText}
+                onChange={(e) => setGeneratedText(e.target.value)}
+                rows={4}
+                className="w-full bg-transparent text-xs text-foreground leading-relaxed focus:outline-none resize-none scrollbar-thin"
+              />
             </div>
-          )}
-        </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-t border-border bg-muted/20">
+            <div className="text-[11px] text-muted-foreground">
+              Você pode editar o texto acima antes de inserir no chat.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer Actions */}
+      {(generatedText || !inline) && (
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/20 shrink-0">
           {generatedText ? (
             <>
               <button
+                type="button"
                 onClick={handleReset}
                 className="text-xs font-medium text-muted-foreground hover:text-foreground transition cursor-pointer"
               >
@@ -362,6 +386,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
 
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={handleCopy}
                   className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition cursor-pointer"
                 >
@@ -378,6 +403,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
 
                 {selectedAction === "lead_summary" ? (
                   <button
+                    type="button"
                     onClick={() => handleInsertIntoChat(true)}
                     className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700 transition shadow-xs cursor-pointer"
                   >
@@ -385,6 +411,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
                   </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={() => handleInsertIntoChat(false)}
                     className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition shadow-xs cursor-pointer"
                   >
@@ -396,7 +423,8 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
           ) : (
             <div className="w-full flex justify-end">
               <button
-                onClick={onClose}
+                type="button"
+                onClick={handleClose}
                 className="rounded-lg border border-border bg-card px-4 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition cursor-pointer"
               >
                 Fechar
@@ -404,7 +432,30 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
             </div>
           )}
         </div>
+      )}
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div
+        data-assistant-inline-panel="true"
+        className="flex flex-col max-h-[52vh] w-full bg-card border border-border rounded-2xl overflow-hidden shadow-soft animate-in slide-in-from-bottom-2 duration-200 mb-2.5"
+      >
+        {panelBody}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+      <div
+        className="relative w-full max-w-xl rounded-2xl border border-border bg-card shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {panelBody}
       </div>
     </div>
   );
 };
+

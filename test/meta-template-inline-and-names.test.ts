@@ -65,14 +65,23 @@ describe("Meta Template Inline Composer & First-Name Formatting (No @)", () => {
     expect(managerSource).not.toContain("@nome do operador");
   });
 
-  it("ChatPanel expande MetaTemplateSelectModal inline dentro do composer de mensagens", () => {
+  it("ChatPanel expande MetaTemplateSelectModal e ValentinaAssistantModal inline e exibe card de bloqueio fora da janela de 24h", () => {
     const chatPanelSource = readFileSync(
       resolve(process.cwd(), "src/components/chat/ChatPanel.tsx"),
       "utf-8",
     );
+    const assistantSource = readFileSync(
+      resolve(process.cwd(), "src/components/chat/ValentinaAssistantModal.tsx"),
+      "utf-8",
+    );
 
-    const matches = chatPanelSource.match(/<MetaTemplateSelectModal/g) || [];
-    expect(matches.length).toBe(1);
-    expect(chatPanelSource).toContain("inline={true}");
+    const templateMatches = chatPanelSource.match(/<MetaTemplateSelectModal/g) || [];
+    expect(templateMatches.length).toBe(2); // 1 no card de bloqueio 24h + 1 no composer normal
+
+    const assistantMatches = chatPanelSource.match(/<ValentinaAssistantModal/g) || [];
+    expect(assistantMatches.length).toBe(1);
+    expect(chatPanelSource).toContain("Janela de 24 horas encerrada");
+    expect(chatPanelSource).toContain("Enviar Template");
+    expect(assistantSource).toContain('data-assistant-inline-panel="true"');
   });
 });
