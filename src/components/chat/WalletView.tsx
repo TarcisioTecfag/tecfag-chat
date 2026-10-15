@@ -60,18 +60,8 @@ export function WalletView() {
     onChange: setActiveTab,
   });
 
-  // KPI de inatividade — busca do servidor (apenas para a aba carteira)
+  // KPI de inatividade — busca do servidor isolado para o operador logado (apenas para a aba carteira)
   const [inactivityKpi, setInactivityKpi] = useState<{ over50Count: number; over60Count: number } | null>(null);
-
-  useEffect(() => {
-    if (activeTab !== "wallet" || !tenant) return;
-    fetch(`/api/contacts/check-inactivity?tenantId=${tenant}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data) setInactivityKpi({ over50Count: data.over50Count, over60Count: data.over60Count });
-      })
-      .catch(() => {}); // silencia erros de rede — KPI é informativo
-  }, [activeTab, tenant]);
   const [search, setSearch] = useState("");
   
   // Custom Modals
@@ -105,6 +95,15 @@ export function WalletView() {
     }, 50);
   };
 
+  const isAiContactRow = (c: Conversation) =>
+    c.id === "valentina" ||
+    c.id === "fagner" ||
+    c.contactId === "valentina" ||
+    c.contactId === "fagner" ||
+    c.name.toLowerCase().includes(aiPersona.name.toLowerCase()) ||
+    c.name.toLowerCase().includes("valentina") ||
+    c.name.toLowerCase().includes("fagner");
+
   // Filter clients in the wallet (walletOperatorId === currentOperatorId)
   const walletClients = conversations.filter((c) => {
     const isInWallet = c.walletOperatorId === currentOperatorId;
@@ -122,6 +121,26 @@ export function WalletView() {
     return true;
   });
 
+  const realWalletClients = conversations.filter(
+    (c) => c.walletOperatorId === currentOperatorId && !isAiContactRow(c)
+  );
+
+  useEffect(() => {
+    if (activeTab !== "wallet" || !tenant || !currentOperatorId) return;
+    const params = new URLSearchParams({
+      tenantId: tenant,
+      operatorId: currentOperatorId,
+    });
+    fetch(`/api/contacts/check-inactivity?${params.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && typeof data.over50Count === "number" && typeof data.over60Count === "number") {
+          setInactivityKpi({ over50Count: data.over50Count, over60Count: data.over60Count });
+        }
+      })
+      .catch(() => {}); // silencia erros de rede — KPI é informativo
+  }, [activeTab, tenant, currentOperatorId, realWalletClients.length]);
+
   // Filter templates of the operator
   const filteredTemplates = templates.filter((tpl) => {
     if (search.trim() !== "") {
@@ -133,8 +152,8 @@ export function WalletView() {
     return true;
   });
 
-  // Stats
-  const activeAttendancesCount = walletClients.filter(
+  // Stats (apenas clientes reais da carteira, sem contar o contato fixo da IA)
+  const activeAttendancesCount = realWalletClients.filter(
     (c) => c.queue === "meus" && c.operatorId === currentOperatorId
   ).length;
 
@@ -244,7 +263,7 @@ export function WalletView() {
                 <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                   Clientes em Carteira
                 </div>
-                <div className="text-lg font-bold text-foreground">{walletClients.length}</div>
+                <div className="text-lg font-bold text-foreground">{realWalletClients.length}</div>
               </div>
             </div>
 
