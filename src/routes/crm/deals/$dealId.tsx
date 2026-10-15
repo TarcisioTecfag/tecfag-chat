@@ -17,7 +17,7 @@ function DealPage() {
   const { dealId } = Route.useParams();
   const { from } = Route.useSearch();
   const navigate = useNavigate();
-  const { tenant, isAuthenticated, setActiveView, setSelectedChatId } = useChat();
+  const { tenant, isAuthenticated, refreshConversations, setActiveView, setSelectedChatId } = useChat();
   const [sessionChecked, setSessionChecked] = useState(false);
   const [authorized, setAuthorized] = useState(false);
   const [pipelines, setPipelines] = useState<
@@ -77,7 +77,8 @@ function DealPage() {
     navigate({ to: "/" });
   };
 
-  const openConversation = (conversationId: string) => {
+  const openConversation = async (conversationId: string) => {
+    await refreshConversations(conversationId);
     setSelectedChatId(conversationId);
     setActiveView("chat");
     navigate({ to: "/" });

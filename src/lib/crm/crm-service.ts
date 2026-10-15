@@ -2439,7 +2439,7 @@ export class CrmService {
       db.select({
         dealId: crmDealContacts.dealId,
         count: sql<number>`count(*)::int`,
-        firstContactId: sql<string>`(array_agg(${crmDealContacts.contactId} order by ${crmDealContacts.createdAt} asc))[1]`,
+        firstContactId: sql<string>`(array_agg(${crmDealContacts.contactId} order by ${crmDealContacts.isPrimary} desc, ${crmDealContacts.createdAt} asc))[1]`,
       }).from(crmDealContacts).where(and(
         eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, dealIds),
       )).groupBy(crmDealContacts.dealId),

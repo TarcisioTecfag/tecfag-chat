@@ -13,6 +13,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Folder,
   Forward,
   GripVertical,
   Image as ImageIcon,
@@ -58,6 +59,11 @@ import { AiAvatar } from "@/components/ui/AiAvatar";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
 import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
+import {
+  collectTemplateCustomGroups,
+  matchesMetaTemplateFilter,
+  normalizeTemplateCustomGroups,
+} from "@/lib/whatsapp/meta-template-common";
 import { toast } from "sonner";
 import type { Conversation, Message } from "@/lib/mockData";
 
@@ -465,6 +471,7 @@ function MiniMediaRenderer({
 
 function MiniChatTemplateSelector({
   templates,
+  customGroups: configuredGroups = [],
   customerName = "Cliente",
   operatorName = "Atendente",
   loading = false,
@@ -472,6 +479,7 @@ function MiniChatTemplateSelector({
   onSend,
 }: {
   templates: ApprovedMetaTemplate[];
+  customGroups?: string[];
   customerName?: string;
   operatorName?: string;
   loading?: boolean;
@@ -479,33 +487,34 @@ function MiniChatTemplateSelector({
   onSend: (template: ApprovedMetaTemplate, parameters: string[]) => Promise<boolean>;
 }) {
   const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [selectedFilter, setSelectedFilter] = useState<string>("ALL");
   const [selectedTemplate, setSelectedTemplate] = useState<ApprovedMetaTemplate | null>(null);
   const [parameters, setParameters] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
 
+  const supportedTemplates = useMemo(
+    () => templates.filter((t) => t.supported),
+    [templates],
+  );
+
   const categories = useMemo(() => {
     const cats = new Set<string>();
-    templates.forEach((t) => {
+    supportedTemplates.forEach((t) => {
       if (t.category) cats.add(t.category.toUpperCase());
     });
     return Array.from(cats);
-  }, [templates]);
+  }, [supportedTemplates]);
+
+  const customGroups = useMemo(
+    () => collectTemplateCustomGroups(supportedTemplates, configuredGroups),
+    [supportedTemplates, configuredGroups],
+  );
 
   const filteredTemplates = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return templates.filter((t) => {
-      if (!t.supported) return false;
-      const matchesSearch =
-        !q ||
-        t.name.toLowerCase().includes(q) ||
-        t.bodyText.toLowerCase().includes(q);
-      const matchesCat =
-        selectedCategory === "ALL" ||
-        t.category?.toUpperCase() === selectedCategory;
-      return matchesSearch && matchesCat;
-    });
-  }, [templates, search, selectedCategory]);
+    return supportedTemplates.filter((t) =>
+      matchesMetaTemplateFilter(t, { search, selectedFilter }),
+    );
+  }, [supportedTemplates, search, selectedFilter]);
 
   const handleSelect = (template: ApprovedMetaTemplate) => {
     setSelectedTemplate(template);
@@ -611,14 +620,14 @@ function MiniChatTemplateSelector({
         </div>
       ) : !selectedTemplate ? (
         <>
-          {/* Busca + Filtro por Categoria */}
+          {/* Busca + Filtro por Categoria e Grupo Personalizado */}
           <div className="shrink-0 space-y-2 border-b border-border/60 bg-background/60 p-2.5">
             <div className="relative flex items-center">
               <Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Pesquisar template por nome ou texto..."
+                placeholder="Pesquisar por nome, texto ou grupo..."
                 className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/20"
               />
               {search && (
@@ -632,33 +641,57 @@ function MiniChatTemplateSelector({
               )}
             </div>
 
-            {categories.length > 0 && (
+            {(categories.length > 0 || customGroups.length > 0) && (
               <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none">
                 <button
                   type="button"
-                  onClick={() => setSelectedCategory("ALL")}
+                  onClick={() => setSelectedFilter("ALL")}
                   className={`shrink-0 rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
-                    selectedCategory === "ALL"
+                    selectedFilter === "ALL"
                       ? "bg-primary text-primary-foreground shadow-2xs"
                       : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
-                  TODOS
+                  TODOS ({supportedTemplates.length})
                 </button>
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`shrink-0 rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
-                      selectedCategory === cat
-                        ? "bg-primary text-primary-foreground shadow-2xs"
-                        : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    }`}
-                  >
-                    {cat === "UTILITY" ? "UTILIDADE" : cat}
-                  </button>
-                ))}
+                {categories.map((cat) => {
+                  const filterKey = `CAT:${cat}`;
+                  return (
+                    <button
+                      key={filterKey}
+                      type="button"
+                      onClick={() => setSelectedFilter(filterKey)}
+                      className={`shrink-0 rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
+                        selectedFilter === filterKey
+                          ? "bg-primary text-primary-foreground shadow-2xs"
+                          : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      {cat === "UTILITY" ? "UTILIDADE" : cat}
+                    </button>
+                  );
+                })}
+                {customGroups.length > 0 && categories.length > 0 && (
+                  <span className="h-3.5 w-px bg-border shrink-0 mx-0.5" />
+                )}
+                {customGroups.map((groupName) => {
+                  const filterKey = `GRP:${groupName}`;
+                  return (
+                    <button
+                      key={filterKey}
+                      type="button"
+                      onClick={() => setSelectedFilter(filterKey)}
+                      className={`shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors cursor-pointer ${
+                        selectedFilter === filterKey
+                          ? "bg-primary text-primary-foreground shadow-2xs"
+                          : "bg-primary/10 text-primary hover:bg-primary/15 border border-primary/20"
+                      }`}
+                    >
+                      <Folder className="h-2.5 w-2.5 shrink-0" />
+                      <span>{groupName}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -670,12 +703,13 @@ function MiniChatTemplateSelector({
                 <LayoutTemplate className="h-6 w-6 text-muted-foreground/50 mb-1.5" />
                 <p className="text-xs font-semibold text-foreground">Nenhum template encontrado</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Tente outro termo de busca ou categoria.
+                  Tente outro termo de busca, categoria ou grupo.
                 </p>
               </div>
             ) : (
               filteredTemplates.map((template) => {
                 const buttonsComponent = template.components?.find((c) => c.type === "BUTTONS");
+                const tplGroups = normalizeTemplateCustomGroups(template.customGroups);
                 return (
                   <button
                     key={`${template.name}:${template.language}`}
@@ -683,7 +717,7 @@ function MiniChatTemplateSelector({
                     onClick={() => handleSelect(template)}
                     className="group w-full text-left rounded-xl border border-border/80 bg-background hover:border-primary/50 hover:bg-primary/5 p-2.5 transition-all cursor-pointer shadow-2xs"
                   >
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <div className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
                           <LayoutTemplate className="h-3 w-3" />
@@ -692,9 +726,20 @@ function MiniChatTemplateSelector({
                           {template.name}
                         </span>
                       </div>
-                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">
-                        {template.category === "UTILITY" ? "UTILIDADE" : template.category}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {tplGroups.map((gName) => (
+                          <span
+                            key={gName}
+                            className="inline-flex items-center gap-0.5 shrink-0 rounded bg-primary/10 border border-primary/20 px-1.5 py-0.5 text-[9px] font-bold text-primary"
+                          >
+                            <Folder className="h-2.5 w-2.5" />
+                            <span>{gName}</span>
+                          </span>
+                        ))}
+                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">
+                          {template.category === "UTILITY" ? "UTILIDADE" : template.category}
+                        </span>
+                      </div>
                     </div>
 
                     <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
@@ -863,6 +908,12 @@ export function CrmChatWidget() {
   const [sending, setSending] = useState(false);
   const [metaWindowOpen, setMetaWindowOpen] = useState<boolean | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [openedChatIds, setOpenedChatIds] = useState<string[]>([]);
+  const [resolvingThread, setResolvingThread] = useState<{
+    conversationId?: string;
+    name?: string;
+    phone?: string;
+  } | null>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -874,6 +925,7 @@ export function CrmChatWidget() {
   const {
     activeProvider,
     activeView,
+    captureChat,
     conversations,
     currentOperatorId,
     isAuthenticated,
@@ -882,6 +934,7 @@ export function CrmChatWidget() {
     operatorProfile,
     operators,
     pinChat,
+    refreshConversations,
     selectedChatId,
     sendMessage,
     setActiveView,
@@ -890,6 +943,9 @@ export function CrmChatWidget() {
     transferChat,
   } = useChat();
   const { canAccessView, canViewCrm } = usePermissions();
+
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
 
   const aiPersona = getAiPersona(tenant || "valem");
   const aiConversation = conversations.find((conversation) => conversation.id === "valentina");
@@ -1055,6 +1111,7 @@ export function CrmChatWidget() {
 
   // Templates Meta Aprovados
   const [metaTemplates, setMetaTemplates] = useState<ApprovedMetaTemplate[]>([]);
+  const [metaTemplateCustomGroups, setMetaTemplateCustomGroups] = useState<string[]>([]);
   const [metaTemplatesLoading, setMetaTemplatesLoading] = useState(false);
   const [showMetaTemplateModal, setShowMetaTemplateModal] = useState(false);
 
@@ -1070,6 +1127,9 @@ export function CrmChatWidget() {
       setMetaTemplates(
         (data.templates || []).filter((item: { supported: boolean }) => item.supported)
       );
+      setMetaTemplateCustomGroups(
+        Array.isArray(data.customGroups) ? data.customGroups : []
+      );
       if (data.window) setMetaWindowOpen(data.window.open === true);
     } catch (err: any) {
       toast.error(err.message || "Erro ao consultar templates aprovados");
@@ -1083,6 +1143,14 @@ export function CrmChatWidget() {
     parameters: string[],
   ): Promise<boolean> => {
     try {
+      if (
+        selected &&
+        selected.id !== "valentina" &&
+        selected.id !== "__resolving__" &&
+        (selected.queue !== "meus" || selected.operatorId !== currentOperatorId)
+      ) {
+        await captureChat(selected.id);
+      }
       const sent = await sendMessage("", false, undefined, null, {
         name: template.name,
         language: template.language,
@@ -1146,7 +1214,8 @@ export function CrmChatWidget() {
       conversation.id !== "valentina" &&
       !archivedIds.includes(conversation.id) &&
       ((conversation.queue === "meus" && conversation.operatorId === currentOperatorId) ||
-       (conversation.walletOperatorId === currentOperatorId && conversation.queue !== "finalizados")),
+       (conversation.walletOperatorId === currentOperatorId && conversation.queue !== "finalizados") ||
+       openedChatIds.includes(conversation.id)),
   );
 
   const selected =
@@ -1162,14 +1231,34 @@ export function CrmChatWidget() {
               lastMessageTime: "Agora",
               unreadCount: 0,
             } as any))
-          : conversations.find((conversation) => conversation.id === selectedChatId))
+          : conversations.find((conversation) => conversation.id === selectedChatId) ||
+            (resolvingThread
+              ? ({
+                  id: resolvingThread.conversationId || "__resolving__",
+                  name: resolvingThread.name || "Iniciando atendimento...",
+                  phone: resolvingThread.phone || "",
+                  initials: (resolvingThread.name || "C").slice(0, 2).toUpperCase(),
+                  initialsBg: "#10b981",
+                  channel: "whatsapp",
+                  queue: "meus",
+                  messages: [],
+                  lastMessageTime: "Agora",
+                  unreadCount: 0,
+                } as any)
+              : undefined))
       : undefined;
 
   // ── Histórico completo de mensagens no Mini Chat + sincronização em tempo real ──
   const [history, setHistory] = useState<{ chatId: string; messages: Message[] } | null>(null);
 
   useEffect(() => {
-    if (!open || view !== "thread" || !selected?.id || selected.id === "valentina") {
+    if (
+      !open ||
+      view !== "thread" ||
+      !selected?.id ||
+      selected.id === "valentina" ||
+      selected.id === "__resolving__"
+    ) {
       return;
     }
     const chatId = selected.id;
@@ -1212,7 +1301,12 @@ export function CrmChatWidget() {
   // Mescla mensagens carregadas do histórico com as mensagens em tempo real de `selected.messages`
   const threadMessages = useMemo<Message[]>(() => {
     if (!selected) return [];
-    if (selected.id === "valentina" || !history || history.chatId !== selected.id) {
+    if (
+      selected.id === "valentina" ||
+      selected.id === "__resolving__" ||
+      !history ||
+      history.chatId !== selected.id
+    ) {
       return selected.messages || [];
     }
     const map = new Map<string, Message>();
@@ -1285,6 +1379,8 @@ export function CrmChatWidget() {
   useEffect(() => {
     setOpen(false);
     setView("list");
+    setResolvingThread(null);
+    setOpenedChatIds([]);
     setDraft("");
     setSearch("");
   }, [tenant]);
@@ -1305,6 +1401,7 @@ export function CrmChatWidget() {
         } else if (previewImage) {
           setPreviewImage(null);
         } else if (view === "thread") {
+          setResolvingThread(null);
           setView("list");
         } else {
           setOpen(false);
@@ -1325,38 +1422,211 @@ export function CrmChatWidget() {
     discardRecording,
   ]);
 
-  // Listener para eventos globais crm:open-mini-chat
+  // Listener para eventos globais crm:open-mini-chat e open-crm-chat-widget
   useEffect(() => {
     const handleOpenMiniChat = (event: Event) => {
       const custom = event as CustomEvent<{
         conversationId?: string;
+        contactId?: string;
+        dealId?: string;
         phone?: string;
         name?: string;
       }>;
+      const detail = custom.detail || {};
+      const hasSpecificTarget = Boolean(
+        detail.conversationId ||
+        detail.contactId ||
+        detail.dealId ||
+        detail.phone ||
+        detail.name,
+      );
+
       setOpen(true);
-      if (custom.detail?.conversationId) {
-        unarchiveInMiniChat(custom.detail.conversationId);
-        setSelectedChatId(custom.detail.conversationId);
-        markAsRead(custom.detail.conversationId);
-        setView("thread");
-      } else if (custom.detail?.phone) {
-        const cleanPhone = custom.detail.phone.replace(/\D/g, "");
-        const found = conversations.find((c) => {
-          const cPhone = c.phone?.replace(/\D/g, "");
-          return cPhone && cleanPhone && (cPhone.includes(cleanPhone) || cleanPhone.includes(cPhone));
-        });
-        if (found) {
-          unarchiveInMiniChat(found.id);
-          setSelectedChatId(found.id);
-          markAsRead(found.id);
-          setView("thread");
-        }
+
+      if (!hasSpecificTarget) {
+        return;
       }
+
+      // Entra imediatamente na tela de thread da pessoa selecionada (nunca cai na lista geral)
+      setView("thread");
+
+      const currentList = conversationsRef.current;
+      const cleanPhone = detail.phone ? detail.phone.replace(/\D/g, "") : "";
+      const localMatch =
+        (detail.conversationId
+          ? currentList.find((c) => c.id === detail.conversationId)
+          : undefined) ||
+        (detail.contactId
+          ? currentList.find((c) => c.contactId && c.contactId === detail.contactId)
+          : undefined) ||
+        (cleanPhone.length >= 8
+          ? currentList.find((c) => {
+              const cPhone = c.phone?.replace(/\D/g, "");
+              return (
+                cPhone &&
+                cPhone.length >= 8 &&
+                (cPhone.includes(cleanPhone) || cleanPhone.includes(cPhone))
+              );
+            })
+          : undefined);
+
+      const initialConvId = detail.conversationId || localMatch?.id;
+      setResolvingThread({
+        conversationId: initialConvId,
+        name: detail.name || localMatch?.name || "Atendimento",
+        phone: detail.phone || localMatch?.phone || "",
+      });
+
+      if (initialConvId) {
+        unarchiveInMiniChat(initialConvId);
+        setOpenedChatIds((prev) =>
+          prev.includes(initialConvId) ? prev : [...prev, initialConvId],
+        );
+        setSelectedChatId(initialConvId);
+        markAsRead(initialConvId);
+      }
+
+      void (async () => {
+        try {
+          let resolvedConvId = initialConvId || null;
+
+          // 1. Se contactId foi informado (ou se ainda não temos conversa), garante/inicia conversa do contato
+          if (detail.contactId && !detail.conversationId) {
+            const res = await fetch(
+              `${BACKEND_URL}/api/contacts/${encodeURIComponent(detail.contactId)}/conversations`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                  dealId: detail.dealId || undefined,
+                  autoCapture: true,
+                }),
+              },
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.conversationId) {
+                resolvedConvId = data.conversationId;
+              }
+            }
+          }
+
+          // 2. Se ainda não há conversationId e dealId foi informado, resolve/cria contato e conversa da negociação
+          if (!resolvedConvId && detail.dealId) {
+            const res = await fetch(
+              `${BACKEND_URL}/api/crm/deals/${encodeURIComponent(detail.dealId)}/conversations`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                  ensure: true,
+                  autoCapture: true,
+                  phone: detail.phone || undefined,
+                  name: detail.name || undefined,
+                }),
+              },
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.conversationId) {
+                resolvedConvId = data.conversationId;
+              }
+            }
+          }
+
+          // 3. Se ainda não há conversationId mas temos telefone ou nome, localiza ou cria o contato e inicia a conversa
+          if (!resolvedConvId && (detail.phone || detail.name)) {
+            let targetContactId: string | null = null;
+            const searchQuery = (detail.phone || detail.name || "").trim();
+            if (searchQuery) {
+              const searchRes = await fetch(
+                `${BACKEND_URL}/api/contacts?search=${encodeURIComponent(searchQuery)}&limit=5`,
+                { credentials: "include" },
+              );
+              if (searchRes.ok) {
+                const searchData = await searchRes.json();
+                const list = Array.isArray(searchData?.contacts)
+                  ? searchData.contacts
+                  : Array.isArray(searchData)
+                    ? searchData
+                    : [];
+                if (list.length > 0) {
+                  targetContactId = list[0].id;
+                }
+              }
+            }
+
+            if (!targetContactId) {
+              const createContactRes = await fetch(`${BACKEND_URL}/api/contacts`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                  name: detail.name?.trim() || detail.phone?.trim() || "Contato CRM",
+                  phone: detail.phone?.trim() || null,
+                }),
+              });
+              if (createContactRes.ok) {
+                const createdContact = await createContactRes.json();
+                targetContactId = createdContact?.contact?.id || createdContact?.id || null;
+              }
+            }
+
+            if (targetContactId) {
+              const convRes = await fetch(
+                `${BACKEND_URL}/api/contacts/${encodeURIComponent(targetContactId)}/conversations`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({
+                    dealId: detail.dealId || undefined,
+                    autoCapture: true,
+                  }),
+                },
+              );
+              if (convRes.ok) {
+                const convData = await convRes.json();
+                if (convData?.conversationId) {
+                  resolvedConvId = convData.conversationId;
+                }
+              }
+            }
+          }
+
+          if (resolvedConvId) {
+            setResolvingThread((prev) =>
+              prev ? { ...prev, conversationId: resolvedConvId! } : null,
+            );
+            unarchiveInMiniChat(resolvedConvId);
+            setOpenedChatIds((prev) =>
+              prev.includes(resolvedConvId!) ? prev : [...prev, resolvedConvId!],
+            );
+            setSelectedChatId(resolvedConvId);
+            setView("thread");
+            await refreshConversations(resolvedConvId);
+            markAsRead(resolvedConvId);
+            setResolvingThread(null);
+          } else {
+            toast.error("Não foi possível abrir o atendimento selecionado.");
+            setResolvingThread(null);
+          }
+        } catch (err) {
+          console.error("[CrmChatWidget] Erro ao abrir conversa no Mini Chat:", err);
+          setResolvingThread(null);
+        }
+      })();
     };
 
     window.addEventListener("crm:open-mini-chat", handleOpenMiniChat);
-    return () => window.removeEventListener("crm:open-mini-chat", handleOpenMiniChat);
-  }, [conversations, markAsRead, setSelectedChatId]);
+    window.addEventListener("open-crm-chat-widget", handleOpenMiniChat);
+    return () => {
+      window.removeEventListener("crm:open-mini-chat", handleOpenMiniChat);
+      window.removeEventListener("open-crm-chat-widget", handleOpenMiniChat);
+    };
+  }, [markAsRead, refreshConversations, setSelectedChatId]);
 
   // Desbloqueio imediato da janela de 24h assim que uma mensagem recente do cliente é detectada
   useEffect(() => {
@@ -1375,7 +1645,13 @@ export function CrmChatWidget() {
 
   // Validação de janela de 24h na Meta API (reativa a novas mensagens do cliente)
   useEffect(() => {
-    if (!open || activeProvider !== "meta" || selected?.channel !== "whatsapp" || selected?.id === "valentina") {
+    if (
+      !open ||
+      activeProvider !== "meta" ||
+      selected?.channel !== "whatsapp" ||
+      selected?.id === "valentina" ||
+      selected?.id === "__resolving__"
+    ) {
       setMetaWindowOpen(null);
       currentMetaChatIdRef.current = null;
       return;
@@ -1538,13 +1814,23 @@ export function CrmChatWidget() {
 
   const metaRestricted =
     selected?.id !== "valentina" &&
+    selected?.id !== "__resolving__" &&
     activeProvider === "meta" &&
     selected?.channel === "whatsapp" &&
     metaWindowOpen !== true;
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || sending || metaRestricted || !selected || selected.id !== selectedChatId) return;
+    if (
+      !text ||
+      sending ||
+      metaRestricted ||
+      !selected ||
+      selected.id === "__resolving__" ||
+      selected.id !== selectedChatId
+    ) {
+      return;
+    }
     setSending(true);
     setDraft("");
     if (textareaRef.current) {
@@ -1552,6 +1838,12 @@ export function CrmChatWidget() {
     }
     textareaRef.current?.focus();
     try {
+      if (
+        selected.id !== "valentina" &&
+        (selected.queue !== "meus" || selected.operatorId !== currentOperatorId)
+      ) {
+        await captureChat(selected.id);
+      }
       const ok = await sendMessage(text);
       if (!ok) {
         setDraft(text);
@@ -1568,9 +1860,24 @@ export function CrmChatWidget() {
   };
 
   const handleSendAudio = async () => {
-    if (!audioBlob || sending || metaRestricted || !selected || selected.id !== selectedChatId) return;
+    if (
+      !audioBlob ||
+      sending ||
+      metaRestricted ||
+      !selected ||
+      selected.id === "__resolving__" ||
+      selected.id !== selectedChatId
+    ) {
+      return;
+    }
     setSending(true);
     try {
+      if (
+        selected.id !== "valentina" &&
+        (selected.queue !== "meus" || selected.operatorId !== currentOperatorId)
+      ) {
+        await captureChat(selected.id);
+      }
       const ext = audioBlob.type.includes("ogg")
         ? "ogg"
         : audioBlob.type.includes("mp4")
@@ -1684,7 +1991,10 @@ export function CrmChatWidget() {
                         <SystemTooltip content="Voltar para a lista">
                           <button
                             type="button"
-                            onClick={() => setView("list")}
+                            onClick={() => {
+                              setResolvingThread(null);
+                              setView("list");
+                            }}
                             aria-label="Voltar às conversas"
                             className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
                           >
@@ -1731,7 +2041,9 @@ export function CrmChatWidget() {
                             <span className="truncate">
                               {selected.id === "valentina"
                                 ? "Assistente Inteligente · Online"
-                                : `${selected.phone || "WhatsApp"} · Em atendimento`}
+                                : selected.id === "__resolving__"
+                                  ? `${selected.phone || "WhatsApp"} · Preparando atendimento...`
+                                  : `${selected.phone || "WhatsApp"} · Em atendimento`}
                             </span>
                           </div>
                         </div>
@@ -1765,9 +2077,10 @@ export function CrmChatWidget() {
                     {/* Corpo da Thread (Mensagens + Composer + Seletor Interno de Templates) */}
                     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                       <AnimatePresence>
-                        {showMetaTemplateModal && selected.id !== "valentina" && (
+                        {showMetaTemplateModal && selected.id !== "valentina" && selected.id !== "__resolving__" && (
                           <MiniChatTemplateSelector
                             templates={metaTemplates}
+                            customGroups={metaTemplateCustomGroups}
                             customerName={selected.name || "Cliente"}
                             operatorName={operatorProfile?.name || "Atendente"}
                             loading={metaTemplatesLoading}
@@ -1779,7 +2092,17 @@ export function CrmChatWidget() {
 
                       {/* Área de Mensagens com Balões Refinados */}
                       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background/85 px-3 py-3.5 text-xs scrollbar-thin">
-                        {threadMessages.length === 0 ? (
+                        {selected.id === "__resolving__" ? (
+                          <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
+                            <Loader2 className="h-6 w-6 animate-spin text-primary mb-2" />
+                            <p className="text-xs font-semibold text-foreground">
+                              Abrindo conversa de {selected.name}...
+                            </p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              Sincronizando histórico do atendimento.
+                            </p>
+                          </div>
+                        ) : threadMessages.length === 0 ? (
                           <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
                             <div className="grid h-10 w-10 place-items-center rounded-full bg-muted/80 mb-2 border border-border/50">
                               <MessageCircle className="h-5 w-5 text-muted-foreground/60" />

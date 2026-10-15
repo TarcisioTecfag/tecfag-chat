@@ -175,73 +175,67 @@ export const DealCard = React.memo(function DealCard({
     }
   };
 
-  // Ação de abrir no Mini Chat
+  const { refreshConversations, setActiveView, setSelectedChatId } = useChat();
+
+  // Ação de abrir diretamente na conversa específica dentro do Mini Chat
   const handleOpenMiniChat = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (deal.primaryConversationId) {
-      window.dispatchEvent(
-        new CustomEvent("crm:open-mini-chat", {
-          detail: { conversationId: deal.primaryConversationId },
-        })
-      );
-      return;
-    }
-    if (deal.primaryContactId) {
-      fetch(`/api/contacts/${deal.primaryContactId}/conversations`, { method: "POST" })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.conversationId) {
-            window.dispatchEvent(
-              new CustomEvent("crm:open-mini-chat", {
-                detail: { conversationId: data.conversationId },
-              })
-            );
-          } else {
-            window.dispatchEvent(new CustomEvent("crm:open-mini-chat", { detail: {} }));
-          }
-        })
-        .catch(() => {
-          window.dispatchEvent(new CustomEvent("crm:open-mini-chat", { detail: {} }));
-        });
-      return;
-    }
-    if (deal.account?.phone) {
-      window.dispatchEvent(
-        new CustomEvent("crm:open-mini-chat", {
-          detail: { phone: deal.account.phone, name: deal.account.name },
-        })
-      );
-      return;
-    }
-    window.dispatchEvent(new CustomEvent("crm:open-mini-chat", { detail: {} }));
+    window.dispatchEvent(
+      new CustomEvent("crm:open-mini-chat", {
+        detail: {
+          conversationId: deal.primaryConversationId || undefined,
+          contactId: deal.primaryContactId || undefined,
+          dealId: deal.id,
+          phone: deal.account?.phone || undefined,
+          name: deal.account?.name || deal.title,
+        },
+      })
+    );
   };
 
-  const { setActiveView, setSelectedChatId } = useChat();
-
   // Ação de abrir conversa completa no Chat
-  const handleOpenFullChat = (e: React.MouseEvent) => {
+  const handleOpenFullChat = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (deal.primaryConversationId) {
-      setSelectedChatId(deal.primaryConversationId);
-      setActiveView("chat");
-      if (window.location.pathname !== "/") navigate({ to: "/" });
-      return;
-    }
-    if (deal.primaryContactId) {
-      fetch(`/api/contacts/${deal.primaryContactId}/conversations`, { method: "POST" })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.conversationId) {
-            setSelectedChatId(data.conversationId);
-          }
-          setActiveView("chat");
-          if (window.location.pathname !== "/") navigate({ to: "/" });
-        })
-        .catch(() => {
-          setActiveView("chat");
-          if (window.location.pathname !== "/") navigate({ to: "/" });
+    try {
+      let targetConversationId = deal.primaryConversationId || null;
+
+      if (!targetConversationId && deal.primaryContactId) {
+        const res = await fetch(`/api/contacts/${encodeURIComponent(deal.primaryContactId)}/conversations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ dealId: deal.id, autoCapture: true }),
         });
-      return;
+        if (res.ok) {
+          const data = await res.json();
+          targetConversationId = data?.conversationId || null;
+        }
+      }
+
+      if (!targetConversationId) {
+        const res = await fetch(`/api/crm/deals/${encodeURIComponent(deal.id)}/conversations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            ensure: true,
+            autoCapture: true,
+            phone: deal.account?.phone || undefined,
+            name: deal.account?.name || deal.title,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          targetConversationId = data?.conversationId || null;
+        }
+      }
+
+      if (targetConversationId) {
+        await refreshConversations(targetConversationId);
+        setSelectedChatId(targetConversationId);
+      }
+    } catch {
+      // prossegue para tela de chat
     }
     setActiveView("chat");
     if (window.location.pathname !== "/") navigate({ to: "/" });

@@ -503,7 +503,12 @@ export function DealDetailModal({
   const handleOpenChatForContact = async (contactId: string) => {
     setOpeningChatContactId(contactId);
     try {
-      const res = await fetch(`/api/contacts/${contactId}/conversations`, { method: "POST" });
+      const res = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ dealId: deal?.id, autoCapture: true }),
+      });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Erro ao abrir conversa.");
@@ -519,25 +524,21 @@ export function DealDetailModal({
     }
   };
 
-  const handleOpenMiniChatForContact = async (contactId: string) => {
-    setOpeningChatContactId(contactId);
-    try {
-      const res = await fetch(`/api/contacts/${contactId}/conversations`, { method: "POST" });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Erro ao abrir conversa.");
-      }
-      const data = await res.json();
-      if (data.conversationId) {
-        window.dispatchEvent(
-          new CustomEvent("open-crm-chat-widget", { detail: { conversationId: data.conversationId } })
-        );
-      }
-    } catch (err: any) {
-      toast.error(err.message || "Não foi possível abrir o mini-chat.");
-    } finally {
-      setOpeningChatContactId(null);
-    }
+  const handleOpenMiniChatForContact = async (
+    contactId: string,
+    contactName?: string,
+    contactPhone?: string,
+  ) => {
+    window.dispatchEvent(
+      new CustomEvent("crm:open-mini-chat", {
+        detail: {
+          contactId,
+          dealId: deal?.id,
+          name: contactName,
+          phone: contactPhone,
+        },
+      }),
+    );
   };
 
   // Edição rápida de título e valor
@@ -2319,7 +2320,13 @@ export function DealDetailModal({
                           <SystemTooltip content="Abrir no Mini Chat">
                             <button
                               type="button"
-                              onClick={() => handleOpenMiniChatForContact(c.contactId)}
+                              onClick={() =>
+                                handleOpenMiniChatForContact(
+                                  c.contactId,
+                                  c.contact?.name,
+                                  c.contact?.phone,
+                                )
+                              }
                               disabled={openingChatContactId === c.contactId}
                               className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
                             >
@@ -3304,6 +3311,29 @@ export function DealDetailModal({
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                              {/* Botão Abrir no Mini Chat */}
+                              <SystemTooltip content="Abrir no Mini Chat">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    window.dispatchEvent(
+                                      new CustomEvent("crm:open-mini-chat", {
+                                        detail: {
+                                          conversationId: c.conversationId || c.id,
+                                          contactId: c.contactId,
+                                          dealId: deal?.id,
+                                          name: contactName,
+                                          phone: contactPhone,
+                                        },
+                                      }),
+                                    )
+                                  }
+                                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-border/70 bg-muted/40 text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
+                                >
+                                  <MessageCircle className="h-3.5 w-3.5" />
+                                </button>
+                              </SystemTooltip>
+
                               {/* Botão Abrir Chat */}
                               <SystemTooltip content="Abrir conversa no chat principal">
                                 <button

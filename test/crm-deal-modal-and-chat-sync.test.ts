@@ -85,4 +85,46 @@ describe("CRM Deal Modal, Contact/Account Drawers & Chat Sync", () => {
     expect(rdCrmCardSource).toContain("if (data.integrated === false)");
     expect(rdCrmCardSource).toContain("if (integrated === false || (loading && integrated === null))");
   });
+
+  it("opens the Mini Chat directly inside the selected person's thread even when the conversation is not yet started or loaded", () => {
+    const widgetSource = fs.readFileSync(
+      path.join(rootDir, "src/components/crm/CrmChatWidget.tsx"),
+      "utf-8"
+    );
+    const dealCardSource = fs.readFileSync(
+      path.join(rootDir, "src/components/crm/DealCard.tsx"),
+      "utf-8"
+    );
+    const dealModalSource = fs.readFileSync(
+      path.join(rootDir, "src/components/crm/DealDetailModal.tsx"),
+      "utf-8"
+    );
+    const dealConversationsRouteSource = fs.readFileSync(
+      path.join(rootDir, "src/routes/api/crm/deals/$dealId/conversations.ts"),
+      "utf-8"
+    );
+    const contactConversationsRouteSource = fs.readFileSync(
+      path.join(rootDir, "src/routes/api/contacts/$contactId/conversations.ts"),
+      "utf-8"
+    );
+
+    // CrmChatWidget enters thread view immediately, uses resolvingThread placeholder, and hydrates via refreshConversations
+    expect(widgetSource).toContain("const [resolvingThread, setResolvingThread] = useState<");
+    expect(widgetSource).toContain("await refreshConversations(resolvedConvId);");
+    expect(widgetSource).toContain('window.addEventListener("crm:open-mini-chat", handleOpenMiniChat);');
+    expect(widgetSource).toContain('window.addEventListener("open-crm-chat-widget", handleOpenMiniChat);');
+
+    // DealCard passes full context to crm:open-mini-chat without falling back to empty detail
+    expect(dealCardSource).toContain('new CustomEvent("crm:open-mini-chat"');
+    expect(dealCardSource).toContain("dealId: deal.id");
+    expect(dealCardSource).not.toContain('new CustomEvent("crm:open-mini-chat", { detail: {} })');
+
+    // DealDetailModal dispatches crm:open-mini-chat with contactId and dealId
+    expect(dealModalSource).toContain('new CustomEvent("crm:open-mini-chat"');
+
+    // Deal & Contact conversation routes resolve/create and link conversations automatically
+    expect(dealConversationsRouteSource).toContain("if (body?.ensure === true && !body?.conversationId)");
+    expect(contactConversationsRouteSource).toContain("syncConversationWithDeals(");
+  });
 });
+
