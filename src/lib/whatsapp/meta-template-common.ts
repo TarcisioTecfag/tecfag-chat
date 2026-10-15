@@ -55,13 +55,12 @@ export function resolveMetaTemplateValues(
   return Array.from({ length: variableCount }, (_, offset) => {
     const index = offset + 1;
     const binding = bindings[String(index)] || "manual";
-    const manualText = typeof manual[offset]?.text === "string" ? manual[offset].text : "";
     const raw =
       binding === "customer_name"
-        ? formatTemplateFirstName(names.customerName || manualText)
+        ? formatTemplateFirstName(names.customerName)
         : binding === "operator_name"
-          ? formatTemplateFirstName(names.operatorName || manualText)
-          : manualText;
+          ? formatTemplateFirstName(names.operatorName)
+          : manual[offset]?.text;
     const value = typeof raw === "string" ? raw.trim() : "";
     if (!value) throw new Error(`Valor ausente para {{${index}}}.`);
     return value;
