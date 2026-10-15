@@ -6,7 +6,7 @@ import fs from "fs";
 import path from "path";
 import { getMetaServiceWindow } from "../meta-policy";
 import { convertAudioToOggOpus, metaAudioNeedsConversion, META_AUDIO_OUTPUT_MIME } from "../audio-convert";
-import { getMetaTemplateBindings } from "../meta-templates";
+import { getMetaTemplateBindings, getMetaTemplateLocalMetadataMap } from "../meta-templates";
 import { isSupportedMetaTemplate, type TemplateBindings } from "../meta-template-common";
 
 const META_GRAPH_VERSION = "v21.0";
@@ -94,12 +94,26 @@ export class MetaAdapter implements WhatsAppAdapter {
       variableCount: number;
       supported: boolean;
       bindings: TemplateBindings;
+      customGroups: string[];
+      components: unknown[];
     }>
   > {
     const { accessToken, businessAccountId } = await this.getCredentials(tenantId);
     if (!businessAccountId) throw new Error("Meta Business Account ID não configurado para este tenant");
 
-    const templates: Array<{ id: string; name: string; language: string; category: string; bodyText: string; variableCount: number; supported: boolean; bindings: TemplateBindings }> = [];
+    const localMetaMap = await getMetaTemplateLocalMetadataMap(tenantId);
+    const templates: Array<{
+      id: string;
+      name: string;
+      language: string;
+      category: string;
+      bodyText: string;
+      variableCount: number;
+      supported: boolean;
+      bindings: TemplateBindings;
+      customGroups: string[];
+      components: unknown[];
+    }> = [];
     let url: string | null = `${META_BASE_URL}/${encodeURIComponent(businessAccountId)}/message_templates?fields=id,name,language,status,category,components&limit=100`;
     for (let page = 0; url && page < 10; page++) {
       const response: Response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(15000) });
@@ -111,8 +125,21 @@ export class MetaAdapter implements WhatsAppAdapter {
           const bodyText = String(components.find((c: any) => c.type === "BODY")?.text || "");
           const variableCount = Math.max(0, ...Array.from(bodyText.matchAll(/\{\{(\d+)\}\}/g), (m) => Number(m[1])));
           const supported = isSupportedMetaTemplate(components, bodyText);
-          templates.push({ id: String(item.id), name: item.name, language: item.language, category: item.category || "", bodyText, variableCount, supported,
-            bindings: item.id ? await getMetaTemplateBindings(tenantId, String(item.id)) : {} });
+          const localMeta =
+            (item.id ? localMetaMap.get(String(item.id)) : undefined) ||
+            localMetaMap.get(`${item.name}:${item.language}`);
+          templates.push({
+            id: String(item.id),
+            name: item.name,
+            language: item.language,
+            category: item.category || "",
+            bodyText,
+            variableCount,
+            supported,
+            components,
+            bindings: localMeta?.bindings || (item.id ? await getMetaTemplateBindings(tenantId, String(item.id)) : {}),
+            customGroups: localMeta?.customGroups || [],
+          });
         }
       }
       const next: unknown = data.paging?.next;

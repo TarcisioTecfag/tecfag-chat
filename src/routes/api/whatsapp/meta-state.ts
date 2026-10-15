@@ -5,6 +5,7 @@ import { channelConfigs, conversations } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { getMetaServiceWindow } from "../../../lib/whatsapp/meta-policy";
+import { listMetaTemplateGroups } from "../../../lib/whatsapp/meta-templates";
 
 export const Route = createFileRoute("/api/whatsapp/meta-state")({
   server: {
@@ -33,8 +34,16 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
           return Response.json({ activeProvider: "meta", window });
         }
         try {
-          const templates = await metaAdapter.listApprovedTemplates(tenantId);
-          return Response.json({ activeProvider: "meta", window, templates });
+          const [templates, groups] = await Promise.all([
+            metaAdapter.listApprovedTemplates(tenantId),
+            listMetaTemplateGroups(tenantId),
+          ]);
+          return Response.json({
+            activeProvider: "meta",
+            window,
+            templates,
+            customGroups: groups.map((g) => g.name),
+          });
         } catch (error: any) {
           return Response.json({ error: error.message || "Falha ao consultar templates da Meta" }, { status: 502 });
         }
@@ -42,3 +51,4 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
     },
   },
 });
+

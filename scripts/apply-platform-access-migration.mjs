@@ -172,6 +172,10 @@ const migrations = [
     name: "0041_rd_marketing_outbound_test",
     url: new URL("../src/db/migrations/0041_rd_marketing_outbound_test.sql", import.meta.url),
   },
+  {
+    name: "0042_meta_template_custom_groups",
+    url: new URL("../src/db/migrations/0042_meta_template_custom_groups.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import {
   bodyVariableIndexes,
+  collectTemplateCustomGroups,
   isSupportedMetaTemplate,
+  matchesMetaTemplateFilter,
+  normalizeTemplateCustomGroups,
+  stripTemplateAccents,
   type TemplateBinding,
   type TemplateBindings,
 } from "@/lib/whatsapp/meta-template-common";
@@ -44,6 +48,10 @@ import {
   Check,
   X,
   Layers,
+  Folder,
+  FolderPlus,
+  Search,
+  Edit2,
 } from "lucide-react";
 
 const BASE = import.meta.env.VITE_BACKEND_URL || "";
@@ -62,7 +70,14 @@ type MetaTemplate = {
     buttons?: Array<{ type?: string; text?: string; url?: string; phone_number?: string }>;
   }>;
   bindings: TemplateBindings;
+  customGroups?: string[];
   rejectedReason: string | null;
+};
+
+type MetaTemplateGroup = {
+  id: string;
+  name: string;
+  createdAt?: string;
 };
 
 type HeaderType = "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
@@ -80,6 +95,7 @@ interface FormState {
   name: string;
   language: string;
   category: "UTILITY" | "MARKETING";
+  customGroups: string[];
   headerType: HeaderType;
   headerText: string;
   bodyText: string;
@@ -94,6 +110,7 @@ const emptyForm = (): FormState => ({
   name: "",
   language: "pt_BR",
   category: "UTILITY",
+  customGroups: [],
   headerType: "NONE",
   headerText: "",
   bodyText: "",
@@ -140,12 +157,32 @@ function bindingLabel(binding: TemplateBinding) {
 
 export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
   const [templates, setTemplates] = useState<MetaTemplate[]>([]);
+  const [groups, setGroups] = useState<MetaTemplateGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState<FormState | null>(null);
+  const [formNewGroupInput, setFormNewGroupInput] = useState("");
   const [mappingId, setMappingId] = useState<string | null>(null);
   const [mapping, setMapping] = useState<TemplateBindings>({});
+
+  // Busca e Filtros de Organização Interna
+  const [search, setSearch] = useState("");
+  const [selectedFilter, setSelectedFilter] = useState<string>("ALL");
+
+  // Modal de Criar / Gerenciar Grupos e Vincular Templates em Lote
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupNameInput, setGroupNameInput] = useState("");
+  const [groupTemplateIds, setGroupTemplateIds] = useState<string[]>([]);
+  const [groupTemplateSearch, setGroupTemplateSearch] = useState("");
+  const [savingGroup, setSavingGroup] = useState(false);
+
+  // Modal Rápido para Vincular Grupos em um Template Específico
+  const [linkingTemplate, setLinkingTemplate] = useState<MetaTemplate | null>(null);
+  const [linkingGroups, setLinkingGroups] = useState<string[]>([]);
+  const [quickNewGroupName, setQuickNewGroupName] = useState("");
+  const [savingTemplateGroups, setSavingTemplateGroups] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!tenant) return;
@@ -154,6 +191,9 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
     try {
       const data = await api("/api/whatsapp/meta-templates");
       setTemplates((data.templates || []).filter((item: MetaTemplate) => item.status !== "DELETED"));
+      if (Array.isArray(data.groups)) {
+        setGroups(data.groups);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Falha ao carregar templates.");
     } finally {
@@ -164,6 +204,197 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Lista consolidada de nomes de grupos personalizados (do catálogo + dos templates)
+  const allCustomGroupNames = useMemo(
+    () =>
+      collectTemplateCustomGroups(
+        templates,
+        groups.map((g) => g.name),
+      ),
+    [templates, groups],
+  );
+
+  // Templates filtrados pela barra de busca e pela categoria/grupo selecionado
+  const filteredTemplates = useMemo(() => {
+    return templates.filter((item) =>
+      matchesMetaTemplateFilter(item, { search, selectedFilter }),
+    );
+  }, [templates, search, selectedFilter]);
+
+  const utilityCount = useMemo(
+    () => templates.filter((t) => (t.category || "").toUpperCase() === "UTILITY").length,
+    [templates],
+  );
+  const marketingCount = useMemo(
+    () => templates.filter((t) => (t.category || "").toUpperCase() === "MARKETING").length,
+    [templates],
+  );
+  const ungroupedCount = useMemo(
+    () => templates.filter((t) => normalizeTemplateCustomGroups(t.customGroups).length === 0).length,
+    [templates],
+  );
+
+  // Abrir modal de grupos em modo "Novo Grupo"
+  const openCreateGroupModal = () => {
+    setEditingGroupId(null);
+    setGroupNameInput("");
+    setGroupTemplateIds([]);
+    setGroupTemplateSearch("");
+    setGroupModalOpen(true);
+  };
+
+  // Abrir modal de grupos selecionando um grupo existente para editar/vincular templates
+  const openEditGroupModal = (groupName: string) => {
+    const existingGroup = groups.find((g) => g.name.toLowerCase() === groupName.toLowerCase());
+    setEditingGroupId(existingGroup?.id || null);
+    setGroupNameInput(existingGroup?.name || groupName);
+    const linkedIds = templates
+      .filter((t) =>
+        normalizeTemplateCustomGroups(t.customGroups).some(
+          (g) => g.toLowerCase() === groupName.toLowerCase(),
+        ),
+      )
+      .map((t) => t.metaTemplateId);
+    setGroupTemplateIds(linkedIds);
+    setGroupTemplateSearch("");
+    setGroupModalOpen(true);
+  };
+
+  const handleSaveGroupWithLinks = async () => {
+    const cleanName = groupNameInput.trim().replace(/\s+/g, " ");
+    if (!cleanName) {
+      toast.error("Informe um nome para o grupo (ex: Assistência Técnica, Pós-Venda).");
+      return;
+    }
+    setSavingGroup(true);
+    try {
+      const data = await api("/api/whatsapp/meta-templates", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "save_group",
+          groupId: editingGroupId || undefined,
+          name: cleanName,
+          templateIds: groupTemplateIds,
+        }),
+      });
+      if (Array.isArray(data.templates)) {
+        setTemplates(data.templates.filter((item: MetaTemplate) => item.status !== "DELETED"));
+      }
+      if (Array.isArray(data.groups)) {
+        setGroups(data.groups);
+      }
+      if (selectedFilter.startsWith("GRP:")) {
+        setSelectedFilter(`GRP:${cleanName}`);
+      }
+      toast.success(
+        editingGroupId
+          ? `Grupo "${cleanName}" e templates vinculados atualizados!`
+          : `Grupo "${cleanName}" criado com ${groupTemplateIds.length} template(s) vinculado(s)!`,
+      );
+      setGroupModalOpen(false);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Falha ao salvar grupo.");
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
+  const handleDeleteGroup = async (groupName: string) => {
+    if (
+      !window.confirm(
+        `Remover o grupo interno "${groupName}"? Os templates vinculados continuarão intactos na Meta, apenas deixarão de fazer parte deste grupo.`,
+      )
+    ) {
+      return;
+    }
+    const existingGroup = groups.find((g) => g.name.toLowerCase() === groupName.toLowerCase());
+    setSavingGroup(true);
+    try {
+      const data = await api("/api/whatsapp/meta-templates", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "delete_group",
+          groupId: existingGroup?.id,
+          name: groupName,
+        }),
+      });
+      if (Array.isArray(data.templates)) {
+        setTemplates(data.templates.filter((item: MetaTemplate) => item.status !== "DELETED"));
+      }
+      if (Array.isArray(data.groups)) {
+        setGroups(data.groups);
+      }
+      if (selectedFilter === `GRP:${groupName}`) {
+        setSelectedFilter("ALL");
+      }
+      if (editingGroupId && existingGroup?.id === editingGroupId) {
+        setEditingGroupId(null);
+        setGroupNameInput("");
+        setGroupTemplateIds([]);
+      }
+      toast.success(`Grupo "${groupName}" removido.`);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Falha ao remover grupo.");
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
+  const openQuickLinkTemplate = (item: MetaTemplate) => {
+    setLinkingTemplate(item);
+    setLinkingGroups(normalizeTemplateCustomGroups(item.customGroups));
+    setQuickNewGroupName("");
+  };
+
+  const handleSaveTemplateGroups = async () => {
+    if (!linkingTemplate) return;
+    setSavingTemplateGroups(true);
+    try {
+      const pendingNew = quickNewGroupName.trim().replace(/\s+/g, " ");
+      const finalGroups = pendingNew
+        ? normalizeTemplateCustomGroups([...linkingGroups, pendingNew])
+        : normalizeTemplateCustomGroups(linkingGroups);
+
+      const data = await api("/api/whatsapp/meta-templates", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "set_template_groups",
+          metaTemplateId: linkingTemplate.metaTemplateId,
+          customGroups: finalGroups,
+        }),
+      });
+      if (Array.isArray(data.groups)) {
+        setGroups(data.groups);
+      }
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.metaTemplateId === linkingTemplate.metaTemplateId
+            ? { ...t, customGroups: finalGroups }
+            : t,
+        ),
+      );
+      toast.success(`Grupos do template "${linkingTemplate.name}" atualizados!`);
+      setLinkingTemplate(null);
+      setQuickNewGroupName("");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Falha ao atualizar grupos do template.");
+    } finally {
+      setSavingTemplateGroups(false);
+    }
+  };
+
+  // Templates filtrados dentro do modal de criação/edição de grupo
+  const groupModalFilteredTemplates = useMemo(() => {
+    const q = stripTemplateAccents(groupTemplateSearch);
+    if (!q) return templates;
+    return templates.filter(
+      (t) =>
+        stripTemplateAccents(t.name).includes(q) ||
+        stripTemplateAccents(t.bodyText).includes(q) ||
+        normalizeTemplateCustomGroups(t.customGroups).some((g) => stripTemplateAccents(g).includes(q)),
+    );
+  }, [templates, groupTemplateSearch]);
 
   // Inserir tag dinâmica no corpo
   const insertVariable = (binding: TemplateBinding) => {
@@ -217,11 +448,13 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
       }));
     }
 
+    setFormNewGroupInput("");
     setForm({
       metaTemplateId: item.metaTemplateId,
       name: item.name,
       language: item.language,
       category: item.category === "MARKETING" ? "MARKETING" : "UTILITY",
+      customGroups: normalizeTemplateCustomGroups(item.customGroups),
       headerType,
       headerText,
       bodyText: item.bodyText,
@@ -248,6 +481,7 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
         name: form.name,
         language: form.language,
         category: form.category,
+        customGroups: normalizeTemplateCustomGroups(form.customGroups),
         bodyText: form.bodyText,
         examples: form.examples,
         bindings: form.bindings,
@@ -344,11 +578,11 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Modelos de mensagem pré-aprovados pela Meta. Necessários para iniciar conversas ativas ou retomar atendimentos após a janela de 24 horas.
+            Modelos de mensagem pré-aprovados pela Meta. Crie grupos personalizados (ex: Assistência Técnica, Pós-Venda) para organizar internamente e encontrar fácil nos canais de envio do chat.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void refresh()}
@@ -360,7 +594,18 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
           </button>
           <button
             type="button"
-            onClick={() => setForm(emptyForm())}
+            onClick={openCreateGroupModal}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/15 px-3.5 py-2 text-xs font-bold text-primary transition-colors cursor-pointer shadow-xs"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+            <span>Gerenciar Grupos{allCustomGroupNames.length > 0 ? ` (${allCustomGroupNames.length})` : ""}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFormNewGroupInput("");
+              setForm(emptyForm());
+            }}
             className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:opacity-90 px-4 py-2 text-xs font-bold text-primary-foreground transition-all cursor-pointer shadow-soft"
           >
             <Plus className="h-4 w-4" />
@@ -368,6 +613,148 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
           </button>
         </div>
       </div>
+
+      {/* Barra de Busca + Pílulas de Categorias Oficiais e Grupos Personalizados */}
+      {templates.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card p-3.5 space-y-3 shadow-2xs">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar template por nome, texto da mensagem ou grupo personalizado..."
+                className="pl-9 pr-8 h-9 text-xs rounded-xl bg-background border-border"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={openCreateGroupModal}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 px-3 py-2 text-xs font-bold text-primary transition-colors cursor-pointer shrink-0"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Criar Grupo Personalizado</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setSelectedFilter("ALL")}
+              className={`shrink-0 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
+                selectedFilter === "ALL"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              Todos ({templates.length})
+            </button>
+
+            {utilityCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedFilter("CAT:UTILITY")}
+                className={`shrink-0 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
+                  selectedFilter === "CAT:UTILITY"
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Utilidade ({utilityCount})
+              </button>
+            )}
+
+            {marketingCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedFilter("CAT:MARKETING")}
+                className={`shrink-0 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
+                  selectedFilter === "CAT:MARKETING"
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Marketing ({marketingCount})
+              </button>
+            )}
+
+            {allCustomGroupNames.length > 0 && (
+              <span className="h-4 w-px bg-border shrink-0 mx-0.5" />
+            )}
+
+            {allCustomGroupNames.map((groupName) => {
+              const filterKey = `GRP:${groupName}`;
+              const isSelected = selectedFilter === filterKey;
+              const count = templates.filter((t) =>
+                normalizeTemplateCustomGroups(t.customGroups).some(
+                  (g) => g.toLowerCase() === groupName.toLowerCase(),
+                ),
+              ).length;
+
+              return (
+                <div
+                  key={filterKey}
+                  className={`shrink-0 inline-flex items-center rounded-lg border transition-all ${
+                    isSelected
+                      ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                      : "bg-primary/10 text-primary border-primary/20 hover:bg-primary/15"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFilter(filterKey)}
+                    className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 font-bold cursor-pointer"
+                  >
+                    <Folder className="h-3.5 w-3.5 shrink-0" />
+                    <span>{groupName}</span>
+                    <span className="opacity-80">({count})</span>
+                  </button>
+                  <SystemTooltip content={`Editar grupo "${groupName}" e vincular templates`}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditGroupModal(groupName);
+                      }}
+                      className={`pr-2 pl-1 py-1.5 transition-opacity cursor-pointer ${
+                        isSelected
+                          ? "text-primary-foreground/85 hover:text-primary-foreground"
+                          : "text-primary/70 hover:text-primary"
+                      }`}
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </button>
+                  </SystemTooltip>
+                </div>
+              );
+            })}
+
+            {allCustomGroupNames.length > 0 && ungroupedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedFilter("UNGROUPED")}
+                className={`shrink-0 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
+                  selectedFilter === "UNGROUPED"
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Sem Grupo ({ungroupedCount})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 text-xs text-destructive flex items-center gap-2">
@@ -378,13 +765,14 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
 
       {/* Grid de Templates Existentes */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {templates.map((item) => {
+        {filteredTemplates.map((item) => {
           const indexes = bodyVariableIndexes(item.bodyText);
           const hasHeader = item.components?.some((c) => c.type === "HEADER");
           const hasFooter = item.components?.some((c) => c.type === "FOOTER");
           const hasButtons = item.components?.some((c) => c.type === "BUTTONS");
           const headerComponent = item.components?.find((c) => c.type === "HEADER");
           const buttonsComponent = item.components?.find((c) => c.type === "BUTTONS");
+          const itemGroups = normalizeTemplateCustomGroups(item.customGroups);
 
           const isApproved = item.status === "APPROVED";
           const isRejected = item.status === "REJECTED";
@@ -418,7 +806,7 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                   </span>
                 </div>
 
-                {/* Sub-informações / Badges */}
+                {/* Sub-informações / Badges + Grupos Personalizados */}
                 <div className="flex flex-wrap items-center gap-2 text-muted-foreground mb-3">
                   <span className="font-medium">{item.language}</span>
                   <span>•</span>
@@ -434,6 +822,28 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                     <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">
                       {buttonsComponent?.buttons?.length} Botão(ões)
                     </span>
+                  )}
+                  {itemGroups.map((groupName) => (
+                    <button
+                      key={groupName}
+                      type="button"
+                      onClick={() => openQuickLinkTemplate(item)}
+                      className="inline-flex items-center gap-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 px-2 py-0.5 text-[10px] font-bold transition-colors cursor-pointer"
+                      title="Clique para alterar os grupos deste template"
+                    >
+                      <Folder className="h-2.5 w-2.5" />
+                      <span>{groupName}</span>
+                    </button>
+                  ))}
+                  {itemGroups.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => openQuickLinkTemplate(item)}
+                      className="inline-flex items-center gap-1 rounded-md border border-dashed border-border hover:border-primary/40 hover:text-primary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground transition-colors cursor-pointer"
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      <span>Grupo</span>
+                    </button>
                   )}
                 </div>
 
@@ -478,8 +888,8 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
               </div>
 
               {/* Ações do Card */}
-              <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="mt-4 pt-3 border-t border-border flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-3">
                   {indexes.length > 0 && (
                     <button
                       type="button"
@@ -492,6 +902,14 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                       Configurar Variáveis
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => openQuickLinkTemplate(item)}
+                    className="inline-flex items-center gap-1 font-semibold text-foreground hover:text-primary transition-colors cursor-pointer"
+                  >
+                    <Folder className="h-3 w-3 text-primary" />
+                    <span>Vincular Grupo</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => openEdit(item)}
@@ -514,6 +932,28 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
         })}
       </div>
 
+      {!loading && !error && templates.length > 0 && filteredTemplates.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-border p-8 text-center space-y-2">
+          <Folder className="h-7 w-7 text-muted-foreground mx-auto" />
+          <p className="text-sm font-bold text-foreground">Nenhum template encontrado neste filtro</p>
+          <p className="text-xs text-muted-foreground max-w-md mx-auto">
+            {selectedFilter.startsWith("GRP:")
+              ? `O grupo "${selectedFilter.slice(4)}" ainda não possui templates que correspondam à busca.`
+              : "Tente limpar a busca ou alternar o grupo selecionado."}
+          </p>
+          {selectedFilter.startsWith("GRP:") && (
+            <button
+              type="button"
+              onClick={() => openEditGroupModal(selectedFilter.slice(4))}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Vincular Templates a "{selectedFilter.slice(4)}"</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {!loading && !error && templates.length === 0 && (
         <div className="rounded-2xl border border-dashed border-border p-10 text-center space-y-2">
           <MessageSquare className="h-8 w-8 text-muted-foreground mx-auto" />
@@ -521,6 +961,360 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
           <p className="text-xs text-muted-foreground max-w-sm mx-auto">
             Crie seu primeiro template da Meta para poder enviar mensagens de utilidade ou marketing fora da janela de 24 horas.
           </p>
+        </div>
+      )}
+
+      {/* Modal Rápido: Vincular Grupos a um Template Específico */}
+      {linkingTemplate && (
+        <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md space-y-4 rounded-2xl border border-border bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                  <Folder className="h-4 w-4 text-primary" />
+                  <span>Vincular Grupo Interno</span>
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Template: <strong className="font-mono text-foreground">{linkingTemplate.name}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLinkingTemplate(null)}
+                className="p-1 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl bg-muted/40 border border-border/60 p-3 text-[11px] text-muted-foreground leading-relaxed">
+              Esta organização é <strong>100% interna da operação</strong> para facilitar a busca nos canais de envio do chat. Não altera a categoria na Meta e não impacta o cliente.
+            </div>
+
+            <div className="space-y-2.5">
+              <Label className="text-xs font-bold text-foreground">Grupos disponíveis (clique para marcar/desmarcar)</Label>
+              {allCustomGroupNames.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">
+                  Nenhum grupo criado ainda. Digite abaixo para criar o primeiro grupo já vinculado a este template.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto p-1">
+                  {allCustomGroupNames.map((gName) => {
+                    const isChecked = linkingGroups.some((g) => g.toLowerCase() === gName.toLowerCase());
+                    return (
+                      <button
+                        key={gName}
+                        type="button"
+                        onClick={() => {
+                          setLinkingGroups((prev) =>
+                            isChecked
+                              ? prev.filter((g) => g.toLowerCase() !== gName.toLowerCase())
+                              : [...prev, gName],
+                          );
+                        }}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          isChecked
+                            ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                            : "bg-background text-foreground border-border hover:border-primary/40"
+                        }`}
+                      >
+                        {isChecked ? <Check className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5 text-muted-foreground" />}
+                        <span>{gName}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="pt-2 space-y-1.5">
+                <Label className="text-xs font-semibold text-foreground">Ou criar e vincular novo grupo agora</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={quickNewGroupName}
+                    onChange={(e) => setQuickNewGroupName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const clean = quickNewGroupName.trim().replace(/\s+/g, " ");
+                        if (clean) {
+                          setLinkingGroups((prev) => normalizeTemplateCustomGroups([...prev, clean]));
+                          setQuickNewGroupName("");
+                        }
+                      }
+                    }}
+                    placeholder="Ex: Assistência Técnica, Pós-Venda..."
+                    className="h-9 text-xs rounded-xl bg-background border-border"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const clean = quickNewGroupName.trim().replace(/\s+/g, " ");
+                      if (!clean) return;
+                      setLinkingGroups((prev) => normalizeTemplateCustomGroups([...prev, clean]));
+                      setQuickNewGroupName("");
+                    }}
+                    className="px-3 h-9 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-colors cursor-pointer shrink-0"
+                  >
+                    + Adicionar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setLinkingTemplate(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-border text-foreground hover:bg-muted cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingTemplateGroups}
+                onClick={() => void handleSaveTemplateGroups()}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-soft"
+              >
+                {savingTemplateGroups ? "Salvando..." : "Salvar Vínculo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Completo: Criar / Gerenciar Grupos e Vincular Templates em Lote */}
+      {groupModalOpen && (
+        <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-3xl max-h-[88vh] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            {/* Header do Modal de Grupos */}
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/20 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <FolderPlus className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">
+                    Grupos Personalizados de Templates Meta
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Crie grupos (ex: Assistência Técnica, Pós-Venda) e escolha quais templates pertencem a cada grupo para facilitar o envio no chat.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGroupModalOpen(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Corpo do Modal: Lista de Grupos + Formulário e Seleção de Templates */}
+            <div className="grid grid-cols-1 md:grid-cols-12 flex-1 min-h-0 overflow-hidden">
+              {/* Coluna Esquerda: Grupos Existentes */}
+              <div className="md:col-span-4 border-b md:border-b-0 md:border-r border-border bg-muted/15 p-4 flex flex-col min-h-0">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Seus Grupos ({allCustomGroupNames.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingGroupId(null);
+                      setGroupNameInput("");
+                      setGroupTemplateIds([]);
+                    }}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Novo</span>
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                  {allCustomGroupNames.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                      Nenhum grupo personalizado criado ainda. Use o painel ao lado para criar o primeiro!
+                    </div>
+                  ) : (
+                    allCustomGroupNames.map((gName) => {
+                      const groupObj = groups.find((g) => g.name.toLowerCase() === gName.toLowerCase());
+                      const isCurrent =
+                        (editingGroupId && groupObj?.id === editingGroupId) ||
+                        (!editingGroupId && groupNameInput.trim().toLowerCase() === gName.toLowerCase());
+                      const count = templates.filter((t) =>
+                        normalizeTemplateCustomGroups(t.customGroups).some(
+                          (g) => g.toLowerCase() === gName.toLowerCase(),
+                        ),
+                      ).length;
+
+                      return (
+                        <div
+                          key={gName}
+                          className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs transition-all ${
+                            isCurrent
+                              ? "border-primary bg-primary/10 text-primary font-bold"
+                              : "border-border bg-card text-foreground hover:border-primary/40"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => openEditGroupModal(gName)}
+                            className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer"
+                          >
+                            <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
+                            <span className="truncate">{gName}</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">({count})</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteGroup(gName)}
+                            title={`Excluir grupo ${gName}`}
+                            className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer shrink-0"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Coluna Direita: Nome do Grupo + Checklist de Templates Vinculados */}
+              <div className="md:col-span-8 p-5 flex flex-col min-h-0 space-y-4 overflow-hidden">
+                <div className="space-y-1.5 shrink-0">
+                  <Label className="text-xs font-bold text-foreground">
+                    {editingGroupId ? "Editar Nome do Grupo" : "Nome do Novo Grupo Personalizado"}
+                  </Label>
+                  <Input
+                    value={groupNameInput}
+                    onChange={(e) => setGroupNameInput(e.target.value)}
+                    placeholder="Ex: Assistência Técnica, Pós-Venda, Comercial, Cobrança..."
+                    className="h-10 text-xs rounded-xl bg-background border-border"
+                  />
+                </div>
+
+                {/* Checklist de Templates para Vincular ao Grupo */}
+                <div className="flex-1 flex flex-col min-h-0 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
+                    <Label className="text-xs font-bold text-foreground">
+                      Vincular Templates a este Grupo ({groupTemplateIds.length} selecionado{groupTemplateIds.length === 1 ? "" : "s"})
+                    </Label>
+                    <div className="flex items-center gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const visibleIds = groupModalFilteredTemplates.map((t) => t.metaTemplateId);
+                          setGroupTemplateIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+                        }}
+                        className="font-semibold text-primary hover:underline cursor-pointer"
+                      >
+                        Marcar visíveis
+                      </button>
+                      <span className="text-muted-foreground">•</span>
+                      <button
+                        type="button"
+                        onClick={() => setGroupTemplateIds([])}
+                        className="font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        Limpar seleção
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative shrink-0">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      value={groupTemplateSearch}
+                      onChange={(e) => setGroupTemplateSearch(e.target.value)}
+                      placeholder="Filtrar templates para vincular..."
+                      className="pl-9 h-9 text-xs rounded-xl bg-background border-border"
+                    />
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto rounded-xl border border-border bg-background/60 p-2 space-y-1.5 min-h-[180px]">
+                    {groupModalFilteredTemplates.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-muted-foreground">
+                        Nenhum template encontrado para este filtro.
+                      </div>
+                    ) : (
+                      groupModalFilteredTemplates.map((tpl) => {
+                        const checked = groupTemplateIds.includes(tpl.metaTemplateId);
+                        return (
+                          <label
+                            key={tpl.metaTemplateId}
+                            onClick={() => {
+                              setGroupTemplateIds((prev) =>
+                                checked
+                                  ? prev.filter((id) => id !== tpl.metaTemplateId)
+                                  : [...prev, tpl.metaTemplateId],
+                              );
+                            }}
+                            className={`flex items-start gap-3 rounded-xl border p-2.5 text-xs transition-all cursor-pointer select-none ${
+                              checked
+                                ? "border-primary/50 bg-primary/5"
+                                : "border-border/70 bg-card hover:border-primary/30"
+                            }`}
+                          >
+                            <div
+                              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                                checked
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border bg-background"
+                              }`}
+                            >
+                              {checked && <Check className="h-3 w-3" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-mono font-bold text-foreground">{tpl.name}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                                    {tpl.category === "UTILITY" ? "Utilidade" : tpl.category}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">{tpl.status}</span>
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
+                                {tpl.bodyText}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer do Modal de Grupos */}
+            <div className="px-6 py-4 border-t border-border flex items-center justify-between bg-muted/20 shrink-0">
+              <span className="text-[11px] text-muted-foreground">
+                Os grupos são exclusivos para organização interna e aparecem nos seletores de envio do chat.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGroupModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold border border-border text-foreground hover:bg-muted cursor-pointer"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  disabled={savingGroup || !groupNameInput.trim()}
+                  onClick={() => void handleSaveGroupWithLinks()}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-soft"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  <span>{savingGroup ? "Salvando..." : editingGroupId ? "Salvar Alterações do Grupo" : "Criar Grupo e Vincular"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -610,7 +1404,7 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                 <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                     <Layers className="h-3.5 w-3.5 text-primary" />
-                    <span>Identificação & Categoria</span>
+                    <span>Identificação, Categoria & Grupo Interno</span>
                   </h4>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -656,7 +1450,7 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
 
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1">
-                      <Label className="text-xs font-semibold text-foreground">Categoria do Template</Label>
+                      <Label className="text-xs font-semibold text-foreground">Categoria Oficial da Meta</Label>
                       <SystemTooltip content="Utilidade: notificações operacionais, atualizações de pedidos e retomada pós-24h (tarifa menor). Marketing: promoções, ofertas e engajamento comercial.">
                         <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
                       </SystemTooltip>
@@ -673,6 +1467,96 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                         <SelectItem value="MARKETING">Marketing (Campanhas & Ofertas Comerciais)</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  {/* Grupos Internos da Operação */}
+                  <div className="space-y-2 pt-2 border-t border-border/60">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Folder className="h-3.5 w-3.5 text-primary" />
+                        <Label className="text-xs font-semibold text-foreground">
+                          Grupo Interno da Operação (Opcional)
+                        </Label>
+                        <SystemTooltip content="Agrupamento personalizado (ex: Assistência Técnica, Pós-Venda) apenas para facilitar a busca pelos operadores no chat. Não tem impacto no cliente nem na Meta.">
+                          <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                        </SystemTooltip>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">Apenas organização interna</span>
+                    </div>
+
+                    {collectTemplateCustomGroups(templates, [
+                      ...groups.map((g) => g.name),
+                      ...(form.customGroups || []),
+                    ]).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {collectTemplateCustomGroups(templates, [
+                          ...groups.map((g) => g.name),
+                          ...(form.customGroups || []),
+                        ]).map((gName) => {
+                          const isSelected = (form.customGroups || []).some(
+                            (g) => g.toLowerCase() === gName.toLowerCase(),
+                          );
+                          return (
+                            <button
+                              key={gName}
+                              type="button"
+                              onClick={() => {
+                                const current = form.customGroups || [];
+                                const next = isSelected
+                                  ? current.filter((g) => g.toLowerCase() !== gName.toLowerCase())
+                                  : [...current, gName];
+                                setForm({ ...form, customGroups: next });
+                              }}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                                isSelected
+                                  ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                                  : "bg-background text-foreground border-border hover:border-primary/40"
+                              }`}
+                            >
+                              {isSelected ? <Check className="h-3 w-3" /> : <Folder className="h-3 w-3 text-muted-foreground" />}
+                              <span>{gName}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={formNewGroupInput}
+                        onChange={(e) => setFormNewGroupInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const clean = formNewGroupInput.trim().replace(/\s+/g, " ");
+                            if (clean) {
+                              setForm({
+                                ...form,
+                                customGroups: normalizeTemplateCustomGroups([...(form.customGroups || []), clean]),
+                              });
+                              setFormNewGroupInput("");
+                            }
+                          }
+                        }}
+                        placeholder="Criar novo grupo interno (ex: Assistência Técnica, Pós-Venda)..."
+                        className="h-9 text-xs rounded-xl bg-background border-border"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = formNewGroupInput.trim().replace(/\s+/g, " ");
+                          if (!clean) return;
+                          setForm({
+                            ...form,
+                            customGroups: normalizeTemplateCustomGroups([...(form.customGroups || []), clean]),
+                          });
+                          setFormNewGroupInput("");
+                        }}
+                        className="px-3 h-9 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-colors cursor-pointer shrink-0"
+                      >
+                        + Adicionar Grupo
+                      </button>
+                    </div>
                   </div>
                 </div>
 

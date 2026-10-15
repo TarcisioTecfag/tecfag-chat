@@ -928,6 +928,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [metaWindow, setMetaWindow] = useState<{ open: boolean; expiresAt: string | null } | null>(null);
   const currentMetaChatIdRef = useRef<string | null>(null);
   const [metaTemplates, setMetaTemplates] = useState<ApprovedMetaTemplate[]>([]);
+  const [metaTemplateCustomGroups, setMetaTemplateCustomGroups] = useState<string[]>([]);
   const [showMetaTemplateModal, setShowMetaTemplateModal] = useState(false);
   const [show24hInfoModal, setShow24hInfoModal] = useState(false);
   const [metaTemplatesLoading, setMetaTemplatesLoading] = useState(false);
@@ -987,6 +988,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao carregar templates da Meta");
       setMetaTemplates((data.templates || []).filter((item: { supported: boolean }) => item.supported));
+      setMetaTemplateCustomGroups(Array.isArray(data.customGroups) ? data.customGroups : []);
       setMetaWindow(data.window || null);
     } catch (error: any) {
       toast.error(error.message || "Falha ao consultar templates aprovados");
@@ -3575,6 +3577,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         isOpen={showMetaTemplateModal}
         onClose={() => setShowMetaTemplateModal(false)}
         templates={metaTemplates}
+        customGroups={metaTemplateCustomGroups}
         customerName={activeChat?.name || "Cliente"}
         operatorName={operatorProfile?.name || "Atendente"}
         onSend={handleSendMetaTemplate}

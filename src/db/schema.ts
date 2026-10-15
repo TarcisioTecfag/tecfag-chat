@@ -490,9 +490,20 @@ export const metaMessageTemplates = pgTable("meta_message_templates", {
   bodyText: text("body_text").notNull(),
   components: jsonb("components").$type<unknown[]>().notNull(),
   bindings: jsonb("bindings").$type<Record<string, "customer_name" | "operator_name" | "manual">>().default({}).notNull(),
+  customGroups: jsonb("custom_groups").$type<string[]>().default([]).notNull(),
   rejectedReason: text("rejected_reason"),
   lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
 }, (table) => [uniqueIndex("meta_message_templates_tenant_meta_id_unique").on(table.tenantId, table.metaTemplateId)]);
+
+// Grupos internos personalizados pelo usuário para organizar Templates Oficiais da Meta
+export const metaTemplateGroups = pgTable("meta_template_groups", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_meta_template_groups_tenant").on(table.tenantId),
+]);
 
 // ─── 8. ARQUIVOS E MÍDIAS PERSISTIDOS (Salvos em definitivo no banco) ───────
 export const mediaFiles = pgTable("media_files", {

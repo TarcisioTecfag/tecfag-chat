@@ -1,8 +1,13 @@
 import React, { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Search, X, MessageSquare, Check, Sparkles, Send, HelpCircle, ArrowLeft } from "lucide-react";
-import { TemplateBindings } from "@/lib/whatsapp/meta-template-common";
+import { Search, X, MessageSquare, Check, Sparkles, Send, HelpCircle, ArrowLeft, Folder } from "lucide-react";
+import {
+  collectTemplateCustomGroups,
+  matchesMetaTemplateFilter,
+  normalizeTemplateCustomGroups,
+  TemplateBindings,
+} from "@/lib/whatsapp/meta-template-common";
 
 export interface ApprovedMetaTemplate {
   id: string;
@@ -13,6 +18,7 @@ export interface ApprovedMetaTemplate {
   variableCount: number;
   supported: boolean;
   bindings: TemplateBindings;
+  customGroups?: string[];
   components?: Array<{
     type?: string;
     format?: string;
@@ -25,6 +31,7 @@ interface MetaTemplateSelectModalProps {
   isOpen: boolean;
   onClose: () => void;
   templates: ApprovedMetaTemplate[];
+  customGroups?: string[];
   customerName?: string;
   operatorName?: string;
   onSend: (template: ApprovedMetaTemplate, parameters: string[]) => Promise<boolean>;
@@ -35,39 +42,44 @@ export function MetaTemplateSelectModal({
   isOpen,
   onClose,
   templates,
+  customGroups: configuredGroups = [],
   customerName = "Cliente",
   operatorName = "Atendente",
   onSend,
   loading = false,
 }: MetaTemplateSelectModalProps) {
   const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [selectedFilter, setSelectedFilter] = useState<string>("ALL");
   const [selectedTemplate, setSelectedTemplate] = useState<ApprovedMetaTemplate | null>(null);
   const [parameters, setParameters] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
 
-  // Categorias únicas dos templates disponíveis
+  const supportedTemplates = useMemo(
+    () => templates.filter((t) => t.supported),
+    [templates],
+  );
+
+  // Categorias únicas da Meta (UTILITY / MARKETING)
   const categories = useMemo(() => {
     const cats = new Set<string>();
-    templates.forEach((t) => {
+    supportedTemplates.forEach((t) => {
       if (t.category) cats.add(t.category.toUpperCase());
     });
     return Array.from(cats);
-  }, [templates]);
+  }, [supportedTemplates]);
 
-  // Filtragem de templates
+  // Grupos internos personalizados pelo usuário
+  const customGroups = useMemo(
+    () => collectTemplateCustomGroups(supportedTemplates, configuredGroups),
+    [supportedTemplates, configuredGroups],
+  );
+
+  // Filtragem de templates por busca (nome, texto ou grupo) + categoria/grupo selecionado
   const filteredTemplates = useMemo(() => {
-    return templates.filter((t) => {
-      if (!t.supported) return false;
-      const matchesSearch =
-        t.name.toLowerCase().includes(search.toLowerCase()) ||
-        t.bodyText.toLowerCase().includes(search.toLowerCase());
-      const matchesCat =
-        selectedCategory === "ALL" ||
-        t.category?.toUpperCase() === selectedCategory;
-      return matchesSearch && matchesCat;
-    });
-  }, [templates, search, selectedCategory]);
+    return supportedTemplates.filter((t) =>
+      matchesMetaTemplateFilter(t, { search, selectedFilter }),
+    );
+  }, [supportedTemplates, search, selectedFilter]);
 
   const handleSelect = (template: ApprovedMetaTemplate) => {
     setSelectedTemplate(template);
@@ -140,7 +152,7 @@ export function MetaTemplateSelectModal({
               <DialogDescription className="text-xs text-muted-foreground">
                 {selectedTemplate
                   ? "Confira os dados e preencha as variáveis antes de enviar pelo WhatsApp."
-                  : "Selecione um template oficial aprovado pela Meta para retomar o contato."}
+                  : "Selecione um template oficial aprovado pela Meta para iniciar ou retomar o contato."}
               </DialogDescription>
             </div>
           </div>
@@ -155,7 +167,7 @@ export function MetaTemplateSelectModal({
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Pesquisar..."
+                placeholder="Pesquisar por nome, texto da mensagem ou grupo (ex: Assistência Técnica, Pós-Venda)..."
                 className="pl-10 h-10 rounded-xl bg-background border-border/80 text-sm focus-visible:ring-primary/20"
               />
               {search && (
@@ -169,34 +181,65 @@ export function MetaTemplateSelectModal({
               )}
             </div>
 
-            {/* Categorias / Badges */}
-            {categories.length > 0 && (
+            {/* Categorias da Meta + Grupos Personalizados da Operação */}
+            {(categories.length > 0 || customGroups.length > 0) && (
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
                 <button
                   type="button"
-                  onClick={() => setSelectedCategory("ALL")}
-                  className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
-                    selectedCategory === "ALL"
+                  onClick={() => setSelectedFilter("ALL")}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
+                    selectedFilter === "ALL"
                       ? "bg-primary text-primary-foreground shadow-xs"
                       : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
-                  TODOS
+                  TODOS ({supportedTemplates.length})
                 </button>
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
-                      selectedCategory === cat
-                        ? "bg-primary text-primary-foreground shadow-xs"
-                        : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    }`}
-                  >
-                    {cat === "UTILITY" ? "UTILIDADE" : cat}
-                  </button>
-                ))}
+                {categories.map((cat) => {
+                  const filterKey = `CAT:${cat}`;
+                  const count = supportedTemplates.filter((t) => (t.category || "").toUpperCase() === cat).length;
+                  return (
+                    <button
+                      key={filterKey}
+                      type="button"
+                      onClick={() => setSelectedFilter(filterKey)}
+                      className={`shrink-0 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
+                        selectedFilter === filterKey
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      {cat === "UTILITY" ? "UTILIDADE" : cat} ({count})
+                    </button>
+                  );
+                })}
+                {customGroups.length > 0 && categories.length > 0 && (
+                  <span className="h-4 w-px bg-border shrink-0 mx-0.5" />
+                )}
+                {customGroups.map((groupName) => {
+                  const filterKey = `GRP:${groupName}`;
+                  const count = supportedTemplates.filter((t) =>
+                    normalizeTemplateCustomGroups(t.customGroups).some(
+                      (g) => g.toLowerCase() === groupName.toLowerCase(),
+                    ),
+                  ).length;
+                  return (
+                    <button
+                      key={filterKey}
+                      type="button"
+                      onClick={() => setSelectedFilter(filterKey)}
+                      className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
+                        selectedFilter === filterKey
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : "bg-primary/10 text-primary hover:bg-primary/15 border border-primary/20"
+                      }`}
+                    >
+                      <Folder className="h-3.5 w-3.5 shrink-0" />
+                      <span>{groupName}</span>
+                      <span className="opacity-80">({count})</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
@@ -205,21 +248,22 @@ export function MetaTemplateSelectModal({
               {filteredTemplates.length === 0 ? (
                 <div className="p-8 text-center border border-dashed border-border rounded-xl">
                   <p className="text-xs text-muted-foreground">
-                    Nenhum template aprovado compatível encontrado para esta busca.
+                    Nenhum template aprovado compatível encontrado para esta busca ou grupo.
                   </p>
                 </div>
               ) : (
                 filteredTemplates.map((template) => {
                   const hasButtons = template.components?.some((c) => c.type === "BUTTONS");
                   const buttonsComponent = template.components?.find((c) => c.type === "BUTTONS");
+                  const tplGroups = normalizeTemplateCustomGroups(template.customGroups);
                   return (
                     <div
                       key={`${template.name}:${template.language}`}
                       onClick={() => handleSelect(template)}
                       className="group border border-border/80 hover:border-primary/50 bg-background hover:bg-muted/20 p-4 rounded-xl transition-all cursor-pointer shadow-xs hover:shadow-sm"
                     >
-                      {/* Topo do Card: Ícone WhatsApp verde + Nome + Categoria */}
-                      <div className="flex items-center justify-between gap-2 mb-2">
+                      {/* Topo do Card: Ícone WhatsApp verde + Nome + Grupos Internos + Categoria */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
                           {/* Ícone de balão verde característico do WhatsApp */}
                           <div className="h-5 w-5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
@@ -229,7 +273,16 @@ export function MetaTemplateSelectModal({
                             {template.name}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {tplGroups.map((gName) => (
+                            <span
+                              key={gName}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
+                            >
+                              <Folder className="h-2.5 w-2.5" />
+                              <span>{gName}</span>
+                            </span>
+                          ))}
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-muted text-muted-foreground uppercase">
                             {template.category === "UTILITY" ? "UTILIDADE" : template.category}
                           </span>
