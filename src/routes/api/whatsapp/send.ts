@@ -271,7 +271,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             }
             const resolved = values.map((value) => ({ type: "text" as const, text: value }));
             templateComponents = resolved.length ? [{ type: "body", parameters: resolved }] : [];
-            text = selected.bodyText.replace(/\{\{(\d+)\}\}/g, (_, number) => resolved[Number(number) - 1]?.text || `{{${number}}}`);
+            text = selected.bodyText.replace(/@?\{\{(\d+)\}\}/g, (_, number) => resolved[Number(number) - 1]?.text || `{{${number}}}`);
             mediaUrl = undefined;
             mediaType = undefined;
           }

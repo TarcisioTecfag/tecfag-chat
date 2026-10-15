@@ -149,9 +149,9 @@ async function api(path: string, init?: RequestInit) {
 
 function bindingLabel(binding: TemplateBinding) {
   return binding === "customer_name"
-    ? "@nome do cliente"
+    ? "Primeiro nome do cliente"
     : binding === "operator_name"
-    ? "@nome do operador"
+    ? "Primeiro nome do operador"
     : "Preencher no envio";
 }
 
@@ -553,13 +553,13 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
   // Preview interpolado da mensagem
   const livePreviewBody = useMemo(() => {
     if (!form) return "";
-    return form.bodyText.replace(/\{\{(\d+)\}\}/g, (_, num) => {
+    return form.bodyText.replace(/@?\{\{(\d+)\}\}/g, (_, num) => {
       const idx = Number(num) - 1;
       const example = form.examples[idx]?.trim();
-      if (example) return example;
+      if (example) return example.replace(/^@+/, "");
       const binding = form.bindings[num];
-      if (binding === "customer_name") return "Maria da Silva";
-      if (binding === "operator_name") return "João Atendente";
+      if (binding === "customer_name") return "Maria";
+      if (binding === "operator_name") return "João";
       return `{{${num}}}`;
     });
   }, [form]);
@@ -1343,8 +1343,8 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="z-[300]">
-                      <SelectItem value="customer_name">@nome do cliente</SelectItem>
-                      <SelectItem value="operator_name">@nome do operador</SelectItem>
+                      <SelectItem value="customer_name">Primeiro nome do cliente</SelectItem>
+                      <SelectItem value="operator_name">Primeiro nome do operador</SelectItem>
                       <SelectItem value="manual">Preencher no envio</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1641,7 +1641,7 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold transition-colors cursor-pointer"
                       >
                         <Sparkles className="h-3 w-3" />
-                        <span>@nome do cliente</span>
+                        <span>Primeiro nome do cliente</span>
                       </button>
                       <button
                         type="button"
@@ -1649,7 +1649,7 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold transition-colors cursor-pointer"
                       >
                         <Sparkles className="h-3 w-3" />
-                        <span>@nome do operador</span>
+                        <span>Primeiro nome do operador</span>
                       </button>
                       <button
                         type="button"
@@ -1696,8 +1696,8 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent className="z-[300]">
-                                  <SelectItem value="customer_name">@nome do cliente</SelectItem>
-                                  <SelectItem value="operator_name">@nome do operador</SelectItem>
+                                  <SelectItem value="customer_name">Primeiro nome do cliente</SelectItem>
+                                  <SelectItem value="operator_name">Primeiro nome do operador</SelectItem>
                                   <SelectItem value="manual">Manual no envio</SelectItem>
                                 </SelectContent>
                               </Select>

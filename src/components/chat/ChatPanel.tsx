@@ -55,6 +55,7 @@ import {
   Sparkles,
   Package,
   Bookmark,
+  LayoutTemplate,
 } from "lucide-react";
 import {
   Dialog,
@@ -1834,8 +1835,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const handleSend = async () => {
     if (activeProvider === "meta" && activeChat?.channel === "whatsapp" && msgMode !== "internal" && metaWindow && !metaWindow.open) {
       toast.error("A janela de 24 horas terminou. Use um template aprovado pela Meta.");
-      loadMetaTemplates();
-      focusInput();
+      setIsCatalogOpen(false);
+      setShowMetaTemplateModal(true);
+      void loadMetaTemplates();
       return;
     }
 
@@ -3038,29 +3040,35 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       </div>
                       <button
                         type="button"
-                        onClick={async () => {
-                          await loadMetaTemplates();
+                        onClick={() => {
+                          if (showMetaTemplateModal) {
+                            setShowMetaTemplateModal(false);
+                            return;
+                          }
+                          setIsCatalogOpen(false);
                           setShowMetaTemplateModal(true);
+                          void loadMetaTemplates();
                         }}
                         className="font-semibold text-primary hover:underline cursor-pointer text-xs"
                       >
-                        Templates Meta
+                        {showMetaTemplateModal ? "Fechar Templates" : "Templates Meta"}
                       </button>
                     </div>
                   </div>
                 )}
 
-              {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo) ── */}
-              <div className="flex items-center gap-3 pl-1 mb-2 text-[11px] font-bold select-none">
+              {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo vs Templates Meta) ── */}
+              <div className="flex flex-wrap items-center gap-3 pl-1 mb-2 text-[11px] font-bold select-none">
                 <button
                   type="button"
                   onClick={() => {
                     setMsgMode("client");
                     setIsCatalogOpen(false);
+                    setShowMetaTemplateModal(false);
                     focusInput();
                   }}
                   className={`pb-1 border-b-2 px-1 transition cursor-pointer ${
-                    !isCatalogOpen && msgMode === "client"
+                    !isCatalogOpen && !showMetaTemplateModal && msgMode === "client"
                       ? "border-primary text-primary"
                       : "border-transparent text-muted-foreground hover:text-foreground"
                   }`}
@@ -3084,10 +3092,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     onClick={() => {
                       setMsgMode("internal");
                       setIsCatalogOpen(false);
+                      setShowMetaTemplateModal(false);
                       focusInput();
                     }}
                     className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
-                      !isCatalogOpen && msgMode === "internal"
+                      !isCatalogOpen && !showMetaTemplateModal && msgMode === "internal"
                         ? "border-primary text-primary font-bold"
                         : "border-transparent text-muted-foreground hover:text-foreground"
                     }`}
@@ -3097,7 +3106,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   </button>
                 )}
                 <button
-                  onClick={() => setIsCatalogOpen((v) => !v)}
+                  type="button"
+                  onClick={() => {
+                    setShowMetaTemplateModal(false);
+                    setIsCatalogOpen((v) => !v);
+                  }}
                   className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
                     isCatalogOpen
                       ? "border-primary text-primary font-extrabold"
@@ -3107,7 +3120,39 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   <Package className="h-3 w-3" />
                   <span>{tenant === "tecfag" ? "Catálogo" : "Válvulas"}</span>
                 </button>
+                {activeProvider === "meta" && activeChat.channel === "whatsapp" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !showMetaTemplateModal;
+                      setIsCatalogOpen(false);
+                      setShowMetaTemplateModal(next);
+                      if (next) void loadMetaTemplates();
+                    }}
+                    className={`pb-1 border-b-2 px-1 transition cursor-pointer flex items-center gap-1 ${
+                      showMetaTemplateModal
+                        ? "border-primary text-primary font-extrabold"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <LayoutTemplate className="h-3 w-3" />
+                    <span>Templates Meta</span>
+                  </button>
+                )}
               </div>
+
+              {/* Painel Expansível de Templates Meta (expande a partir do campo de mensagem sem ofuscar a tela) */}
+              <MetaTemplateSelectModal
+                isOpen={showMetaTemplateModal}
+                onClose={() => setShowMetaTemplateModal(false)}
+                templates={metaTemplates}
+                customGroups={metaTemplateCustomGroups}
+                customerName={activeChat?.name || "Cliente"}
+                operatorName={operatorProfile?.name || "Atendente"}
+                onSend={handleSendMetaTemplate}
+                loading={metaTemplatesLoading}
+                inline={true}
+              />
 
               {isCatalogOpen ? (
                 <ProductCatalogPicker
@@ -3571,18 +3616,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           </div>
         )}
       </AnimatePresence>
-
-      {/* Modal Selecionador de Templates Meta (Estilo RD Conversas) */}
-      <MetaTemplateSelectModal
-        isOpen={showMetaTemplateModal}
-        onClose={() => setShowMetaTemplateModal(false)}
-        templates={metaTemplates}
-        customGroups={metaTemplateCustomGroups}
-        customerName={activeChat?.name || "Cliente"}
-        operatorName={operatorProfile?.name || "Atendente"}
-        onSend={handleSendMetaTemplate}
-        loading={metaTemplatesLoading}
-      />
 
       {/* Modal Explicativo da Janela de 24 Horas da Meta */}
       <Meta24hInfoModal isOpen={show24hInfoModal} onClose={() => setShow24hInfoModal(false)} />

@@ -61,6 +61,7 @@ import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
 import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
 import {
   collectTemplateCustomGroups,
+  formatTemplateFirstName,
   matchesMetaTemplateFilter,
   normalizeTemplateCustomGroups,
 } from "@/lib/whatsapp/meta-template-common";
@@ -492,6 +493,15 @@ function MiniChatTemplateSelector({
   const [parameters, setParameters] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
 
+  const formattedCustomerName = useMemo(
+    () => formatTemplateFirstName(customerName, "Cliente"),
+    [customerName],
+  );
+  const formattedOperatorName = useMemo(
+    () => formatTemplateFirstName(operatorName, "Atendente"),
+    [operatorName],
+  );
+
   const supportedTemplates = useMemo(
     () => templates.filter((t) => t.supported),
     [templates],
@@ -520,8 +530,8 @@ function MiniChatTemplateSelector({
     setSelectedTemplate(template);
     const initialParams = Array.from({ length: template.variableCount }, (_, idx) => {
       const binding = template.bindings?.[String(idx + 1)];
-      if (binding === "customer_name") return customerName;
-      if (binding === "operator_name") return operatorName;
+      if (binding === "customer_name") return formattedCustomerName;
+      if (binding === "operator_name") return formattedOperatorName;
       return "";
     });
     setParameters(initialParams);
@@ -554,16 +564,16 @@ function MiniChatTemplateSelector({
 
   const previewText = useMemo(() => {
     if (!selectedTemplate) return "";
-    return selectedTemplate.bodyText.replace(/\{\{(\d+)\}\}/g, (_, num) => {
+    return selectedTemplate.bodyText.replace(/@?\{\{(\d+)\}\}/g, (_, num) => {
       const idx = Number(num) - 1;
       const val = parameters[idx]?.trim();
-      if (val) return val;
+      if (val) return val.replace(/^@+/, "");
       const binding = selectedTemplate.bindings?.[num];
-      if (binding === "customer_name") return `@${customerName}`;
-      if (binding === "operator_name") return `@${operatorName}`;
+      if (binding === "customer_name") return formattedCustomerName;
+      if (binding === "operator_name") return formattedOperatorName;
       return `{{${num}}}`;
     });
-  }, [selectedTemplate, parameters, customerName, operatorName]);
+  }, [selectedTemplate, parameters, formattedCustomerName, formattedOperatorName]);
 
   return (
     <motion.div
@@ -743,10 +753,10 @@ function MiniChatTemplateSelector({
                     </div>
 
                     <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                      {template.bodyText.replace(/\{\{(\d+)\}\}/g, (_, num) => {
+                      {template.bodyText.replace(/@?\{\{(\d+)\}\}/g, (_, num) => {
                         const binding = template.bindings?.[num];
-                        if (binding === "customer_name") return `@${customerName}`;
-                        if (binding === "operator_name") return `@${operatorName}`;
+                        if (binding === "customer_name") return formattedCustomerName;
+                        if (binding === "operator_name") return formattedOperatorName;
                         return `{{${num}}}`;
                       })}
                     </p>
