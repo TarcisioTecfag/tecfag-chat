@@ -15,6 +15,11 @@ import { maskPhone } from "@/lib/utils";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { CatalogSelect } from "./CatalogSelect";
 import {
+  formatAccountDocumentInput,
+  getInlineDocumentMismatch,
+  validateAccountDocument,
+} from "../../lib/crm/account-validation";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -51,6 +56,7 @@ export function CrmQuickCreateDialog({
   operators,
   currentOperatorId,
 }: CrmQuickCreateDialogProps) {
+  const [accountType, setAccountType] = useState<"company" | "person">("company");
   const [name, setName] = useState("");
   const [tradeName, setTradeName] = useState("");
   const [segment, setSegment] = useState("");
@@ -69,6 +75,7 @@ export function CrmQuickCreateDialog({
 
   useEffect(() => {
     if (!kind) return;
+    setAccountType("company");
     setName("");
     setTradeName("");
     setSegment("");
@@ -117,6 +124,13 @@ export function CrmQuickCreateDialog({
       toast.error("Selecione uma negociação para a tarefa.");
       return;
     }
+    if (kind === "company") {
+      const docValidation = validateAccountDocument(accountType, document);
+      if (!docValidation.valid) {
+        toast.error(docValidation.error || "Documento inválido.");
+        return;
+      }
+    }
     setSaving(true);
     try {
       const endpoint =
@@ -129,10 +143,10 @@ export function CrmQuickCreateDialog({
         kind === "company"
           ? {
               name: name.trim(),
-              type: "company",
-              tradeName: tradeName.trim() || undefined,
-              segment: segment || undefined,
-              document: document.trim() || undefined,
+              type: accountType,
+              tradeName: accountType === "company" ? tradeName.trim() || undefined : undefined,
+              segment: accountType === "company" ? segment || undefined : undefined,
+              document: document.replace(/\D/g, ""),
               phone: phone.trim() || undefined,
               email: email.trim() || undefined,
               customFields,
@@ -237,12 +251,49 @@ export function CrmQuickCreateDialog({
                 )}
               </div>
             )}
+            {kind === "company" && (
+              <div className="space-y-1.5">
+                <Label>Tipo de Cliente *</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountType("company");
+                      if (document) setDocument(formatAccountDocumentInput(document, "company"));
+                    }}
+                    className={`py-2 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                      accountType === "company"
+                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                        : "bg-card border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Pessoa Jurídica (PJ)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountType("person");
+                      if (document) setDocument(formatAccountDocumentInput(document, "person"));
+                    }}
+                    className={`py-2 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                      accountType === "person"
+                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                        : "bg-card border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Pessoa Física (PF)
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="crm-quick-name">
                 {kind === "task"
                   ? "Título da tarefa"
                   : kind === "company"
-                    ? "Nome ou razão social"
+                    ? accountType === "company"
+                      ? "Razão social / Nome da empresa"
+                      : "Nome completo"
                     : "Nome do contato"}{" "}
                 *
               </Label>
@@ -257,23 +308,55 @@ export function CrmQuickCreateDialog({
             </div>
             {kind === "company" && (
               <>
+                {accountType === "company" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="crm-quick-trade-name">Nome fantasia</Label>
+                    <Input
+                      id="crm-quick-trade-name"
+                      value={tradeName}
+                      onChange={(event) => setTradeName(event.target.value)}
+                    />
+                  </div>
+                )}
                 <div className="space-y-1.5">
-                  <Label htmlFor="crm-quick-trade-name">Nome fantasia</Label>
-                  <Input
-                    id="crm-quick-trade-name"
-                    value={tradeName}
-                    onChange={(event) => setTradeName(event.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="crm-quick-document">CNPJ</Label>
+                  <Label htmlFor="crm-quick-document">
+                    {accountType === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"} *
+                  </Label>
                   <Input
                     id="crm-quick-document"
                     value={document}
-                    onChange={(event) => setDocument(event.target.value)}
+                    required
+                    placeholder={accountType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
+                    onChange={(event) =>
+                      setDocument(formatAccountDocumentInput(event.target.value, accountType))
+                    }
+                    className="font-mono"
                   />
+                  {(() => {
+                    const mismatch = getInlineDocumentMismatch(accountType, document);
+                    if (!mismatch) return null;
+                    return (
+                      <div className="mt-1 space-y-1">
+                        <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                          {mismatch.message}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAccountType(mismatch.suggestedType);
+                            setDocument(formatAccountDocumentInput(document, mismatch.suggestedType));
+                          }}
+                          className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          {mismatch.suggestedLabel}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
-                <div className="space-y-1.5"><Label>Segmento</Label><CatalogSelect kind="segment" value={segment} onChange={setSegment} /></div>
+                {accountType === "company" && (
+                  <div className="space-y-1.5"><Label>Segmento</Label><CatalogSelect kind="segment" value={segment} onChange={setSegment} /></div>
+                )}
               </>
             )}
             {(kind === "company" || kind === "contact") && (

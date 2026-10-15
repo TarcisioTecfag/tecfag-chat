@@ -2503,33 +2503,9 @@ export function DealDetailModal({
                     <CustomFieldsSummary entity="company" values={deal.account.customFields || {}} />
                   </div>
                 ) : (
-                  <div className="space-y-2 py-1">
+                  <div className="py-1">
                     <div className="text-xs text-muted-foreground/60 italic">
                       Nenhum cliente ou empresa vinculado.
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLinkAccountDrawerMode("search");
-                          setIsLinkAccountDrawerOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1 rounded-sm border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-semibold text-foreground hover:border-primary/40 hover:text-primary transition-colors cursor-pointer"
-                      >
-                        <Building2 className="h-3 w-3 text-primary" />
-                        <span>Vincular existente</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLinkAccountDrawerMode("create");
-                          setIsLinkAccountDrawerOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1 rounded-sm border border-primary/25 bg-primary/[0.04] px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10 transition-colors cursor-pointer"
-                      >
-                        <Plus className="h-3 w-3" />
-                        <span>Criar nova</span>
-                      </button>
                     </div>
                   </div>
                 )}

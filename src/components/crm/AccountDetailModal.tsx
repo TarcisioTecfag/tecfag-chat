@@ -23,6 +23,11 @@ import { CatalogSelect } from "./CatalogSelect";
 import { DealStatusBadge } from "./deal-status-config";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import type { CrmAccountDetailDTO } from "../../lib/crm/crm-types";
+import {
+  formatAccountDocumentInput,
+  getInlineDocumentMismatch,
+  validateAccountDocument,
+} from "../../lib/crm/account-validation";
 
 interface AccountDetailModalProps {
   accountId: string | null;
@@ -156,6 +161,12 @@ export function AccountDetailModal({
       return;
     }
 
+    const docValidation = validateAccountDocument(type, document);
+    if (!docValidation.valid) {
+      toast.error(docValidation.error || "Documento inválido.");
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch(`/api/crm/accounts/${accountId}`, {
@@ -166,7 +177,7 @@ export function AccountDetailModal({
           tradeName: tradeName.trim() || null,
           segment: type === "company" ? segment || null : null,
           type,
-          document: document ? document.replace(/\D/g, "") : null,
+          document: document.replace(/\D/g, ""),
           phone: phone ? phone.replace(/\D/g, "") : null,
           email: email.trim() || null,
           website: website.trim() || null,
@@ -388,38 +399,34 @@ export function AccountDetailModal({
                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                           Tipo de Cliente:
                         </span>
-                        <div className="inline-flex rounded-[8px] border border-slate-300/80 dark:border-slate-700/80 p-0.5 bg-muted/50">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setType("company");
-                              if (document) setDocument(maskCnpj(document));
-                            }}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-[6px] transition-all cursor-pointer ${
-                              type === "company"
-                                ? "bg-primary text-primary-foreground font-bold shadow-2xs"
-                                : "text-muted-foreground hover:text-foreground font-medium"
-                            }`}
-                          >
-                            <Building2 className="w-3 h-3" />
-                            <span>Pessoa Jurídica (PJ)</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setType("person");
-                              if (document) setDocument(maskCpf(document));
-                            }}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-[6px] transition-all cursor-pointer ${
-                              type === "person"
-                                ? "bg-primary text-primary-foreground font-bold shadow-2xs"
-                                : "text-muted-foreground hover:text-foreground font-medium"
-                            }`}
-                          >
-                            <User className="w-3 h-3" />
-                            <span>Pessoa Física (PF)</span>
-                          </button>
-                        </div>
+                        <SystemTooltip content="O tipo de cliente (PJ/PF) é definido na criação e não pode ser alterado depois.">
+                          <div className="inline-flex rounded-[8px] border border-slate-300/80 dark:border-slate-700/80 p-0.5 bg-muted/50 opacity-90">
+                            <button
+                              type="button"
+                              disabled
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-[6px] transition-all cursor-not-allowed ${
+                                type === "company"
+                                  ? "bg-primary text-primary-foreground font-bold shadow-2xs"
+                                  : "text-muted-foreground/50 font-medium"
+                              }`}
+                            >
+                              <Building2 className="w-3 h-3" />
+                              <span>Pessoa Jurídica (PJ)</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-[6px] transition-all cursor-not-allowed ${
+                                type === "person"
+                                  ? "bg-primary text-primary-foreground font-bold shadow-2xs"
+                                  : "text-muted-foreground/50 font-medium"
+                              }`}
+                            >
+                              <User className="w-3 h-3" />
+                              <span>Pessoa Física (PF)</span>
+                            </button>
+                          </div>
+                        </SystemTooltip>
                       </div>
                     </div>
 
@@ -457,17 +464,28 @@ export function AccountDetailModal({
 
                       <div>
                         <label className={UNIFORM_LABEL_CLASS}>
-                          {type === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"}
+                          {type === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"}{" "}
+                          <span className="text-primary">*</span>
                         </label>
                         <input
                           type="text"
                           value={document}
+                          required
                           onChange={(e) =>
-                            setDocument(type === "company" ? maskCnpj(e.target.value) : maskCpf(e.target.value))
+                            setDocument(formatAccountDocumentInput(e.target.value, type))
                           }
                           placeholder={type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                           className={`${UNIFORM_INPUT_CLASS} font-mono`}
                         />
+                        {(() => {
+                          const mismatch = getInlineDocumentMismatch(type, document);
+                          if (!mismatch) return null;
+                          return (
+                            <p className="mt-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                              {mismatch.message}
+                            </p>
+                          );
+                        })()}
                       </div>
 
                       {type === "company" && (

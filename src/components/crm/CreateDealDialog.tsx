@@ -20,6 +20,11 @@ import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { CatalogSelect } from "./CatalogSelect";
 import type { CrmAccountDTO } from "../../lib/crm/crm-types";
 import {
+  formatAccountDocumentInput,
+  getInlineDocumentMismatch,
+  validateAccountDocument,
+} from "../../lib/crm/account-validation";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -218,16 +223,12 @@ export function CreateDealDialog({
       : null;
 
   const handleDocumentChange = (val: string) => {
-    if (accountType === "person") {
-      setAccountDocument(maskCpf(val));
-    } else {
-      setAccountDocument(maskCnpj(val));
-    }
+    setAccountDocument(formatAccountDocumentInput(val, accountType));
   };
 
   const handleTypeChange = (newType: "person" | "company") => {
     setAccountType(newType);
-    setAccountDocument(""); // limpa documento ao alternar tipo
+    setAccountDocument((prev) => (prev ? formatAccountDocumentInput(prev, newType) : ""));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -243,13 +244,14 @@ export function CreateDealDialog({
     }
 
     const cleanDoc = accountDocument.replace(/\D/g, "");
-    if (hasAccount && cleanDoc) {
-      if (accountType === "person" && cleanDoc.length !== 11) {
-        toast.error("CPF deve conter exatamente 11 dígitos numéricos.");
+    if (!selectedAccount && hasAccount && isCreatingNewAccount) {
+      if (!accountName.trim()) {
+        toast.error("Informe a razão social ou nome completo do cliente.");
         return;
       }
-      if (accountType === "company" && cleanDoc.length !== 14) {
-        toast.error("CNPJ deve conter exatamente 14 dígitos numéricos.");
+      const docValidation = validateAccountDocument(accountType, accountDocument);
+      if (!docValidation.valid) {
+        toast.error(docValidation.error || "Documento inválido.");
         return;
       }
     }
@@ -606,17 +608,36 @@ export function CreateDealDialog({
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-[11px] font-semibold text-foreground">
-                      {accountType === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"}
+                      {accountType === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"}{" "}
+                      <span className="text-red-500">*</span>
                     </label>
-                    <span className="text-[10px] text-muted-foreground italic">Opcional</span>
                   </div>
                   <input
                     type="text"
+                    required
                     placeholder={accountType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                     value={accountDocument}
                     onChange={(e) => handleDocumentChange(e.target.value)}
                     className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-xs text-foreground font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   />
+                  {(() => {
+                    const mismatch = getInlineDocumentMismatch(accountType, accountDocument);
+                    if (!mismatch) return null;
+                    return (
+                      <div className="mt-1 space-y-1">
+                        <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                          {mismatch.message}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleTypeChange(mismatch.suggestedType)}
+                          className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          {mismatch.suggestedLabel}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Contato (Telefone e E-mail) */}

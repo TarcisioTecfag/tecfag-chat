@@ -36,6 +36,11 @@ import { maskPhone } from "@/lib/utils";
 import { CatalogSelect } from "./CatalogSelect";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import {
+  formatAccountDocumentInput,
+  getInlineDocumentMismatch,
+  validateAccountDocument,
+} from "../../lib/crm/account-validation";
 
 export interface LinkedDealAccount {
   id: string;
@@ -267,6 +272,12 @@ export function DealLinkAccountDrawer({
       return;
     }
 
+    const docValidation = validateAccountDocument(editType, editDocument);
+    if (!docValidation.valid) {
+      toast.error(docValidation.error || "Documento inválido.");
+      return;
+    }
+
     setSavingEdit(true);
     try {
       const res = await fetch(`/api/crm/accounts/${encodeURIComponent(currentAccount.id)}`, {
@@ -276,7 +287,7 @@ export function DealLinkAccountDrawer({
           name: editName.trim(),
           tradeName: editTradeName.trim() || null,
           type: editType,
-          document: editDocument.replace(/\D/g, "") || null,
+          document: editDocument.replace(/\D/g, ""),
           segment: editSegment || null,
           phone: editPhone.trim() || null,
           email: editEmail.trim() || null,
@@ -313,6 +324,12 @@ export function DealLinkAccountDrawer({
       return;
     }
 
+    const docValidation = validateAccountDocument(createType, createDocument);
+    if (!docValidation.valid) {
+      toast.error(docValidation.error || "Documento inválido.");
+      return;
+    }
+
     setCreating(true);
     try {
       const createRes = await fetch("/api/crm/accounts", {
@@ -323,7 +340,7 @@ export function DealLinkAccountDrawer({
           type: createType,
           tradeName: createTradeName.trim() || undefined,
           segment: createSegment || undefined,
-          document: createDocument.replace(/\D/g, "") || undefined,
+          document: createDocument.replace(/\D/g, ""),
           phone: createPhone.trim() || undefined,
           email: createEmail.trim() || undefined,
           website: createWebsite.trim() || undefined,
@@ -441,11 +458,8 @@ export function DealLinkAccountDrawer({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold text-foreground">Tipo</Label>
-                  <Select
-                    value={editType}
-                    onValueChange={(v) => setEditType(v as "company" | "person")}
-                  >
-                    <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
+                  <Select value={editType} disabled>
+                    <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-muted/50 opacity-80 cursor-not-allowed">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="z-[220]">
@@ -457,15 +471,26 @@ export function DealLinkAccountDrawer({
 
                 <div className="sm:col-span-2 space-y-1">
                   <Label className="text-xs font-semibold text-foreground">
-                    {editType === "company" ? "CNPJ" : "CPF"}
+                    {editType === "company" ? "CNPJ" : "CPF"}{" "}
+                    <span className="text-primary">*</span>
                   </Label>
                   <Input
                     type="text"
+                    required
                     placeholder={editType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                     value={editDocument}
-                    onChange={(e) => setEditDocument(e.target.value)}
-                    className="h-8 text-xs rounded-sm border-border bg-card"
+                    onChange={(e) => setEditDocument(formatAccountDocumentInput(e.target.value, editType))}
+                    className="h-8 text-xs rounded-sm border-border bg-card font-mono"
                   />
+                  {(() => {
+                    const mismatch = getInlineDocumentMismatch(editType, editDocument);
+                    if (!mismatch) return null;
+                    return (
+                      <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                        {mismatch.message}
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -832,7 +857,13 @@ export function DealLinkAccountDrawer({
                   <Label className="text-xs font-semibold text-foreground">Tipo</Label>
                   <Select
                     value={createType}
-                    onValueChange={(v) => setCreateType(v as "company" | "person")}
+                    onValueChange={(v) => {
+                      const nextType = v as "company" | "person";
+                      setCreateType(nextType);
+                      if (createDocument) {
+                        setCreateDocument(formatAccountDocumentInput(createDocument, nextType));
+                      }
+                    }}
                   >
                     <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
                       <SelectValue />
@@ -846,15 +877,40 @@ export function DealLinkAccountDrawer({
 
                 <div className="sm:col-span-2 space-y-1">
                   <Label className="text-xs font-semibold text-foreground">
-                    {createType === "company" ? "CNPJ" : "CPF"}
+                    {createType === "company" ? "CNPJ" : "CPF"}{" "}
+                    <span className="text-primary">*</span>
                   </Label>
                   <Input
                     type="text"
+                    required
                     placeholder={createType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                     value={createDocument}
-                    onChange={(e) => setCreateDocument(e.target.value)}
-                    className="h-8 text-xs rounded-sm border-border bg-card"
+                    onChange={(e) => setCreateDocument(formatAccountDocumentInput(e.target.value, createType))}
+                    className="h-8 text-xs rounded-sm border-border bg-card font-mono"
                   />
+                  {(() => {
+                    const mismatch = getInlineDocumentMismatch(createType, createDocument);
+                    if (!mismatch) return null;
+                    return (
+                      <div className="mt-1 space-y-1">
+                        <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                          {mismatch.message}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCreateType(mismatch.suggestedType);
+                            setCreateDocument(
+                              formatAccountDocumentInput(createDocument, mismatch.suggestedType)
+                            );
+                          }}
+                          className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          {mismatch.suggestedLabel}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

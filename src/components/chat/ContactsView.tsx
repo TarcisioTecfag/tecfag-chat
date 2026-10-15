@@ -30,6 +30,11 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 import { AccountPicker } from "@/components/crm/AccountPicker";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
+import {
+  formatAccountDocumentInput,
+  getInlineDocumentMismatch,
+  validateAccountDocument,
+} from "@/lib/crm/account-validation";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -268,6 +273,11 @@ export function ContactsView() {
       toast.error("Informe o nome ou razão social da empresa.");
       return;
     }
+    const docValidation = validateAccountDocument(companyForm.type, companyForm.document);
+    if (!docValidation.valid) {
+      toast.error(docValidation.error || "Documento inválido.");
+      return;
+    }
     setSavingCompany(true);
     try {
       const response = await fetch("/api/crm/accounts", {
@@ -278,7 +288,7 @@ export function ContactsView() {
           name: companyForm.name.trim(),
           type: companyForm.type,
           tradeName: companyForm.tradeName.trim() || undefined,
-          document: companyForm.document.trim() || undefined,
+          document: companyForm.document.replace(/\D/g, ""),
           phone: companyForm.phone.trim() || undefined,
           email: companyForm.email.trim() || undefined,
         }),
@@ -986,15 +996,45 @@ export function ContactsView() {
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
-                      {companyForm.type === "company" ? "CNPJ" : "CPF"}
+                      {companyForm.type === "company" ? "CNPJ *" : "CPF *"}
                     </label>
                     <input
                       type="text"
+                      required
                       placeholder={companyForm.type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                       value={companyForm.document}
-                      onChange={(e) => setCompanyForm((prev) => ({ ...prev, document: e.target.value }))}
-                      className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      onChange={(e) =>
+                        setCompanyForm((prev) => ({
+                          ...prev,
+                          document: formatAccountDocumentInput(e.target.value, prev.type),
+                        }))
+                      }
+                      className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                     />
+                    {(() => {
+                      const mismatch = getInlineDocumentMismatch(companyForm.type, companyForm.document);
+                      if (!mismatch) return null;
+                      return (
+                        <div className="mt-1 space-y-1">
+                          <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                            {mismatch.message}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCompanyForm((prev) => ({
+                                ...prev,
+                                type: mismatch.suggestedType,
+                                document: formatAccountDocumentInput(prev.document, mismatch.suggestedType),
+                              }))
+                            }
+                            className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                          >
+                            {mismatch.suggestedLabel}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -1272,15 +1312,45 @@ export function ContactsView() {
 
                     <div className="space-y-1">
                       <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
-                        {companyForm.type === "company" ? "CNPJ" : "CPF"}
+                        {companyForm.type === "company" ? "CNPJ *" : "CPF *"}
                       </label>
                       <input
                         type="text"
+                        required
                         placeholder={companyForm.type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                         value={companyForm.document}
-                        onChange={(e) => setCompanyForm((prev) => ({ ...prev, document: e.target.value }))}
-                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        onChange={(e) =>
+                          setCompanyForm((prev) => ({
+                            ...prev,
+                            document: formatAccountDocumentInput(e.target.value, prev.type),
+                          }))
+                        }
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                       />
+                      {(() => {
+                        const mismatch = getInlineDocumentMismatch(companyForm.type, companyForm.document);
+                        if (!mismatch) return null;
+                        return (
+                          <div className="mt-1 space-y-1">
+                            <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                              {mismatch.message}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCompanyForm((prev) => ({
+                                  ...prev,
+                                  type: mismatch.suggestedType,
+                                  document: formatAccountDocumentInput(prev.document, mismatch.suggestedType),
+                                }))
+                              }
+                              className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                            >
+                              {mismatch.suggestedLabel}
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">

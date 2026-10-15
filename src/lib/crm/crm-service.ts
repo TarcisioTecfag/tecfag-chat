@@ -57,6 +57,7 @@ import {
   type StageContext,
 } from "./custom-fields";
 import { validateCatalogChoice } from "./catalogs";
+import { validateAccountDocument } from "./account-validation";
 import { enqueueRdCommercial } from "../rd-marketing/commercial-outbox";
 
 /**
@@ -125,15 +126,13 @@ export function detectDocumentType(docDigits: string): "cpf" | "cnpj" | "other" 
 }
 
 /**
- * Valida o formato de documento por tipo selecionado ('person' -> 11 dígitos, 'company' -> 14 dígitos).
+ * Valida obrigatoriedade e formato de documento por tipo selecionado ('person' -> CPF 11 dígitos, 'company' -> CNPJ 14 dígitos),
+ * bloqueando CPF em PJ e CNPJ em PF.
  */
-export function validateDocument(type: "person" | "company", docDigits: string): void {
-  if (!docDigits) return;
-  if (type === "person" && docDigits.length !== 11) {
-    throw new CrmValidationError("CPF deve conter exatamente 11 dígitos numéricos.", "INVALID_DOCUMENT_FORMAT");
-  }
-  if (type === "company" && docDigits.length !== 14) {
-    throw new CrmValidationError("CNPJ deve conter exatamente 14 dígitos numéricos.", "INVALID_DOCUMENT_FORMAT");
+export function validateDocument(type: "person" | "company", docDigits?: string | null): void {
+  const result = validateAccountDocument(type, docDigits);
+  if (!result.valid && result.error) {
+    throw new CrmValidationError(result.error, "INVALID_DOCUMENT_FORMAT");
   }
 }
 
@@ -1157,38 +1156,32 @@ export class CrmService {
     }
   ): Promise<CrmAccount> {
     const cleanDoc = normalizeDocument(data.document);
-    let docType = "other";
-    if (cleanDoc) {
-      docType = detectDocumentType(cleanDoc);
-    }
+    const accountType: "person" | "company" =
+      data.type || (cleanDoc.length === 11 ? "person" : "company");
+
+    validateDocument(accountType, cleanDoc);
+    const docType = detectDocumentType(cleanDoc);
 
     // Se já existe uma conta com o mesmo documento válido no tenant, retorna a existente
-    if (cleanDoc) {
-      const matches = await db
-        .select()
-        .from(crmAccounts)
-        .where(
-          and(
-            eq(crmAccounts.tenantId, tenantId),
-            sql`regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') = ${cleanDoc}`
-          )
+    const matches = await db
+      .select()
+      .from(crmAccounts)
+      .where(
+        and(
+          eq(crmAccounts.tenantId, tenantId),
+          sql`regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') = ${cleanDoc}`
         )
-        .limit(2);
+      )
+      .limit(2);
 
-      if (matches.length > 1) {
-        throw new CrmError("Há empresas duplicadas com este documento. Consolide os cadastros antes de prosseguir.", "DUPLICATE_DOCUMENT", 409);
-      }
-      if (matches[0]) {
-        if (matches[0].archivedAt) {
-          throw new CrmError("Este documento pertence a um cadastro arquivado. Reative-o antes de prosseguir.", "ARCHIVED_DOCUMENT", 409);
-        }
-        return matches[0];
-      }
+    if (matches.length > 1) {
+      throw new CrmError("Há empresas duplicadas com este documento. Consolide os cadastros antes de prosseguir.", "DUPLICATE_DOCUMENT", 409);
     }
-
-    const accountType = data.type || (docType === "cnpj" ? "company" : "person");
-    if (cleanDoc) {
-      validateDocument(accountType, cleanDoc);
+    if (matches[0]) {
+      if (matches[0].archivedAt) {
+        throw new CrmError("Este documento pertence a um cadastro arquivado. Reative-o antes de prosseguir.", "ARCHIVED_DOCUMENT", 409);
+      }
+      return matches[0];
     }
     const accountId = `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const segment = data.segment ? await validateCatalogChoice(tenantId, "segment", data.segment) : null;
@@ -1422,7 +1415,12 @@ export class CrmService {
     }
     if (data.tradeName !== undefined) updates.tradeName = data.tradeName?.trim() || null;
     if (data.segment !== undefined) updates.segment = data.segment ? await validateCatalogChoice(tenantId, "segment", data.segment, current.segment) : null;
-    if (data.type !== undefined) updates.type = data.type;
+    if (data.type !== undefined && data.type !== current.type) {
+      throw new CrmValidationError(
+        "Não é permitido alterar o tipo de cliente (Pessoa Jurídica ou Pessoa Física) após a criação.",
+        "IMMUTABLE_ACCOUNT_TYPE"
+      );
+    }
     if (data.email !== undefined) updates.email = data.email?.trim() || null;
     if (data.phone !== undefined) updates.phone = data.phone ? normalizeDocument(data.phone) : null;
     if (data.website !== undefined) updates.website = data.website?.trim() || null;
@@ -1435,36 +1433,31 @@ export class CrmService {
 
     if (data.document !== undefined) {
       const cleanDoc = data.document ? normalizeDocument(data.document) : "";
-      if (cleanDoc) {
-        const targetType = data.type || current.type;
-        validateDocument(targetType as "person" | "company", cleanDoc);
+      const targetType = current.type === "person" ? "person" : "company";
+      validateDocument(targetType, cleanDoc);
 
-        // Verifica duplicidade no mesmo tenant
-        const [existing] = await db
-          .select({ id: crmAccounts.id })
-          .from(crmAccounts)
-          .where(
-            and(
-              eq(crmAccounts.tenantId, tenantId),
+      // Verifica duplicidade no mesmo tenant
+      const [existing] = await db
+        .select({ id: crmAccounts.id })
+        .from(crmAccounts)
+        .where(
+          and(
+            eq(crmAccounts.tenantId, tenantId),
             sql`regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') = ${cleanDoc}`,
-              sql`${crmAccounts.id} != ${accountId}`
-            )
+            sql`${crmAccounts.id} != ${accountId}`
           )
-          .limit(1);
+        )
+        .limit(1);
 
-        if (existing) {
-          throw new CrmValidationError(
-            "Já existe outra conta cadastrada com este documento neste tenant.",
-            "DUPLICATE_DOCUMENT"
-          );
-        }
-
-        updates.document = cleanDoc;
-        updates.documentType = detectDocumentType(cleanDoc);
-      } else {
-        updates.document = null;
-        updates.documentType = null;
+      if (existing) {
+        throw new CrmValidationError(
+          "Já existe outra conta cadastrada com este documento neste tenant.",
+          "DUPLICATE_DOCUMENT"
+        );
       }
+
+      updates.document = cleanDoc;
+      updates.documentType = detectDocumentType(cleanDoc);
     }
 
     const [updated] = await db
@@ -2995,10 +2988,13 @@ export class CrmService {
       if (data.account && data.account.name && data.account.name.trim()) {
         const accName = data.account.name.trim();
         const rawDoc = data.account.document ? normalizeDocument(data.account.document) : "";
-        const accType = data.account.type || (rawDoc.length === 14 ? "company" : "person");
+        const accType = data.account.type || (rawDoc.length === 11 ? "person" : "company");
+
+        if (!data.marketingOrigin || rawDoc) {
+          validateDocument(accType, rawDoc);
+        }
 
         if (rawDoc) {
-          validateDocument(accType, rawDoc);
           // Verificar se já existe conta com este documento no mesmo tenant
           const [existingAcc] = await tx
             .select({ id: crmAccounts.id })
