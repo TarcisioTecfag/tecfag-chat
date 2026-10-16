@@ -1,3 +1,4 @@
+import { syncConversationDeals, lockContactDeals } from "../crm/deal-associations";
 import { createHash } from "node:crypto";
 import { runtimeSingleton } from "../runtime-singleton";
 import makeWASocket, { 
@@ -30,7 +31,7 @@ import { eq, isNull, and, or, inArray, desc, sql } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
-import { urlToBase64 } from "../utils";
+import { urlToBase64, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { shouldIgnoreJid, ignoreReason } from "./jid-validator";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
@@ -63,13 +64,7 @@ export type SessionEvent =
 export type SessionListener = (event: SessionEvent) => void;
 
 function phoneIdentityVariants(phone: string): string[] {
-  const digits = phone.replace(/\D/g, "");
-  if (!digits) return [];
-  const variants = new Set([digits]);
-  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
-    variants.add(digits.slice(2));
-  }
-  return [...variants];
+  return buildPhoneSearchTerms(phone);
 }
 
 export class SessionManager {
@@ -1229,6 +1224,7 @@ export class SessionManager {
       }
 
       // 2. Garantir que a conversa existe no banco
+      await lockContactDeals(db, tenantId, contactId);
       let conversation = await db.query.conversations.findFirst({
         where: (convsTable, { eq: dEq, and: dAnd }) => 
           dAnd(dEq(convsTable.tenantId, tenantId), dEq(convsTable.contactId, contactId))
@@ -1372,6 +1368,8 @@ export class SessionManager {
           })
           .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
       }
+
+      await syncConversationDeals(db, tenantId, convId, contactId);
 
       const finalSenderType = isFromMe ? "agent" : "client";
       const finalSenderName = isFromMe ? "Operador" : name;

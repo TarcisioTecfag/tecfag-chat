@@ -1,3 +1,4 @@
+import { useConversationDealRequirement, ConversationDealRequirement } from "@/components/crm/ConversationDealRequirement";
 import React, { lazy, Suspense, useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { MobileHeader } from "./MobileHeader";
@@ -18,6 +19,8 @@ const CommercialManagementView = lazyWithRetry(() => import("@/components/commer
 const CommercialBiView = lazyWithRetry(() => import("@/components/commercial/CommercialBiView"), "CommercialBiView");
 
 export const MobileLayout: React.FC = () => {
+  const { activeChat: dealChat } = useChat();
+  const dealRequirement = useConversationDealRequirement(dealChat?.id);
   const {
     tenant,
     activeView,
@@ -128,7 +131,9 @@ export const MobileLayout: React.FC = () => {
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.15 }}
           >
-            <MobileMessageInput onSendMessage={handleSendMessage} />
+            {dealRequirement.pending && dealChat ? <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background p-3">
+              <ConversationDealRequirement conversationId={dealChat.id} contactId={dealChat.contactId} customerName={dealChat.name} error={dealRequirement.error} />
+            </div> : <MobileMessageInput onSendMessage={handleSendMessage} />}
           </motion.div>
         )}
       </AnimatePresence>

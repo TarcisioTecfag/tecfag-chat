@@ -1,3 +1,6 @@
+import { ContactDealPicker } from "./ContactDealPicker";
+import { PhoneContactSuggestions, type ExistingPhoneContact } from "./PhoneContactSuggestions";
+import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import { useEffect, useState } from "react";
 import {
   Sheet,
@@ -56,6 +59,8 @@ export function CrmQuickCreateDialog({
   operators,
   currentOperatorId,
 }: CrmQuickCreateDialogProps) {
+  const [contactDealInput, setContactDealInput] = useState<ContactDealInput>({});
+  const [existingContact, setExistingContact] = useState<ExistingPhoneContact | null>(null);
   const [accountType, setAccountType] = useState<"company" | "person">("company");
   const [name, setName] = useState("");
   const [tradeName, setTradeName] = useState("");
@@ -76,6 +81,8 @@ export function CrmQuickCreateDialog({
   useEffect(() => {
     if (!kind) return;
     setAccountType("company");
+    setContactDealInput({});
+    setExistingContact(null);
     setName("");
     setTradeName("");
     setSegment("");
@@ -156,7 +163,7 @@ export function CrmQuickCreateDialog({
                 name: name.trim(),
                 phone: phone.trim() || undefined,
                 email: email.trim() || undefined,
-                customFields,
+                customFields, ...contactDealInput, existingContactId: existingContact?.id,
               }
             : {
                 type: "task",
@@ -171,12 +178,16 @@ export function CrmQuickCreateDialog({
         body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));
+      if (!response.ok && data.code === "CONTACT_EXISTS" && data.contact) {
+        setExistingContact(data.contact); setName(data.contact.name);
+        toast.info("Este contato já existe e foi selecionado. Confirme a negociação para continuar."); return;
+      }
       if (!response.ok) throw new Error(data.error || "Não foi possível concluir o cadastro.");
       toast.success(
         kind === "company"
           ? "Empresa criada."
           : kind === "contact"
-            ? "Contato criado."
+            ? existingContact ? "Contato existente vinculado." : "Contato criado."
             : "Tarefa criada.",
       );
       onCreated();
@@ -201,6 +212,14 @@ export function CrmQuickCreateDialog({
         </SheetHeader>
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
+            {kind === "contact" && <div className="space-y-3">
+              <ContactDealPicker value={contactDealInput} onChange={setContactDealInput} />
+              {existingContact ? <div className="rounded-lg border border-primary/30 p-3 text-xs" role="status">
+                <p>Contato existente selecionado: <strong>{existingContact.name}</strong> — {existingContact.phone}</p>
+                <button type="button" className="text-primary" onClick={() => setExistingContact(null)}>Voltar ao cadastro</button>
+              </div> : <PhoneContactSuggestions endpoint="/api/crm/contacts" phone={phone} onSelect={(contact) => { setExistingContact(contact); setName(contact.name); setPhone(contact.phone || ""); setEmail(contact.email || ""); }} />}
+            </div>}
+
             {kind === "task" && (
               <div className="space-y-2">
                 <Label>Negociação *</Label>
@@ -299,7 +318,7 @@ export function CrmQuickCreateDialog({
               </Label>
               <Input
                 id="crm-quick-name"
-                value={name}
+                disabled={kind === "contact" && !!existingContact} value={name}
                 onChange={(event) => setName(event.target.value)}
                 required
                 maxLength={200}
@@ -359,13 +378,13 @@ export function CrmQuickCreateDialog({
                 )}
               </>
             )}
-            {(kind === "company" || kind === "contact") && (
+            {(kind === "company" || (kind === "contact" && !existingContact)) && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="crm-quick-phone">Telefone</Label>
                   <Input
                     id="crm-quick-phone"
-                    value={phone}
+                    disabled={kind === "contact" && !!existingContact} value={phone}
                     placeholder="(14) 99999-8888"
                     onChange={(event) => setPhone(maskPhone(event.target.value))}
                   />
@@ -375,7 +394,7 @@ export function CrmQuickCreateDialog({
                   <Input
                     id="crm-quick-email"
                     type="email"
-                    value={email}
+                    disabled={kind === "contact" && !!existingContact} value={email}
                     onChange={(event) => setEmail(event.target.value)}
                   />
                 </div>
@@ -436,7 +455,7 @@ export function CrmQuickCreateDialog({
                 ? "Criar tarefa"
                 : kind === "company"
                   ? "Criar empresa"
-                  : "Criar contato"}
+                  : existingContact ? "Vincular contato existente" : "Criar contato"}
             </Button>
           </div>
         </form>

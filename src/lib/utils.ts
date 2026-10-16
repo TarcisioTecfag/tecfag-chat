@@ -12,8 +12,10 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function normalizeCanonicalPhone(phone: string | null | undefined): string {
   if (!phone) return "";
-  let digits = phone.replace(/\D/g, "");
+  const digits = phone.replace(/\D/g, "");
   if (!digits) return "";
+
+  if (phone.trim().startsWith("+") && !digits.startsWith("55")) return digits;
 
   // Se já tem 12 ou 13 dígitos e começa com 55, é Brasil canônico
   if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
@@ -39,14 +41,18 @@ export function buildPhoneSearchTerms(rawPhone: string | null | undefined): stri
 
   // Normaliza para sem DDI
   const withoutDDI = clean.startsWith("55") && clean.length >= 12 ? clean.slice(2) : clean;
-  const withDDI = withoutDDI.startsWith("55") ? withoutDDI : `55${withoutDDI}`;
+  // Só interpreta DDD em números brasileiros completos. DDD 55 também recebe DDI 55.
+  if (withoutDDI.length !== 10 && withoutDDI.length !== 11) return [clean];
+  if (rawPhone.trim().startsWith("+") && !clean.startsWith("55")) return [clean];
+  if (phoneRegistrationError(rawPhone)) return [clean];
+  const withDDI = `55${withoutDDI}`;
 
   // Gera variante com/sem o nono dígito (Brasil: DDDs têm 2 dígitos)
   let withoutDDI_alt: string | null = null;
-  if (withoutDDI.length === 11 && withoutDDI[2] === "9") {
+  if (withoutDDI.length === 11 && /^9[6-9]/.test(withoutDDI.slice(2))) {
     // 11 dígitos → remove o 9: 14 9 9836-4338 → 14 9836-4338
     withoutDDI_alt = withoutDDI.slice(0, 2) + withoutDDI.slice(3);
-  } else if (withoutDDI.length === 10) {
+  } else if (withoutDDI.length === 10 && /^[6-9]/.test(withoutDDI.slice(2))) {
     // 10 dígitos → insere 9: 14 9836-4338 → 14 9 9836-4338
     withoutDDI_alt = withoutDDI.slice(0, 2) + "9" + withoutDDI.slice(2);
   }
@@ -60,6 +66,34 @@ export function buildPhoneSearchTerms(rawPhone: string | null | undefined): stri
   }
 
   return Array.from(terms);
+}
+
+/** Número local serve apenas para sugestões; nunca para vincular automaticamente. */
+export function localPhoneSearchTerms(rawPhone: string): string[] {
+  const digits = rawPhone.replace(/\D/g, "");
+  const national = digits.startsWith("55") && [12, 13].includes(digits.length) ? digits.slice(2) : digits;
+  const local = [10, 11].includes(national.length) ? national.slice(2) : national;
+  if (![8, 9].includes(local.length)) return [];
+  const terms = new Set([local]);
+  if (local.length === 9 && /^9[6-9]/.test(local)) terms.add(local.slice(1));
+  if (local.length === 8 && /^[6-9]/.test(local)) terms.add(`9${local}`);
+  return [...terms];
+}
+
+const BRAZIL_DDDS = new Set("11 12 13 14 15 16 17 18 19 21 22 24 27 28 31 32 33 34 35 37 38 41 42 43 44 45 46 47 48 49 51 53 54 55 61 62 63 64 65 66 67 68 69 71 73 74 75 77 79 81 82 83 84 85 86 87 88 89 91 92 93 94 95 96 97 98 99".split(" "));
+
+export function phoneRegistrationError(rawPhone: string | null | undefined): string | null {
+  if (!rawPhone?.trim()) return null;
+  const digits = rawPhone.replace(/\D/g, "");
+  if (rawPhone.trim().startsWith("+") && !digits.startsWith("55")) {
+    return /^[1-9]\d{9,14}$/.test(digits) ? null : "Informe o telefone internacional completo com código do país e da região.";
+  }
+  const national = digits.startsWith("55") && [12, 13].includes(digits.length) ? digits.slice(2) : digits;
+  if (![10, 11].includes(national.length) || !BRAZIL_DDDS.has(national.slice(0, 2))) {
+    return "Informe o telefone com DDD. O número sem DDD serve apenas para buscar possíveis contatos existentes.";
+  }
+  if (!/^[2-9]\d{7}$/.test(national.slice(2)) && !/^9\d{8}$/.test(national.slice(2))) return "Telefone inválido. Confira o DDD e o número.";
+  return null;
 }
 
 export function maskPhone(val: string): string {

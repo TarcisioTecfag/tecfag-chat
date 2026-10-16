@@ -1,3 +1,4 @@
+import { conversationHasDeal } from "../../../../lib/crm/deal-associations";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
@@ -29,8 +30,6 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          const permError = requireCrmPermission(session, "canViewCrm");
-          if (permError) return permError;
 
           const { conversationId } = params as { conversationId: string };
 
@@ -48,6 +47,12 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
             });
           }
 
+          if (new URL(request.url).searchParams.get("statusOnly") === "1") {
+            if (session.operator.role !== "admin" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+            return Response.json({ dealRequired: !await conversationHasDeal(db, tenantId, conversationId, conv.contactId) });
+          }
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
           const [deals, customFieldDefinitions] = await Promise.all([
             crmService.getConversationDeals(tenantId, conversationId),
             listCustomFields(tenantId, "deal"),

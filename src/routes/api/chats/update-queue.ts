@@ -1,3 +1,4 @@
+import { syncConversationDeals, DEAL_REQUIRED_MESSAGE } from "../../../lib/crm/deal-associations";
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { conversations, contacts, messages, operators, sectors } from "../../../db/schema";
@@ -118,6 +119,10 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             return forbidden();
           }
 
+          if (queueState === "meus") {
+            const hasDeal = await db.transaction((tx) => syncConversationDeals(tx, session.tenantId, conv.id, conv.contactId, session.operator.id));
+            if (!hasDeal) return Response.json({ error: DEAL_REQUIRED_MESSAGE, code: "DEAL_REQUIRED", conversationId: conv.id }, { status: 409 });
+          }
           // 2. Determinar responsável e persona dinamicamente
           const aiPersona = getAiPersona(session.tenantId);
           const aiName = `${aiPersona.name} IA`;

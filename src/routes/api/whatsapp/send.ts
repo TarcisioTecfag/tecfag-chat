@@ -1,3 +1,4 @@
+import { syncConversationDeals, DEAL_REQUIRED_MESSAGE } from "../../../lib/crm/deal-associations";
 import { createFileRoute } from "@tanstack/react-router";
 import { outboundQueue } from "../../../lib/whatsapp/outbound";
 import { storedResult } from "../../../lib/whatsapp/dispatch";
@@ -158,6 +159,9 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           if (isInternalNote && session.operator.role !== "admin" && session.permissions.chat.canSendInternalNotes !== true) {
             return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
           }
+
+          const hasDeal = await db.transaction((tx) => syncConversationDeals(tx, session.tenantId, conv.id, conv.contactId, session.operator.id));
+          if (!hasDeal) return Response.json({ error: DEAL_REQUIRED_MESSAGE, code: "DEAL_REQUIRED", conversationId: conv.id }, { status: 409 });
 
           // Persistir anexos apenas depois de validar tenant e responsável.
           if (clientMessageId) {

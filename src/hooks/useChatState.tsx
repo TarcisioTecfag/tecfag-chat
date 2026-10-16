@@ -1,3 +1,4 @@
+import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
@@ -200,6 +201,8 @@ type ChatContextType = {
     email: string,
     accountId: string | null,
     channel: Channel,
+    dealInput: ContactDealInput,
+    customFields?: Record<string, unknown>,
   ) => Promise<{
     contactId: string;
     conversationId: string;
@@ -2548,15 +2551,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   refreshAssignedChatRef.current = refreshConversations;
 
-  const createContact = async (name: string, phone: string, email: string, accountId: string | null, channel: Channel) => {
+  const createContact = async (name: string, phone: string, email: string, accountId: string | null, channel: Channel, dealInput: ContactDealInput, customFields?: Record<string, unknown>) => {
     const response = await fetch(`${BACKEND_URL}/api/contacts`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, phone, email, accountId, channel }),
+      body: JSON.stringify({ name, phone, email, accountId, channel, customFields, ...dealInput }),
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || "Não foi possível criar o contato.");
+    if (!response.ok) throw Object.assign(new Error(result.error || "Não foi possível criar o contato."), { code: result.code, contactId: result.contactId, contact: result.contact });
     let chatReady = false;
     try {
       await refreshConversations(result.conversationId);

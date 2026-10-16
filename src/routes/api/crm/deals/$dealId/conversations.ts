@@ -1,10 +1,12 @@
+import { linkContactToDeal, syncConversationDeals } from "../../../../../lib/crm/deal-associations";
+import { phoneRegistrationError, normalizeCanonicalPhone } from "../../../../../lib/utils";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { db } from "../../../../../db";
 import { crmDeals, crmConversationDeals, crmDealContacts, crmAccounts, conversations, contacts, operators } from "../../../../../db/schema";
-import { eq, and, desc, asc, or, ilike } from "drizzle-orm";
+import { eq, and, desc, asc, or, ilike, sql } from "drizzle-orm";
 import { buildPhoneSearchTerms } from "../../../../../lib/utils";
 
 const corsHeaders = {
@@ -75,9 +77,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               operatorName: operators.name,
             })
             .from(crmConversationDeals)
-            .innerJoin(conversations, eq(crmConversationDeals.conversationId, conversations.id))
-            .innerJoin(contacts, eq(conversations.contactId, contacts.id))
-            .leftJoin(operators, eq(conversations.operatorId, operators.id))
+            .innerJoin(conversations, and(eq(crmConversationDeals.conversationId, conversations.id), eq(conversations.tenantId, tenantId)))
+            .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+            .leftJoin(operators, and(eq(conversations.operatorId, operators.id), eq(operators.tenantId, tenantId)))
             .where(
               and(
                 eq(crmConversationDeals.tenantId, tenantId),
@@ -179,7 +181,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               );
             }
 
-            const autoCapture = body.autoCapture === true;
+            const autoCapture = body.autoCapture === true && (session.operator.role === "admin" || session.permissions?.chat?.canCaptureChat === true);
 
             const result = await db.transaction(async (tx) => {
               // 1. Verifica se já existe conversa ativa vinculada à negociação
@@ -248,7 +250,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   .where(
                     and(
                       eq(contacts.tenantId, tenantId),
-                      eq(contacts.crmAccountId, deal.accountId)
+                      eq(contacts.accountId, deal.accountId)
                     )
                   )
                   .orderBy(desc(contacts.createdAt))
@@ -267,7 +269,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               if (!targetContactId && candidatePhone) {
                 const terms = buildPhoneSearchTerms(candidatePhone);
                 if (terms.length > 0) {
-                  const phoneConditions = terms.map((term) => ilike(contacts.phone, `%${term}%`));
+                  const phoneConditions = terms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`);
                   const [phoneContact] = await tx
                     .select({ id: contacts.id })
                     .from(contacts)
@@ -281,6 +283,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               }
 
               if (!targetContactId) {
+                if (session.operator.role !== "admin" && (!session.permissions?.contacts?.canCreateContact || !session.permissions?.crm?.canEditDeals)) throw Object.assign(new Error("Permissão insuficiente para criar e vincular um contato."), { statusCode: 403, code: "FORBIDDEN" });
+                const phoneError = phoneRegistrationError(candidatePhone);
+                if (phoneError) throw Object.assign(new Error(phoneError), { statusCode: 400, code: "PHONE_DDD_REQUIRED" });
                 const contactName =
                   (typeof body.name === "string" && body.name.trim()) ||
                   accountRow?.name ||
@@ -290,29 +295,18 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   .insert(contacts)
                   .values({
                     tenantId,
+                    id: `cont-${crypto.randomUUID()}`,
                     name: contactName,
-                    phone: candidatePhone || null,
+                    phone: normalizeCanonicalPhone(candidatePhone) || null,
                     email: accountRow?.email || null,
-                    company: accountRow?.name || null,
-                    crmAccountId: deal.accountId || null,
+                    accountId: deal.accountId || null,
                     mainChannel: "whatsapp",
                   })
                   .returning({ id: contacts.id });
                 targetContactId = newContact.id;
               }
 
-              // Garante vínculo do contato em crm_deal_contacts
-              if (targetContactId) {
-                await tx
-                  .insert(crmDealContacts)
-                  .values({
-                    tenantId,
-                    dealId,
-                    contactId: targetContactId,
-                    isPrimary: true,
-                  })
-                  .onConflictDoNothing();
-              }
+              if (targetContactId) await linkContactToDeal(tx, tenantId, targetContactId, dealId, session.operator.id);
 
               // 3. Resolve ou cria a conversa para targetContactId
               if (!targetConv && targetContactId) {
@@ -340,7 +334,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   if (contactObj?.phone) {
                     const terms = buildPhoneSearchTerms(contactObj.phone);
                     if (terms.length > 0) {
-                      const phoneConditions = terms.map((term) => ilike(contacts.phone, `%${term}%`));
+                      const phoneConditions = terms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`);
                       const [otherHistory] = await tx
                         .select({ conversation: conversations })
                         .from(conversations)
@@ -362,6 +356,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
 
                       if (otherHistory?.conversation) {
                         targetConv = otherHistory.conversation;
+                        targetContactId = targetConv.contactId;
+                        await linkContactToDeal(tx, tenantId, targetContactId, dealId, session.operator.id);
                       }
                     }
                   }
@@ -372,11 +368,11 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   const [insertedConv] = await tx
                     .insert(conversations)
                     .values({
+                      id: `conv-${crypto.randomUUID()}`,
                       tenantId,
                       contactId: targetContactId,
-                      operatorId: session.operator.id,
-                      sectorId: session.operator.sectorId || null,
-                      queueState: "meus",
+                      operatorId: autoCapture ? session.operator.id : null,
+                      queueState: autoCapture ? "meus" : "fila",
                       unreadCount: 0,
                       lastMessageText: "Atendimento iniciado pelo CRM",
                       lastMessageTime: now,
@@ -428,7 +424,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                     tenantId,
                     conversationId: targetConv.id,
                     dealId,
-                    linkedByOperatorId: session.operator.id,
+                    id: `cd-${crypto.randomUUID()}`,
+                    createdByOperatorId: session.operator.id,
                     origin: "crm",
                     isActive: true,
                   });
@@ -449,6 +446,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                 }
               }
 
+              if (targetConv && targetContactId) await syncConversationDeals(tx, tenantId, targetConv.id, targetContactId, session.operator.id);
               return {
                 conversationId: targetConv?.id || null,
                 contactId: targetContactId,

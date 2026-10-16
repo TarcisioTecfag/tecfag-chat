@@ -4,7 +4,11 @@ import { channelConfigs, contacts, conversations, crmAccounts, crmContactAccount
 import { eq, and, count, desc, ilike, or, sql } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
 import { requireSession } from "../../lib/auth-session.js";
-import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../../lib/utils.js";
+import { normalizeCanonicalPhone, buildPhoneSearchTerms, phoneRegistrationError, localPhoneSearchTerms } from "../../lib/utils.js";
+
+import { contactDealPermission, registerContactDeal } from "../../lib/crm/contact-registration";
+import { syncConversationDeals } from "../../lib/crm/deal-associations";
+import { listCustomFields, validateFieldValues } from "../../lib/crm/custom-fields";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,6 +33,7 @@ export const Route = createFileRoute("/api/contacts")({
 
         const url = new URL(request.url);
         const search = (url.searchParams.get("search") || "").trim().slice(0, 100);
+        const identityPhone = url.searchParams.get("identityPhone")?.trim().slice(0, 40);
         const channel = url.searchParams.get("channel");
         if (channel && !["whatsapp", "instagram", "messenger", "livechat"].includes(channel)) {
           return Response.json({ error: "Canal inválido." }, { status: 400 });
@@ -40,6 +45,12 @@ export const Route = createFileRoute("/api/contacts")({
         const conditions = [eq(contacts.tenantId, tenantId)];
         if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only") {
           conditions.push(eq(contacts.walletOperatorId, session.operator.id));
+        }
+        if (identityPhone) {
+          const terms = phoneRegistrationError(identityPhone) ? localPhoneSearchTerms(identityPhone) : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
+          conditions.push(terms.length ? or(...terms.map((term) => phoneRegistrationError(identityPhone)
+            ? sql`right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}`
+            : sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))! : sql`false`);
         }
         if (channel) conditions.push(eq(contacts.mainChannel, channel));
         if (search) {
@@ -105,6 +116,8 @@ export const Route = createFileRoute("/api/contacts")({
             );
           }
 
+          const phoneError = phoneRegistrationError(typeof phone === "string" ? phone : "");
+          if (phoneError) return Response.json({ error: phoneError, code: "PHONE_DDD_REQUIRED" }, { status: 400 });
           const normalizedPhone = normalizeCanonicalPhone(typeof phone === "string" ? phone : "");
           const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
           if ((phone && (typeof phone !== "string" || phone.length > 40)) ||
@@ -128,6 +141,9 @@ export const Route = createFileRoute("/api/contacts")({
             );
           }
 
+          const dealPermission = contactDealPermission(session, body);
+          if (dealPermission) return dealPermission;
+          const customFields = validateFieldValues(await listCustomFields(tenantId, "contact"), body.customFields, { requireOnCreate: true });
           const finalContactId = `cont-${crypto.randomUUID()}`;
           const finalConversationId = `conv-${crypto.randomUUID()}`;
 
@@ -144,7 +160,7 @@ export const Route = createFileRoute("/api/contacts")({
               ? or(...phoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
               : normalizedEmail ? ilike(contacts.email, normalizedEmail) : undefined;
             if (identity) {
-              const [existing] = await tx.select({ id: contacts.id, name: contacts.name })
+              const [existing] = await tx.select({ id: contacts.id, name: contacts.name, phone: contacts.phone, email: contacts.email, walletOperatorId: contacts.walletOperatorId })
                 .from(contacts).where(and(eq(contacts.tenantId, tenantId), identity)).limit(1);
               if (existing) return existing;
             }
@@ -156,7 +172,7 @@ export const Route = createFileRoute("/api/contacts")({
               mainChannel: channel || "whatsapp",
               walletOperatorId: requiresExplicitCapture ? null : session.operator.id,
               responsibleName: requiresExplicitCapture ? "Na Fila" : session.operator.name,
-              createdAt: now,
+              customFields, createdAt: now,
             });
             if (accountId) {
               await tx.insert(crmContactAccountHistory).values({
@@ -165,6 +181,7 @@ export const Route = createFileRoute("/api/contacts")({
                 changedByOperatorId: session.operator.id, createdAt: now,
               });
             }
+            await registerContactDeal(tx, session, finalContactId, accountId || null, body);
             await tx.insert(conversations).values({
               id: finalConversationId, tenantId, contactId: finalContactId,
               operatorId: requiresExplicitCapture ? null : session.operator.id,
@@ -172,10 +189,12 @@ export const Route = createFileRoute("/api/contacts")({
               lastMessageText: requiresExplicitCapture ? "Contato criado. Aguardando captura do atendimento." : "Contato criado e atendimento iniciado.",
               lastMessageTime: now, version: 1, updatedAt: now, createdAt: now,
             });
+            await syncConversationDeals(tx, tenantId, finalConversationId, finalContactId, session.operator.id);
             return null;
           });
           if (duplicate) {
-            return Response.json({ error: `Contato já cadastrado: ${duplicate.name}.`, code: "CONTACT_EXISTS", contactId: duplicate.id }, { status: 409 });
+            if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only" && duplicate.walletOperatorId !== session.operator.id) return Response.json({ error: "Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.", code: "CONTACT_EXISTS" }, { status: 409 });
+            return Response.json({ error: `Contato já cadastrado: ${duplicate.name}.`, code: "CONTACT_EXISTS", contactId: duplicate.id, contact: duplicate }, { status: 409 });
           }
 
           return new Response(
@@ -192,11 +211,11 @@ export const Route = createFileRoute("/api/contacts")({
           );
         } catch (e: any) {
           console.error("[POST /api/contacts] Erro ao criar contato e conversa no DB:", e);
-          if (e?.constraint === "contacts_tenant_phone_identity") {
+          if ((e?.constraint || e?.cause?.constraint) === "contacts_tenant_phone_identity") {
             return Response.json({ error: "Já existe um contato com este telefone.", code: "CONTACT_EXISTS" }, { status: 409 });
           }
-          return new Response(JSON.stringify({ error: e.message }), {
-            status: 500,
+          return new Response(JSON.stringify({ error: e.message, code: e.code }), {
+            status: e.statusCode || 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }

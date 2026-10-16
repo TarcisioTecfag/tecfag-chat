@@ -1,3 +1,8 @@
+import { CustomFieldsEditor } from "@/components/crm/CustomFieldsEditor";
+import { ContactDealPicker } from "@/components/crm/ContactDealPicker";
+import { ContactDealResolutionDialog } from "@/components/crm/ContactDealResolutionDialog";
+import { PhoneContactSuggestions, type ExistingPhoneContact } from "@/components/crm/PhoneContactSuggestions";
+import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useChat } from "@/hooks/useChatState";
@@ -132,6 +137,10 @@ export function ContactsView() {
     activeTab: channelFilter,
     onChange: setChannelFilter,
   });
+  const [newContactCustomFields, setNewContactCustomFields] = useState<Record<string, unknown>>({});
+  const [contactDealInput, setContactDealInput] = useState<ContactDealInput>({});
+  const [existingContact, setExistingContact] = useState<ExistingPhoneContact | null>(null);
+  const [pendingDealContactId, setPendingDealContactId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactListItem | null>(null);
   const [contactRows, setContactRows] = useState<ContactListItem[]>([]);
@@ -313,10 +322,11 @@ export function ContactsView() {
 
   const filteredContacts = contactRows;
 
-  const handleStartChat = async (contactId: string) => {
+  const handleStartChat = async (contactId: string, selection?: ContactDealInput) => {
     try {
-      const response = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, { method: "POST", credentials: "include" });
+      const response = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(selection || {}) });
       const result = await response.json();
+      if (!response.ok && result.code === "DEAL_REQUIRED") { setPendingDealContactId(contactId); return false; }
       if (!response.ok) throw new Error(result.error || "Não foi possível abrir o atendimento.");
       await refreshConversations(result.conversationId);
       const queue: QueueType = result.readOnly
@@ -325,8 +335,10 @@ export function ContactsView() {
       setActiveQueue(queue);
       setSelectedChatId(result.conversationId);
       setActiveView("chat");
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao iniciar atendimento.");
+      return false;
     }
   };
 
@@ -342,9 +354,16 @@ export function ContactsView() {
     if (!addForm.name.trim()) return;
     setSavingContact(true);
     try {
-      const result = await createContact(addForm.name, addForm.phone, addForm.email, newAccount?.id || null, addForm.channel);
+      if (existingContact) {
+        if (await handleStartChat(existingContact.id, contactDealInput)) { setShowAddModal(false); setExistingContact(null); setContactDealInput({}); }
+        return;
+      }
+      const result = await createContact(addForm.name, addForm.phone, addForm.email, newAccount?.id || null, addForm.channel, contactDealInput, newContactCustomFields);
       setAddForm({ name: "", phone: "", email: "", channel: "whatsapp" });
       setNewAccount(null);
+      setContactDealInput({});
+      setNewContactCustomFields({});
+      setExistingContact(null);
       setShowAddModal(false);
       if (!result.chatReady) {
         try { await loadContacts(0); }
@@ -356,7 +375,11 @@ export function ContactsView() {
       setSelectedChatId(result.conversationId);
       setActiveView("chat");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível criar o contato.");
+      const duplicate = error as Error & { code?: string; contactId?: string; contact?: ExistingPhoneContact };
+      if (duplicate.code === "CONTACT_EXISTS" && duplicate.contactId) {
+        setExistingContact(duplicate.contact || { id: duplicate.contactId, name: addForm.name, phone: addForm.phone });
+        toast.info("Este contato já existe e foi selecionado. Confirme a negociação para continuar.");
+      } else toast.error(error instanceof Error ? error.message : "Não foi possível criar o contato.");
     } finally {
       setSavingContact(false);
     }
@@ -418,6 +441,7 @@ export function ContactsView() {
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-8 shadow-soft relative overflow-hidden select-none">
 
+      {pendingDealContactId && <ContactDealResolutionDialog key={pendingDealContactId} contactId={pendingDealContactId} onClose={() => setPendingDealContactId(null)} onSuccess={() => { const id = pendingDealContactId; setPendingDealContactId(null); void handleStartChat(id); }} />}
       {/* Header */}
       <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
@@ -895,12 +919,21 @@ export function ContactsView() {
 
           <form onSubmit={handleCreateContact} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
+              <ContactDealPicker value={contactDealInput} onChange={setContactDealInput} />
+              {!existingContact && <CustomFieldsEditor entity="contact" values={newContactCustomFields} onChange={setNewContactCustomFields} create />}
+              {existingContact ? <div className="rounded-lg border border-primary/30 p-3" role="status">
+                <p className="font-semibold">Contato existente selecionado: {existingContact.name}</p>
+                <p>{existingContact.phone}</p>
+                <button type="button" className="mt-1 text-primary" onClick={() => setExistingContact(null)}>Voltar ao cadastro</button>
+              </div> : <PhoneContactSuggestions phone={addForm.phone} onSelect={(contact) => { setExistingContact(contact); setCreatingCompany(false); setNewAccount(null); setAddForm((form) => ({ ...form, name: contact.name })); }} />}
+
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Completo *</label>
                 <input
                   type="text"
                   required
                   placeholder="Ex: João da Silva"
+                  disabled={!!existingContact}
                   value={addForm.name}
                   onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
                   className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
@@ -912,6 +945,7 @@ export function ContactsView() {
                 <input
                   type="text"
                   placeholder="Ex: (81) 99876-5432"
+                  disabled={!!existingContact}
                   value={addForm.phone}
                   onChange={(e) => setAddForm({ ...addForm, phone: maskPhone(e.target.value) })}
                   className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
@@ -1095,7 +1129,7 @@ export function ContactsView() {
                       Nova empresa
                     </button>
                   </div>
-                  <AccountPicker
+                  <AccountPicker disabled={!!existingContact}
                     value={newAccount?.id || null}
                     selectedAccount={newAccount}
                     onSelectAccount={setNewAccount}
@@ -1121,6 +1155,7 @@ export function ContactsView() {
                 <input
                   type="email"
                   placeholder="Ex: joao@empresa.com"
+                  disabled={!!existingContact}
                   value={addForm.email}
                   onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
                   className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
@@ -1168,7 +1203,7 @@ export function ContactsView() {
                 className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50 flex items-center gap-2"
               >
                 {savingContact && <Loader2 className="h-4 w-4 animate-spin" />}
-                {savingContact ? "Salvando..." : "Criar e Iniciar Chat"}
+                {savingContact ? "Salvando..." : existingContact ? "Vincular e Iniciar Chat" : "Criar e Iniciar Chat"}
               </button>
             </div>
           </form>

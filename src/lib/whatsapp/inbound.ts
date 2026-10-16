@@ -1,3 +1,4 @@
+import { syncConversationDeals, lockContactDeals } from "../crm/deal-associations";
 import { runtimeSingleton } from "../runtime-singleton";
 import { db } from "../../db";
 import {
@@ -313,6 +314,7 @@ export class InboundProcessor {
         }
       }
 
+      await lockContactDeals(db, tenantId, contact.id);
       // 3. Resolução da Conversa Ativa (conversations)
       let [activeConv] = await db
         .select()
@@ -449,6 +451,8 @@ export class InboundProcessor {
           contact = canonicalContact;
         }
       }
+
+      await syncConversationDeals(db, tenantId, activeConv.id, contact.id);
 
       if (!createdConversation && activeConv.queueState === "finalizados") {
         // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico

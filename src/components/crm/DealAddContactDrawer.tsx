@@ -412,6 +412,7 @@ export function DealAddContactDrawer({
         accountId: accountId || undefined,
         customFields: Object.keys(createCustomFields).length > 0 ? createCustomFields : undefined,
         channel: "whatsapp",
+        dealId,
       };
 
       const res = await fetch("/api/contacts", {
@@ -429,6 +430,7 @@ export function DealAddContactDrawer({
         const data = await res.json();
         if (data.contactId) {
           targetContactId = data.contactId;
+          toast.info("Este contato já existe. O cadastro existente será utilizado nesta negociação.");
         } else {
           throw new Error(data.error || "Contato já cadastrado.");
         }

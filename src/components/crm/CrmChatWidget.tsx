@@ -1575,12 +1575,13 @@ export function CrmChatWidget() {
                 credentials: "include",
                 body: JSON.stringify({
                   name: detail.name?.trim() || detail.phone?.trim() || "Contato CRM",
+                  dealId: detail.dealId,
                   phone: detail.phone?.trim() || null,
                 }),
               });
               if (createContactRes.ok) {
                 const createdContact = await createContactRes.json();
-                targetContactId = createdContact?.contact?.id || createdContact?.id || null;
+                targetContactId = createdContact?.contactId || createdContact?.contact?.id || createdContact?.id || null;
               }
             }
 

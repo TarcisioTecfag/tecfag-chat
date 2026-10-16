@@ -1,3 +1,4 @@
+import { useConversationDealRequirement, ConversationDealRequirement } from "@/components/crm/ConversationDealRequirement";
 import {
   saveBrowserIntent,
   readBrowserIntents,
@@ -916,6 +917,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   } = usePermissions();
 
   // ── Flags de permissão derivadas do grupo de acesso ──────────────────────
+  const dealRequirement = useConversationDealRequirement(activeChat?.id);
   const isOwner = !!activeChat && activeChat.operatorId === currentOperatorId;
   const canCapture = canCaptureChat;
   const canTransfer = canTransferChat;
@@ -2889,7 +2891,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           onDrop={handleDrop}
         >
           {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
-          {!isOwner && activeChat.operatorId ? (
+          {dealRequirement.pending ? (
+            <ConversationDealRequirement conversationId={activeChat.id} contactId={activeChat.contactId} customerName={activeChat.name} error={dealRequirement.error} />
+          ) : !isOwner && activeChat.operatorId ? (
             <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
               <div className="flex items-start gap-3.5">
                 <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">

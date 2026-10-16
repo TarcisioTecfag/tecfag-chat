@@ -1,3 +1,5 @@
+import { syncConversationDeals, DealRequiredError } from "../../../../lib/crm/deal-associations";
+import { contactDealPermission, registerContactDeal } from "../../../../lib/crm/contact-registration";
 import { createFileRoute } from "@tanstack/react-router";
 import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "../../../../db";
@@ -26,6 +28,10 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
         const contactId = params.contactId;
         const body = await request.json().catch(() => ({} as Record<string, unknown>));
         const requestedDealId = typeof body?.dealId === "string" && body.dealId.trim() ? body.dealId.trim() : null;
+        if (body?.dealId || body?.newDeal) {
+          const permission = contactDealPermission(session, body);
+          if (permission) return permission;
+        }
         const autoCapture = Boolean(body?.autoCapture);
 
         try {
@@ -56,63 +62,8 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
 
             const now = new Date();
 
-            const syncConversationWithDeals = async (convId: string) => {
-              const dealContactRows = await tx
-                .select({ dealId: crmDealContacts.dealId })
-                .from(crmDealContacts)
-                .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.contactId, contactId)));
-
-              const targetDealIds = new Set<string>(dealContactRows.map((r) => r.dealId));
-              if (requestedDealId) {
-                const [validDeal] = await tx
-                  .select({ id: crmDeals.id })
-                  .from(crmDeals)
-                  .where(and(eq(crmDeals.id, requestedDealId), eq(crmDeals.tenantId, tenantId)))
-                  .limit(1);
-                if (validDeal) targetDealIds.add(validDeal.id);
-              }
-
-              if (targetDealIds.size === 0) return;
-
-              const dealIdArray = Array.from(targetDealIds);
-              const existingLinks = await tx
-                .select({
-                  id: crmConversationDeals.id,
-                  dealId: crmConversationDeals.dealId,
-                  isActive: crmConversationDeals.isActive,
-                })
-                .from(crmConversationDeals)
-                .where(
-                  and(
-                    eq(crmConversationDeals.tenantId, tenantId),
-                    eq(crmConversationDeals.conversationId, convId),
-                    inArray(crmConversationDeals.dealId, dealIdArray)
-                  )
-                );
-
-              const existingByDeal = new Map(existingLinks.map((l) => [l.dealId, l]));
-              for (const dId of dealIdArray) {
-                const existingLink = existingByDeal.get(dId);
-                if (existingLink) {
-                  if (!existingLink.isActive) {
-                    await tx
-                      .update(crmConversationDeals)
-                      .set({ isActive: true })
-                      .where(and(eq(crmConversationDeals.id, existingLink.id), eq(crmConversationDeals.tenantId, tenantId)));
-                  }
-                } else {
-                  await tx.insert(crmConversationDeals).values({
-                    id: `cd-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-                    tenantId,
-                    conversationId: convId,
-                    dealId: dId,
-                    origin: "crm",
-                    createdByOperatorId: session.operator.id,
-                    isActive: true,
-                    createdAt: now,
-                  });
-                }
-              }
+            const syncConversationWithDeals = async (convId: string, actualContactId = contactId) => {
+              return syncConversationDeals(tx, tenantId, convId, actualContactId, session.operator.id);
             };
 
             const [existing] = await tx.select({
@@ -165,6 +116,17 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               }
             }
 
+            const actualContactId = targetConv?.contactId || contactId;
+            if (requestedDealId || body?.newDeal) await registerContactDeal(tx, session, actualContactId, null, body);
+            if (targetConv && !await syncConversationWithDeals(targetConv.id, actualContactId)) {
+              return { conversationId: targetConv.id, created: false, readOnly: true, dealRequired: true, queueState: targetConv.queueState };
+            }
+            if (!targetConv) {
+              const [participant] = await tx.select({ id: crmDealContacts.id }).from(crmDealContacts)
+                .innerJoin(crmDeals, and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)))
+                .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.contactId, actualContactId))).limit(1);
+              if (!participant) throw new DealRequiredError();
+            }
             if (targetConv) {
               const isOwnedByAnotherOperator =
                 targetConv.queueState === "meus" &&
@@ -172,7 +134,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 targetConv.operatorId !== session.operator.id;
 
               const shouldAssignToCurrentOperator =
-                !requiresExplicitCapture || (autoCapture && !isOwnedByAnotherOperator && canCapture);
+                !isOwnedByAnotherOperator && canCapture && (!requiresExplicitCapture || autoCapture);
 
               if (!shouldAssignToCurrentOperator) {
                 if (targetConv.queueState === "finalizados") {
@@ -180,7 +142,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                     .set({ operatorId: null, queueState: "fila", updatedAt: now })
                     .where(and(eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId)));
                 }
-                await syncConversationWithDeals(targetConv.id);
+                await syncConversationWithDeals(targetConv.id, targetConv.contactId);
                 return {
                   conversationId: targetConv.id,
                   created: false,
@@ -208,7 +170,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 })
                 .where(and(eq(contacts.id, targetConv.contactId), eq(contacts.tenantId, tenantId)));
 
-              await syncConversationWithDeals(targetConv.id);
+              await syncConversationWithDeals(targetConv.id, targetConv.contactId);
               return { conversationId: targetConv.id, created: false, readOnly: false, queueState: "meus" };
             }
 
@@ -247,6 +209,8 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
           if ("forbidden" in result) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
           return Response.json(result, { status: result.created ? 201 : 200 });
         } catch (error) {
+          if (error instanceof DealRequiredError) return Response.json({ error: error.message, code: error.code, contactId }, { status: 409 });
+          if (error && typeof error === "object" && "statusCode" in error) return Response.json({ error: error instanceof Error ? error.message : "Falha ao vincular negociação." }, { status: Number(error.statusCode) || 400 });
           console.error("[POST /api/contacts/:id/conversations] Falha:", error);
           return Response.json({ error: "Não foi possível iniciar o atendimento." }, { status: 500 });
         }

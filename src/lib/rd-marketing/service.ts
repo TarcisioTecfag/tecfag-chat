@@ -23,7 +23,7 @@ import {
   missingStageFields,
   type CustomFieldValues,
 } from "../crm/custom-fields";
-import { buildPhoneSearchTerms, normalizeCanonicalPhone } from "../utils";
+import { buildPhoneSearchTerms, normalizeCanonicalPhone, phoneRegistrationError } from "../utils";
 import { recordRdDiagnostic } from "./diagnostic-store";
 import {
   availablePaths,
@@ -111,6 +111,8 @@ async function prepareLead(
   executor: Pick<typeof db, "select"> = db,
 ) {
   const mapped = mapLead(lead, settings);
+  const phoneError = phoneRegistrationError(String(mapped.contact.phone || ""));
+  if (phoneError) throw new CrmValidationError(phoneError);
   mapped.contact.phone = normalizeCanonicalPhone(String(mapped.contact.phone || ""));
   const phone = String(mapped.contact.phone);
   if (phone && (phone.length < 8 || phone.length > 15))

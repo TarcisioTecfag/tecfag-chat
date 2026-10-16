@@ -4,7 +4,7 @@ import { contacts } from "../../../db/schema";
 import { and, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
-import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../../../lib/utils";
+import { normalizeCanonicalPhone, buildPhoneSearchTerms, phoneRegistrationError } from "../../../lib/utils";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -62,6 +62,8 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           }
           if ("phone" in body) {
             if (body.phone != null && typeof body.phone !== "string") return Response.json({ error: "Telefone inválido." }, { status: 400 });
+            const phoneError = phoneRegistrationError(body.phone);
+            if (phoneError) return Response.json({ error: phoneError, code: "PHONE_DDD_REQUIRED" }, { status: 400 });
             updates.phone = body.phone ? normalizeCanonicalPhone(body.phone) || null : null;
             if (updates.phone && (updates.phone.length < 8 || updates.phone.length > 40)) return Response.json({ error: "Telefone inválido." }, { status: 400 });
           }
@@ -129,7 +131,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           });
         } catch (e: any) {
           console.error("Erro ao atualizar contato:", e);
-          const statusCode = e?.constraint === "contacts_tenant_phone_identity" ? 409 : e?.statusCode || 500;
+          const statusCode = (e?.constraint || e?.cause?.constraint) === "contacts_tenant_phone_identity" ? 409 : e?.statusCode || 500;
           return new Response(JSON.stringify({ error: e.message, code: e?.code }), {
             status: statusCode,
             headers: { ...CORS, "Content-Type": "application/json" },

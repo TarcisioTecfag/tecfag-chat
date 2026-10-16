@@ -264,6 +264,7 @@ export function ConversationDealsPanel({
       const data = await res.json();
       const loadedDeals = Array.isArray(data?.deals) ? data.deals : [];
       setDeals(loadedDeals);
+      window.dispatchEvent(new Event("crm-deals-changed"));
 
       if (data?.customFieldDefinitions) {
         setCustomFieldDefinitions(normalizeCustomFieldDefs(data.customFieldDefinitions));
@@ -380,7 +381,7 @@ export function ConversationDealsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId }),
       });
-      if (!res.ok) throw new Error("Falha ao desvincular conversa.");
+      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || "Falha ao desvincular conversa."); }
       toast.success("Conversa desvinculada da negociação.");
       fetchLinkedDeals();
     } catch (e: any) {
@@ -548,7 +549,7 @@ export function ConversationDealsPanel({
       ) : deals.length === 0 ? (
         <div className="text-center py-4">
           <p className="text-[11px] text-muted-foreground/60 italic">
-            Nenhuma negociação vinculada a esta conversa.
+            Vincule uma negociação existente ou crie uma para iniciar o atendimento.
           </p>
           <button
             onClick={() => setIsCreateOpen(true)}
