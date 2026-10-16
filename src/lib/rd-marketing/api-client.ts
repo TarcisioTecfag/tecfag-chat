@@ -47,7 +47,11 @@ export async function rdRequest(
     throw new CrmError("O RD não respondeu. Tente novamente.", "RD_UNAVAILABLE", 503);
   }
   if (!response.ok) {
-    await response.body?.cancel();
+    const fieldValidation =
+      path === "/platform/contacts/fields" && [400, 422].includes(response.status)
+        ? await rdFieldValidation(response)
+        : "";
+    if (!fieldValidation) await response.body?.cancel().catch(() => {});
     const messages: Record<number, string> = {
       400: "O RD recusou os dados da consulta ou autorização.",
       401: "A autorização do RD expirou ou foi revogada. Reconecte a conta.",
@@ -56,11 +60,13 @@ export async function rdRequest(
       422: "O RD recusou os campos enviados. Revise os dados do evento.",
       429: "Limite de consultas do RD atingido. Aguarde e tente novamente.",
     };
-    throw new CrmError(
+    const error = new CrmError(
       `${messages[response.status] || "Não foi possível concluir a operação no RD."} (HTTP ${response.status})`,
       `RD_HTTP_${response.status}`,
       response.status >= 500 ? 503 : response.status,
     );
+    if (fieldValidation) Object.assign(error, { rdFieldValidation: fieldValidation });
+    throw error;
   }
   const reader = response.body?.getReader();
   if (!reader) throw new CrmError("Resposta vazia do RD.", "RD_RESPONSE_INVALID", 502);
@@ -91,6 +97,72 @@ export async function rdRequest(
   } catch (error) {
     if (error instanceof CrmError) throw error;
     throw new CrmError("Formato de resposta do RD inválido.", "RD_RESPONSE_INVALID", 502);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// Field setup errors may include arbitrary provider messages/values. Expose only
+// documented validation codes and schema paths, never the raw response or messages.
+async function rdFieldValidation(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  try {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 16384) {
+        await reader.cancel();
+        return "";
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+    const errors = object(JSON.parse(new TextDecoder().decode(bytes))).errors;
+    const paths = new Set([
+      "name",
+      "label",
+      "pt-BR",
+      "default",
+      "api_identifier",
+      "data_type",
+      "presentation_type",
+      "validation_rules",
+      "valid_options",
+    ]);
+    const codes = new Set([
+      "CANNOT_BE_BLANK",
+      "TAKEN",
+      "EXCLUSION",
+      "INVALID",
+      "TOO_LONG",
+      "TOO_SHORT",
+    ]);
+    const found = new Set<string>();
+    const walk = (value: unknown, path: string[], depth: number) => {
+      if (depth > 5) return;
+      if (Array.isArray(value)) {
+        for (const item of value) walk(item, path, depth + 1);
+        return;
+      }
+      const node = object(value);
+      if (path.length && typeof node.error_type === "string" && codes.has(node.error_type))
+        found.add(`${path.join(".")}: ${node.error_type}`);
+      for (const [key, item] of Object.entries(node))
+        if (paths.has(key)) walk(item, [...path, key], depth + 1);
+    };
+    walk(errors, [], 0);
+    return [...found].join("; ");
+  } catch {
+    return "";
   } finally {
     reader.releaseLock();
   }

@@ -16,6 +16,42 @@ import {
 
 const uuid = "6407acd3-1205-4bd2-9be2-824886e26a3f";
 describe("RD Marketing: criptografia e leitura", () => {
+  test("recusa de campos expõe apenas códigos de validação permitidos, com leitura limitada", async () => {
+    const provider = (async () =>
+      Response.json(
+        {
+          errors: {
+            name: {
+              "pt-BR": [
+                { error_type: "TAKEN", error_message: "secret-token", value: "private-lead" },
+              ],
+            },
+            api_identifier: [{ error_type: "INVALID", error_message: "private-error" }],
+            email: [{ error_type: "TAKEN" }],
+            label: { "pt-BR": [{ error_type: "secret-code" }] },
+          },
+        },
+        { status: 400 },
+      )) as typeof fetch;
+    let captured: unknown;
+    try {
+      await rdRequest("/platform/contacts/fields", { method: "POST" }, provider);
+    } catch (error) {
+      captured = error;
+    }
+    expect(captured).toMatchObject({
+      code: "RD_HTTP_400",
+      statusCode: 400,
+      rdFieldValidation: "name.pt-BR: TAKEN; api_identifier: INVALID",
+    });
+    expect(JSON.stringify(captured)).not.toContain("secret");
+    expect(JSON.stringify(captured)).not.toContain("private");
+    const oversized = (async () =>
+      new Response("x".repeat(20000), { status: 422 })) as typeof fetch;
+    await expect(
+      rdRequest("/platform/contacts/fields", { method: "POST" }, oversized),
+    ).rejects.toMatchObject({ code: "RD_HTTP_422", statusCode: 422 });
+  });
   const oldKey = process.env.RD_MARKETING_ENCRYPTION_KEY;
   beforeAll(() => {
     process.env.RD_MARKETING_ENCRYPTION_KEY = randomBytes(32).toString("base64");

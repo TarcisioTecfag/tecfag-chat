@@ -35,10 +35,28 @@ export async function readIntegrationJson(request: Request): Promise<unknown> {
 export function integrationError(error: unknown): Response {
   const known = error as { statusCode?: number; message?: string; code?: string };
   const status = known.statusCode || 500;
+  const safeProviderMessages: Record<string, string> = {
+    RD_FIELDS_INVALID:
+      "O RD retornou uma lista de campos inválida. A configuração não foi ativada.",
+    RD_UNAVAILABLE: "O RD não respondeu. Aguarde e tente novamente.",
+    RD_RESPONSE_INVALID: "O RD retornou uma resposta inválida. Tente novamente.",
+    RD_RESPONSE_TOO_LARGE: "A resposta do RD excedeu o limite da consulta.",
+  };
+  const providerMessage =
+    error instanceof CrmError
+      ? error.code === "RD_FIELD_SETUP_FAILED"
+        ? error.message
+        : safeProviderMessages[error.code] ||
+          (/^RD_HTTP_5\d\d$/.test(error.code)
+            ? "O RD está indisponível no momento. Aguarde e tente novamente."
+            : undefined)
+      : undefined;
   return Response.json(
     {
       error:
-        status < 500 ? known.message : "Não foi possível processar a integração. Tente novamente.",
+        status < 500
+          ? known.message
+          : providerMessage || "Não foi possível processar a integração. Tente novamente.",
       code: known.code || "INTERNAL_ERROR",
     },
     { status },

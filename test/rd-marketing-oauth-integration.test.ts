@@ -1438,6 +1438,96 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     expect(otherStatus.outboundEnabled).toBe(false);
     expect(otherStatus.testDeals).toHaveLength(0);
   }, 30000);
+  test("preparação de campos preserva configuração em falhas e retoma sem duplicar ou gastar GETs extras", async () => {
+    await connect();
+    const sync = await import("../src/lib/rd-marketing/sync-settings");
+    const { integrationError } = await import("../src/lib/rd-marketing/http");
+    const { prepareRdActivityFields } = await import("../src/lib/rd-marketing/activity-fields");
+    await sync.saveRdSyncSettings(tenantId, false, "BRL", {
+      outboundScope: "all",
+      activityEnabled: false,
+    });
+    const fields: Record<string, unknown>[] = [];
+    let gets = 0,
+      posts = 0,
+      failure = 429;
+    const fieldProvider = (async (input: unknown, init: RequestInit) => {
+      if (!String(input).endsWith("/platform/contacts/fields"))
+        return provider(input as RequestInfo, init);
+      if (init.method !== "POST") {
+        gets++;
+        return Response.json({ fields });
+      }
+      posts++;
+      const field = JSON.parse(String(init.body));
+      expect(field.name).toEqual({ "pt-BR": field.label["pt-BR"] });
+      if (fields.length === 1 && failure) {
+        if (failure === 409) fields.push(field); // another replica created the same field
+        return Response.json(
+          {
+            errors: {
+              name: {
+                "pt-BR": [{ error_type: "TAKEN", error_message: "private-provider-secret" }],
+              },
+            },
+          },
+          { status: failure },
+        );
+      }
+      fields.push(field);
+      return Response.json(field, { status: 201 });
+    }) as typeof fetch;
+    const save = () =>
+      sync.saveRdSyncSettings(
+        tenantId,
+        true,
+        "BRL",
+        {
+          outboundScope: "all",
+          activityEnabled: true,
+          publicBaseUrl: "https://chat.example.com",
+        },
+        fieldProvider,
+      );
+    for (const status of [429, 403, 400, 502]) {
+      failure = status;
+      gets = posts = 0;
+      const error = await rejected(save());
+      const response = integrationError(error),
+        body = await response.json();
+      expect(response.status).toBe(status === 502 ? 503 : status);
+      expect(body.error).toContain("cf_tecfag_chat_registro_url");
+      expect(body.error).not.toContain("private-provider-secret");
+      if (status === 400) expect(body.error).toContain("name.pt-BR: TAKEN");
+      expect(gets).toBe(status === 400 || status === 502 ? 2 : 1);
+      expect(posts).toBe(status === 429 ? 2 : 1);
+      const [saved] = await database.db
+        .select()
+        .from(schema.rdMarketingSyncSettings)
+        .where(eq(schema.rdMarketingSyncSettings.tenantId, tenantId));
+      expect(saved.outboundEnabled).toBe(false);
+      expect(saved.activityEnabled).toBe(false);
+    }
+    failure = 409;
+    gets = posts = 0;
+    await save();
+    expect(fields).toHaveLength(3);
+    expect(gets).toBe(2);
+    expect(posts).toBe(2);
+    const [connection] = await database.db
+      .select()
+      .from(schema.rdMarketingConnections)
+      .where(eq(schema.rdMarketingConnections.tenantId, tenantId));
+    gets = posts = 0;
+    await prepareRdActivityFields(tenantId, connection.version, fieldProvider);
+    expect(gets).toBe(1);
+    expect(posts).toBe(0);
+    const { CrmError } = await import("../src/lib/crm/crm-service");
+    expect(
+      (await integrationError(new CrmError("private-db-secret", "DATABASE_ERROR", 500)).json())
+        .error,
+    ).not.toContain("private-db-secret");
+  });
   test("sete complementos: ACK separado, ciclos de tarefas/conversas, rollback, links e isolamento", async () => {
     await connect();
     const sync = await import("../src/lib/rd-marketing/sync-settings");
