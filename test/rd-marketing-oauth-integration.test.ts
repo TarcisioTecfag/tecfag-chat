@@ -141,6 +141,12 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     );
     await database.client.unsafe(isolationMigration);
     await database.client.unsafe(isolationMigration);
+    const activityMigration = await readFile(
+      new URL("../src/db/migrations/0044_rd_marketing_activity_events.sql", import.meta.url),
+      "utf8",
+    );
+    await database.client.unsafe(activityMigration);
+    await database.client.unsafe(activityMigration);
     await database.db.insert(schema.tenants).values([
       { id: tenantId, name: "OAuth teste", slug: tenantId, connectionType: "meta" },
       { id: otherTenantId, name: "Outro teste", slug: otherTenantId, connectionType: "meta" },
@@ -1431,6 +1437,269 @@ describe.skipIf(!testUrl)("RD Marketing OAuth: banco local descartável", () => 
     const otherStatus = await sync.rdSyncStatus(otherTenantId, "http://localhost");
     expect(otherStatus.outboundEnabled).toBe(false);
     expect(otherStatus.testDeals).toHaveLength(0);
+  }, 30000);
+  test("sete complementos: ACK separado, ciclos de tarefas/conversas, rollback, links e isolamento", async () => {
+    await connect();
+    const sync = await import("../src/lib/rd-marketing/sync-settings");
+    const { crmService } = await import("../src/lib/crm/crm-service");
+    const { runRdCommercialWorker } = await import("../src/lib/rd-marketing/commercial-outbox");
+    const { RD_ACTIVITY_EVENTS } = await import("../src/lib/rd-marketing/activity-events");
+    const fields: Record<string, unknown>[] = [],
+      accepted: { event_type: string; payload: Record<string, string> }[] = [],
+      posts: { event_type: string; payload: Record<string, string> }[] = [];
+    let timeoutComplement = true;
+    const activityProvider = (async (input: unknown, init: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/platform/contacts/fields")) {
+        if (init.method === "POST") {
+          const field = JSON.parse(String(init.body));
+          fields.push(field);
+          return Response.json(field, { status: 201 });
+        }
+        return Response.json(fields);
+      }
+      if (url.endsWith("/platform/events") && init.method === "POST") {
+        const event = JSON.parse(String(init.body));
+        posts.push(event);
+        if (timeoutComplement && event.event_type === "CONVERSION") {
+          timeoutComplement = false;
+          throw new Error("Resposta do complemento perdida");
+        }
+        accepted.push(event);
+        return Response.json({ event_uuid: randomUUID() });
+      }
+      if (url.includes("/platform/contacts/uuid:"))
+        return Response.json({ uuid, name: "Teste detalhado", email: "activity@example.com" });
+      return provider(input as RequestInfo, init);
+    }) as typeof fetch;
+    await sync.saveRdSyncSettings(
+      tenantId,
+      true,
+      "BRL",
+      {
+        outboundScope: "test",
+        testContactUuid: uuid,
+        activityEnabled: true,
+        publicBaseUrl: "https://chat.example.com",
+      },
+      activityProvider,
+    );
+    expect(fields).toHaveLength(3);
+    await sync.saveRdSyncSettings(
+      tenantId,
+      true,
+      "BRL",
+      {
+        outboundScope: "test",
+        testContactUuid: uuid,
+        activityEnabled: true,
+        publicBaseUrl: "https://chat.example.com",
+      },
+      activityProvider,
+    );
+    expect(fields).toHaveLength(3);
+    const pipelineId = randomUUID(),
+      stageId = randomUUID(),
+      contactId = randomUUID(),
+      outsideId = randomUUID(),
+      conversationId = randomUUID();
+    await database.db
+      .insert(schema.crmPipelines)
+      .values({ id: pipelineId, tenantId, name: "Funil atividade" });
+    await database.db
+      .insert(schema.crmStages)
+      .values({ id: stageId, tenantId, pipelineId, name: "Etapa atividade", orderIndex: 0 });
+    await database.db.insert(schema.contacts).values([
+      {
+        id: contactId,
+        tenantId,
+        name: "Teste detalhado",
+        email: "activity@example.com",
+        mainChannel: "whatsapp",
+      },
+      {
+        id: outsideId,
+        tenantId,
+        name: "Fora do teste",
+        email: "outside@example.com",
+        mainChannel: "whatsapp",
+      },
+    ]);
+    const actor = tenantId + "-admin";
+    const data = { title: "Card de atividade", pipelineId, stageId, contactId, value: "123.45" };
+    const deal = await crmService.createDeal(tenantId, actor, data);
+    const rows = () =>
+      database.db
+        .select()
+        .from(schema.rdMarketingCommercialOutbox)
+        .where(
+          and(
+            eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId),
+            eq(schema.rdMarketingCommercialOutbox.contactId, contactId),
+          ),
+        );
+    expect((await rows()).map((r) => r.eventType)).toEqual(["OPPORTUNITY"]);
+    for (let i = 0; i < 3; i++) await runRdCommercialWorker(tenantId, activityProvider);
+    const unknown = (await rows()).find((r) => r.status === "unknown")!;
+    expect(unknown.eventType).toBe("DETAIL_OPPORTUNITY");
+    expect(posts.map((p) => p.event_type)).toEqual(["OPPORTUNITY", "CONVERSION"]);
+    const before = posts.length;
+    await runRdCommercialWorker(tenantId, activityProvider);
+    expect(posts).toHaveLength(before);
+    await sync.reviewRdDelivery(tenantId, unknown.id, actor, "not_recorded");
+    await runRdCommercialWorker(tenantId, activityProvider);
+    expect(posts.filter((p) => p.event_type === "OPPORTUNITY")).toHaveLength(1);
+    expect(accepted[1].payload.cf_tecfag_chat_registro_url).toBe(
+      `https://chat.example.com/crm/deals/${deal.id}`,
+    );
+    expect(accepted[1].payload.cf_tecfag_chat_detalhes).toContain("Funil atividade");
+    await crmService.updateDeal(tenantId, deal.id, actor, { status: "won" });
+    await crmService.updateDeal(tenantId, deal.id, actor, { status: "lost" });
+    const task = await crmService.createDealActivity(tenantId, deal.id, actor, {
+      type: "task",
+      title: "Retornar contato",
+    });
+    await crmService.updateDealActivity(tenantId, deal.id, task.id, tenantId + "-agent", {
+      status: "completed",
+    });
+    await crmService.updateDealActivity(tenantId, deal.id, task.id, actor, {
+      status: "completed",
+      title: "Título editado",
+    });
+    await crmService.createDealActivity(tenantId, deal.id, actor, {
+      type: "note",
+      title: "Nota não é tarefa",
+    });
+    await database.db.transaction(async (tx) => {
+      await tx
+        .insert(schema.conversations)
+        .values({ id: conversationId, tenantId, contactId, queueState: "fila" });
+      await tx
+        .insert(schema.crmConversationDeals)
+        .values({ id: randomUUID(), tenantId, conversationId, dealId: deal.id });
+    });
+    await database.db
+      .update(schema.conversations)
+      .set({ queueState: "meus" })
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.id, conversationId),
+        ),
+      );
+    await database.db
+      .update(schema.conversations)
+      .set({ queueState: "finalizados" })
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.id, conversationId),
+        ),
+      );
+    await database.db
+      .update(schema.conversations)
+      .set({ queueState: "finalizados" })
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.id, conversationId),
+        ),
+      );
+    for (let i = 0; i < 4; i++) await runRdCommercialWorker(tenantId, activityProvider);
+    const conversions = accepted.filter((p) => p.event_type === "CONVERSION");
+    expect(accepted.slice(0, 6).map((p) => p.event_type)).toEqual([
+      "OPPORTUNITY",
+      "CONVERSION",
+      "SALE",
+      "CONVERSION",
+      "OPPORTUNITY_LOST",
+      "CONVERSION",
+    ]);
+    expect(conversions.map((p) => p.payload.conversion_identifier).sort()).toEqual(
+      Object.values(RD_ACTIVITY_EVENTS)
+        .map((e) => e.identifier)
+        .sort(),
+    );
+    expect(new Set(conversions.map((p) => p.payload.cf_tecfag_chat_evento_id)).size).toBe(7);
+    expect(
+      conversions.find((p) => p.payload.conversion_identifier.endsWith("conversa-iniciada"))!
+        .payload.cf_tecfag_chat_detalhes,
+    ).toContain(`/crm/deals/${deal.id}`);
+    expect(
+      conversions.find((p) => p.payload.conversion_identifier.endsWith("tarefa-concluida"))!.payload
+        .cf_tecfag_chat_detalhes,
+    ).toContain("Autor da ação: agent");
+    const count = (await rows()).length;
+    await rejected(
+      database.db.transaction(async (tx) => {
+        await tx
+          .insert(schema.crmDealActivities)
+          .values({ id: randomUUID(), tenantId, dealId: deal.id, title: "Rollback", type: "task" });
+        throw new Error("rollback");
+      }),
+    );
+    expect(await rows()).toHaveLength(count);
+    const imported = await crmService.createDeal(tenantId, actor, {
+      ...data,
+      marketingOrigin: true,
+    });
+    expect((await rows()).filter((r) => r.dealId === imported.id).map((r) => r.eventType)).toEqual([
+      "DETAIL_OPPORTUNITY",
+    ]);
+    await crmService.updateDealActivity(tenantId, deal.id, task.id, actor, { status: "pending" });
+    await crmService.updateDealActivity(tenantId, deal.id, task.id, actor, { status: "completed" });
+    expect((await rows()).filter((r) => r.eventType === "TASK_COMPLETED")).toHaveLength(2);
+    await database.db
+      .update(schema.conversations)
+      .set({ queueState: "fila" })
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.id, conversationId),
+        ),
+      );
+    await database.db
+      .update(schema.conversations)
+      .set({ queueState: "finalizados" })
+      .where(
+        and(
+          eq(schema.conversations.tenantId, tenantId),
+          eq(schema.conversations.id, conversationId),
+        ),
+      );
+    expect((await rows()).filter((r) => r.eventType === "CHAT_STARTED")).toHaveLength(2);
+    expect((await rows()).filter((r) => r.eventType === "CHAT_FINISHED")).toHaveLength(2);
+    const outside = await crmService.createDeal(tenantId, actor, { ...data, contactId: outsideId });
+    await crmService.createDealActivity(tenantId, outside.id, actor, {
+      type: "task",
+      title: "Fora",
+    });
+    await database.db
+      .insert(schema.conversations)
+      .values({ id: randomUUID(), tenantId, contactId: outsideId });
+    expect(
+      await database.db
+        .select()
+        .from(schema.rdMarketingCommercialOutbox)
+        .where(
+          and(
+            eq(schema.rdMarketingCommercialOutbox.tenantId, tenantId),
+            eq(schema.rdMarketingCommercialOutbox.contactId, outsideId),
+          ),
+        ),
+    ).toHaveLength(0);
+    const flows = await database.db
+      .select()
+      .from(schema.rdMarketingFlows)
+      .where(eq(schema.rdMarketingFlows.tenantId, tenantId));
+    const { receiveLeads } = await import("../src/lib/rd-marketing/service");
+    expect(
+      await receiveLeads(flows[0], {
+        event_type: "WEBHOOK.CONVERTED",
+        event_identifier: "tecfag-chat-conversa-iniciada",
+        contact: { uuid, email: "activity@example.com", name: "Teste" },
+      }),
+    ).toEqual([]);
   }, 30000);
   test("dois contatos locais não recebem o mesmo UUID RD na conexão ativa", async () => {
     await connect();

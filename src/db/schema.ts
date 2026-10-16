@@ -144,6 +144,8 @@ export const rdMarketingSyncSettings = pgTable("rd_marketing_sync_settings", {
   outboundScope: text("outbound_scope").$type<RdOutboundScope>().default("test").notNull(),
   testContact: jsonb("test_contact").$type<RdTestContact | null>(),
   currency: text("currency").default("BRL").notNull(),
+  activityEnabled: boolean("activity_enabled").default(false).notNull(),
+  publicBaseUrl: text("public_base_url"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -188,6 +190,7 @@ export const rdMarketingCommercialOutbox = pgTable("rd_marketing_commercial_outb
   connectionVersion: text("connection_version").notNull(),
   dealId: text("deal_id").notNull(),
   contactId: text("contact_id"),
+  parentId: text("parent_id"),
   dealVersion: integer("deal_version").notNull(),
   eventType: text("event_type").notNull(),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
@@ -390,6 +393,7 @@ export const contacts = pgTable("contacts", {
 
 // ─── 5. CONVERSAS (Atendimentos / Filas) ─────────────────────────────────────
 export const conversations = pgTable("conversations", {
+  rdMarketingCycle: integer("rd_marketing_cycle").default(0).notNull(),
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   contactId: text("contact_id").references(() => contacts.id, { onDelete: "cascade" }).notNull(),
@@ -885,6 +889,7 @@ export const crmConversationDeals = pgTable("crm_conversation_deals", {
 
 // ─── 14.8. ATIVIDADES DA NEGOCIAÇÃO (Tarefas, Notas, Reuniões) ───────────────
 export const crmDealActivities = pgTable("crm_deal_activities", {
+  rdMarketingCycle: integer("rd_marketing_cycle").default(0).notNull(),
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "cascade" }).notNull(),

@@ -24,6 +24,8 @@ export type RdNotificationData = {
   raw: unknown;
 };
 export type RdSyncStatus = {
+  activityEnabled: boolean;
+  publicBaseUrl: string;
   worker: RdCommercialWorkerStatus;
   testDeals: {
     id: string;
@@ -51,6 +53,9 @@ export type RdSyncStatus = {
   deliveries: {
     id: string;
     dealId: string;
+    url: string;
+    complementary: boolean;
+    parentId: string | null;
     title: string;
     eventType: string;
     status: string;

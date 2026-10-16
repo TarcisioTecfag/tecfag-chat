@@ -1,6 +1,7 @@
 import { CrmError } from "../crm/crm-service";
 import type { RdEventPage, RdEventType, RdIdentifier, RdProbe } from "./api-types";
 import { conversionAttribution } from "./attribution";
+import { RD_ACTIVITY_EVENTS } from "./activity-events";
 
 export type RdFetch = typeof fetch;
 export const RD_API = "https://api.rd.services";
@@ -166,11 +167,15 @@ export function parseRdEventPage(raw: unknown, eventType: RdEventType, page: num
       const event = object(item),
         payload = object(event.payload),
         attribution = conversionAttribution(event);
+      const activity = Object.values(RD_ACTIVITY_EVENTS).find(
+        (e) => e.identifier === (payload.conversion_identifier || event.event_identifier),
+      );
       const links = [
         payload.url,
         payload.page_url,
         payload.deal_url,
         payload.opportunity_url,
+        activity ? payload.cf_tecfag_chat_registro_url : null,
         event.url,
       ].filter((url): url is string => {
         if (typeof url !== "string") return false;
@@ -184,6 +189,8 @@ export function parseRdEventPage(raw: unknown, eventType: RdEventType, page: num
         }
       });
       return {
+        label: activity ? `${activity.label} · Tecfag Chat` : undefined,
+        details: activity ? string(payload.cf_tecfag_chat_detalhes) : null,
         id: string(event.event_uuid, event.uuid, event.id),
         identifier: string(
           payload.conversion_identifier,

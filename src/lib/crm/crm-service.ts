@@ -4521,6 +4521,7 @@ export class CrmService {
         setPayload.assignedToOperatorId = updates.assignedToOperatorId || null;
       }
 
+      await tx.execute(sql`SELECT set_config('app.rd_activity_actor', ${operatorId || ""}, true)`);
       const [updated] = await tx
         .update(crmDealActivities)
         .set(setPayload)

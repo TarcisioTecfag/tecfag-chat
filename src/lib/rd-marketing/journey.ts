@@ -553,6 +553,7 @@ export async function dealRdJourney(
         eq(rdMarketingCommercialOutbox.connectionVersion, version),
         eq(rdMarketingCommercialOutbox.contactId, contact.id),
         eq(rdMarketingCommercialOutbox.status, "sent"),
+        inArray(rdMarketingCommercialOutbox.eventType, ["OPPORTUNITY", "SALE", "OPPORTUNITY_LOST"]),
       ),
     );
   for (const { delivery, owner, title } of commercial)

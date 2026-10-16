@@ -9,6 +9,8 @@ export type RdApiStatus = {
   connectedAt: string | null;
 };
 export type RdEventView = {
+  details?: string | null;
+  label?: string;
   id: string | null;
   identifier: string | null;
   date: string | null;

@@ -180,6 +180,10 @@ const migrations = [
     name: "0043_contact_phone_mobile_identity",
     url: new URL("../src/db/migrations/0043_contact_phone_mobile_identity.sql", import.meta.url),
   },
+  {
+    name: "0044_rd_marketing_activity_events",
+    url: new URL("../src/db/migrations/0044_rd_marketing_activity_events.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

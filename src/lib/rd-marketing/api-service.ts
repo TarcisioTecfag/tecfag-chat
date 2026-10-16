@@ -310,7 +310,7 @@ async function readRd(tenantId: string, path: string, fetchImpl?: RdFetch) {
 // version captured when the business event was committed, so reconnecting cannot reroute it.
 export async function writeRd(
   tenantId: string,
-  path: "/platform/events" | "/integrations/webhooks",
+  path: "/platform/events" | "/integrations/webhooks" | "/platform/contacts/fields",
   body: Record<string, unknown>,
   expectedVersion: string,
   fetchImpl?: RdFetch,
@@ -357,6 +357,9 @@ export async function writeRd(
 
 export async function listRdWebhooks(tenantId: string, fetchImpl?: RdFetch) {
   return readRd(tenantId, "/integrations/webhooks", fetchImpl);
+}
+export async function readRdFields(tenantId: string, fetchImpl?: RdFetch) {
+  return readRd(tenantId, "/platform/contacts/fields", fetchImpl);
 }
 export async function probeRdLead(
   tenantId: string,

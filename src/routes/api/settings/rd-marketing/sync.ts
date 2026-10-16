@@ -55,6 +55,15 @@ export const Route = createFileRoute("/api/settings/rd-marketing/sync")({
             throw new CrmError("Dados inválidos.", "BAD_REQUEST", 400);
           const body = raw as Record<string, unknown>;
           if (body.action === "save") {
+            if (
+              (body.activityEnabled !== undefined && typeof body.activityEnabled !== "boolean") ||
+              (body.publicBaseUrl !== undefined && typeof body.publicBaseUrl !== "string")
+            )
+              throw new CrmError(
+                "Configuração dos eventos detalhados inválida.",
+                "BAD_REQUEST",
+                400,
+              );
             if (typeof body.outboundEnabled !== "boolean" || typeof body.currency !== "string")
               throw new CrmError("Configuração inválida.", "BAD_REQUEST", 400);
             if (body.outboundScope !== "test" && body.outboundScope !== "all")
@@ -72,6 +81,12 @@ export const Route = createFileRoute("/api/settings/rd-marketing/sync")({
             await saveRdSyncSettings(tenantId, body.outboundEnabled, body.currency, {
               outboundScope: body.outboundScope,
               testContactUuid: body.testContactUuid as string | null | undefined,
+              activityEnabled:
+                typeof body.activityEnabled === "boolean" ? body.activityEnabled : undefined,
+              publicBaseUrl:
+                typeof body.publicBaseUrl === "string"
+                  ? body.publicBaseUrl
+                  : new URL(request.url).origin,
             });
           } else if (body.action === "process") {
             // Existing queue only; does not recreate transitions or resend unknown outcomes.

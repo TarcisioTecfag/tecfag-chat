@@ -109,6 +109,7 @@ export async function rdTestDealDiagnostics(
       .where(
         and(
           eq(outbox.tenantId, tenantId),
+          inArray(outbox.eventType, ["OPPORTUNITY", "SALE", "OPPORTUNITY_LOST"]),
           eq(outbox.connectionVersion, version || ""),
           inArray(outbox.dealId, ids),
         ),
@@ -162,7 +163,11 @@ export async function rdTestDealDiagnostics(
   });
 }
 
-export async function rdQueueHeads(tenantId: string, deliveries: (typeof outbox.$inferSelect)[]) {
+export async function rdQueueHeads(
+  tenantId: string,
+  deliveries: (typeof outbox.$inferSelect)[],
+  activityEnabled = true,
+) {
   const keys = [
     ...new Set(
       deliveries
@@ -180,6 +185,9 @@ export async function rdQueueHeads(tenantId: string, deliveries: (typeof outbox.
         eq(outbox.tenantId, tenantId),
         inArray(key, keys),
         inArray(outbox.status, ["pending", "processing", "unknown"]),
+        activityEnabled
+          ? undefined
+          : inArray(outbox.eventType, ["OPPORTUNITY", "SALE", "OPPORTUNITY_LOST"]),
       ),
     )
     .orderBy(key, asc(outbox.createdAt), asc(outbox.dealVersion), outbox.id);

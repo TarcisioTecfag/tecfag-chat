@@ -19,6 +19,8 @@ import { normalizeRdContactUuid, rdTestContactUuidError } from "./outbound-scope
 import type { RdOutboundScope, RdSyncStatus, RdTestContact } from "./sync-types";
 import { rdCommercialRecovery } from "./commercial-recovery";
 import { rdQueueHeads, rdTestDealDiagnostics } from "./commercial-diagnostics";
+import { isRdActivity, rdActivityOrigin, rdActivityUrl } from "./activity-events";
+import { prepareRdActivityFields } from "./activity-fields";
 
 export function rdJourneyEndpointUrl(requestUrl: string, token: string) {
   const url = new URL(requestUrl);
@@ -48,7 +50,7 @@ export async function rdSyncStatus(tenantId: string, requestUrl: string): Promis
     .limit(30);
   const [testDeals, heads] = await Promise.all([
     rdTestDealDiagnostics(tenantId, config, row?.version),
-    rdQueueHeads(tenantId, deliveries),
+    rdQueueHeads(tenantId, deliveries, !!config?.activityEnabled),
   ]);
   const missingHeads = heads
     .filter((head) => !deliveries.some((item) => item.id === head.id))
@@ -61,6 +63,8 @@ export async function rdSyncStatus(tenantId: string, requestUrl: string): Promis
         .where(and(eq(outbox.tenantId, tenantId), inArray(outbox.id, missingHeads)))),
     );
   return {
+    activityEnabled: !!config?.activityEnabled && config.connectionVersion === row?.version,
+    publicBaseUrl: config?.publicBaseUrl || new URL(requestUrl).origin,
     worker: rdCommercialRecovery.status(tenantId),
     testDeals,
     connected: !!(row?.accessTokenEncrypted && row.refreshTokenEncrypted),
@@ -84,6 +88,11 @@ export async function rdSyncStatus(tenantId: string, requestUrl: string): Promis
     deliveries: deliveries.map((item) => ({
       id: item.id,
       dealId: item.dealId,
+      url: isRdActivity(item.eventType)
+        ? rdActivityUrl(item.snapshot)
+        : `/crm/deals/${encodeURIComponent(item.dealId)}`,
+      complementary: isRdActivity(item.eventType),
+      parentId: item.parentId,
       title: String(item.snapshot.title || "Negociação"),
       eventType: item.eventType,
       status: item.status,
@@ -106,7 +115,12 @@ export async function saveRdSyncSettings(
   tenantId: string,
   outboundEnabled: boolean,
   currency: string,
-  scope: { outboundScope: RdOutboundScope; testContactUuid?: string | null },
+  scope: {
+    outboundScope: RdOutboundScope;
+    testContactUuid?: string | null;
+    activityEnabled?: boolean;
+    publicBaseUrl?: string;
+  },
   fetchImpl?: typeof fetch,
 ) {
   if (!/^[A-Z]{3}$/.test(currency))
@@ -146,10 +160,32 @@ export async function saveRdSyncSettings(
     connectionVersion: connection?.version || null,
     updatedAt: new Date(),
   };
+  const [previous] = await db.select().from(settings).where(eq(settings.tenantId, tenantId));
+  const activityEnabled = scope.activityEnabled ?? previous?.activityEnabled ?? false;
+  let publicBaseUrl = previous?.publicBaseUrl || null;
+  if (scope.publicBaseUrl !== undefined) {
+    try {
+      publicBaseUrl = rdActivityOrigin(scope.publicBaseUrl);
+    } catch {
+      throw new CrmError("Informe a URL HTTPS pública deste sistema.", "BAD_REQUEST", 400);
+    }
+  }
+  if (outboundEnabled && activityEnabled) {
+    if (!publicBaseUrl || !connection)
+      throw new CrmError(
+        "Informe a URL pública para gerar os links dos eventos.",
+        "BAD_REQUEST",
+        400,
+      );
+    await prepareRdActivityFields(tenantId, connection.version, fetchImpl);
+  }
   await db
     .insert(settings)
-    .values(values)
-    .onConflictDoUpdate({ target: settings.tenantId, set: values });
+    .values({ ...values, activityEnabled, publicBaseUrl })
+    .onConflictDoUpdate({
+      target: settings.tenantId,
+      set: { ...values, activityEnabled, publicBaseUrl },
+    });
 }
 export async function createRdJourneyEndpoint(
   tenantId: string,
@@ -323,7 +359,8 @@ export async function reviewRdDelivery(
         .select()
         .from(crmDeals)
         .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, row.dealId)));
-      if (!deal) throw new CrmError("Negociação indisponível.", "NOT_FOUND", 404);
+      if (!deal && !isRdActivity(row.eventType))
+        throw new CrmError("Negociação indisponível.", "NOT_FOUND", 404);
       if (!contactId) {
         const [primary] = await tx
           .select()
@@ -343,7 +380,12 @@ export async function reviewRdDelivery(
         : [];
       if (contact?.email) payload.email = contact.email.trim().toLowerCase();
       else if (contact?.phone && !payload.email) payload.phone = "+" + rdPhoneDigits(contact.phone);
-      if (row.eventType === "SALE" && payload.value === null && deal.value !== null)
+      if (
+        row.eventType === "SALE" &&
+        payload.value === null &&
+        deal?.value !== null &&
+        deal?.value !== undefined
+      )
         payload.value = Number(deal.value);
       const [config] = await tx.select().from(settings).where(eq(settings.tenantId, tenantId));
       if (

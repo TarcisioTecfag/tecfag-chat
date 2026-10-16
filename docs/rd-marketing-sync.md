@@ -20,6 +20,18 @@ A restrição existe no servidor: contatos fora do teste não geram novos envios
 
 Receber webhooks, criar cards e consultar jornadas de outros contatos continua funcionando normalmente. Liberação posterior para **Todos os contatos** não recupera as alterações ignoradas durante o teste. Configurações de envio geral que já estavam explicitamente ativas são preservadas pela migração; novas configurações começam com o destino de teste, sem ativação automática.
 
+## Sete conversões complementares
+
+Em **Jornada e retorno comercial**, habilite **Registrar os sete eventos detalhados como conversões no RD**, confira a URL pública e salve o retorno comercial. A opção começa desativada, não recupera eventos anteriores e usa o mesmo destino (contato de teste ou todos os contatos) dos envios comerciais. Salvar confere/cria três campos de texto na conta conectada: `cf_tecfag_chat_evento_id`, `cf_tecfag_chat_registro_url` e `cf_tecfag_chat_detalhes`. Falhas de permissão ou tipo incompatível impedem a ativação, com mensagem no painel.
+
+Identificadores reservados: `tecfag-chat-negociacao-criada`, `tecfag-chat-negociacao-ganha`, `tecfag-chat-negociacao-perdida`, `tecfag-chat-tarefa-criada`, `tecfag-chat-tarefa-concluida`, `tecfag-chat-conversa-iniciada` e `tecfag-chat-conversa-finalizada`. Reaberturas comerciais usam o identificador de criação, com status anterior preservado nos detalhes. São conversões no Marketing, com impacto nos contadores e potencial participação em segmentações/fluxos amplos. Não equivalem aos registros nativos do RD CRM.
+
+A confirmação da ação comercial grava seu complemento na mesma transação do ACK. O complemento tem tentativas, confirmação e revisão próprias; sua falha não repete a venda/oportunidade. Cards importados/automáticos sem nova oportunidade de saída recebem apenas o registro detalhado de criação. A captura de tarefas e conversas é transacional no banco e funciona em todos os caminhos de escrita: notas não são tarefas, editar algo já concluído não gera conclusão, trocas entre filas ativas não reiniciam atendimento. Uma reabertura após finalização inicia novo ciclo. Não há evento por mensagem e nenhum conteúdo de mensagens é exportado.
+
+Os detalhes preservam a ocorrência, os dados da negociação, tarefa/atendimento, responsável conhecido e links completos. Tarefas levam o card; conversas levam seu próprio link e todos os cards vinculados no fechamento da transação. Os nomes/IDs das entidades são consultados exclusivamente no tenant de origem. Os campos de perfil do RD mostram a última ocorrência; cada conversão recebe seus próprios valores históricos. O leitor da jornada apresenta os detalhes em texto e o link recebido sem consultar novamente a API.
+
+O webhook de criação de cards ignora o namespace reservado `tecfag-chat-*`, inclusive payloads legados, para evitar retorno circular. Um campo de perfil antigo com esses dados não faz uma conversão de formulário real ser ignorada. O webhook da jornada continua aceitando os avisos, sem criar cards. Revise também os fluxos externos que aceitam qualquer conversão ou qualquer oportunidade.
+
 ## O que chega e como aparece
 
 - **Conversão/oportunidade:** assinatura pública recebe a identidade e o retrato do perfil enviados pelo RD. Os dados são gravados antes do ACK. Não cria contatos, empresas nem negociações.
@@ -40,7 +52,7 @@ O evento e o retrato da negociação são gravados na mesma transação da alter
 
 O painel atualiza somente registros locais a cada 10 segundos quando os envios estão ativos. Mostra o estado do processador nesta instância, tentativas, próxima tentativa, ID confirmado pelo RD e eventual bloqueio por um envio anterior com resultado desconhecido. **Processar fila agora** solicita um ciclo apenas do tenant autenticado, sem repetir resultados desconhecidos nem recriar eventos antigos. O diagnóstico das últimas 30 negociações do contato de teste inclui vínculos secundários para explicar quando o contato principal é diferente; identifica também cards importados pelo RD, vendas sem valor e alterações sem evento registrado.
 
-Os eventos públicos representam o **lead no funil do Marketing**, com apresentação diferente da integração nativa RD CRM. Por exemplo, o evento `OPPORTUNITY_LOST` pode aparecer na tela do RD como **“Foi desmarcado como oportunidade”**. Isso não equivale a um registro nativo “Negociação perdida” com os dados do card. A confirmação de aceite da API e a apresentação/processamento posterior na jornada são etapas distintas. Não enviar conversões fictícias para imitar essa apresentação.
+Os eventos públicos representam o **lead no funil do Marketing**, com apresentação diferente da integração nativa RD CRM. Por exemplo, o evento `OPPORTUNITY_LOST` pode aparecer na tela do RD como **“Foi desmarcado como oportunidade”**. Isso não equivale a um registro nativo “Negociação perdida” com os dados do card. A confirmação de aceite da API e a apresentação/processamento posterior na jornada são etapas distintas. Os complementos opcionais descrevem ações reais deste sistema como conversões, sem simular registros nativos.
 
 Antes do envio, o contato existente no Marketing é localizado por UUID vinculado ou pelo identificador disponível. Não são criados leads para representar uma venda. Apenas os campos aceitos pelos eventos públicos são enviados: email/phone, funnel_name default e valor para SALE. Funil/etapa/responsável/URL do card ficam no retrato local; não são enviados como campos inventados.
 
@@ -49,7 +61,7 @@ Antes do envio, o contato existente no Marketing é localizado por UUID vinculad
 - **Dados incompletos, moeda divergente, contato ausente ou conta alterada:** revisão necessária. A indisponibilidade do RD não impede salvar a negociação. Ao revisar um envio com valor originalmente ausente, o administrador pode completar o valor a partir do card atual; o retrato original permanece preservado.
 - **Desativação:** interrompe novos enfileiramentos e a próxima chamada comercial; uma chamada já iniciada pode concluir. Reativação retoma apenas pendências da mesma conexão.
 
-Não há idempotência remota documentada que permita repetir uma venda após timeout com garantia de não duplicar receita. Não adicionamos conversões fictícias para simular registros comerciais.
+Não há idempotência remota documentada que permita repetir uma venda após timeout com garantia de não duplicar receita. A mesma regra conservadora vale para um complemento sem confirmação: revisão manual antes de repetir. O ID estável enviado nos detalhes permite conferir a ocorrência; não representa uma garantia de deduplicação remota.
 
 ## Cobertura e pendências externas
 

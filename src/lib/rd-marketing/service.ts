@@ -25,6 +25,7 @@ import {
 } from "../crm/custom-fields";
 import { buildPhoneSearchTerms, normalizeCanonicalPhone, phoneRegistrationError } from "../utils";
 import { recordRdDiagnostic } from "./diagnostic-store";
+import { isRdActivityLead } from "./activity-events";
 import {
   availablePaths,
   deliveryIdentity,
@@ -294,7 +295,8 @@ export async function receiveLeads(flow: Flow, payload: unknown) {
   if (!parsed.success) throw new CrmValidationError("Configuração do fluxo inválida.");
   if (!parsed.data.enabled) throw new CrmValidationError("Fluxo desativado.", "FLOW_DISABLED");
   await recordRdDiagnostic({ ...flow, settings: parsed.data }, payload);
-  const leads = extractLeads(payload);
+  const leads = extractLeads(payload).filter((lead) => !isRdActivityLead(lead));
+  if (isRdActivityLead(payload as Record<string, unknown>) || !leads.length) return [];
   // Rejeitar problemas do payload antes de reservar conexões ou abrir uma transação.
   for (const lead of leads) {
     deliveryIdentity(lead, parsed.data);

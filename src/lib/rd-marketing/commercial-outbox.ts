@@ -12,6 +12,7 @@ import {
 } from "../../db/schema";
 import { rdPhoneDigits } from "./sync-identity";
 import { permitsRdRecipient } from "./outbound-scope";
+import { isRdActivity, rdActivityPayload } from "./activity-events";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export function commercialTransition(previous: string | null, status: string) {
@@ -165,10 +166,15 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
           and(
             eq(outbox.tenantId, tenantId),
             eq(outbox.status, "pending"),
+            // Paused complements must not stall the existing commercial events.
+            settings.activityEnabled
+              ? undefined
+              : sql`${outbox.eventType} IN ('OPPORTUNITY', 'SALE', 'OPPORTUNITY_LOST')`,
             lte(outbox.nextRetryAt, new Date()),
             sql`NOT EXISTS (SELECT 1 FROM rd_marketing_commercial_outbox earlier WHERE earlier.tenant_id = ${tenantId}
           AND coalesce(earlier.contact_id, earlier.deal_id) = coalesce(${outbox.contactId}, ${outbox.dealId})
           AND earlier.status IN ('pending', 'processing', 'unknown')
+          AND (${settings.activityEnabled} OR earlier.event_type IN ('OPPORTUNITY', 'SALE', 'OPPORTUNITY_LOST'))
           AND (earlier.created_at, earlier.deal_version, earlier.id) < (${outbox.createdAt}, ${outbox.dealVersion}, ${outbox.id}))`,
           ),
         )
@@ -221,6 +227,7 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
         .where(eq(rdMarketingSyncSettings.tenantId, tenantId));
       if (
         !deliveryConfig?.outboundEnabled ||
+        (isRdActivity(row.eventType) && !deliveryConfig.activityEnabled) ||
         deliveryConfig.connectionVersion !== row.connectionVersion
       ) {
         await db
@@ -249,7 +256,9 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
         throw Object.assign(new Error("Lead RD não corresponde ao vínculo salvo."), {
           code: "RD_CONTACT_MISMATCH",
         });
-      const payload = { ...row.payload };
+      const payload: Record<string, unknown> = isRdActivity(row.eventType)
+        ? rdActivityPayload(row)
+        : { ...row.payload };
       const root = contact.raw as Record<string, unknown>;
       const profile = (root.uuid ? root : root.contact || root.data || {}) as Record<
         string,
@@ -288,6 +297,7 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
         .where(eq(rdMarketingSyncSettings.tenantId, tenantId));
       if (
         !currentOptIn?.outboundEnabled ||
+        (isRdActivity(row.eventType) && !currentOptIn.activityEnabled) ||
         currentOptIn.connectionVersion !== row.connectionVersion
       ) {
         await db
@@ -299,7 +309,11 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
       const result = (await writeRd(
         tenantId,
         "/platform/events",
-        { event_type: row.eventType, event_family: "CDP", payload },
+        {
+          event_type: isRdActivity(row.eventType) ? "CONVERSION" : row.eventType,
+          event_family: "CDP",
+          payload,
+        },
         row.connectionVersion,
         fetchImpl,
         async () => {
@@ -308,7 +322,11 @@ export async function runRdCommercialWorker(tenantId: string, fetchImpl?: typeof
             .select()
             .from(rdMarketingSyncSettings)
             .where(eq(rdMarketingSyncSettings.tenantId, tenantId));
-          if (!latest?.outboundEnabled || latest.connectionVersion !== row.connectionVersion)
+          if (
+            !latest?.outboundEnabled ||
+            (isRdActivity(row.eventType) && !latest.activityEnabled) ||
+            latest.connectionVersion !== row.connectionVersion
+          )
             throw Object.assign(new Error("Envio comercial desativado ou conexão alterada."), {
               code: "RD_OUTBOUND_PAUSED",
             });

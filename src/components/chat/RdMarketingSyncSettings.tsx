@@ -3,6 +3,7 @@ import { Copy, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { RdOutboundScope, RdSyncStatus } from "@/lib/rd-marketing/sync-types";
 import { normalizeRdContactUuid, rdTestContactUuidError } from "@/lib/rd-marketing/outbound-scope";
+import { RD_ACTIVITY_EVENTS, rdEventLabel } from "@/lib/rd-marketing/activity-events";
 
 const endpoint = "/api/settings/rd-marketing/sync";
 const buttonClass =
@@ -30,6 +31,8 @@ export function RdMarketingSyncSettings() {
   const [uuidTouched, setUuidTouched] = useState(false);
   const uuidInput = useRef<HTMLInputElement | null>(null);
   const [enabled, setEnabled] = useState(false);
+  const [activityEnabled, setActivityEnabled] = useState(false);
+  const [publicBaseUrl, setPublicBaseUrl] = useState("");
   const [outboundScope, setOutboundScope] = useState<RdOutboundScope>("test");
   const [testContactUuid, setTestContactUuid] = useState("");
   const [currency, setCurrency] = useState("BRL");
@@ -41,6 +44,8 @@ export function RdMarketingSyncSettings() {
   const commercialDirty =
     !!status &&
     (enabled !== status.outboundEnabled ||
+      activityEnabled !== status.activityEnabled ||
+      publicBaseUrl !== status.publicBaseUrl ||
       currency !== status.currency ||
       outboundScope !== status.outboundScope ||
       (outboundScope === "test" &&
@@ -60,6 +65,8 @@ export function RdMarketingSyncSettings() {
     void load({
       action: "save",
       outboundEnabled: enabled,
+      activityEnabled,
+      publicBaseUrl,
       currency,
       outboundScope,
       testContactUuid: normalizeRdContactUuid(testContactUuid),
@@ -94,6 +101,8 @@ export function RdMarketingSyncSettings() {
           setStatus(data);
           if (!body || isCommercialSave) {
             setEnabled(data.outboundEnabled);
+            setActivityEnabled(data.activityEnabled);
+            setPublicBaseUrl(data.publicBaseUrl);
             setOutboundScope(data.outboundScope);
             setTestContactUuid(data.testContact?.uuid || "");
             setCurrency(data.currency);
@@ -366,6 +375,61 @@ export function RdMarketingSyncSettings() {
                 <option value="all">Todos os contatos</option>
               </select>
             </label>
+            <div className="rounded-lg border border-border p-3 space-y-3">
+              <label className="flex items-start gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={activityEnabled}
+                  disabled={busy}
+                  onChange={(event) => {
+                    changedCommercial();
+                    setActivityEnabled(event.target.checked);
+                  }}
+                />
+                Registrar os sete eventos detalhados como conversões no RD
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Negociação criada/reaberta, ganha e perdida; tarefa criada e concluída; conversa
+                iniciada e finalizada. Cada ocorrência leva os dados e o link do registro. O envio
+                usa o destino selecionado abaixo. Ao salvar, o sistema confere ou cria três campos
+                de texto no RD para os detalhes, link e ID do evento.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                São conversões reais no RD: revise fluxos e segmentações que aceitam qualquer
+                conversão. As ações padrão de oportunidade, venda e perda continuam; seus detalhes
+                são enviados após a confirmação.
+              </p>
+              {activityEnabled && (
+                <>
+                  <label className="block text-xs">
+                    URL pública deste sistema
+                    <input
+                      aria-label="URL pública para links dos eventos"
+                      type="url"
+                      className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                      value={publicBaseUrl}
+                      disabled={busy}
+                      onChange={(e) => {
+                        changedCommercial();
+                        setPublicBaseUrl(e.target.value);
+                      }}
+                    />
+                  </label>
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer text-primary">
+                      Identificadores para revisar os fluxos
+                    </summary>
+                    <ul className="mt-2 space-y-1">
+                      {Object.values(RD_ACTIVITY_EVENTS).map((event) => (
+                        <li key={event.identifier}>
+                          <code>{event.identifier}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                </>
+              )}
+            </div>
             {outboundScope === "test" && (
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
                 <label className="block text-sm">
@@ -525,10 +589,7 @@ export function RdMarketingSyncSettings() {
                   className="rounded-xl border border-border p-3 space-y-2 scroll-mt-4"
                 >
                   <div className="flex flex-wrap justify-between gap-2">
-                    <a
-                      className="text-sm font-semibold text-primary"
-                      href={`/crm/deals/${encodeURIComponent(item.dealId)}`}
-                    >
+                    <a className="text-sm font-semibold text-primary" href={item.url}>
                       {item.title}
                     </a>
                     <span className="text-xs text-muted-foreground">
@@ -536,12 +597,9 @@ export function RdMarketingSyncSettings() {
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {item.eventType === "SALE"
-                      ? "Venda"
-                      : item.eventType === "OPPORTUNITY_LOST"
-                        ? "Perda"
-                        : "Oportunidade"}{" "}
-                    · {new Date(item.createdAt).toLocaleString("pt-BR")}
+                    {rdEventLabel(item.eventType)}
+                    {item.complementary ? " · Conversão complementar" : ""} ·{" "}
+                    {new Date(item.createdAt).toLocaleString("pt-BR")}
                   </p>
                   {item.lastError && (
                     <p
@@ -558,6 +616,12 @@ export function RdMarketingSyncSettings() {
                     <summary className="cursor-pointer text-primary">Diagnóstico do envio</summary>
                     <div className="mt-2 space-y-1">
                       <p>Tentativas de processamento: {item.attempts ?? 0}.</p>
+                      {item.parentId && (
+                        <p>
+                          Complementa o envio padrão: {item.parentId}. Repetir este complemento não
+                          repete a ação padrão.
+                        </p>
+                      )}
                       {item.nextRetryAt && (
                         <p>
                           Próxima tentativa a partir de:{" "}
