@@ -62,7 +62,6 @@ import {
   getOperatorSector,
   downloadDealsCSV,
   downloadOperatorsCSV,
-  getBenchmarkRodizioData,
 } from "./rodizio-dashboard-data";
 
 // ─── Ícones Vetoriais Oficiais por Setor (Sem Emojis) ────────────────────────
@@ -252,7 +251,8 @@ function DailyBarChart({
 // ─── Gráfico Donut de Distribuição por Funil ───────────────────────────────────
 
 function FunnelDonutChart({ data }: { data: LeadByFunnel[] }) {
-  const total = data.reduce((sum, d) => sum + d.count, 0) || 1;
+  const rawTotal = data.reduce((sum, d) => sum + d.count, 0);
+  const total = rawTotal || 1;
 
   let acc = 0;
   const slices = data.map((d) => {
@@ -316,7 +316,7 @@ function FunnelDonutChart({ data }: { data: LeadByFunnel[] }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span className="text-xl font-black text-foreground tracking-tight">
-            {total.toLocaleString("pt-BR")}
+            {rawTotal.toLocaleString("pt-BR")}
           </span>
           <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">
             total
@@ -326,30 +326,36 @@ function FunnelDonutChart({ data }: { data: LeadByFunnel[] }) {
 
       {/* Legenda Lateral */}
       <div className="flex-1 w-full space-y-1.5 overflow-y-auto max-h-36 pr-1 scrollbar-thin">
-        {slices.map((s, i) => (
-          <div
-            key={i}
-            className="flex items-center justify-between text-xs py-0.5 hover:bg-muted/40 rounded px-1.5 transition"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <span
-                className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ background: s.color }}
-              />
-              <span className="text-muted-foreground truncate text-[11px] font-medium">
-                {s.label}
-              </span>
+        {slices.length > 0 ? (
+          slices.map((s, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between text-xs py-0.5 hover:bg-muted/40 rounded px-1.5 transition"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ background: s.color }}
+                />
+                <span className="text-muted-foreground truncate text-[11px] font-medium">
+                  {s.label}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-bold text-foreground font-mono text-[11px]">
+                  {s.count.toLocaleString("pt-BR")}
+                </span>
+                <span className="text-[10px] text-muted-foreground w-7 text-right">
+                  {s.pct}%
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="font-bold text-foreground font-mono text-[11px]">
-                {s.count.toLocaleString("pt-BR")}
-              </span>
-              <span className="text-[10px] text-muted-foreground w-7 text-right">
-                {s.pct}%
-              </span>
-            </div>
+          ))
+        ) : (
+          <div className="text-xs text-muted-foreground italic py-4 text-center">
+            Nenhum lead distribuído no período
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
@@ -902,7 +908,9 @@ function OperatorStatusModal({
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-2.5">
-          {operators.map((op) => {
+          {operators
+            .filter((op) => !op.id.startsWith("ai-triage-"))
+            .map((op) => {
             const isAvailable = op.isParticipating && !op.isOnLeave && !op.isPenalized;
 
             return (
@@ -997,7 +1005,7 @@ export function RodizioTab() {
   const days = parseInt(period, 10);
 
   // Filtros específicos da seção Leads por Operador
-  const [opPeriod, setOpPeriod] = useState("1");
+  const [opPeriod, setOpPeriod] = useState("30");
   const [opFilterMode, setOpFilterMode] = useState<"preset" | "single" | "range">("preset");
   const [opDateFrom, setOpDateFrom] = useState("");
   const [opDateTo, setOpDateTo] = useState("");
@@ -1022,12 +1030,14 @@ export function RodizioTab() {
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
-  // Carregamento de dados com fallback no benchmark
-  const fetchDashboard = useCallback(async () => {
-    setIsLoading(true);
+  // Carregamento 100% real de dados do banco e motor de triagem IA
+  const fetchDashboard = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       let url = `${BACKEND_URL}/api/valentina/rodizio?tenantId=${tenant}&days=${period}`;
-      if (opFilterMode === "single" && opDateFrom) {
+      if (opFilterMode === "preset" && opPeriod) {
+        url += `&opDays=${opPeriod}`;
+      } else if (opFilterMode === "single" && opDateFrom) {
         url += `&dateFrom=${opDateFrom}`;
       } else if (opFilterMode === "range" && opDateFrom && opDateTo) {
         url += `&dateFrom=${opDateFrom}&dateTo=${opDateTo}`;
@@ -1047,40 +1057,32 @@ export function RodizioTab() {
           setOperators([]);
         }
         if (Array.isArray(data.deals)) setDeals(data.deals);
-      } else if (tenant === "valem") {
-        const b = getBenchmarkRodizioData(tenant);
-        setStats(b.stats);
-        setByDay(b.byDay);
-        setByFunnel(b.byFunnel);
-        setOperators(b.operators);
-        setDeals(b.deals);
       }
-    } catch {
-      if (tenant === "valem") {
-        const b = getBenchmarkRodizioData(tenant);
-        setStats(b.stats);
-        setByDay(b.byDay);
-        setByFunnel(b.byFunnel);
-        setOperators(b.operators);
-        setDeals(b.deals);
-      }
+    } catch (err) {
+      console.error("[RodizioTab] Erro ao carregar métricas reais do rodízio:", err);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
-  }, [tenant, period, opFilterMode, opDateFrom, opDateTo, BACKEND_URL]);
+  }, [tenant, period, opPeriod, opFilterMode, opDateFrom, opDateTo, BACKEND_URL]);
 
   useEffect(() => {
-    fetchDashboard();
+    fetchDashboard(false);
+    const interval = setInterval(() => {
+      fetchDashboard(true);
+    }, 6000);
+    return () => clearInterval(interval);
   }, [fetchDashboard]);
 
-  // Lista simples para opções de reatribuição
-  const operatorOptions: OperatorOption[] = operators.map((o) => ({
-    id: o.id,
-    name: o.name,
-    sector: o.sector,
-    leads_compensation: o.compensation,
-    avatar: o.avatar,
-  }));
+  // Lista simples para opções de reatribuição (excluindo fila virtual de triagem IA)
+  const operatorOptions: OperatorOption[] = operators
+    .filter((o) => !o.id.startsWith("ai-triage-"))
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      sector: o.sector,
+      leads_compensation: o.compensation,
+      avatar: o.avatar,
+    }));
 
   // Reatribuir lead para outro operador
   const handleReassign = async (cardId: string, targetOp: OperatorOption) => {
@@ -1306,22 +1308,28 @@ export function RodizioTab() {
           <div className="flex items-center gap-2 flex-wrap justify-end">
             {/* Atalhos Rápidos */}
             <div className="flex items-center gap-0.5 bg-muted/60 rounded-xl p-0.5 border border-border">
-              {(["1", "3", "7", "30"] as const).map((d) => (
+              {[
+                { v: "1", l: "1d" },
+                { v: "3", l: "3d" },
+                { v: "7", l: "7d" },
+                { v: "30", l: "30d" },
+                { v: "3650", l: "Tudo" },
+              ].map((d) => (
                 <button
-                  key={d}
+                  key={d.v}
                   onClick={() => {
-                    setOpPeriod(d);
+                    setOpPeriod(d.v);
                     setOpFilterMode("preset");
                     setOpDateFrom("");
                     setOpDateTo("");
                   }}
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                    opFilterMode === "preset" && opPeriod === d
+                    opFilterMode === "preset" && opPeriod === d.v
                       ? "bg-card text-foreground shadow-xs"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {d}d
+                  {d.l}
                 </button>
               ))}
             </div>
@@ -1382,7 +1390,7 @@ export function RodizioTab() {
                 />
                 {opDateFrom && (
                   <button
-                    onClick={fetchDashboard}
+                    onClick={() => fetchDashboard(false)}
                     className="px-3 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary-hover transition cursor-pointer"
                   >
                     Filtrar
@@ -1412,7 +1420,7 @@ export function RodizioTab() {
                 />
                 {opDateFrom && opDateTo && (
                   <button
-                    onClick={fetchDashboard}
+                    onClick={() => fetchDashboard(false)}
                     className="px-3 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary-hover transition cursor-pointer"
                   >
                     Filtrar
@@ -1604,7 +1612,7 @@ export function RodizioTab() {
           </div>
 
           <button
-            onClick={fetchDashboard}
+            onClick={() => fetchDashboard(false)}
             title="Atualizar dados ao vivo"
             className="p-2 rounded-xl bg-card border border-border text-muted-foreground hover:text-foreground transition-all shadow-xs cursor-pointer"
           >
@@ -1618,7 +1626,7 @@ export function RodizioTab() {
         <KpiCard
           title="Leads Capturados"
           icon={Users}
-          value={stats?.totalLeads ? stats.totalLeads.toLocaleString("pt-BR") : "7.207"}
+          value={(stats?.totalLeads ?? 0).toLocaleString("pt-BR")}
           sub={days >= 365 ? "todos os meses" : `últimos ${days} dias`}
           accent="#f43f5e"
         />
@@ -1626,16 +1634,20 @@ export function RodizioTab() {
         <KpiCard
           title="Taxa de Triagem"
           icon={CheckCircle2}
-          value={stats ? `${stats.triageRate}%` : "82%"}
-          sub={`${stats?.triageDone?.toLocaleString("pt-BR") || "5.925"} triados`}
+          value={`${stats?.triageRate ?? 0}%`}
+          sub={`${(stats?.triageDone ?? 0).toLocaleString("pt-BR")} triados`}
           accent="#10b981"
         />
 
         <KpiCard
           title="Deals no CRM"
           icon={BarChart3}
-          value={stats?.syncedToCrm ? stats.syncedToCrm.toLocaleString("pt-BR") : "6.052"}
-          sub="84% de conversão"
+          value={(stats?.syncedToCrm ?? 0).toLocaleString("pt-BR")}
+          sub={
+            stats && stats.totalLeads > 0
+              ? `${Math.min(100, Math.round((stats.syncedToCrm / stats.totalLeads) * 100))}% de conversão`
+              : "0% de conversão"
+          }
           accent="#3b82f6"
           onClick={() => setShowCrmDeals(true)}
         />
@@ -1643,7 +1655,7 @@ export function RodizioTab() {
         <KpiCard
           title="Score Médio LMS"
           icon={TrendingUp}
-          value={stats?.avgScore ? `P${stats.avgScore}` : "P2.6"}
+          value={`P${stats?.avgScore ?? "0.0"}`}
           sub="qualificação LMS"
           accent="#8b5cf6"
         />

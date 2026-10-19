@@ -1022,9 +1022,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                     conversationId,
                     contactId: convCheck?.contactId || null,
                     contactPhone,
+                    clientName,
+                    companyName: company,
                     collectedData: updatedCollectedData,
                     targetFunnel: targetFunnelForRodizio,
                     funnelStage: stageAndFunnel.funnelStage,
+                    targetOperatorId: chosenOp.id,
+                    targetOperatorName: chosenOp.name,
                     allocatedOperator: { id: chosenOp.id, name: chosenOp.name },
                   });
                   crmExecutedBeforeTransfer = true;
@@ -1043,9 +1047,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 conversationId,
                 contactId: convCheck?.contactId || null,
                 contactPhone,
+                clientName,
+                companyName: company,
                 collectedData: updatedCollectedData,
                 targetFunnel: targetFunnelForRodizio,
                 funnelStage: stageAndFunnel.funnelStage,
+                targetOperatorId: allocatedOp?.id || null,
+                targetOperatorName: allocatedOp?.name || null,
                 allocatedOperator: allocatedOp ? { id: allocatedOp.id, name: allocatedOp.name } : null,
               });
               console.log(
@@ -1189,6 +1197,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 localCrmDealAction: localCrmResult.action,
               }
             : {}),
+          ...(allocatedOp?.id ? { allocatedOperatorId: allocatedOp.id } : {}),
           ...(allocatedOp?.name ? { allocatedOperatorName: allocatedOp.name } : {}),
         };
 

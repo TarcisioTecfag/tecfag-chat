@@ -1244,7 +1244,30 @@ export class SessionManager {
         // 1. Limpar sessão de debounce ativa
         SdrDebouncer.getInstance().clearSession(convId);
 
-        // 2. Apagar apenas o estado de fluxo da triagem anterior (preserva mensagens e contatos)
+        // 2. Arquivar a triagem anterior em previousTriages antes de reiniciar (preserva histórico compilado)
+        const existingFlows = await db
+          .select()
+          .from(agentFlowStates)
+          .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
+
+        const previousTriages: any[] = [];
+        for (const ef of existingFlows) {
+          const efMeta = (ef.metadata as Record<string, any>) || {};
+          if (Array.isArray(efMeta.previousTriages)) {
+            for (const pt of efMeta.previousTriages) {
+              previousTriages.push(pt);
+            }
+          }
+          previousTriages.push({
+            id: ef.id,
+            startedAt: ef.startedAt ? new Date(ef.startedAt).toISOString() : null,
+            completedAt: (ef.completedAt || ef.lastInteractionAt || new Date()).toISOString(),
+            outcome: ef.outcome && ef.outcome !== "in_progress" ? ef.outcome : "reset",
+            targetFunnel: efMeta.targetFunnel || null,
+            responsibleName: efMeta.allocatedOperatorName || null,
+          });
+        }
+
         await db
           .delete(agentFlowStates)
           .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
@@ -1257,14 +1280,14 @@ export class SessionManager {
               queueState: "automacao",
               operatorId: null,
               unreadCount: 0,
-              lastMessageText: "🔄 Fluxo de triagem reiniciado via !reset",
+              lastMessageText: "Fluxo de triagem reiniciado via !reset",
               lastMessageTime: eventTime,
               updatedAt: new Date(),
             })
             .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
         }
 
-        // 4. Criar novo agentFlowState limpo
+        // 4. Criar novo agentFlowState limpo preservando previousTriages
         const newFlowId = `fs-sdr-${Date.now()}`;
         await db.insert(agentFlowStates).values({
           id: newFlowId,
@@ -1273,11 +1296,29 @@ export class SessionManager {
           agentType: "sdr",
           currentStep: "Em Qualificação",
           collectedData: {},
-          metadata: { stepNumber: 1, totalSteps: 7 },
+          metadata: { stepNumber: 1, totalSteps: 7, previousTriages: previousTriages.slice(-20) },
           startedAt: new Date(),
           lastInteractionAt: new Date(),
           outcome: "in_progress",
         });
+
+        await db
+          .insert(messages)
+          .values({
+            id: `sys-reset-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            tenantId,
+            conversationId: convId,
+            senderType: "system",
+            senderName: "Sistema",
+            content: "Triagem anterior encerrada — Novo ciclo de triagem iniciado",
+            isInternalNote: true,
+            direction: "outbound",
+            provider: "system",
+            status: "accepted",
+            sentAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .onConflictDoNothing();
 
         // 5. Notificar a UI via SSE
         this.notify(tenantId, {

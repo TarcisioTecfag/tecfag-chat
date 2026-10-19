@@ -5,6 +5,7 @@
 import { db } from "../../db";
 import {
   operators,
+  sectors,
   conversations,
   contacts,
   agentConfigs,
@@ -14,8 +15,10 @@ import {
   crmDealEvents,
   crmPipelines,
   crmAccounts,
+  aiUsageLogs,
 } from "../../db/schema";
-import { eq, and, asc, desc, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, gte } from "drizzle-orm";
+import { getAiPersona } from "../ai-persona";
 import {
   RodizioOperatorConfig,
   FlowOperator,
@@ -25,6 +28,45 @@ import {
 } from "./rodizio-types";
 
 export * from "./rodizio-types";
+
+function normalizeOpName(rawName: string = ""): string {
+  return rawName
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s*-\s*\d+\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeFunnelKey(rawFunnel: string = ""): string {
+  const s = rawFunnel
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+  if (!s) return "maquinas";
+  if (s.includes("personalit") || s.includes("personnalit")) return "personalite";
+  if (s.includes("assistencia") || s.includes("manutencao") || s.includes("tecnic")) return "assistencia-tecnica";
+  if (s.includes("pos-venda") || s.includes("pos venda") || s.includes("pos_venda") || s.includes("rastreio") || s.includes("nf do pedido")) {
+    return "pos-venda";
+  }
+  if (s.includes("financeiro") || s.includes("boleto") || s.includes("nota fiscal") || s.includes("faturamento")) {
+    return "financeiro";
+  }
+  if (s.includes("peca") || s.includes("reposicao")) return "pecas";
+  if (s.includes("sem_resposta") || s.includes("sem-resposta") || s.includes("sem resposta") || s.includes("abandon")) {
+    return "sem-resposta";
+  }
+  if (s === "triagem" || s.includes("em qualificacao") || s.includes("triagem")) return "triagem";
+  if (s.includes("outro")) return "outros";
+  if (s.includes("maquina") || s.includes("seladora") || s.includes("envasadora") || s.includes("datador") || s.includes("dosadora")) {
+    return "maquinas";
+  }
+  if (s.includes("comercial") || s.includes("funil comercial")) return "comercial";
+  return "maquinas";
+}
 
 export class RodizioEngine {
   /**
@@ -48,17 +90,24 @@ export class RodizioEngine {
 
       const configData = (configRow?.config as any) || {};
 
+      const matchDbOp = (flowOp: { id: string; name: string; email?: string }) => {
+        const normFlowName = normalizeOpName(flowOp.name);
+        return dbOperators.find(
+          (o) =>
+            o.id === flowOp.id ||
+            (o.email && flowOp.email && o.email.toLowerCase().trim() === flowOp.email.toLowerCase().trim()) ||
+            (normFlowName && normalizeOpName(o.name) === normFlowName)
+        );
+      };
+
       // Se já existem flowOperators salvos, usamos exclusivamente os configurados
       if (Array.isArray(configData.flowOperators)) {
         return configData.flowOperators.map((flowOp: FlowOperator) => {
-          const matchedDbOp = dbOperators.find(
-            (o) =>
-              o.id === flowOp.id ||
-              (o.email && flowOp.email && o.email.toLowerCase().trim() === flowOp.email.toLowerCase().trim())
-          );
+          const matchedDbOp = matchDbOp(flowOp);
 
           return {
             ...flowOp,
+            id: matchedDbOp?.id || flowOp.id,
             name: matchedDbOp?.name || flowOp.name,
             email: matchedDbOp?.email || flowOp.email,
             avatar: matchedDbOp?.avatar || flowOp.avatar,
@@ -77,15 +126,12 @@ export class RodizioEngine {
       // Se for a primeira vez e o tenant for tecfag, inicializa com o time padrão da escala de referência
       if (tenantId === "tecfag") {
         const seededList = DEFAULT_TECFAG_FLOW_OPERATORS.map((defOp) => {
-          const matchedDb = dbOperators.find(
-            (o) =>
-              o.id === defOp.id ||
-              (o.email && defOp.email && o.email.toLowerCase().trim() === defOp.email.toLowerCase().trim())
-          );
+          const matchedDb = matchDbOp(defOp);
           return {
             ...defOp,
             id: matchedDb?.id || defOp.id,
             name: matchedDb?.name || defOp.name,
+            email: matchedDb?.email || defOp.email,
             avatar: matchedDb?.avatar || undefined,
           };
         });
@@ -569,33 +615,76 @@ export class RodizioEngine {
   }
 
   /**
-   * Obtém os dados completos de inteligência do Dashboard de Rodízio
-   * Mescla dados reais do banco (agentFlowStates + crmDeals + flowOperators) com o estado do tenant.
+   * Obtém os dados 100% reais de inteligência do Dashboard de Rodízio
+   * Conectado exclusivamente ao banco PostgreSQL (agentFlowStates, crmDeals,
+   * crmConversationDeals, conversations, contacts, operators, sectors e aiUsageLogs).
    */
   static async getDashboardData(
     tenantId: string = "valem",
-    options: { days?: number; dateFrom?: string; dateTo?: string } = {}
+    options: { days?: number; opDays?: number; dateFrom?: string; dateTo?: string } = {}
   ) {
     try {
-      const { getBenchmarkRodizioData } = await import(
+      const { getEmptyRodizioData, getOperatorSector } = await import(
         "../../components/valentina/rodizio-dashboard-data"
       );
-      const benchmark = getBenchmarkRodizioData(tenantId);
+      const persona = getAiPersona(tenantId);
+      const now = new Date();
 
-      // 1. Buscar operadores do tenant e escala atual
-      const dbOps = await db
-        .select()
-        .from(operators)
-        .where(eq(operators.tenantId, tenantId))
-        .orderBy(asc(operators.name));
+      const statsDays = options.days && options.days > 0 ? options.days : 3650;
+      const statsCutoff = new Date(now.getTime() - statsDays * 24 * 60 * 60 * 1000);
 
-      const flowOps = await this.getRodizioState(tenantId);
+      // Filtro de janela de tempo para a seção "Leads por Operador"
+      let opStartMs: number | null = null;
+      let opEndMs: number | null = null;
 
-      // 2. Buscar configuração salva do rodízio
-      const configRow = await db.query.agentConfigs.findFirst({
-        where: (t, { eq: dEq, and: dAnd }) =>
-          dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
-      });
+      if (options.dateFrom && options.dateTo) {
+        const start = new Date(`${options.dateFrom}T00:00:00.000-03:00`).getTime();
+        const end = new Date(`${options.dateTo}T23:59:59.999-03:00`).getTime();
+        if (Number.isFinite(start)) opStartMs = start;
+        if (Number.isFinite(end)) opEndMs = end;
+      } else if (options.dateFrom) {
+        const start = new Date(`${options.dateFrom}T00:00:00.000-03:00`).getTime();
+        const end = new Date(`${options.dateFrom}T23:59:59.999-03:00`).getTime();
+        if (Number.isFinite(start)) opStartMs = start;
+        if (Number.isFinite(end)) opEndMs = end;
+      } else if (options.opDays && options.opDays > 0 && options.opDays < 3650) {
+        opStartMs = now.getTime() - options.opDays * 24 * 60 * 60 * 1000;
+      }
+
+      const isWithinOpWindow = (dateVal: Date | string | null | undefined): boolean => {
+        if (opStartMs === null && opEndMs === null) return true;
+        if (!dateVal) return true;
+        const ms = dateVal instanceof Date ? dateVal.getTime() : new Date(dateVal).getTime();
+        if (!Number.isFinite(ms)) return true;
+        if (opStartMs !== null && ms < opStartMs) return false;
+        if (opEndMs !== null && ms > opEndMs) return false;
+        return true;
+      };
+
+      const isWithinStatsWindow = (dateVal: Date | string | null | undefined): boolean => {
+        if (!dateVal) return true;
+        const ms = dateVal instanceof Date ? dateVal.getTime() : new Date(dateVal).getTime();
+        if (!Number.isFinite(ms)) return true;
+        return ms >= statsCutoff.getTime();
+      };
+
+      // 1. Buscar operadores reais do tenant, setores e escala atual
+      const [dbOps, dbSectors, flowOps, configRow] = await Promise.all([
+        db
+          .select()
+          .from(operators)
+          .where(eq(operators.tenantId, tenantId))
+          .orderBy(asc(operators.name)),
+        db
+          .select()
+          .from(sectors)
+          .where(eq(sectors.tenantId, tenantId)),
+        this.getRodizioState(tenantId),
+        db.query.agentConfigs.findFirst({
+          where: (t, { eq: dEq, and: dAnd }) =>
+            dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
+        }),
+      ]);
 
       const configData = (configRow?.config as any) || {};
       const storedOpsMap: Record<string, RodizioOperatorConfig> = configData.operatorsMap || {};
@@ -611,172 +700,558 @@ export class RodizioEngine {
         }
       }
 
-      // 3. Buscar negociações reais do CRM Local criadas ou vinculadas pelo SDR neste tenant
+      // Mapear setores do banco por operatorId
+      const dbSectorByOpId = new Map<string, string>();
+      for (const sec of dbSectors) {
+        const ids = Array.isArray(sec.operatorIds) ? sec.operatorIds : [];
+        for (const id of ids) {
+          if (!dbSectorByOpId.has(id)) {
+            dbSectorByOpId.set(id, sec.name);
+          }
+        }
+      }
+
+      // Construir mapa canônico de operadores (unificando dbOps + flowOps sem duplicatas)
+      const aliasToCanonicalId = new Map<string, string>();
+      const canonicalOpsMap = new Map<
+        string,
+        {
+          id: string;
+          name: string;
+          email: string;
+          avatar?: string | null;
+          sector?: string | null;
+          allowed_subflows?: string[] | null;
+          compensation: number;
+          isParticipating: boolean;
+          isOnLeave: boolean;
+          isPenalized: boolean;
+          isInFlow: boolean;
+        }
+      >();
+
+      for (const dbOp of dbOps) {
+        aliasToCanonicalId.set(dbOp.id, dbOp.id);
+        const saved = storedOpsMap[dbOp.id];
+        canonicalOpsMap.set(dbOp.id, {
+          id: dbOp.id,
+          name: dbOp.name,
+          email: dbOp.email,
+          avatar: dbOp.avatar,
+          sector: dbSectorByOpId.get(dbOp.id) || null,
+          allowed_subflows: null,
+          compensation: compensations[dbOp.id] ?? 0,
+          isParticipating: saved?.isParticipating ?? true,
+          isOnLeave: saved?.isOnLeave ?? false,
+          isPenalized: saved?.isPenalized ?? false,
+          isInFlow: false,
+        });
+      }
+
+      for (const fOp of flowOps) {
+        const normFName = normalizeOpName(fOp.name);
+        const matchedDb = dbOps.find(
+          (o) =>
+            o.id === fOp.id ||
+            (o.email && fOp.email && o.email.toLowerCase().trim() === fOp.email.toLowerCase().trim()) ||
+            (normFName && normalizeOpName(o.name) === normFName)
+        );
+
+        const canonicalId = matchedDb?.id || fOp.id;
+        aliasToCanonicalId.set(fOp.id, canonicalId);
+        if (matchedDb) aliasToCanonicalId.set(matchedDb.id, canonicalId);
+
+        const existing = canonicalOpsMap.get(canonicalId);
+        const saved = storedOpsMap[canonicalId] || storedOpsMap[fOp.id];
+        const comp =
+          fOp.compensation !== undefined
+            ? fOp.compensation
+            : compensations[canonicalId] ?? compensations[fOp.id] ?? existing?.compensation ?? 0;
+
+        canonicalOpsMap.set(canonicalId, {
+          id: canonicalId,
+          name: fOp.name || existing?.name || "Operador",
+          email: matchedDb?.email || fOp.email || existing?.email || "",
+          avatar: matchedDb?.avatar || fOp.avatar || existing?.avatar || null,
+          sector: fOp.area || existing?.sector || null,
+          allowed_subflows: Array.isArray(fOp.funnels) && fOp.funnels.length > 0 ? fOp.funnels : existing?.allowed_subflows || null,
+          compensation: comp,
+          isParticipating: fOp.isParticipating ?? saved?.isParticipating ?? existing?.isParticipating ?? true,
+          isOnLeave: fOp.isOnLeave ?? saved?.isOnLeave ?? existing?.isOnLeave ?? false,
+          isPenalized: fOp.isPenalized ?? saved?.isPenalized ?? existing?.isPenalized ?? false,
+          isInFlow: true,
+        });
+      }
+
+      // Também mapear IDs legados de DEFAULT_TECFAG_FLOW_OPERATORS caso algum registro aponte para eles
+      for (const defOp of DEFAULT_TECFAG_FLOW_OPERATORS) {
+        if (!aliasToCanonicalId.has(defOp.id)) {
+          const normDef = normalizeOpName(defOp.name);
+          const matched = Array.from(canonicalOpsMap.values()).find(
+            (c) =>
+              (c.email && defOp.email && c.email.toLowerCase().trim() === defOp.email.toLowerCase().trim()) ||
+              (normDef && normalizeOpName(c.name) === normDef)
+          );
+          if (matched) {
+            aliasToCanonicalId.set(defOp.id, matched.id);
+          }
+        }
+      }
+
+      const resolveOpId = (rawId: string | null | undefined): string => {
+        if (!rawId) return "";
+        return aliasToCanonicalId.get(rawId) || rawId;
+      };
+
+      // 2. Buscar negociações reais vinculadas a conversas/triagens no CRM Local
       const realDealsRows = await db
         .select({
           dealId: crmDeals.id,
           title: crmDeals.title,
           operatorId: crmDeals.operatorId,
+          rating: crmDeals.rating,
           createdAt: crmDeals.createdAt,
           funnelName: crmPipelines.name,
           accountName: crmAccounts.name,
-          contactPhone: crmAccounts.phone,
+          accountDoc: crmAccounts.document,
+          accountPhone: crmAccounts.phone,
           conversationId: crmConversationDeals.conversationId,
           origin: crmConversationDeals.origin,
+          convOperatorId: conversations.operatorId,
+          contactName: contacts.name,
+          contactPhone: contacts.phone,
+          contactCnpj: contacts.cnpj,
+          contactCpf: contacts.cpf,
+          contactCnpjDetails: contacts.cnpjDetails,
         })
         .from(crmConversationDeals)
         .innerJoin(
           crmDeals,
           and(
             eq(crmConversationDeals.dealId, crmDeals.id),
-            eq(crmDeals.tenantId, tenantId),
-          ),
+            eq(crmDeals.tenantId, tenantId)
+          )
         )
         .leftJoin(
           crmPipelines,
           and(
             eq(crmDeals.pipelineId, crmPipelines.id),
-            eq(crmPipelines.tenantId, tenantId),
-          ),
+            eq(crmPipelines.tenantId, tenantId)
+          )
         )
         .leftJoin(
           crmAccounts,
           and(
             eq(crmDeals.accountId, crmAccounts.id),
-            eq(crmAccounts.tenantId, tenantId),
-          ),
+            eq(crmAccounts.tenantId, tenantId)
+          )
         )
-        .where(eq(crmConversationDeals.tenantId, tenantId))
+        .leftJoin(
+          conversations,
+          and(
+            eq(crmConversationDeals.conversationId, conversations.id),
+            eq(conversations.tenantId, tenantId)
+          )
+        )
+        .leftJoin(
+          contacts,
+          and(
+            eq(conversations.contactId, contacts.id),
+            eq(contacts.tenantId, tenantId)
+          )
+        )
+        .where(
+          and(
+            eq(crmConversationDeals.tenantId, tenantId),
+            eq(crmConversationDeals.isActive, true)
+          )
+        )
         .orderBy(desc(crmDeals.createdAt))
-        .limit(100);
+        .limit(500);
 
-      // 4. Buscar estados de triagem reais em agentFlowStates
+      // 3. Buscar sessões reais de triagem da IA em agentFlowStates
       const realFlowStates = await db
-        .select()
+        .select({
+          id: agentFlowStates.id,
+          conversationId: agentFlowStates.conversationId,
+          currentStep: agentFlowStates.currentStep,
+          collectedData: agentFlowStates.collectedData,
+          metadata: agentFlowStates.metadata,
+          startedAt: agentFlowStates.startedAt,
+          lastInteractionAt: agentFlowStates.lastInteractionAt,
+          completedAt: agentFlowStates.completedAt,
+          outcome: agentFlowStates.outcome,
+          convOperatorId: conversations.operatorId,
+          convQueueState: conversations.queueState,
+          contactName: contacts.name,
+          contactPhone: contacts.phone,
+          contactCnpj: contacts.cnpj,
+          contactCpf: contacts.cpf,
+          contactCnpjDetails: contacts.cnpjDetails,
+        })
         .from(agentFlowStates)
-        .where(eq(agentFlowStates.tenantId, tenantId));
+        .leftJoin(
+          conversations,
+          and(
+            eq(agentFlowStates.conversationId, conversations.id),
+            eq(conversations.tenantId, tenantId)
+          )
+        )
+        .leftJoin(
+          contacts,
+          and(
+            eq(conversations.contactId, contacts.id),
+            eq(contacts.tenantId, tenantId)
+          )
+        )
+        .where(eq(agentFlowStates.tenantId, tenantId))
+        .orderBy(desc(agentFlowStates.lastInteractionAt))
+        .limit(500);
 
-      const opById = new Map<string, { id: string; name: string }>();
-      for (const op of dbOps) opById.set(op.id, { id: op.id, name: op.name });
-      for (const fOp of flowOps) {
-        if (!opById.has(fOp.id)) opById.set(fOp.id, { id: fOp.id, name: fOp.name });
-      }
-
-      // Agrupar cards reais por operatorId
+      // 4. Processar cards reais dos operadores e lista de Deals no CRM
       const realCardsByOpId = new Map<string, any[]>();
+      const activeAiTriageCards: any[] = [];
       const realCrmDealsList: any[] = [];
       const seenDealIds = new Set<string>();
+      const seenConvIdsInOpCards = new Set<string>();
+
+      // Mapa unificado de leads capturados na janela de estatísticas (Visão Geral)
+      const leadsInStatsWindow = new Map<
+        string,
+        {
+          dateIso: string;
+          funnelKey: string;
+          isTriageDone: boolean;
+          lmsScore: number;
+          hasCnpj: boolean;
+        }
+      >();
 
       for (const row of realDealsRows) {
         if (seenDealIds.has(row.dealId)) continue;
         seenDealIds.add(row.dealId);
 
-        const reassigned = reassignMap.get(row.dealId) || (row.conversationId ? reassignMap.get(row.conversationId) : undefined);
-        const effectiveOpId = reassigned?.toOperatorId || row.operatorId || "";
+        const reassigned =
+          reassignMap.get(row.dealId) ||
+          (row.conversationId ? reassignMap.get(row.conversationId) : undefined);
+
+        const rawOpId = reassigned?.toOperatorId || row.operatorId || row.convOperatorId || "";
+        const effectiveOpId = resolveOpId(rawOpId);
         const effectiveOpName =
           reassigned?.toOperatorName ||
-          (effectiveOpId ? opById.get(effectiveOpId)?.name : null) ||
+          (effectiveOpId ? canonicalOpsMap.get(effectiveOpId)?.name : null) ||
           "Operador";
 
-        const createdAtIso = row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString();
+        const createdAtDate = row.createdAt ? new Date(row.createdAt) : now;
+        const createdAtIso = createdAtDate.toISOString();
 
-        if (effectiveOpId && !removedCards.includes(row.dealId) && (!row.conversationId || !removedCards.includes(row.conversationId))) {
+        const companyName =
+          row.accountName ||
+          (row.contactCnpjDetails as any)?.razaoSocial ||
+          (row.contactCnpjDetails as any)?.nomeFantasia ||
+          null;
+        const phoneStr = row.accountPhone || row.contactPhone || null;
+        const cardDisplayName = row.contactName || row.title;
+        const funnelKey = normalizeFunnelKey(row.funnelName || "maquinas");
+
+        const isCardRemoved =
+          removedCards.includes(row.dealId) ||
+          (row.conversationId ? removedCards.includes(row.conversationId) : false);
+
+        if (effectiveOpId && !isCardRemoved && isWithinOpWindow(createdAtDate)) {
           const opCards = realCardsByOpId.get(effectiveOpId) || [];
           opCards.push({
             id: row.conversationId || row.dealId,
-            name: row.title,
-            company: row.accountName || null,
+            name: cardDisplayName,
+            company: companyName,
             created_at: createdAtIso,
             chatId: row.conversationId || undefined,
             rdDealId: row.dealId,
-            phone: row.contactPhone || null,
+            phone: phoneStr,
             subject: row.funnelName || null,
           });
           realCardsByOpId.set(effectiveOpId, opCards);
+          if (row.conversationId) {
+            seenConvIdsInOpCards.add(row.conversationId);
+          }
         }
 
-        realCrmDealsList.push({
-          id: row.dealId,
-          name: row.title,
-          company: row.accountName || null,
-          phone: row.contactPhone || null,
-          rd_deal_id: row.dealId,
-          operator_name: effectiveOpName,
-          sector: row.funnelName || "Comercial",
-          funnel: (row.funnelName || "maquinas").toLowerCase(),
-          created_at: createdAtIso,
-        });
+        if (isWithinStatsWindow(createdAtDate)) {
+          realCrmDealsList.push({
+            id: row.dealId,
+            name: row.title,
+            company: companyName,
+            phone: phoneStr,
+            rd_deal_id: row.dealId,
+            operator_name: effectiveOpName,
+            sector: row.funnelName || "Comercial",
+            funnel: funnelKey,
+            created_at: createdAtIso,
+          });
+
+          const leadKey = row.conversationId || `deal:${row.dealId}`;
+          const hasDoc = Boolean(row.accountDoc || row.contactCnpj || row.contactCpf);
+          const dealRatingScore =
+            typeof row.rating === "number" && row.rating > 0
+              ? Math.min(3, (row.rating / 5) * 3)
+              : companyName && hasDoc
+                ? 2.7
+                : companyName
+                  ? 2.2
+                  : 1.8;
+
+          leadsInStatsWindow.set(leadKey, {
+            dateIso: createdAtIso.slice(0, 10),
+            funnelKey,
+            isTriageDone: true,
+            lmsScore: dealRatingScore,
+            hasCnpj: hasDoc,
+          });
+        }
       }
 
-      // Se o banco tiver os operadores do tenant, mesclamos o benchmark com os operadores reais e cards reais
-      let operatorRows = benchmark.operators;
-      if (dbOps.length > 0 || flowOps.length > 0) {
-        operatorRows = benchmark.operators.map((bOp) => {
-          const matchedDbOp = dbOps.find(
-            (o) =>
-              o.id === bOp.id ||
-              o.name.toLowerCase().trim() === bOp.name.toLowerCase().trim() ||
-              (o.email && bOp.email && o.email.toLowerCase().trim() === bOp.email.toLowerCase().trim())
-          );
-          const matchedFlowOp = flowOps.find(
-            (fo) =>
-              fo.id === (matchedDbOp?.id || bOp.id) ||
-              fo.name.toLowerCase().trim() === bOp.name.toLowerCase().trim()
-          );
+      // 5. Processar sessões de triagem reais (agentFlowStates)
+      let activeRealSessions = 0;
 
-          const opId = matchedDbOp?.id || matchedFlowOp?.id || bOp.id;
-          const savedConfig = storedOpsMap[opId];
-          const dynamicComp =
-            matchedFlowOp?.compensation !== undefined
-              ? matchedFlowOp.compensation
-              : compensations[opId] !== undefined
-                ? compensations[opId]
-                : bOp.compensation;
+      for (const fs of realFlowStates) {
+        const collected = (fs.collectedData as Record<string, any>) || {};
+        const meta = (fs.metadata as Record<string, any>) || {};
 
-          const realOpCards = realCardsByOpId.get(opId) || [];
-          const benchmarkCards = (bOp.cards || []).filter((c) => !removedCards.includes(c.id));
-          const mergedCards = [...realOpCards, ...benchmarkCards];
+        const isActiveSession =
+          fs.outcome === "in_progress" ||
+          (!fs.outcome && fs.currentStep !== "Concluído");
+        const isCompletedSession =
+          fs.outcome === "completed" ||
+          fs.outcome === "transferred" ||
+          fs.currentStep === "Concluído";
 
-          return {
-            ...bOp,
-            id: opId,
-            avatar: matchedDbOp?.avatar || matchedFlowOp?.avatar || bOp.avatar,
-            sector: matchedFlowOp?.area || bOp.sector,
-            allowed_subflows: matchedFlowOp?.funnels || bOp.allowed_subflows,
-            compensation: dynamicComp,
-            count: (bOp.count || 0) + realOpCards.length,
-            isParticipating: matchedFlowOp?.isParticipating ?? savedConfig?.isParticipating ?? bOp.isParticipating ?? true,
-            isOnLeave: matchedFlowOp?.isOnLeave ?? savedConfig?.isOnLeave ?? bOp.isOnLeave ?? false,
-            isPenalized: matchedFlowOp?.isPenalized ?? savedConfig?.isPenalized ?? bOp.isPenalized ?? false,
-            cards: mergedCards,
+        if (isActiveSession) {
+          activeRealSessions += 1;
+        }
+
+        const clientName =
+          collected["NOME COMPLETO"]?.value ||
+          collected["nome"]?.value ||
+          fs.contactName ||
+          "Cliente WhatsApp";
+
+        const companyName =
+          (collected["EMPRESA"]?.status === "filled" ? collected["EMPRESA"]?.value : null) ||
+          (collected["_RECEITA_FEDERAL"] as any)?.razaoSocial ||
+          (fs.contactCnpjDetails as any)?.razaoSocial ||
+          null;
+
+        const docValue =
+          (collected["CNPJ OU CPF"]?.status === "filled" ? collected["CNPJ OU CPF"]?.value : null) ||
+          (collected["CNPJ"]?.status === "filled" ? collected["CNPJ"]?.value : null) ||
+          fs.contactCnpj ||
+          fs.contactCpf ||
+          null;
+
+        const rawFunnel =
+          meta.targetFunnel ||
+          meta.funnelStage ||
+          collected["SETOR / FUNIL DE DESTINO"]?.value ||
+          (isActiveSession ? "triagem" : "maquinas");
+        const funnelKey = normalizeFunnelKey(rawFunnel);
+
+        // Calcular Score LMS real (0.0 a 3.0) baseado no preenchimento real dos campos de triagem
+        const filledFieldsCount = Object.entries(collected).filter(
+          ([k, v]) =>
+            !k.startsWith("_") &&
+            v &&
+            typeof v === "object" &&
+            v.status === "filled" &&
+            v.value &&
+            v.value !== "Aguardando..."
+        ).length;
+        const lmsScore = Math.min(3.0, Math.max(0.5, (filledFieldsCount / 6) * 3.0));
+
+        const refDate = fs.lastInteractionAt || fs.startedAt || now;
+        const refDateObj = refDate instanceof Date ? refDate : new Date(refDate);
+        const refDateIso = refDateObj.toISOString();
+
+        // Se a conversa da triagem ainda não gerou card via realDealsRows, incluir no painel
+        const isCardRemoved = removedCards.includes(fs.conversationId) || removedCards.includes(fs.id);
+        if (!seenConvIdsInOpCards.has(fs.conversationId) && !isCardRemoved && isWithinOpWindow(refDateObj)) {
+          const reassigned = reassignMap.get(fs.conversationId);
+          const rawOpId =
+            reassigned?.toOperatorId ||
+            fs.convOperatorId ||
+            meta.allocatedOperatorId ||
+            "";
+          const effectiveOpId = resolveOpId(rawOpId);
+
+          const cardObj = {
+            id: fs.conversationId,
+            name: clientName !== "Aguardando..." ? clientName : fs.contactName || "Cliente em Triagem",
+            company: companyName && companyName !== "Aguardando..." ? companyName : null,
+            created_at: refDateIso,
+            chatId: fs.conversationId,
+            rdDealId: meta.localCrmDealId || undefined,
+            phone: fs.contactPhone || null,
+            subject: meta.targetFunnel || null,
           };
+
+          if (effectiveOpId && canonicalOpsMap.has(effectiveOpId)) {
+            const opCards = realCardsByOpId.get(effectiveOpId) || [];
+            opCards.push(cardObj);
+            realCardsByOpId.set(effectiveOpId, opCards);
+            seenConvIdsInOpCards.add(fs.conversationId);
+          } else if (isActiveSession) {
+            activeAiTriageCards.push(cardObj);
+            seenConvIdsInOpCards.add(fs.conversationId);
+          }
+        }
+
+        // Registrar na janela de estatísticas da Visão Geral
+        if (isWithinStatsWindow(fs.startedAt || refDateObj)) {
+          const existingLead = leadsInStatsWindow.get(fs.conversationId);
+          leadsInStatsWindow.set(fs.conversationId, {
+            dateIso: (fs.startedAt ? new Date(fs.startedAt) : refDateObj).toISOString().slice(0, 10),
+            funnelKey: existingLead?.funnelKey && existingLead.funnelKey !== "maquinas" ? existingLead.funnelKey : funnelKey,
+            isTriageDone: Boolean(existingLead?.isTriageDone || isCompletedSession),
+            lmsScore: existingLead ? Math.max(existingLead.lmsScore, lmsScore) : lmsScore,
+            hasCnpj: Boolean(existingLead?.hasCnpj || docValue),
+          });
+        }
+      }
+
+      // 6. Montar a lista de operadores 100% real para as 6 colunas
+      const operatorRows: any[] = [];
+
+      // Se houver sessões ativas em triagem na IA (ou para exibir a fila viva do Fagner/Valentina na coluna SDR / Análise)
+      if (activeAiTriageCards.length > 0) {
+        operatorRows.push({
+          id: `ai-sdr-${tenantId}`,
+          name: `${persona.name} (Triagem IA)`,
+          email: `sdr@${tenantId}.ia`,
+          avatar: persona.avatar,
+          count: activeAiTriageCards.length,
+          compensation: 0,
+          sector: "sdr",
+          is_sdr: true,
+          isParticipating: true,
+          isOnLeave: false,
+          isPenalized: false,
+          cards: activeAiTriageCards,
         });
       }
 
-      const activeRealSessions = realFlowStates.filter((fs) => fs.outcome === "in_progress").length;
-      const completedRealSessions = realFlowStates.filter(
-        (fs) => fs.outcome === "completed" || fs.outcome === "transferred"
-      ).length;
+      for (const op of canonicalOpsMap.values()) {
+        const opCards = realCardsByOpId.get(op.id) || [];
+        // Incluir operadores cadastrados na escala (Fluxos), vinculados a um setor ou que possuam cards reais atribuídos
+        if (!op.isInFlow && !op.sector && opCards.length === 0) {
+          continue;
+        }
+
+        // Se o operador não tem setor explícito, inferir pelo funil dos cards reais dele ou pelo classificador de setor
+        const dominantCardSector = opCards.find((c) => c.subject)?.subject || null;
+        const resolvedSector = getOperatorSector({
+          name: op.name,
+          sector: op.sector || dominantCardSector,
+          allowed_subflows: op.allowed_subflows,
+          is_sdr: op.sector === "sdr",
+        });
+
+        operatorRows.push({
+          id: op.id,
+          name: op.name,
+          email: op.email,
+          avatar: op.avatar,
+          sector: resolvedSector,
+          allowed_subflows: op.allowed_subflows || undefined,
+          is_sdr: resolvedSector === "sdr",
+          compensation: op.compensation,
+          count: opCards.length,
+          isParticipating: op.isParticipating,
+          isOnLeave: op.isOnLeave,
+          isPenalized: op.isPenalized,
+          cards: opCards,
+        });
+      }
+
+      // 7. Calcular KPIs e Gráficos 100% Reais da Visão Geral
+      const totalLeads = leadsInStatsWindow.size;
+      let triageDone = 0;
+      let totalScoreSum = 0;
+      let leadsWithCnpj = 0;
+      const dayCountsMap = new Map<string, number>();
+      const funnelCountsMap = new Map<string, number>();
+
+      for (const item of leadsInStatsWindow.values()) {
+        if (item.isTriageDone) triageDone += 1;
+        totalScoreSum += item.lmsScore;
+        if (item.hasCnpj) leadsWithCnpj += 1;
+
+        dayCountsMap.set(item.dateIso, (dayCountsMap.get(item.dateIso) || 0) + 1);
+        funnelCountsMap.set(item.funnelKey, (funnelCountsMap.get(item.funnelKey) || 0) + 1);
+      }
+
+      const triageRate = totalLeads > 0 ? Math.round((triageDone / totalLeads) * 100) : 0;
+      const avgScore = totalLeads > 0 ? (totalScoreSum / totalLeads).toFixed(1) : "0.0";
+
+      // Série temporal real para o gráfico "Leads por Dia" (últimos N dias até 30 barras)
+      const chartDaysCount = Math.min(statsDays, 30);
+      const byDay: Array<{ day: string; count: number }> = [];
+      for (let i = chartDaysCount - 1; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const dayKey = d.toISOString().slice(0, 10);
+        byDay.push({
+          day: dayKey,
+          count: dayCountsMap.get(dayKey) || 0,
+        });
+      }
+
+      // Distribuição real por funil ordenada por volume
+      const byFunnel = Array.from(funnelCountsMap.entries())
+        .map(([funnel, count]) => ({ funnel, count }))
+        .filter((f) => f.count > 0)
+        .sort((a, b) => b.count - a.count);
+
+      // Custos reais de IA dos últimos 30 dias em aiUsageLogs
+      let totalCost30d = 0;
+      try {
+        const costCutoff30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const usageRows = await db
+          .select({ costBrl: aiUsageLogs.costBrl })
+          .from(aiUsageLogs)
+          .where(and(eq(aiUsageLogs.tenantId, tenantId), gte(aiUsageLogs.createdAt, costCutoff30d)));
+
+        for (const u of usageRows) {
+          const val = parseFloat(u.costBrl || "0");
+          if (Number.isFinite(val)) totalCost30d += val;
+        }
+      } catch {
+        // Ignora silenciosamente se tabela de logs não estiver acessível
+      }
+
+      const costPerLead = totalLeads > 0 ? Number((totalCost30d / totalLeads).toFixed(2)) : 0;
 
       return {
         stats: {
-          ...benchmark.stats,
-          totalLeads: benchmark.stats.totalLeads + realFlowStates.length,
-          syncedToCrm: benchmark.stats.syncedToCrm + realCrmDealsList.length,
-          triageDone: benchmark.stats.triageDone + completedRealSessions,
-          activeSessions: benchmark.stats.activeSessions + activeRealSessions,
+          totalLeads,
+          syncedToCrm: realCrmDealsList.length,
+          triageDone,
+          triageRate,
+          activeSessions: activeRealSessions,
+          avgScore,
+          costPerLead,
+          totalCost30d: Number(totalCost30d.toFixed(2)),
+          leadsWithCnpj,
         },
-        byDay: benchmark.byDay,
-        byFunnel: benchmark.byFunnel,
+        byDay,
+        byFunnel,
         operators: operatorRows,
-        deals: [...realCrmDealsList, ...benchmark.deals],
+        deals: realCrmDealsList,
       };
     } catch (err: any) {
-      console.error("[RodizioEngine] Erro ao montar dashboard do rodízio:", err?.message);
-      const { getBenchmarkRodizioData } = await import(
+      console.error("[RodizioEngine] Erro ao montar dashboard real do rodízio:", err?.message);
+      const { getEmptyRodizioData } = await import(
         "../../components/valentina/rodizio-dashboard-data"
       );
-      return getBenchmarkRodizioData(tenantId);
+      return getEmptyRodizioData();
     }
   }
 

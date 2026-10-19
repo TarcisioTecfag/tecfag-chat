@@ -170,4 +170,76 @@ describe("Fagner SDR (Tecfag) — Persona, Fluxos, Kanban SDR e Regra de 3 Horas
     expect(prompt).toContain("Fin. Boleto");
     expect(prompt).toContain("Personnalité");
   });
+
+  it("garante zero dados mockados no Rodízio e mapeamento correto dos 6 setores reais", async () => {
+    const {
+      getEmptyRodizioData,
+      getBenchmarkRodizioData,
+      getOperatorSector,
+    } = await import("../components/valentina/rodizio-dashboard-data");
+
+    const empty = getEmptyRodizioData();
+    expect(empty.stats.totalLeads).toBe(0);
+    expect(empty.stats.triageDone).toBe(0);
+    expect(empty.stats.triageRate).toBe(0);
+    expect(empty.stats.syncedToCrm).toBe(0);
+    expect(empty.stats.activeSessions).toBe(0);
+    expect(empty.operators).toEqual([]);
+    expect(empty.byDay).toEqual([]);
+    expect(empty.byFunnel).toEqual([]);
+    expect(empty.deals).toEqual([]);
+
+    const legacyCall = getBenchmarkRodizioData("tecfag");
+    expect(legacyCall.stats.totalLeads).toBe(0);
+    expect(legacyCall.operators).toEqual([]);
+    expect(legacyCall.deals).toEqual([]);
+
+    expect(
+      getOperatorSector({
+        id: "ai-triage-tecfag",
+        name: "Fagner (Triagem IA)",
+        sector: "sdr",
+        count: 1,
+        baseCount: 1,
+        compensation: 0,
+        funnels: ["triagem"],
+      }),
+    ).toBe("sdr");
+
+    expect(
+      getOperatorSector({
+        id: "op-1",
+        name: "Operador Personnalité",
+        sector: "Personnalité",
+        count: 2,
+        baseCount: 2,
+        compensation: 0,
+        funnels: ["Personnalité"],
+      }),
+    ).toBe("personalite");
+
+    expect(
+      getOperatorSector({
+        id: "op-2",
+        name: "Operador Peças",
+        sector: "Peças",
+        count: 3,
+        baseCount: 3,
+        compensation: 0,
+        funnels: ["Peças"],
+      }),
+    ).toBe("pecas");
+
+    expect(
+      getOperatorSector({
+        id: "op-3",
+        name: "Operador Pós-Venda",
+        sector: "Assistência Técnica",
+        count: 1,
+        baseCount: 1,
+        compensation: 0,
+        funnels: ["Assistência Técnica"],
+      }),
+    ).toBe("pos venda");
+  });
 });

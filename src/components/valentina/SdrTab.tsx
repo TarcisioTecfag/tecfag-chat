@@ -2,7 +2,7 @@
 // 📋 SDR TAB — Monitoramento em Tempo Real do Agente SDR Valentina (100% Dados Reais)
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   UserPlus, CheckCircle, Clock, XCircle, Bot, User as UserIcon,
@@ -21,12 +21,26 @@ import { SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
 
 export interface SdrTriageMessage {
   id?: string;
-  sender: "client" | "bot";
+  sender: "client" | "bot" | "agent" | "system";
+  senderName?: string;
+  senderAvatar?: string | null;
   text: string;
   time: string;
+  date?: string;
+  sentAt?: string;
+  isInternalNote?: boolean;
   mediaUrl?: string | null;
   mediaType?: string | null;
   fileName?: string | null;
+}
+
+export interface SdrPreviousTriage {
+  id: string;
+  startedAt: string;
+  completedAt: string;
+  outcome?: string;
+  targetFunnel?: string;
+  responsibleName?: string;
 }
 
 export interface SdrTriageSession {
@@ -39,6 +53,7 @@ export interface SdrTriageSession {
   currentStep: string;
   collectedData: Record<string, { value: string; status: "filled" | "pending" }>;
   startedAt: string;
+  completedAt?: string | null;
   status: "active" | "completed" | "abandoned";
   outcome?: string;
   responsibleName?: string;
@@ -50,7 +65,221 @@ export interface SdrTriageSession {
     action?: string;
     createdAt?: string;
   } | null;
+  previousTriages?: SdrPreviousTriage[];
   messages: SdrTriageMessage[];
+}
+
+type SdrTimelineItem =
+  | {
+      type: "date-divider";
+      id: string;
+      label: string;
+    }
+  | {
+      type: "cycle-divider";
+      id: string;
+      variant: "previous-triage" | "new-triage" | "operator-handoff";
+      title: string;
+      subtitle?: string;
+    }
+  | {
+      type: "message";
+      id: string;
+      msg: SdrTriageMessage;
+      index: number;
+    };
+
+function formatDateMarkerLabel(dateStr?: string): string {
+  if (!dateStr) return "Hoje";
+  const now = new Date();
+  const todayStr = now.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "America/Sao_Paulo",
+  });
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yesterdayStr = yesterday.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "America/Sao_Paulo",
+  });
+
+  if (dateStr === todayStr) return `Hoje, ${dateStr}`;
+  if (dateStr === yesterdayStr) return `Ontem, ${dateStr}`;
+  return dateStr;
+}
+
+function getOperatorInitials(name?: string): string {
+  if (!name) return "OP";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "OP";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function buildSdrTimelineItems(session: SdrTriageSession, personaName: string): SdrTimelineItem[] {
+  const rawMessages = session.messages || [];
+  if (rawMessages.length === 0) return [];
+
+  // 1. Identificar fronteiras de ciclos de triagem na mesma conversa
+  // Um novo ciclo se inicia quando:
+  // - Há mensagem de sistema de reinício ("!reset", "Fluxo de triagem reiniciado", "Triagem anterior encerrada")
+  // - Ou já houve atendimento humano ("agent") no ciclo atual e a IA ("bot") volta a atender em outra data ou após intervalo >= 30 min
+  // - Ou há mensagens anteriores ao início do ciclo atual (session.startedAt) separadas por intervalo relevante
+  const cycleStartIndices: number[] = [0];
+  let hadAgentInCurrentCycle = false;
+  let hadBotInCurrentCycle = false;
+
+  const sessionStartMs = session.startedAt ? new Date(session.startedAt).getTime() : NaN;
+  const hasRecordedPreviousTriages = Array.isArray(session.previousTriages) && session.previousTriages.length > 0;
+  let splitBySessionStartUsed = false;
+
+  for (let i = 0; i < rawMessages.length; i++) {
+    const m = rawMessages[i];
+    const prev = i > 0 ? rawMessages[i - 1] : null;
+
+    if (i > 0) {
+      const isSystemReset = m.sender === "system";
+      const prevMs = prev?.sentAt ? new Date(prev.sentAt).getTime() : NaN;
+      const currMs = m.sentAt ? new Date(m.sentAt).getTime() : NaN;
+      const diffMinutes = !isNaN(prevMs) && !isNaN(currMs) ? (currMs - prevMs) / (1000 * 60) : 0;
+      const dateChanged = Boolean(prev?.date && m.date && prev.date !== m.date);
+
+      const botResumedAfterOperator =
+        m.sender === "bot" &&
+        hadAgentInCurrentCycle &&
+        (dateChanged || diffMinutes >= 30);
+
+      const crossedCurrentSessionStart =
+        !splitBySessionStartUsed &&
+        !isNaN(sessionStartMs) &&
+        !isNaN(prevMs) &&
+        !isNaN(currMs) &&
+        prevMs < sessionStartMs - 2 * 60 * 1000 &&
+        currMs >= sessionStartMs - 60 * 1000 &&
+        (hasRecordedPreviousTriages || hadAgentInCurrentCycle || (hadBotInCurrentCycle && diffMinutes >= 60));
+
+      if (isSystemReset || botResumedAfterOperator || crossedCurrentSessionStart) {
+        cycleStartIndices.push(i);
+        hadAgentInCurrentCycle = false;
+        hadBotInCurrentCycle = false;
+        if (crossedCurrentSessionStart) {
+          splitBySessionStartUsed = true;
+        }
+      }
+    }
+
+    if (m.sender === "agent") hadAgentInCurrentCycle = true;
+    if (m.sender === "bot") hadBotInCurrentCycle = true;
+  }
+
+  const totalCycles = cycleStartIndices.length;
+  const cycleStartSet = new Map<number, number>();
+  cycleStartIndices.forEach((msgIdx, cycleIdx) => {
+    cycleStartSet.set(msgIdx, cycleIdx);
+  });
+
+  const items: SdrTimelineItem[] = [];
+  let lastRenderedDate: string | undefined = undefined;
+  let currentCycleIdx = 0;
+  let operatorHandoffShownInCycle = false;
+
+  for (let i = 0; i < rawMessages.length; i++) {
+    const msg = rawMessages[i];
+
+    // Verificar início de ciclo de triagem
+    if (cycleStartSet.has(i)) {
+      currentCycleIdx = cycleStartSet.get(i)!;
+      operatorHandoffShownInCycle = false;
+
+      const isPreviousCycle = currentCycleIdx < totalCycles - 1;
+      const cycleDate = msg.date || undefined;
+
+      if (isPreviousCycle) {
+        const prevMeta = session.previousTriages?.[currentCycleIdx];
+        const subtitleParts: string[] = [];
+        if (cycleDate) subtitleParts.push(cycleDate);
+        if (prevMeta?.targetFunnel) subtitleParts.push(prevMeta.targetFunnel);
+        if (prevMeta?.responsibleName) subtitleParts.push(`Atendido por ${prevMeta.responsibleName}`);
+
+        items.push({
+          type: "cycle-divider",
+          id: `cycle-prev-${currentCycleIdx}-${i}`,
+          variant: "previous-triage",
+          title: "Esta é a triagem anterior",
+          subtitle: subtitleParts.length > 0 ? subtitleParts.join(" · ") : "Histórico de triagem concluída anteriormente",
+        });
+      } else if (totalCycles > 1) {
+        items.push({
+          type: "cycle-divider",
+          id: `cycle-new-${currentCycleIdx}-${i}`,
+          variant: "new-triage",
+          title: "Triagem anterior encerrada · Novo atendimento de triagem",
+          subtitle: cycleDate ? `Iniciado em ${formatDateMarkerLabel(cycleDate)} com ${personaName}` : `Novo ciclo iniciado com ${personaName}`,
+        });
+      } else if (hasRecordedPreviousTriages) {
+        const lastPrev = session.previousTriages![session.previousTriages!.length - 1];
+        const prevDate = lastPrev?.completedAt
+          ? new Date(lastPrev.completedAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })
+          : undefined;
+        items.push({
+          type: "cycle-divider",
+          id: `cycle-archived-prev-${i}`,
+          variant: "previous-triage",
+          title: "Cliente com triagem anterior concluída",
+          subtitle: [
+            prevDate ? `Última triagem em ${prevDate}` : null,
+            lastPrev?.targetFunnel ? `Setor: ${lastPrev.targetFunnel}` : null,
+            lastPrev?.responsibleName ? `Operador: ${lastPrev.responsibleName}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "Novo atendimento compilado no mesmo chat",
+        });
+      }
+    }
+
+    // Separador discreto por data (sempre que o dia mudar)
+    if (msg.date && msg.date !== lastRenderedDate) {
+      lastRenderedDate = msg.date;
+      items.push({
+        type: "date-divider",
+        id: `date-${msg.date}-${i}`,
+        label: formatDateMarkerLabel(msg.date),
+      });
+    }
+
+    // Se a mensagem for apenas o comando técnico "!reset" ou aviso de sistema já representado pelo divisor de ciclo, não duplicar bolha
+    if (msg.sender === "system") {
+      continue;
+    }
+
+    // Separador de transição: quando o Operador Humano assume a conversa após ou durante a triagem
+    if (msg.sender === "agent" && !operatorHandoffShownInCycle) {
+      operatorHandoffShownInCycle = true;
+      const isPreviousCycle = currentCycleIdx < totalCycles - 1;
+      const opName = msg.senderName || session.responsibleName || "Operador";
+      items.push({
+        type: "cycle-divider",
+        id: `handoff-${currentCycleIdx}-${i}`,
+        variant: "operator-handoff",
+        title: isPreviousCycle
+          ? `Triagem anterior concluída · Atendimento com ${opName}`
+          : `Triagem concluída · Atendimento com ${opName}`,
+        subtitle: session.targetFunnel ? `Setor: ${session.targetFunnel}` : undefined,
+      });
+    }
+
+    items.push({
+      type: "message",
+      id: msg.id || `msg-${i}`,
+      msg,
+      index: i,
+    });
+  }
+
+  return items;
 }
 
 const VALENTINA_AVATAR = "/valentina.png";
@@ -296,6 +525,40 @@ export function SdrTab({
   const [searchQuery, setSearchQuery] = useState("");
   const [isChatHighlighted, setIsChatHighlighted] = useState(false);
 
+  // Controle de navegação vertical suave entre Kanban (topo) e Triagens ao Vivo (baixo)
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const [activeViewportSection, setActiveViewportSection] = useState<"kanban" | "chat">("kanban");
+
+  const scrollToKanban = useCallback(() => {
+    setActiveViewportSection("kanban");
+    if (mainScrollRef.current) {
+      mainScrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const el = document.getElementById("sdr-kanban-section");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
+  const scrollToLiveChat = useCallback(() => {
+    setActiveViewportSection("chat");
+    const el = document.getElementById("sdr-live-chat-section");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
+  const handleMainScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const threshold = Math.max(160, target.clientHeight * 0.35);
+    if (target.scrollTop >= threshold) {
+      setActiveViewportSection((prev) => (prev !== "chat" ? "chat" : prev));
+    } else {
+      setActiveViewportSection((prev) => (prev !== "kanban" ? "kanban" : prev));
+    }
+  }, []);
+
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   // Manipulação de seleção via card do Kanban com scroll suave para a área de chat
@@ -306,10 +569,7 @@ export function SdrTab({
     setTimeout(() => setIsChatHighlighted(false), 1400);
 
     setTimeout(() => {
-      const el = document.getElementById("sdr-live-chat-section");
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      scrollToLiveChat();
     }, 60);
   };
 
@@ -336,9 +596,11 @@ export function SdrTab({
             currentStep: s.currentStep || "Qualificação",
             collectedData: s.collectedData || {},
             startedAt: s.startedAt,
+            completedAt: s.completedAt || null,
             status: s.status,
             outcome: s.outcome,
             responsibleName: s.responsibleName,
+            previousTriages: Array.isArray(s.previousTriages) ? s.previousTriages : [],
             messages: s.messages || [],
             ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
             ...(s.targetFunnel ? { targetFunnel: s.targetFunnel } : {}),
@@ -512,568 +774,799 @@ export function SdrTab({
 
   const effectiveFilterState = filterState || DEFAULT_SDR_FILTER_STATE;
 
+  const timelineItems = useMemo(
+    () => (selectedSession ? buildSdrTimelineItems(selectedSession, persona.name) : []),
+    [selectedSession, persona.name]
+  );
+
   return (
-    <div className="flex flex-col h-full overflow-y-auto scrollbar-thin space-y-4 pr-1">
-      {/* ── PARTE SUPERIOR: KANBAN DE TRIAGEM (ORGANIZADOR DO FUNIL) ────────── */}
-      <SdrKanbanBoard
-        sessions={sessions}
-        selectedSessionId={selectedSession?.id}
-        onSelectSession={handleSelectSessionFromKanban}
-        filterState={effectiveFilterState}
-      />
-
-      {/* ── PAINÉIS DE CONTEÚDO AO VIVO REAIS (3 COLUNAS) ────────────────────── */}
+    <div className="relative flex-1 h-full overflow-hidden flex flex-col">
       <div
-        id="sdr-live-chat-section"
-        className={`flex gap-4 min-h-[640px] h-[700px] overflow-hidden shrink-0 transition-all duration-300 rounded-2xl scroll-mt-2 ${
-          isChatHighlighted ? "ring-2 ring-primary/40" : ""
-        }`}
+        ref={mainScrollRef}
+        onScroll={handleMainScroll}
+        className="flex flex-col flex-1 h-full overflow-y-auto scrollbar-thin scroll-smooth space-y-4 pr-1"
       >
-        {/* ── PAINEL ESQUERDO — Lista de sessões reais (30%) ────────────────── */}
-        <div className="w-[30%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
-          <div className="px-4 py-3 border-b border-line shrink-0 flex flex-col gap-2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
-                  <UserPlus className="h-3.5 w-3.5 text-primary" />
-                  Triagens SDR (Ao Vivo)
-                </h3>
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  {sessions.filter((s) => s.status === "active").length} ativas de {sessions.length} total
-                </p>
+        {/* ── PARTE SUPERIOR: KANBAN DE TRIAGEM (ORGANIZADOR DO FUNIL) ────────── */}
+        <div id="sdr-kanban-section" className="shrink-0 scroll-mt-1">
+          <SdrKanbanBoard
+            sessions={sessions}
+            selectedSessionId={selectedSession?.id}
+            onSelectSession={handleSelectSessionFromKanban}
+            filterState={effectiveFilterState}
+          />
+        </div>
+
+        {/* ── PAINÉIS DE CONTEÚDO AO VIVO REAIS (TELA CHEIA 100% DA VIEWPORT) ──── */}
+        <div
+          id="sdr-live-chat-section"
+          className={`flex gap-4 h-full min-h-full overflow-hidden shrink-0 transition-all duration-300 rounded-2xl scroll-mt-1 ${
+            isChatHighlighted ? "ring-2 ring-primary/40" : ""
+          }`}
+        >
+          {/* ── PAINEL ESQUERDO — Lista de sessões reais (30%) ────────────────── */}
+          <div className="w-[30%] shrink-0 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
+            <div className="px-4 py-3 border-b border-line shrink-0 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-extrabold text-foreground flex items-center gap-2">
+                    <UserPlus className="h-3.5 w-3.5 text-primary" />
+                    Triagens SDR (Ao Vivo)
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {sessions.filter((s) => s.status === "active").length} ativas de {sessions.length} total
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {/* Dois ícones discretos para angular a tela entre Kanban (cima) e Chat (baixo) */}
+                  <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
+                    <SystemTooltip content="Subir para o Quadro Kanban">
+                      <motion.button
+                        type="button"
+                        whileHover={{ scale: 1.06 }}
+                        whileTap={{ scale: 0.94 }}
+                        onClick={scrollToKanban}
+                        className={`p-1 rounded-md transition cursor-pointer ${
+                          activeViewportSection === "kanban"
+                            ? "bg-primary text-primary-foreground shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                        }`}
+                        aria-label="Subir para o Kanban"
+                      >
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      </motion.button>
+                    </SystemTooltip>
+                    <SystemTooltip content="Enquadrar Triagens SDR (Ao Vivo) em tela cheia">
+                      <motion.button
+                        type="button"
+                        whileHover={{ scale: 1.06 }}
+                        whileTap={{ scale: 0.94 }}
+                        onClick={scrollToLiveChat}
+                        className={`p-1 rounded-md transition cursor-pointer ${
+                          activeViewportSection === "chat"
+                            ? "bg-primary text-primary-foreground shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                        }`}
+                        aria-label="Descer para o Chat de Triagem"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </motion.button>
+                    </SystemTooltip>
+                  </div>
+
+                  <SystemTooltip content="Atualizar sessões ao vivo">
+                    <button
+                      onClick={fetchSdrData}
+                      className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                    </button>
+                  </SystemTooltip>
+                </div>
               </div>
-              <SystemTooltip content="Atualizar sessões ao vivo">
+
+              {/* ── BOTÕES DE FILTRO: ATIVOS, CONCLUÍDOS, CANAL E PERÍODO ───────── */}
+              <div className="flex items-center gap-2 pt-0.5 flex-wrap">
                 <button
-                  onClick={fetchSdrData}
-                  className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-                </button>
-              </SystemTooltip>
-            </div>
-
-            {/* ── BOTÕES DE FILTRO DE HARMONIA VERDE: ATIVOS, CONCLUÍDOS, CANAL E PERÍODO ───────── */}
-            <div className="flex items-center gap-2 pt-0.5 flex-wrap">
-              <button
-                onClick={() => setStatusFilter(statusFilter === "active" ? "all" : "active")}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 cursor-pointer border ${
-                  statusFilter === "active"
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
-                }`}
-              >
-                <Circle className="h-2.5 w-2.5 fill-current" />
-                Ativos
-              </button>
-
-              <button
-                onClick={() => setStatusFilter(statusFilter === "completed" ? "all" : "completed")}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 cursor-pointer border ${
-                  statusFilter === "completed"
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
-                }`}
-              >
-                <CheckCircle className="h-3 w-3" />
-                Concluídos
-              </button>
-
-              {/* ── NOVO FILTRO: CANAL (WhatsApp, Instagram, Messenger, Site) ── */}
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setIsChannelDropdownOpen(!isChannelDropdownOpen);
-                    setIsPeriodDropdownOpen(false);
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-xs border ${
-                    channelFilter !== "all"
+                  onClick={() => setStatusFilter(statusFilter === "active" ? "all" : "active")}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 cursor-pointer border ${
+                    statusFilter === "active"
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
                   }`}
                 >
-                  {channelFilter === "whatsapp" && <WhatsappLogo className="h-3 w-3 fill-current" />}
-                  {channelFilter === "instagram" && <InstagramLogo className="h-3 w-3 stroke-current" />}
-                  {channelFilter === "messenger" && <MessengerLogo className="h-3 w-3 fill-current" />}
-                  {channelFilter === "site" && <Globe className="h-3 w-3 text-current" />}
-                  {channelFilter === "all" && <MessageSquare className="h-3 w-3 text-primary" />}
-                  <span>
-                    {channelFilter === "all"
-                      ? "Canal: Todos"
-                      : channelFilter === "whatsapp"
-                      ? "WhatsApp"
-                      : channelFilter === "instagram"
-                      ? "Instagram"
-                      : channelFilter === "messenger"
-                      ? "Messenger"
-                      : "Site"}
-                  </span>
-                  <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${isChannelDropdownOpen ? "rotate-180" : ""}`} />
+                  <Circle className="h-2.5 w-2.5 fill-current" />
+                  Ativos
                 </button>
 
-                <AnimatePresence>
-                  {isChannelDropdownOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-30"
-                        onClick={() => setIsChannelDropdownOpen(false)}
-                      />
-                      <motion.div
-                        initial={{ opacity: 0, y: -4, scale: 0.96 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4, scale: 1 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute left-0 mt-1.5 z-40 w-44 rounded-xl bg-card border border-border shadow-xl p-1 space-y-0.5 overflow-hidden"
-                      >
-                        {[
-                          { id: "all", label: "Canal: Todos", icon: MessageSquare },
-                          { id: "whatsapp", label: "WhatsApp", icon: WhatsappLogo },
-                          { id: "instagram", label: "Instagram", icon: InstagramLogo },
-                          { id: "messenger", label: "Messenger", icon: MessengerLogo },
-                          { id: "site", label: "Site (Web Chat)", icon: Globe },
-                        ].map((item) => {
-                          const isSelected = channelFilter === item.id;
-                          const Icon = item.icon;
-                          return (
-                            <button
-                              key={item.id}
-                              onClick={() => {
-                                setChannelFilter(item.id as any);
-                                setIsChannelDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-between cursor-pointer ${
-                                isSelected
-                                  ? "bg-primary-soft text-primary font-extrabold"
-                                  : "text-foreground hover:bg-muted/60"
-                              }`}
-                            >
-                              <span className="flex items-center gap-2">
-                                <Icon className="h-3 w-3 text-primary shrink-0" />
-                                <span>{item.label}</span>
-                              </span>
-                              {isSelected && <CheckCircle className="h-3 w-3 text-primary shrink-0" />}
-                            </button>
-                          );
-                        })}
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {/* ── FILTRO: PERÍODO ── */}
-              <div className="relative">
                 <button
-                  onClick={() => {
-                    setIsPeriodDropdownOpen(!isPeriodDropdownOpen);
-                    setIsChannelDropdownOpen(false);
-                  }}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-primary-soft text-primary border border-primary/20 hover:bg-primary-soft/80 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  onClick={() => setStatusFilter(statusFilter === "completed" ? "all" : "completed")}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 cursor-pointer border ${
+                    statusFilter === "completed"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
+                  }`}
                 >
-                  <Calendar className="h-3 w-3 text-primary" />
-                  <span>
-                    {periodFilter === "todos"
-                      ? "Período: Todos"
-                      : periodFilter === "hoje"
-                      ? "Período: Hoje"
-                      : periodFilter === "7dias"
-                      ? "Período: 7 dias"
-                      : "Período: 30 dias"}
-                  </span>
-                  <ChevronDown className={`h-3 w-3 text-primary transition-transform duration-200 ${isPeriodDropdownOpen ? "rotate-180" : ""}`} />
+                  <CheckCircle className="h-3 w-3" />
+                  Concluídos
                 </button>
 
-                <AnimatePresence>
-                  {isPeriodDropdownOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-30"
-                        onClick={() => setIsPeriodDropdownOpen(false)}
-                      />
-                      <motion.div
-                        initial={{ opacity: 0, y: -4, scale: 0.96 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4, scale: 1 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute left-0 mt-1.5 z-40 w-44 rounded-xl bg-card border border-border shadow-xl p-1 space-y-0.5 overflow-hidden"
-                      >
-                        {[
-                          { id: "todos", label: "Período: Todos" },
-                          { id: "hoje", label: "Período: Hoje" },
-                          { id: "7dias", label: "Período: 7 dias" },
-                          { id: "30dias", label: "Período: 30 dias" },
-                        ].map((item) => {
-                          const isSelected = periodFilter === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              onClick={() => {
-                                setPeriodFilter(item.id as any);
-                                setIsPeriodDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-between cursor-pointer ${
-                                isSelected
-                                  ? "bg-primary-soft text-primary font-extrabold"
-                                  : "text-foreground hover:bg-muted/60"
-                              }`}
-                            >
-                              <span>{item.label}</span>
-                              {isSelected && <CheckCircle className="h-3 w-3 text-primary shrink-0" />}
-                            </button>
-                          );
-                        })}
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-
-            <div className="relative mt-1">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/60" />
-              <input
-                type="text"
-                placeholder="Buscar por nome, empresa ou mensagem..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-border bg-muted/20 text-[11px] focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50 text-foreground"
-              />
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto scrollbar-thin">
-            {filteredSessions.length === 0 ? (
-              <div className="flex flex-col items-center justify-center p-6 text-center h-full gap-3">
-                <div className="h-12 w-12 rounded-2xl bg-primary-soft/50 grid place-items-center text-primary">
-                  <Bot className="h-6 w-6 animate-pulse" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-extrabold text-foreground">
-                    {statusFilter === "completed"
-                      ? "Nenhuma Triagem Concluída Encontrada"
-                      : statusFilter === "active"
-                      ? "Nenhuma Triagem Ativa Encontrada"
-                      : "Aguardando Triagens ao Vivo"}
-                  </h4>
-                  <p className="text-[10px] text-muted-foreground mt-1 max-w-[220px]">
-                    {statusFilter !== "all" ? (
-                      <>
-                        Você está filtrando por <span className="font-bold text-primary">{statusFilter === "completed" ? "Concluídos" : "Ativos"}</span>. Clique no botão abaixo para ver todas as triagens!
-                      </>
-                    ) : (
-                      <>
-                        Envie uma mensagem pelo WhatsApp para iniciar o atendimento e triagem ao vivo com {persona.gender === "female" ? "a" : "o"} {persona.name}!
-                      </>
-                    )}
-                  </p>
-                  {statusFilter !== "all" && (
-                    <button
-                      onClick={() => setStatusFilter("all")}
-                      className="mt-3 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-[10px] font-extrabold hover:bg-primary-hover transition cursor-pointer shadow-soft"
-                    >
-                      Ver Todas as Triagens
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              filteredSessions.map((session) => {
-                const isSelected = selectedSession?.id === session.id;
-                const mergedData = getMergedCollectedData(session.collectedData);
-                const completedCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
-                const totalCount = Object.keys(mergedData).length;
-                const progressPct = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
-                
-                return (
+                {/* ── FILTRO: CANAL (WhatsApp, Instagram, Messenger, Site) ── */}
+                <div className="relative">
                   <button
-                    key={session.id}
-                    onClick={() => setSelectedSession(session)}
-                    className={`w-full text-left px-4 py-3 border-b border-line transition cursor-pointer ${
-                      isSelected
-                        ? "bg-primary-soft border-l-2 border-l-primary"
-                        : "hover:bg-muted/50"
+                    onClick={() => {
+                      setIsChannelDropdownOpen(!isChannelDropdownOpen);
+                      setIsPeriodDropdownOpen(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-xs border ${
+                      channelFilter !== "all"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold text-foreground truncate">{session.contactName}</span>
-                      <StatusBadge status={session.status} />
-                    </div>
-                    <p className="text-[10px] text-muted-foreground truncate">{session.company} {session.phone ? `· ${session.phone}` : ""}</p>
-                    <div className="mt-2">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-muted-foreground">
-                          Campos {completedCount}/{totalCount}
-                        </span>
-                        <span className="text-[10px] font-semibold text-primary">
-                          {Math.round(progressPct)}%
-                        </span>
-                      </div>
-                      <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all duration-300"
-                          style={{ width: `${progressPct}%` }}
-                        />
-                      </div>
-                    </div>
+                    {channelFilter === "whatsapp" && <WhatsappLogo className="h-3 w-3 fill-current" />}
+                    {channelFilter === "instagram" && <InstagramLogo className="h-3 w-3 stroke-current" />}
+                    {channelFilter === "messenger" && <MessengerLogo className="h-3 w-3 fill-current" />}
+                    {channelFilter === "site" && <Globe className="h-3 w-3 text-current" />}
+                    {channelFilter === "all" && <MessageSquare className="h-3 w-3 text-primary" />}
+                    <span>
+                      {channelFilter === "all"
+                        ? "Canal: Todos"
+                        : channelFilter === "whatsapp"
+                        ? "WhatsApp"
+                        : channelFilter === "instagram"
+                        ? "Instagram"
+                        : channelFilter === "messenger"
+                        ? "Messenger"
+                        : "Site"}
+                    </span>
+                    <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${isChannelDropdownOpen ? "rotate-180" : ""}`} />
                   </button>
-                );
-              })
-            )}
-          </div>
-        </div>
 
-        {/* ── PAINEL CENTRAL — Chat Real em Tempo Real (45%) ─────────────────── */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
-          {selectedSession ? (
-            <>
-              <div className="px-4 py-3 border-b border-line shrink-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    {selectedSession.contactAvatar ? (
-                      <SystemTooltip content="Ver foto do cliente em tela cheia">
-                        <button
-                          onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
-                          className="cursor-pointer group focus:outline-none shrink-0"
+                  <AnimatePresence>
+                    {isChannelDropdownOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={() => setIsChannelDropdownOpen(false)}
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 1 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute left-0 mt-1.5 z-40 w-44 rounded-xl bg-card border border-border shadow-xl p-1 space-y-0.5 overflow-hidden"
                         >
-                          <img
-                            src={selectedSession.contactAvatar}
-                            alt={selectedSession.contactName}
-                            className="h-8 w-8 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-105 group-hover:border-primary transition duration-200"
-                          />
-                        </button>
-                      </SystemTooltip>
-                    ) : (
-                      <div className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-primary font-bold text-xs shrink-0 border border-primary/20 shadow-soft">
-                        {selectedSession.contactName[0]?.toUpperCase() || "C"}
-                      </div>
+                          {[
+                            { id: "all", label: "Canal: Todos", icon: MessageSquare },
+                            { id: "whatsapp", label: "WhatsApp", icon: WhatsappLogo },
+                            { id: "instagram", label: "Instagram", icon: InstagramLogo },
+                            { id: "messenger", label: "Messenger", icon: MessengerLogo },
+                            { id: "site", label: "Site (Web Chat)", icon: Globe },
+                          ].map((item) => {
+                            const isSelected = channelFilter === item.id;
+                            const Icon = item.icon;
+                            return (
+                              <button
+                                key={item.id}
+                                onClick={() => {
+                                  setChannelFilter(item.id as any);
+                                  setIsChannelDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-between cursor-pointer ${
+                                  isSelected
+                                    ? "bg-primary-soft text-primary font-extrabold"
+                                    : "text-foreground hover:bg-muted/60"
+                                }`}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <Icon className="h-3 w-3 text-primary shrink-0" />
+                                  <span>{item.label}</span>
+                                </span>
+                                {isSelected && <CheckCircle className="h-3 w-3 text-primary shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </motion.div>
+                      </>
                     )}
-                    <div>
-                      <h3 className="text-xs font-extrabold text-foreground">{selectedSession.contactName}</h3>
-                      <p className="text-[10px] text-muted-foreground">{selectedSession.company} · {selectedSession.currentStep}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <StatusBadge status={selectedSession.status} />
+                  </AnimatePresence>
+                </div>
 
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => setIsInfoPanelOpen((prev) => !prev)}
-                            className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center justify-center ${
-                              isInfoPanelOpen
-                                ? "bg-primary-soft text-primary border-primary/30 hover:bg-primary-soft/80"
-                                : "bg-muted/60 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
-                            }`}
-                            aria-label={isInfoPanelOpen ? "Minimizar dados coletados" : "Expandir dados coletados"}
-                          >
-                            {isInfoPanelOpen ? (
-                              <PanelRightClose className="h-3.5 w-3.5" />
-                            ) : (
-                              <PanelRightOpen className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="left">
-                          {isInfoPanelOpen ? "Minimizar menu de informações coletadas" : "Expandir menu de informações coletadas"}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
+                {/* ── FILTRO: PERÍODO ── */}
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setIsPeriodDropdownOpen(!isPeriodDropdownOpen);
+                      setIsChannelDropdownOpen(false);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-primary-soft text-primary border border-primary/20 hover:bg-primary-soft/80 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Calendar className="h-3 w-3 text-primary" />
+                    <span>
+                      {periodFilter === "todos"
+                        ? "Período: Todos"
+                        : periodFilter === "hoje"
+                        ? "Período: Hoje"
+                        : periodFilter === "7dias"
+                        ? "Período: 7 dias"
+                        : "Período: 30 dias"}
+                    </span>
+                    <ChevronDown className={`h-3 w-3 text-primary transition-transform duration-200 ${isPeriodDropdownOpen ? "rotate-180" : ""}`} />
+                  </button>
+
+                  <AnimatePresence>
+                    {isPeriodDropdownOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={() => setIsPeriodDropdownOpen(false)}
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 1 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute left-0 mt-1.5 z-40 w-44 rounded-xl bg-card border border-border shadow-xl p-1 space-y-0.5 overflow-hidden"
+                        >
+                          {[
+                            { id: "todos", label: "Período: Todos" },
+                            { id: "hoje", label: "Período: Hoje" },
+                            { id: "7dias", label: "Período: 7 dias" },
+                            { id: "30dias", label: "Período: 30 dias" },
+                          ].map((item) => {
+                            const isSelected = periodFilter === item.id;
+                            return (
+                              <button
+                                key={item.id}
+                                onClick={() => {
+                                  setPeriodFilter(item.id as any);
+                                  setIsPeriodDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-between cursor-pointer ${
+                                  isSelected
+                                    ? "bg-primary-soft text-primary font-extrabold"
+                                    : "text-foreground hover:bg-muted/60"
+                                }`}
+                              >
+                                <span>{item.label}</span>
+                                {isSelected && <CheckCircle className="h-3 w-3 text-primary shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 scrollbar-thin">
-                <AnimatePresence initial={false}>
-                  {(selectedSession.messages || []).map((msg, idx) => (
-                    <motion.div
-                      key={`${selectedSession.id}-${idx}`}
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.15, delay: idx * 0.03 }}
-                      className={`flex ${msg.sender === "bot" ? "justify-end" : "justify-start"}`}
-                    >
-                      {msg.sender === "client" && (
-                        selectedSession.contactAvatar ? (
-                          <SystemTooltip content="Ver foto do cliente em tela cheia">
-                            <button
-                              onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
-                              className="shrink-0 mr-2 self-end group cursor-pointer focus:outline-none"
-                            >
-                              <img
-                                src={selectedSession.contactAvatar}
-                                alt={selectedSession.contactName}
-                                className="h-7 w-7 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
-                                onError={(e) => {
-                                  (e.target as HTMLElement).style.display = "none";
-                                }}
-                              />
-                            </button>
-                          </SystemTooltip>
-                        ) : (
-                          <div className="grid h-7 w-7 place-items-center rounded-full bg-primary/15 text-primary shrink-0 mr-2 self-end font-bold text-[10px] shadow-soft border border-primary/20">
-                            {selectedSession.contactName[0]?.toUpperCase() || "C"}
-                          </div>
-                        )
+              <div className="relative mt-1">
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/60" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nome, empresa ou mensagem..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-border bg-muted/20 text-[11px] focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50 text-foreground"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto scrollbar-thin">
+              {filteredSessions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center h-full gap-3">
+                  <div className="h-12 w-12 rounded-2xl bg-primary-soft/50 grid place-items-center text-primary">
+                    <Bot className="h-6 w-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-extrabold text-foreground">
+                      {statusFilter === "completed"
+                        ? "Nenhuma Triagem Concluída Encontrada"
+                        : statusFilter === "active"
+                        ? "Nenhuma Triagem Ativa Encontrada"
+                        : "Aguardando Triagens ao Vivo"}
+                    </h4>
+                    <p className="text-[10px] text-muted-foreground mt-1 max-w-[220px]">
+                      {statusFilter !== "all" ? (
+                        <>
+                          Você está filtrando por <span className="font-bold text-primary">{statusFilter === "completed" ? "Concluídos" : "Ativos"}</span>. Clique no botão abaixo para ver todas as triagens!
+                        </>
+                      ) : (
+                        <>
+                          Envie uma mensagem pelo WhatsApp para iniciar o atendimento e triagem ao vivo com {persona.gender === "female" ? "a" : "o"} {persona.name}!
+                        </>
                       )}
-                      <div
-                        className={`max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed shadow-soft ${
-                          msg.sender === "bot"
-                            ? "bg-primary text-primary-foreground rounded-br-[5px]"
-                            : "bg-muted border border-border text-foreground rounded-bl-[5px]"
-                        }`}
+                    </p>
+                    {statusFilter !== "all" && (
+                      <button
+                        onClick={() => setStatusFilter("all")}
+                        className="mt-3 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-[10px] font-extrabold hover:bg-primary-hover transition cursor-pointer shadow-soft"
                       >
-                        {(() => {
-                          const text = msg.text || "";
-                          let mediaUrl = msg.mediaUrl || null;
-                          let mediaType = msg.mediaType || null;
-                          let fileName = msg.fileName || null;
+                        Ver Todas as Triagens
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                filteredSessions.map((session) => {
+                  const isSelected = selectedSession?.id === session.id;
+                  const mergedData = getMergedCollectedData(session.collectedData, tenant || "valem");
+                  const completedCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
+                  const totalCount = Object.keys(mergedData).length;
+                  const progressPct = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+                  const hasPreviousCycles = (session.previousTriages?.length || 0) > 0;
 
-                          const lines = text.split(/\r?\n/);
-                          const mediaTag = lines[0].trim();
-                          const captionText = lines.slice(1).join("\n").trim();
-
-                          if (mediaTag.startsWith("[MEDIA:")) {
-                            const match = mediaTag.match(/^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/i);
-                            if (match) {
-                              const type = match[1].toLowerCase();
-                              const mediaId = match[2].trim();
-                              const fn = match[3] ? match[3].trim() : null;
-
-                              mediaType = type === "sticker" ? "image" : type;
-                              mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
-                              if (fn && !fileName) {
-                                fileName = fn;
-                              }
-                            }
-                          }
-
-                          if (mediaUrl && mediaUrl.includes("/api/media/")) {
-                            const mediaId = mediaUrl.split("/api/media/")[1]?.trim();
-                            if (mediaId) {
-                              mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
-                            }
-                          }
-
-                          const isImage = mediaType === "image" || (mediaUrl && mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)/i));
-                          const isVideo = mediaType === "video" || (mediaUrl && mediaUrl.match(/\.(mp4|webm|mov|avi|mkv)/i));
-                          const isAudio = mediaType === "audio" || (mediaUrl && mediaUrl.match(/\.(ogg|mp3|wav|m4a|opus)/i));
-                          const isDoc = mediaType === "document" || (mediaUrl && mediaUrl.match(/\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i)) || text.match(/\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i);
-
-                          if (isImage && mediaUrl) {
-                            return (
-                              <div className="space-y-1 my-1">
-                                <button
-                                  onClick={() => setPreviewModalImage({ url: mediaUrl!, title: "Imagem enviada no WhatsApp" })}
-                                  className="overflow-hidden rounded-2xl border border-white/20 cursor-pointer block max-w-xs hover:opacity-95 transition shadow-soft group"
-                                >
-                                  <img src={mediaUrl} alt="Imagem enviada" className="w-full max-h-56 object-cover rounded-2xl group-hover:scale-[1.02] transition duration-300" />
-                                </button>
-                                {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
-                                {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
-                              </div>
-                            );
-                          }
-
-                          if (isVideo && mediaUrl) {
-                            return (
-                              <div className="space-y-1 my-1">
-                                <div
-                                  className="relative group max-w-xs rounded-2xl overflow-hidden border border-white/20 bg-black/10 cursor-pointer flex items-center justify-center shadow-soft"
-                                  onClick={() => setPreviewModalImage({ url: mediaUrl!, title: "Vídeo enviado no WhatsApp" })}
-                                >
-                                  <video src={mediaUrl} className="max-h-56 w-full object-contain rounded-2xl pointer-events-none" />
-                                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/35 transition rounded-2xl">
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-110">
-                                      <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
-                                    </div>
-                                  </div>
-                                </div>
-                                {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
-                                {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
-                              </div>
-                            );
-                          }
-
-                          if (isAudio && mediaUrl) {
-                            return (
-                              <div className="space-y-1 py-0.5">
-                                <AudioPlayerBubble src={mediaUrl} isBot={msg.sender === "bot"} />
-                                {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
-                                {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
-                              </div>
-                            );
-                          }
-
-                          if (isDoc && mediaUrl) {
-                            return (
-                              <div className="space-y-1 my-1">
-                                <a
-                                  href={mediaUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className={`flex items-center gap-3 p-2.5 rounded-2xl border transition decoration-none text-current ${
-                                    msg.sender === "bot" ? "bg-white/10 border-white/20 hover:bg-white/20" : "bg-black/5 border-black/10 hover:bg-black/10"
-                                  }`}
-                                >
-                                  <div className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 ${msg.sender === "bot" ? "bg-white/20 text-white" : "bg-primary/20 text-primary"}`}>
-                                    <FileText className="h-5 w-5" />
-                                  </div>
-                                  <div className="truncate flex-1">
-                                    <p className="font-bold text-[11px] truncate">{fileName || "Documento.pdf"}</p>
-                                    <p className="text-[9px] opacity-80 flex items-center gap-1 mt-0.5">
-                                      <Download className="h-3 w-3 inline" /> Clique para abrir / baixar
-                                    </p>
-                                  </div>
-                                </a>
-                                {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
-                                {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
-                              </div>
-                            );
-                          }
-
-                          return <span className="whitespace-pre-wrap break-words">{captionText || text}</span>;
-                        })()}
-                        <span
-                          className={`block mt-1 text-[9px] ${
-                            msg.sender === "bot" ? "text-white/60" : "text-muted-foreground"
-                          }`}
-                        >
-                          {msg.time}
-                        </span>
+                  return (
+                    <button
+                      key={session.id}
+                      onClick={() => setSelectedSession(session)}
+                      className={`w-full text-left px-4 py-3 border-b border-line transition cursor-pointer ${
+                        isSelected
+                          ? "bg-primary-soft border-l-2 border-l-primary"
+                          : "hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1 gap-1.5">
+                        <span className="text-xs font-bold text-foreground truncate">{session.contactName}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {hasPreviousCycles && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-muted border border-border text-[9px] font-bold text-muted-foreground">
+                              Recorrente
+                            </span>
+                          )}
+                          <StatusBadge status={session.status} />
+                        </div>
                       </div>
-                      {msg.sender === "bot" && (
-                        <SystemTooltip content={`Ver foto ${persona.gender === "female" ? "da" : "do"} ${persona.name} em tela cheia`}>
+                      <p className="text-[10px] text-muted-foreground truncate">{session.company} {session.phone ? `· ${session.phone}` : ""}</p>
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            Campos {completedCount}/{totalCount}
+                          </span>
+                          <span className="text-[10px] font-semibold text-primary">
+                            {Math.round(progressPct)}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all duration-300"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* ── PAINEL CENTRAL — Chat Compilado em Tempo Real (45% / Flex-1) ────── */}
+          <div className="flex-1 flex flex-col overflow-hidden bg-card rounded-2xl border border-border shadow-soft">
+            {selectedSession ? (
+              <>
+                <div className="px-4 py-3 border-b border-line shrink-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {selectedSession.contactAvatar ? (
+                        <SystemTooltip content="Ver foto do cliente em tela cheia">
                           <button
-                            onClick={() => setPreviewModalImage({ url: (document.documentElement.classList.contains("dark") ? persona.avatarDarkUrl : persona.avatarLightUrl) || persona.avatarUrl, title: `${persona.name} IA — ${persona.company}` })}
-                            className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
+                            onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
+                            className="cursor-pointer group focus:outline-none shrink-0"
                           >
-                            <AiAvatar
-                              tenantId={tenant}
-                              className="h-7 w-7 rounded-full border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                            <img
+                              src={selectedSession.contactAvatar}
+                              alt={selectedSession.contactName}
+                              className="h-8 w-8 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-105 group-hover:border-primary transition duration-200"
                             />
                           </button>
                         </SystemTooltip>
+                      ) : (
+                        <div className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-primary font-bold text-xs shrink-0 border border-primary/20 shadow-soft">
+                          {selectedSession.contactName[0]?.toUpperCase() || "C"}
+                        </div>
                       )}
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                      <div className="min-w-0">
+                        <h3 className="text-xs font-extrabold text-foreground truncate">{selectedSession.contactName}</h3>
+                        <p className="text-[10px] text-muted-foreground truncate">
+                          {selectedSession.company} · {selectedSession.currentStep}
+                          {selectedSession.responsibleName ? ` · ${selectedSession.responsibleName}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <StatusBadge status={selectedSession.status} />
 
-                {selectedSession.outcome && selectedSession.outcome !== "in_progress" && (
-                  <div className="flex justify-center mt-3 animate-fadeIn">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold bg-primary-soft text-primary border border-primary/20">
-                      <CheckCircle className="h-3 w-3 text-primary" />
-                      {selectedSession.outcome === "completed"
-                        ? "Triagem Concluída"
-                        : selectedSession.outcome === "transferred"
-                        ? "Transferido para Vendedor"
-                        : selectedSession.outcome === "stopped"
-                        ? "Atendimento Interrompido"
-                        : selectedSession.outcome}
-                    </span>
+                      {/* Ícones discretos de navegação rápida no cabeçalho do chat */}
+                      <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
+                        <SystemTooltip content="Ver Kanban (Subir)">
+                          <motion.button
+                            type="button"
+                            whileHover={{ scale: 1.06 }}
+                            whileTap={{ scale: 0.94 }}
+                            onClick={scrollToKanban}
+                            className={`p-1 rounded-md transition cursor-pointer ${
+                              activeViewportSection === "kanban"
+                                ? "bg-primary text-primary-foreground shadow-2xs"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                            }`}
+                            aria-label="Ver Kanban"
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </motion.button>
+                        </SystemTooltip>
+                        <SystemTooltip content="Ver Chat Ao Vivo em tela cheia (Descer)">
+                          <motion.button
+                            type="button"
+                            whileHover={{ scale: 1.06 }}
+                            whileTap={{ scale: 0.94 }}
+                            onClick={scrollToLiveChat}
+                            className={`p-1 rounded-md transition cursor-pointer ${
+                              activeViewportSection === "chat"
+                                ? "bg-primary text-primary-foreground shadow-2xs"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                            }`}
+                            aria-label="Ver Chat Ao Vivo"
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </motion.button>
+                        </SystemTooltip>
+                      </div>
+
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => setIsInfoPanelOpen((prev) => !prev)}
+                              className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                                isInfoPanelOpen
+                                  ? "bg-primary-soft text-primary border-primary/30 hover:bg-primary-soft/80"
+                                  : "bg-muted/60 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                              }`}
+                              aria-label={isInfoPanelOpen ? "Minimizar dados coletados" : "Expandir dados coletados"}
+                            >
+                              {isInfoPanelOpen ? (
+                                <PanelRightClose className="h-3.5 w-3.5" />
+                              ) : (
+                                <PanelRightOpen className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">
+                            {isInfoPanelOpen ? "Minimizar menu de informações coletadas" : "Expandir menu de informações coletadas"}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                   </div>
-                )}
-              </div>
-            </>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 scrollbar-thin">
+                  <AnimatePresence initial={false}>
+                    {timelineItems.map((item) => {
+                      if (item.type === "date-divider") {
+                        return (
+                          <motion.div
+                            key={item.id}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.18 }}
+                            className="flex items-center gap-3 my-3 select-none"
+                          >
+                            <div className="h-px flex-1 bg-border/70" />
+                            <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-muted/80 border border-border text-[10px] font-bold text-muted-foreground tracking-wide shadow-2xs">
+                              <Calendar className="h-2.5 w-2.5 text-primary/80" />
+                              {item.label}
+                            </span>
+                            <div className="h-px flex-1 bg-border/70" />
+                          </motion.div>
+                        );
+                      }
+
+                      if (item.type === "cycle-divider") {
+                        const isPrev = item.variant === "previous-triage";
+                        const isHandoff = item.variant === "operator-handoff";
+
+                        return (
+                          <motion.div
+                            key={item.id}
+                            initial={{ opacity: 0, scale: 0.98, y: 4 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.98 }}
+                            transition={{ duration: 0.2 }}
+                            className="flex items-center gap-3 my-3.5 select-none"
+                          >
+                            <div className="h-px flex-1 bg-border" />
+                            <div
+                              className={`flex flex-col items-center text-center px-3.5 py-1.5 rounded-xl border shadow-2xs ${
+                                isPrev
+                                  ? "bg-muted/70 border-border text-muted-foreground"
+                                  : isHandoff
+                                  ? "bg-primary-soft/60 border-primary/25 text-foreground"
+                                  : "bg-primary-soft border-primary/30 text-primary"
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-wide">
+                                {isPrev && <Clock className="h-3 w-3 text-muted-foreground shrink-0" />}
+                                {isHandoff && <UserCheck className="h-3 w-3 text-primary shrink-0" />}
+                                {!isPrev && !isHandoff && <Bot className="h-3 w-3 text-primary shrink-0" />}
+                                <span>{item.title}</span>
+                              </div>
+                              {item.subtitle && (
+                                <span className="text-[9px] text-muted-foreground font-medium mt-0.5">
+                                  {item.subtitle}
+                                </span>
+                              )}
+                            </div>
+                            <div className="h-px flex-1 bg-border" />
+                          </motion.div>
+                        );
+                      }
+
+                      const { msg, index: idx } = item;
+                      const isOutbound = msg.sender === "bot" || msg.sender === "agent";
+                      const isAgent = msg.sender === "agent";
+                      const isBot = msg.sender === "bot";
+
+                      return (
+                        <motion.div
+                          key={`${selectedSession.id}-${item.id}`}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.16, delay: Math.min(idx * 0.015, 0.2) }}
+                          className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}
+                        >
+                          {/* Avatar do Cliente (Esquerda) */}
+                          {msg.sender === "client" && (
+                            selectedSession.contactAvatar ? (
+                              <SystemTooltip content="Ver foto do cliente em tela cheia">
+                                <button
+                                  onClick={() => setPreviewModalImage({ url: selectedSession.contactAvatar!, title: selectedSession.contactName })}
+                                  className="shrink-0 mr-2 self-end group cursor-pointer focus:outline-none"
+                                >
+                                  <img
+                                    src={selectedSession.contactAvatar}
+                                    alt={selectedSession.contactName}
+                                    className="h-7 w-7 rounded-full object-cover border-2 border-primary/20 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                                    onError={(e) => {
+                                      (e.target as HTMLElement).style.display = "none";
+                                    }}
+                                  />
+                                </button>
+                              </SystemTooltip>
+                            ) : (
+                              <div className="grid h-7 w-7 place-items-center rounded-full bg-primary/15 text-primary shrink-0 mr-2 self-end font-bold text-[10px] shadow-soft border border-primary/20">
+                                {selectedSession.contactName[0]?.toUpperCase() || "C"}
+                              </div>
+                            )
+                          )}
+
+                          {/* Bolha da Mensagem */}
+                          <div
+                            className={`max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed shadow-soft transition-colors ${
+                              isBot
+                                ? "bg-primary text-primary-foreground rounded-br-[5px]"
+                                : isAgent
+                                ? "bg-primary-soft/75 border border-primary/25 text-foreground rounded-br-[5px]"
+                                : "bg-muted border border-border text-foreground rounded-bl-[5px]"
+                            }`}
+                          >
+                            {/* Cabeçalho discreto identificando se foi enviado pelo Operador ou pela IA */}
+                            {isAgent && (
+                              <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b border-primary/15">
+                                <span className="text-[10px] font-extrabold text-primary truncate">
+                                  {msg.senderName || "Operador"}
+                                </span>
+                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-primary/15 text-primary shrink-0">
+                                  {msg.isInternalNote ? "Nota Interna" : "Operador"}
+                                </span>
+                              </div>
+                            )}
+
+                            {isBot && (
+                              <div className="flex items-center justify-between gap-2 mb-0.5">
+                                <span className="text-[9px] font-extrabold text-primary-foreground/85 tracking-wide">
+                                  {persona.name} · IA
+                                </span>
+                              </div>
+                            )}
+
+                            {(() => {
+                              const text = msg.text || "";
+                              let mediaUrl = msg.mediaUrl || null;
+                              let mediaType = msg.mediaType || null;
+                              let fileName = msg.fileName || null;
+
+                              const lines = text.split(/\r?\n/);
+                              const mediaTag = lines[0].trim();
+                              const captionText = lines.slice(1).join("\n").trim();
+
+                              if (mediaTag.startsWith("[MEDIA:")) {
+                                const match = mediaTag.match(/^\[MEDIA:([a-zA-Z0-9]+)\]([^:]+)(?::(.+))?$/i);
+                                if (match) {
+                                  const type = match[1].toLowerCase();
+                                  const mediaId = match[2].trim();
+                                  const fn = match[3] ? match[3].trim() : null;
+
+                                  mediaType = type === "sticker" ? "image" : type;
+                                  mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
+                                  if (fn && !fileName) {
+                                    fileName = fn;
+                                  }
+                                }
+                              }
+
+                              if (mediaUrl && mediaUrl.includes("/api/media/")) {
+                                const mediaId = mediaUrl.split("/api/media/")[1]?.trim();
+                                if (mediaId) {
+                                  mediaUrl = `/api/baileys/media?messageId=${mediaId}`;
+                                }
+                              }
+
+                              const isImage = mediaType === "image" || (mediaUrl && mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)/i));
+                              const isVideo = mediaType === "video" || (mediaUrl && mediaUrl.match(/\.(mp4|webm|mov|avi|mkv)/i));
+                              const isAudio = mediaType === "audio" || (mediaUrl && mediaUrl.match(/\.(ogg|mp3|wav|m4a|opus)/i));
+                              const isDoc = mediaType === "document" || (mediaUrl && mediaUrl.match(/\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i)) || text.match(/\.(pdf|doc|docx|xls|xlsx|json|rar|zip)/i);
+
+                              if (isImage && mediaUrl) {
+                                return (
+                                  <div className="space-y-1 my-1">
+                                    <button
+                                      onClick={() => setPreviewModalImage({ url: mediaUrl!, title: "Imagem enviada no WhatsApp" })}
+                                      className="overflow-hidden rounded-2xl border border-white/20 cursor-pointer block max-w-xs hover:opacity-95 transition shadow-soft group"
+                                    >
+                                      <img src={mediaUrl} alt="Imagem enviada" className="w-full max-h-56 object-cover rounded-2xl group-hover:scale-[1.02] transition duration-300" />
+                                    </button>
+                                    {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
+                                    {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                                  </div>
+                                );
+                              }
+
+                              if (isVideo && mediaUrl) {
+                                return (
+                                  <div className="space-y-1 my-1">
+                                    <div
+                                      className="relative group max-w-xs rounded-2xl overflow-hidden border border-white/20 bg-black/10 cursor-pointer flex items-center justify-center shadow-soft"
+                                      onClick={() => setPreviewModalImage({ url: mediaUrl!, title: "Vídeo enviado no WhatsApp" })}
+                                    >
+                                      <video src={mediaUrl} className="max-h-56 w-full object-contain rounded-2xl pointer-events-none" />
+                                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/35 transition rounded-2xl">
+                                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-md backdrop-blur-xs transition group-hover:scale-110">
+                                          <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
+                                        </div>
+                                      </div>
+                                    </div>
+                                    {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
+                                    {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                                  </div>
+                                );
+                              }
+
+                              if (isAudio && mediaUrl) {
+                                return (
+                                  <div className="space-y-1 py-0.5">
+                                    <AudioPlayerBubble src={mediaUrl} isBot={isBot} />
+                                    {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
+                                    {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                                  </div>
+                                );
+                              }
+
+                              if (isDoc && mediaUrl) {
+                                return (
+                                  <div className="space-y-1 my-1">
+                                    <a
+                                      href={mediaUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={`flex items-center gap-3 p-2.5 rounded-2xl border transition decoration-none text-current ${
+                                        isBot ? "bg-white/10 border-white/20 hover:bg-white/20" : "bg-black/5 border-black/10 hover:bg-black/10"
+                                      }`}
+                                    >
+                                      <div className={`h-10 w-10 rounded-xl grid place-items-center shrink-0 ${isBot ? "bg-white/20 text-white" : "bg-primary/20 text-primary"}`}>
+                                        <FileText className="h-5 w-5" />
+                                      </div>
+                                      <div className="truncate flex-1">
+                                        <p className="font-bold text-[11px] truncate">{fileName || "Documento.pdf"}</p>
+                                        <p className="text-[9px] opacity-80 flex items-center gap-1 mt-0.5">
+                                          <Download className="h-3 w-3 inline" /> Clique para abrir / baixar
+                                        </p>
+                                      </div>
+                                    </a>
+                                    {captionText && <p className="text-[11px] whitespace-pre-wrap font-medium">{captionText}</p>}
+                                    {!captionText && text && !text.startsWith("[MEDIA:") && <p className="text-[11px] whitespace-pre-wrap">{text}</p>}
+                                  </div>
+                                );
+                              }
+
+                              return <span className="whitespace-pre-wrap break-words">{captionText || text}</span>;
+                            })()}
+                            <span
+                              className={`block mt-1 text-[9px] ${
+                                isBot ? "text-white/60" : "text-muted-foreground"
+                              }`}
+                            >
+                              {msg.time}
+                            </span>
+                          </div>
+
+                          {/* Avatar da IA (Direita — somente quando enviado pela IA) */}
+                          {isBot && (
+                            <SystemTooltip content={`Ver foto ${persona.gender === "female" ? "da" : "do"} ${persona.name} em tela cheia`}>
+                              <button
+                                onClick={() => setPreviewModalImage({ url: (document.documentElement.classList.contains("dark") ? persona.avatarDarkUrl : persona.avatarLightUrl) || persona.avatarUrl, title: `${persona.name} IA — ${persona.company}` })}
+                                className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
+                              >
+                                <AiAvatar
+                                  tenantId={tenant}
+                                  className="h-7 w-7 rounded-full border-2 border-primary/30 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                                />
+                              </button>
+                            </SystemTooltip>
+                          )}
+
+                          {/* Avatar do Operador Humano (Direita — quando enviado por um operador) */}
+                          {isAgent && (
+                            <SystemTooltip content={`${msg.senderName || "Operador"} (Operador)`}>
+                              {msg.senderAvatar ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPreviewModalImage({
+                                      url: msg.senderAvatar!,
+                                      title: `${msg.senderName || "Operador"} — Operador`,
+                                    })
+                                  }
+                                  className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
+                                >
+                                  <img
+                                    src={msg.senderAvatar}
+                                    alt={msg.senderName || "Operador"}
+                                    className="h-7 w-7 rounded-full object-cover border-2 border-primary/40 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
+                                    onError={(e) => {
+                                      const target = e.currentTarget;
+                                      target.style.display = "none";
+                                      const fallback = target.nextElementSibling as HTMLElement | null;
+                                      if (fallback) fallback.style.display = "grid";
+                                    }}
+                                  />
+                                  <div
+                                    style={{ display: "none" }}
+                                    className="h-7 w-7 place-items-center rounded-full bg-primary-soft text-primary border-2 border-primary/30 font-extrabold text-[10px] shadow-soft"
+                                  >
+                                    {getOperatorInitials(msg.senderName)}
+                                  </div>
+                                </button>
+                              ) : (
+                                <div className="grid h-7 w-7 place-items-center rounded-full bg-primary-soft text-primary shrink-0 ml-2 self-end font-extrabold text-[10px] shadow-soft border-2 border-primary/30 select-none">
+                                  {getOperatorInitials(msg.senderName)}
+                                </div>
+                              )}
+                            </SystemTooltip>
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+
+                  {selectedSession.outcome && selectedSession.outcome !== "in_progress" && (
+                    <div className="flex justify-center mt-3 animate-fadeIn">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold bg-primary-soft text-primary border border-primary/20">
+                        <CheckCircle className="h-3 w-3 text-primary" />
+                        {selectedSession.outcome === "completed"
+                          ? `Triagem Concluída${selectedSession.responsibleName ? ` · ${selectedSession.responsibleName}` : ""}`
+                          : selectedSession.outcome === "transferred"
+                          ? `Transferido para ${selectedSession.responsibleName || "Vendedor"}`
+                          : selectedSession.outcome === "stopped"
+                          ? "Atendimento Interrompido"
+                          : selectedSession.outcome}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full p-6 text-center">
               <MessageSquare className="h-10 w-10 text-muted-foreground/30 mb-2" />
@@ -1265,6 +1758,46 @@ export function SdrTab({
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
+      </div>
+
+      {/* ── CONTROLE DISCRETO FLUTUANTE (2 ÍCONES: SUBIR PARA KANBAN / DESCER PARA CHAT) ── */}
+      <div className="absolute right-4 bottom-4 z-30 flex flex-col items-center gap-1 rounded-2xl bg-card/95 backdrop-blur-md border border-border p-1 shadow-xl">
+        <SystemTooltip content="Subir para o Kanban">
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.08, y: -1 }}
+            whileTap={{ scale: 0.92 }}
+            onClick={scrollToKanban}
+            className={`p-1.5 rounded-xl transition cursor-pointer flex items-center justify-center ${
+              activeViewportSection === "kanban"
+                ? "bg-primary text-primary-foreground shadow-soft"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+            aria-label="Subir para o Kanban"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </motion.button>
+        </SystemTooltip>
+
+        <div className="w-4 h-px bg-border" />
+
+        <SystemTooltip content="Descer para Triagens ao Vivo (Tela Cheia)">
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.08, y: 1 }}
+            whileTap={{ scale: 0.92 }}
+            onClick={scrollToLiveChat}
+            className={`p-1.5 rounded-xl transition cursor-pointer flex items-center justify-center ${
+              activeViewportSection === "chat"
+                ? "bg-primary text-primary-foreground shadow-soft"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+            aria-label="Descer para o Chat"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </motion.button>
+        </SystemTooltip>
       </div>
 
       {/* ── MODAL DE VISUALIZAÇÃO EM TELA CHEIA DA FOTO DE PERFIL ────────── */}

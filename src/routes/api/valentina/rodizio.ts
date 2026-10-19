@@ -25,6 +25,8 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
 
         const url = new URL(request.url);
         const days = parseInt(url.searchParams.get("days") || "30", 10);
+        const opDaysRaw = url.searchParams.get("opDays");
+        const opDays = opDaysRaw ? parseInt(opDaysRaw, 10) : undefined;
         const dateFrom = url.searchParams.get("dateFrom") || undefined;
         const dateTo = url.searchParams.get("dateTo") || undefined;
 
@@ -32,6 +34,7 @@ export const Route = createFileRoute("/api/valentina/rodizio")({
           const flowOperators = await RodizioEngine.getRodizioState(tenantId);
           const dashboardData = await RodizioEngine.getDashboardData(tenantId, {
             days,
+            opDays,
             dateFrom,
             dateTo,
           });

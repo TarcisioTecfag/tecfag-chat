@@ -94,25 +94,34 @@ export const SECTOR_CONFIGS: Record<string, SectorConfig> = {
 
 export const FUNNEL_LABELS: Record<string, string> = {
   maquinas: "Máquinas",
-  "sem-resposta": "sem-resposta",
+  "sem-resposta": "Sem Resposta",
+  sem_resposta: "Sem Resposta",
   pecas: "Peças",
   "pos-venda": "Pós Venda",
+  pos_venda: "Pós Venda",
+  "assistencia-tecnica": "Assistência Técnica",
+  assistencia_tecnica: "Assistência Técnica",
   personalite: "Personnalité",
-  comercial: "COMERCIAL",
+  comercial: "Comercial",
   financeiro: "Financeiro",
-  triagem: "Triagem",
+  triagem: "Em Triagem (IA)",
   outros: "Outros",
 };
 
 export const FUNNEL_COLORS: Record<string, string> = {
-  maquinas: "#f43f5e",
-  "sem-resposta": "#1e293b",
-  pecas: "#06b6d4",
-  "pos-venda": "#10b981",
-  personalite: "#f59e0b",
+  maquinas: "#3b82f6",
+  "sem-resposta": "#64748b",
+  sem_resposta: "#64748b",
+  pecas: "#ef4444",
+  "pos-venda": "#f59e0b",
+  pos_venda: "#f59e0b",
+  "assistencia-tecnica": "#0284c7",
+  assistencia_tecnica: "#0284c7",
+  personalite: "#ec4899",
   comercial: "#8b5cf6",
   financeiro: "#10b981",
-  outros: "#64748b",
+  triagem: "#8b5cf6",
+  outros: "#94a3b8",
 };
 
 export function getOperatorSector(op: {
@@ -123,39 +132,58 @@ export function getOperatorSector(op: {
 }): string {
   if (op.is_sdr) return "sdr";
 
-  if (op.allowed_subflows && Array.isArray(op.allowed_subflows)) {
-    const subflows = op.allowed_subflows.map((s) => s.toLowerCase());
-    if (subflows.includes("pecas") || subflows.includes("peças")) return "pecas";
-    if (subflows.includes("maquinas") || subflows.includes("máquinas")) return "maquinas";
-    if (subflows.includes("personalite") || subflows.includes("personnalite")) return "personalite";
-    if (subflows.includes("financeiro")) return "financeiro";
+  if (op.sector) {
+    const s = op.sector.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    if (s === "sdr" || s.includes("sdr") || s.includes("triagem") || s.includes("analise")) return "sdr";
+    if (s.includes("personalite") || s.includes("personnalite")) return "personalite";
+    if (s.includes("maquina")) return "maquinas";
     if (
-      subflows.includes("pos venda") ||
-      subflows.includes("pos-venda") ||
-      subflows.includes("posvenda") ||
-      subflows.includes("assistencia") ||
-      subflows.includes("assist. tec.")
+      s.includes("pos venda") ||
+      s.includes("pos-venda") ||
+      s.includes("pos_venda") ||
+      s.includes("posvenda") ||
+      s.includes("assistencia") ||
+      s.includes("tecnica") ||
+      s.includes("suporte")
     ) {
       return "pos venda";
     }
-  }
-
-  if (op.sector) {
-    const s = op.sector.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-    if (s.includes("sdr") || s.includes("triagem") || s.includes("analise")) return "sdr";
-    if (s.includes("personalite")) return "personalite";
-    if (s.includes("maquina")) return "maquinas";
-    if (s.includes("pos venda") || s.includes("pos-venda") || s.includes("posvenda") || s.includes("assistencia") || s.includes("suporte")) return "pos venda";
-    if (s.includes("financeiro") || s.includes("faturamento") || s.includes("cobranca")) return "financeiro";
+    if (s.includes("financeiro") || s.includes("faturamento") || s.includes("cobranca") || s.includes("boleto")) {
+      return "financeiro";
+    }
     if (s.includes("peca")) return "pecas";
   }
 
-  // Identificação inteligente por nome para garantir aderência ao time
+  if (op.allowed_subflows && Array.isArray(op.allowed_subflows)) {
+    const subflows = op.allowed_subflows.map((s) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()
+    );
+    if (subflows.some((s) => s.includes("peca"))) return "pecas";
+    if (subflows.some((s) => s.includes("personalite") || s.includes("personnalite"))) return "personalite";
+    if (subflows.some((s) => s.includes("financeiro") || s.includes("boleto") || s.includes("nota fiscal"))) return "financeiro";
+    if (
+      subflows.some(
+        (s) =>
+          s.includes("pos venda") ||
+          s.includes("pos-venda") ||
+          s.includes("posvenda") ||
+          s.includes("assistencia") ||
+          s.includes("rastreio")
+      )
+    ) {
+      return "pos venda";
+    }
+    if (subflows.some((s) => s.includes("maquina"))) return "maquinas";
+  }
+
   const normName = op.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (normName.includes("rafaela")) {
+    return "sdr";
+  }
   if (normName.includes("diana") || normName.includes("jhordan") || normName.includes("rosenvaldo") || normName.includes("marcelo")) {
     return "personalite";
   }
-  if (normName.includes("denise") || normName.includes("beatriz") || normName.includes("victor") || normName.includes("andreia")) {
+  if (normName.includes("denise") || normName.includes("beatriz") || normName.includes("victor") || normName.includes("andreia") || normName.includes("melissa")) {
     return "maquinas";
   }
   if (normName.includes("deborah") || normName.includes("raiane") || normName.includes("maria vitoria") || normName.includes("lucimara")) {
@@ -167,556 +195,43 @@ export function getOperatorSector(op: {
   if (normName.includes("guilherme") || normName.includes("keicy")) {
     return "pecas";
   }
-  if (normName.includes("rafaela")) {
-    return "pecas";
-  }
 
   return "maquinas";
 }
 
-// ─── Benchmark / High-Fidelity Data Generator ────────────────────────────────
+// ─── Estado Inicial Vazio (100% Sem Mock Data) ───────────────────────────────
 
-export function getBenchmarkRodizioData(tenantId: string = "tecfag"): {
+export function getEmptyRodizioData(): {
   stats: RodizioStats;
   byDay: LeadByDay[];
   byFunnel: LeadByFunnel[];
   operators: OperatorRow[];
   deals: CrmDeal[];
 } {
-  // 1. Gera 30 dias de distribuição diária
-  const byDay: LeadByDay[] = [];
-  const baseDate = new Date();
-  const daysCount = 30;
-
-  for (let i = daysCount - 1; i >= 0; i--) {
-    const d = new Date(baseDate);
-    d.setDate(d.getDate() - i);
-    const dayStr = d.toISOString().slice(0, 10);
-    // Distribuição realista simulando a barra de gráfico do screenshot
-    const dayOfWeek = d.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    const count = isWeekend ? Math.floor(18 + Math.random() * 25) : Math.floor(65 + Math.random() * 70);
-    byDay.push({ day: dayStr, count });
-  }
-
-  // 2. Funis (Distribuição por Funil do screenshot)
-  const byFunnel: LeadByFunnel[] = [
-    { funnel: "maquinas", count: 2378 },
-    { funnel: "sem-resposta", count: 1297 },
-    { funnel: "pecas", count: 937 },
-    { funnel: "pos-venda", count: 865 },
-    { funnel: "personalite", count: 721 },
-    { funnel: "comercial", count: 288 },
-  ];
-
-  // 3. Operadores reais e seus cards (1:1 com o screenshot)
-  const operators: OperatorRow[] = [
-    // SDR / Análise
-    {
-      id: "op-sdr-rafaela",
-      name: "Rafaela Lima",
-      email: "rafaela.lima@tecfag.com.br",
-      count: 3,
-      compensation: 0,
-      sector: "sdr",
-      is_sdr: true,
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-sdr-1",
-          name: "FUND DE APOIO AO ENSINO PESQ EAS...",
-          company: "FUNDAÇÃO DE APOIO",
-          created_at: "Hoje às 11:24",
-          chatId: "conv-sdr-1",
-        },
-        {
-          id: "card-sdr-2",
-          name: "Elvis",
-          company: "BEBIDAS BORGES",
-          created_at: "Hoje às 10:45",
-          chatId: "conv-sdr-2",
-        },
-        {
-          id: "card-sdr-3",
-          name: "PAULO AL",
-          company: "AL ENGENHARIA",
-          created_at: "Hoje às 09:12",
-          chatId: "conv-sdr-3",
-        },
-      ],
-    },
-
-    // Personnalité
-    {
-      id: "op-tf-diana.gimenes.93",
-      name: "Diana Gimenes - 93",
-      email: "diana.gimenes@tecfag.com.br",
-      count: 1,
-      compensation: 2,
-      sector: "personalite",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pers-1",
-          name: "Caroline",
-          company: "INDÚSTRIA DE COSMÉTICOS CAROLINE",
-          created_at: "Hoje às 12:05",
-          chatId: "conv-pers-1",
-        },
-      ],
-    },
-    {
-      id: "op-tf-jhordan.rueda.102",
-      name: "Jhordan Rueda - 102",
-      email: "jhordan.rueda@tecfag.com.br",
-      count: 1,
-      compensation: 1,
-      sector: "personalite",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pers-2",
-          name: "Renato",
-          company: "CONDICIONAMENTO BIOTECNOLOGI...",
-          created_at: "Hoje às 11:50",
-          chatId: "conv-pers-2",
-        },
-      ],
-    },
-    {
-      id: "op-tf-rosenvaldo.lucas.121",
-      name: "Rosenvaldo Lucas - 121",
-      email: "rosenvaldo.lucas@tecfag.com.br",
-      count: 1,
-      compensation: 1,
-      sector: "personalite",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pers-3",
-          name: "Fernando",
-          company: "ADEGA ARAGUARI LTDA",
-          created_at: "Hoje às 10:15",
-          chatId: "conv-pers-3",
-        },
-      ],
-    },
-
-    // Máquinas
-    {
-      id: "op-tf-denise.gomes.34",
-      name: "Denise Gomes - 34",
-      email: "denise.gomes@tecfag.com.br",
-      count: 3,
-      compensation: 2,
-      sector: "maquinas",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-maq-1",
-          name: "Camila Karifam",
-          company: "PHARMASTHETICS DO BRASIL...",
-          created_at: "Hoje às 12:10",
-          chatId: "conv-maq-1",
-        },
-        {
-          id: "card-maq-2",
-          name: "Magno - CADLEX MINAS...",
-          company: "CADLEX MINAS LTDA",
-          created_at: "Hoje às 11:30",
-          chatId: "conv-maq-2",
-        },
-        {
-          id: "card-maq-3",
-          name: "Nascino",
-          company: "EMBALAGENS NASCINO",
-          created_at: "Hoje às 10:02",
-          chatId: "conv-maq-3",
-        },
-      ],
-    },
-    {
-      id: "op-tf-beatriz.ribeiro.96",
-      name: "Beatriz Ribeiro - 96",
-      email: "beatriz.ribeiro@tecfag.com.br",
-      count: 3,
-      compensation: 2,
-      sector: "maquinas",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-maq-4",
-          name: "Colonia Porto",
-          company: "COLONIA PORTO COMÉRCIO E S...",
-          created_at: "Hoje às 11:45",
-          chatId: "conv-maq-4",
-        },
-        {
-          id: "card-maq-5",
-          name: "Sergio",
-          company: "CASA FLORALTO",
-          created_at: "Hoje às 10:20",
-          chatId: "conv-maq-5",
-        },
-        {
-          id: "card-maq-6",
-          name: "Antonio Mendonça",
-          company: "AGROPECUÁRIA MENDONÇA",
-          created_at: "Hoje às 09:35",
-          chatId: "conv-maq-6",
-        },
-      ],
-    },
-    {
-      id: "op-tf-victor.goes.95",
-      name: "Victor Goes - 95",
-      email: "victor.goes@tecfag.com.br",
-      count: 2,
-      compensation: 1,
-      sector: "maquinas",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-maq-7",
-          name: "Sidinei",
-          company: "SIDINEI TRANSPORTES E LOG...",
-          created_at: "Hoje às 11:05",
-          chatId: "conv-maq-7",
-        },
-      ],
-    },
-
-    // Pós Venda
-    {
-      id: "op-tf-deborah.alves.94",
-      name: "Deborah Alves - 94",
-      email: "deborah.alves@tecfag.com.br",
-      count: 3,
-      compensation: 2,
-      sector: "pos venda",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pos-1",
-          name: "GROWTH SUPPLEMENTS...",
-          company: "GROWTH SUPPLEMENTS PRODUTOS...",
-          created_at: "Hoje às 12:20",
-          chatId: "conv-pos-1",
-        },
-        {
-          id: "card-pos-2",
-          name: "JUNQUEIRA E LORDI SILV...",
-          company: "JUNQUEIRA E LORDI SOLUÇÕES...",
-          created_at: "Hoje às 11:15",
-          chatId: "conv-pos-2",
-        },
-        {
-          id: "card-pos-3",
-          name: "Eliana",
-          company: "FARMÁCIA CENTRAL",
-          created_at: "Hoje às 09:50",
-          chatId: "conv-pos-3",
-        },
-      ],
-    },
-    {
-      id: "op-tf-raiane.aguiar.114",
-      name: "Raiane Aguiar - 114",
-      email: "raiane.aguiar@tecfag.com.br",
-      count: 2,
-      compensation: 1,
-      sector: "pos venda",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pos-4",
-          name: "Felipe",
-          company: "SUPERPINUS MADEIRAS E ALUMIN...",
-          created_at: "Hoje às 11:40",
-          chatId: "conv-pos-4",
-        },
-        {
-          id: "card-pos-5",
-          name: "Pamela Felisbino Pereira...",
-          company: "DISTRIBUIDORA PEREIRA",
-          created_at: "Hoje às 10:30",
-          chatId: "conv-pos-5",
-        },
-      ],
-    },
-    {
-      id: "op-tf-maria.vitoria",
-      name: "Maria Vitoria",
-      email: "maria.vitoria@tecfag.com.br",
-      count: 1,
-      compensation: 0,
-      sector: "pos venda",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pos-6",
-          name: "Mauricio",
-          company: "INDÚSTRIA MAURICIO",
-          created_at: "Hoje às 11:22",
-          chatId: "conv-pos-6",
-        },
-      ],
-    },
-    {
-      id: "op-tf-lucimara.dal.mora",
-      name: "Lucimara Dal Mora",
-      email: "lucimara.dal.mora@tecfag.com.br",
-      count: 1,
-      compensation: 1,
-      sector: "pos venda",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pos-7",
-          name: "Cláudia",
-          company: "LABORATÓRIO SÃO PAULO",
-          created_at: "Hoje às 09:15",
-          chatId: "conv-pos-7",
-        },
-      ],
-    },
-
-    // Financeiro
-    {
-      id: "op-tf-jessica",
-      name: "Jessica Pimentel",
-      email: "jessica.pimentel@tecfag.com.br",
-      count: 3,
-      compensation: 1,
-      sector: "financeiro",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-fin-1",
-          name: "Marcela",
-          company: "PACK TO YOU INDUSTRIA E COMERC...",
-          created_at: "Hoje às 12:15",
-          chatId: "conv-fin-1",
-        },
-        {
-          id: "card-fin-2",
-          name: "Rodrigo - Blumenau Química",
-          company: "Blumenau Química",
-          created_at: "Hoje às 11:00",
-          chatId: "conv-fin-2",
-        },
-        {
-          id: "card-fin-3",
-          name: "TOLLING DE INSUMOS AGRI...",
-          company: "TOLLING DE INSUMOS AGRICOLAS L...",
-          created_at: "Hoje às 09:40",
-          chatId: "conv-fin-3",
-        },
-      ],
-    },
-
-    // Peças
-    {
-      id: "op-tf-rafaela.pecas",
-      name: "Rafaela Lima",
-      email: "rafaela.lima@tecfag.com.br",
-      count: 3,
-      compensation: 2,
-      sector: "pecas",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pec-1",
-          name: "FUND DE APOIO AO ENSI...",
-          company: "FUNDAÇÃO DE APOIO",
-          created_at: "Hoje às 11:24",
-          chatId: "conv-pec-1",
-        },
-        {
-          id: "card-pec-2",
-          name: "Elvis",
-          company: "BEBIDAS BORGES",
-          created_at: "Hoje às 10:45",
-          chatId: "conv-pec-2",
-        },
-        {
-          id: "card-pec-3",
-          name: "PAULO AL",
-          company: "AL ENGENHARIA",
-          created_at: "Hoje às 09:12",
-          chatId: "conv-pec-3",
-        },
-      ],
-    },
-    {
-      id: "op-tf-guilherme.bertola.115",
-      name: "Guilherme Bertola - 115",
-      email: "guilherme.bertola@tecfag.com.br",
-      count: 2,
-      compensation: 1,
-      sector: "pecas",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pec-4",
-          name: "Paulo",
-          company: "M.F. EMBALAGENS LTDA",
-          created_at: "Hoje às 11:35",
-          chatId: "conv-pec-4",
-        },
-        {
-          id: "card-pec-5",
-          name: "Reinaldo",
-          company: "REINALDO B. CONCEIÇÃO E CIA...",
-          created_at: "Hoje às 10:10",
-          chatId: "conv-pec-5",
-        },
-      ],
-    },
-    {
-      id: "op-tf-keicy.cardoso",
-      name: "Keicy Cardoso",
-      email: "keicy.cardoso@tecfag.com.br",
-      count: 2,
-      compensation: 1,
-      sector: "pecas",
-      isParticipating: true,
-      isOnLeave: false,
-      isPenalized: false,
-      cards: [
-        {
-          id: "card-pec-6",
-          name: "Elisangela",
-          company: "R.E. COMÉRCIO DE SUPRIMENTO...",
-          created_at: "Hoje às 11:18",
-          chatId: "conv-pec-6",
-        },
-        {
-          id: "card-pec-7",
-          name: "LUIZ PAULO",
-          company: "TEXTIL ELASTAN IND E COM...",
-          created_at: "Hoje às 09:55",
-          chatId: "conv-pec-7",
-        },
-      ],
-    },
-  ];
-
-  // 4. CRM Deals (para o modal "Deals no CRM")
-  const deals: CrmDeal[] = [
-    {
-      id: "deal-1",
-      name: "Seladora Automática Contínua 500w",
-      company: "PHARMASTHETICS DO BRASIL LTDA",
-      phone: "+5511998765432",
-      rd_deal_id: "66f4a8b1c9",
-      operator_name: "Denise Gomes - 34",
-      sector: "maquinas",
-      funnel: "maquinas",
-      created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-    },
-    {
-      id: "deal-2",
-      name: "Envasadora Rotativa Alta Precisão",
-      company: "INDÚSTRIA DE COSMÉTICOS CAROLINE",
-      phone: "+5519981234567",
-      rd_deal_id: "66f4a8b2d1",
-      operator_name: "Diana Gimenes - 93",
-      sector: "personalite",
-      funnel: "personalite",
-      created_at: new Date(Date.now() - 3600000 * 4).toISOString(),
-    },
-    {
-      id: "deal-3",
-      name: "Lote Válvulas Spray Recorrente 100k",
-      company: "CONDICIONAMENTO BIOTECNOLOGI...",
-      phone: "+5541999887766",
-      rd_deal_id: "66f4a8b3e2",
-      operator_name: "Jhordan Rueda - 102",
-      sector: "personalite",
-      funnel: "personalite",
-      created_at: new Date(Date.now() - 3600000 * 6).toISOString(),
-    },
-    {
-      id: "deal-4",
-      name: "Kit Peças de Reposição Linha Vácuo",
-      company: "M.F. EMBALAGENS LTDA",
-      phone: "+5531987654321",
-      rd_deal_id: "66f4a8b4f3",
-      operator_name: "Guilherme Bertola - 115",
-      sector: "pecas",
-      funnel: "pecas",
-      created_at: new Date(Date.now() - 3600000 * 8).toISOString(),
-    },
-    {
-      id: "deal-5",
-      name: "Manutenção Preventiva Seladora 2026",
-      company: "GROWTH SUPPLEMENTS PRODUTOS...",
-      phone: "+5547998877665",
-      rd_deal_id: "66f4a8b5a4",
-      operator_name: "Deborah Alves - 94",
-      sector: "pos venda",
-      funnel: "pos-venda",
-      created_at: new Date(Date.now() - 3600000 * 10).toISOString(),
-    },
-    {
-      id: "deal-6",
-      name: "Condições Faturamento e Parcelamento 6x",
-      company: "Blumenau Química",
-      phone: "+5547987654321",
-      rd_deal_id: "66f4a8b6b5",
-      operator_name: "Jessica Pimentel",
-      sector: "financeiro",
-      funnel: "financeiro",
-      created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
-    },
-  ];
-
   return {
     stats: {
-      totalLeads: 7207,
-      syncedToCrm: 6052,
-      triageDone: 5925,
-      triageRate: 82,
+      totalLeads: 0,
+      syncedToCrm: 0,
+      triageDone: 0,
+      triageRate: 0,
       activeSessions: 0,
-      avgScore: "2.6",
-      costPerLead: 0.12,
-      totalCost30d: 864.84,
-      leadsWithCnpj: 4892,
+      avgScore: "0.0",
+      costPerLead: 0,
+      totalCost30d: 0,
+      leadsWithCnpj: 0,
     },
-    byDay,
-    byFunnel,
-    operators,
-    deals,
+    byDay: [],
+    byFunnel: [],
+    operators: [],
+    deals: [],
   };
+}
+
+/**
+ * @deprecated Mantido apenas por compatibilidade de assinatura — retorna estado zerado sem dados fictícios.
+ */
+export function getBenchmarkRodizioData(_tenantId: string = "tecfag") {
+  return getEmptyRodizioData();
 }
 
 // ─── Export CSV Helpers ──────────────────────────────────────────────────────

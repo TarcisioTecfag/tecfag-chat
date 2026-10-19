@@ -153,14 +153,44 @@ export class InboundProcessor {
     const convId = conv.id;
     const cleanText = (text || "").trim();
 
+    // Helper para arquivar o ciclo de triagem anterior sem perder o histórico compilado
+    const archivePreviousFlowState = async (reason: string) => {
+      const existingFlows = await db
+        .select()
+        .from(agentFlowStates)
+        .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
+
+      const prevList: any[] = [];
+      for (const ef of existingFlows) {
+        const efMeta = (ef.metadata as Record<string, any>) || {};
+        if (Array.isArray(efMeta.previousTriages)) {
+          for (const pt of efMeta.previousTriages) {
+            prevList.push(pt);
+          }
+        }
+        prevList.push({
+          id: ef.id,
+          startedAt: ef.startedAt ? new Date(ef.startedAt).toISOString() : null,
+          completedAt: (ef.completedAt || ef.lastInteractionAt || new Date()).toISOString(),
+          outcome: ef.outcome && ef.outcome !== "in_progress" ? ef.outcome : reason,
+          targetFunnel: efMeta.targetFunnel || null,
+          responsibleName: efMeta.allocatedOperatorName || null,
+        });
+      }
+
+      await db
+        .delete(agentFlowStates)
+        .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
+
+      return prevList.slice(-20);
+    };
+
     // 1. Comando !reset: Reinicia a triagem da IA sem apagar mensagens
     if (cleanText.toLowerCase() === "!reset") {
       console.log(`[Meta/Reset] Comando !reset acionado para a conversa ${convId} (${fromPhone}) no tenant ${tenantId}.`);
       SdrDebouncer.getInstance().clearSession(convId);
 
-      await db
-        .delete(agentFlowStates)
-        .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
+      const previousTriages = await archivePreviousFlowState("reset");
 
       await db
         .update(conversations)
@@ -168,7 +198,7 @@ export class InboundProcessor {
           queueState: "automacao",
           operatorId: null,
           unreadCount: 0,
-          lastMessageText: "🔄 Fluxo de triagem reiniciado via !reset",
+          lastMessageText: "Fluxo de triagem reiniciado via !reset",
           lastMessageTime: new Date(),
           updatedAt: new Date(),
         })
@@ -181,11 +211,30 @@ export class InboundProcessor {
         agentType: "sdr",
         currentStep: "Em Qualificação",
         collectedData: {},
-        metadata: { stepNumber: 1, totalSteps: 7, funnelStage: "triagem" },
+        metadata: { stepNumber: 1, totalSteps: 7, funnelStage: "triagem", previousTriages },
         startedAt: new Date(),
         lastInteractionAt: new Date(),
         outcome: "in_progress",
       });
+
+      // Registrar marcador de sistema no histórico para separar a triagem anterior da nova
+      await db
+        .insert(messages)
+        .values({
+          id: `sys-reset-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          tenantId,
+          conversationId: convId,
+          senderType: "system",
+          senderName: "Sistema",
+          content: "Triagem anterior encerrada — Novo ciclo de triagem iniciado",
+          isInternalNote: true,
+          direction: "outbound",
+          provider: "system",
+          status: "accepted",
+          sentAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .onConflictDoNothing();
 
       SessionManager.getInstance().notifyPublic(tenantId, {
         type: "queue_update",
@@ -215,11 +264,28 @@ export class InboundProcessor {
       return;
     }
 
-    // 2. Se a conversa estava finalizada e foi reaberta, reinicia o estado de fluxo da triagem
+    // 2. Se a conversa estava finalizada e foi reaberta, arquiva a triagem anterior e inicia novo ciclo
     if (reopened) {
-      await db
-        .delete(agentFlowStates)
-        .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
+      const previousTriages = await archivePreviousFlowState("completed");
+      await db.insert(agentFlowStates).values({
+        id: `fs-sdr-${Date.now()}`,
+        tenantId,
+        conversationId: convId,
+        agentType: "sdr",
+        currentStep: "Em Qualificação",
+        collectedData: {},
+        metadata: {
+          stepNumber: 1,
+          totalSteps: 7,
+          followUpStage: 0,
+          funnelStage: "triagem",
+          targetFunnel: "Máquinas",
+          previousTriages,
+        },
+        startedAt: new Date(Date.now() - 2000),
+        lastInteractionAt: new Date(),
+        outcome: "in_progress",
+      });
     }
 
     // 3. Verificar se o SDR está habilitado no tenant
