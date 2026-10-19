@@ -949,8 +949,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     return null;
   }, [activeChat?.messages]);
 
+  const isAiChat = activeChat?.id === "valentina";
+  const isMetaWhatsappChat =
+    !isAiChat && activeProvider === "meta" && activeChat?.channel === "whatsapp";
+
   useEffect(() => {
-    if (activeProvider !== "meta" || activeChat?.channel !== "whatsapp" || !activeChat?.id) {
+    if (!isMetaWhatsappChat || !activeChat?.id) {
       setShowMetaTemplateModal(false);
       setMetaWindow(null);
       currentMetaChatIdRef.current = null;
@@ -981,10 +985,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     void refresh();
     const timer = window.setInterval(refresh, 15000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [activeProvider, activeChat?.id, activeChat?.channel, lastInboundClientMsgId]);
+  }, [isMetaWhatsappChat, activeChat?.id, lastInboundClientMsgId]);
 
   const loadMetaTemplates = async () => {
-    if (!activeChat) return;
+    if (!activeChat || !isMetaWhatsappChat) return;
     setMetaTemplatesLoading(true);
     try {
       const response = await fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}&templates=1`, { credentials: "include" });
@@ -1839,7 +1843,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   };
 
   const handleSend = async () => {
-    if (activeProvider === "meta" && activeChat?.channel === "whatsapp" && msgMode !== "internal" && metaWindow && !metaWindow.open) {
+    if (isMetaWhatsappChat && msgMode !== "internal" && metaWindow && !metaWindow.open) {
       toast.error("A janela de 24 horas terminou. Use um template aprovado pela Meta.");
       setIsCatalogOpen(false);
       setShowMetaTemplateModal(true);
@@ -3019,8 +3023,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
             </div>
-          ) : activeProvider === "meta" &&
-            activeChat.channel === "whatsapp" &&
+          ) : isMetaWhatsappChat &&
             metaWindow !== null &&
             !metaWindow.open ? (
             /* ── BLOQUEIO: fora da janela de 24 horas da Meta ── */
@@ -3092,9 +3095,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </div>
               )}
 
-              {/* ── 1. Aviso de Janela Meta 24h (Posicionado no topo para perfeita simetria) ── */}
-              {activeProvider === "meta" &&
-                activeChat.channel === "whatsapp" &&
+              {/* ── 1. Aviso de Janela Meta 24h (Posicionado no topo para perfeita simetria — oculto no chat interno de Fagner/Valentina) ── */}
+              {isMetaWhatsappChat &&
                 msgMode !== "internal" && (
                   <div className="mb-2.5 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-3.5 py-2 text-xs backdrop-blur-xs shadow-2xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3203,7 +3205,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   <Package className="h-3 w-3" />
                   <span>{tenant === "tecfag" ? "Catálogo" : "Válvulas"}</span>
                 </button>
-                {activeProvider === "meta" && activeChat.channel === "whatsapp" && (
+                {isMetaWhatsappChat && (
                   <button
                     type="button"
                     onClick={() => {
@@ -3240,17 +3242,19 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               />
 
               {/* Painel Expansível de Templates Meta (expande a partir do campo de mensagem sem ofuscar a tela) */}
-              <MetaTemplateSelectModal
-                isOpen={showMetaTemplateModal}
-                onClose={() => setShowMetaTemplateModal(false)}
-                templates={metaTemplates}
-                customGroups={metaTemplateCustomGroups}
-                customerName={activeChat?.name || "Cliente"}
-                operatorName={operatorProfile?.name || "Atendente"}
-                onSend={handleSendMetaTemplate}
-                loading={metaTemplatesLoading}
-                inline={true}
-              />
+              {isMetaWhatsappChat && (
+                <MetaTemplateSelectModal
+                  isOpen={showMetaTemplateModal}
+                  onClose={() => setShowMetaTemplateModal(false)}
+                  templates={metaTemplates}
+                  customGroups={metaTemplateCustomGroups}
+                  customerName={activeChat?.name || "Cliente"}
+                  operatorName={operatorProfile?.name || "Atendente"}
+                  onSend={handleSendMetaTemplate}
+                  loading={metaTemplatesLoading}
+                  inline={true}
+                />
+              )}
 
               {isCatalogOpen ? (
                 <ProductCatalogPicker

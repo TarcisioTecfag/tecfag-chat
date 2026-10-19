@@ -17,6 +17,9 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
         const url = new URL(request.url);
         const conversationId = url.searchParams.get("conversationId");
         if (!conversationId) return Response.json({ error: "conversationId é obrigatório" }, { status: 400 });
+        if (conversationId === "valentina") {
+          return Response.json({ activeProvider: "internal", window: null });
+        }
 
         const [conversation] = await db.select({ id: conversations.id }).from(conversations).where(and(
           eq(conversations.id, conversationId),

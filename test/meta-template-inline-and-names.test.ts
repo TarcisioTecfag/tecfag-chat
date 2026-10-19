@@ -84,4 +84,23 @@ describe("Meta Template Inline Composer & First-Name Formatting (No @)", () => {
     expect(chatPanelSource).toContain("Enviar Template");
     expect(assistantSource).toContain('data-assistant-inline-panel="true"');
   });
+
+  it("ChatPanel e meta-state ocultam consulta de janela da Meta e Templates Meta quando estiver no chat interno de Fagner ou Valentina", () => {
+    const chatPanelSource = readFileSync(
+      resolve(process.cwd(), "src/components/chat/ChatPanel.tsx"),
+      "utf-8",
+    );
+    const metaStateSource = readFileSync(
+      resolve(process.cwd(), "src/routes/api/whatsapp/meta-state.ts"),
+      "utf-8",
+    );
+
+    expect(chatPanelSource).toContain('const isAiChat = activeChat?.id === "valentina"');
+    expect(chatPanelSource).toContain(
+      '!isAiChat && activeProvider === "meta" && activeChat?.channel === "whatsapp"',
+    );
+    expect(chatPanelSource).toContain("if (!isMetaWhatsappChat || !activeChat?.id)");
+    expect(chatPanelSource).toContain("if (!activeChat || !isMetaWhatsappChat) return;");
+    expect(metaStateSource).toContain('if (conversationId === "valentina")');
+  });
 });
