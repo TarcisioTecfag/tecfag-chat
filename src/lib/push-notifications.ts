@@ -3,16 +3,33 @@ import { db } from "@/db";
 import { pushSubscriptions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 
+function sanitizeUrlSafeBase64(val: string): string {
+  return val.trim().replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
 // Chaves VAPID padrão para ambiente local / produção via ENV
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:suporte2@tecfag.com.br";
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "BEl62iUYgUivxIkv69yViEuiBIa7e1G0a2j0Y0wQ4mC1T7o3D2zX6q8W9vR8uY2x0L1M2N3O4P5Q6R7S8T9U0V==";
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "u1V2W3X4Y5Z6A7B8C9D0E1F2G3H4I5J6K7L8M9N0O1P=";
+let VAPID_PUBLIC_KEY = sanitizeUrlSafeBase64(process.env.VAPID_PUBLIC_KEY || "");
+let VAPID_PRIVATE_KEY = sanitizeUrlSafeBase64(process.env.VAPID_PRIVATE_KEY || "");
+
+if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  const generated = webpush.generateVAPIDKeys();
+  VAPID_PUBLIC_KEY = sanitizeUrlSafeBase64(generated.publicKey);
+  VAPID_PRIVATE_KEY = sanitizeUrlSafeBase64(generated.privateKey);
+}
 
 // Configurar WebPush com VAPID
 try {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 } catch (err) {
-  console.warn("Aviso ao configurar VAPID Keys do WebPush:", err);
+  try {
+    const fallback = webpush.generateVAPIDKeys();
+    VAPID_PUBLIC_KEY = sanitizeUrlSafeBase64(fallback.publicKey);
+    VAPID_PRIVATE_KEY = sanitizeUrlSafeBase64(fallback.privateKey);
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  } catch (fallbackErr) {
+    console.warn("Aviso ao configurar VAPID Keys do WebPush:", fallbackErr);
+  }
 }
 
 export function getVapidPublicKey() {

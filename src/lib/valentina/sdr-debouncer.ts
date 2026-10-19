@@ -1,6 +1,7 @@
 import { runtimeSingleton } from "../runtime-singleton";
 import { SdrEngine } from "./sdr-engine";
 import { sendBotPresence } from "./sdr-channel-sender";
+import { getAiPersona } from "../ai-persona";
 
 export interface QueuedMessageItem {
   messageId?: string;
@@ -51,7 +52,7 @@ export class SdrDebouncer {
 
   /**
    * Recebe uma nova mensagem do cliente (texto, áudio ou imagem)
-   * Aplica 15s de debounce e Stop & Restart imediato se Valentina estiver processando!
+   * Aplica 15s de debounce e Stop & Restart imediato se o SDR estiver processando!
    */
   public pushIncomingMessage(
     tenantId: string,
@@ -75,7 +76,7 @@ export class SdrDebouncer {
     }
 
     // Regra 3: STOP & RESTART
-    // Se Valentina já estiver pensando/processando a chamada com Gemini, aborta o AbortController!
+    // Se o SDR já estiver pensando/processando a chamada com Gemini, aborta o AbortController!
     if (session.isProcessing && session.abortController) {
       console.log(`[SdrDebouncer] 🛑 STOP & RESTART acionado para conversa ${conversationId}! Cancelando resposta em andamento...`);
       session.abortController.abort();
@@ -98,7 +99,8 @@ export class SdrDebouncer {
       this.processDebouncedBatch(conversationId);
     }, this.DEBOUNCE_DELAY_MS);
 
-    console.log(`[SdrDebouncer] ⏳ Mensagem enfileirada. Valentina aguardará 15s de silêncio para a conversa ${conversationId}...`);
+    const personaName = getAiPersona(tenantId).name;
+    console.log(`[SdrDebouncer] ⏳ Mensagem enfileirada. ${personaName} aguardará 15s de silêncio para a conversa ${conversationId}...`);
   }
 
   /**

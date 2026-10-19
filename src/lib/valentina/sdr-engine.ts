@@ -2,7 +2,7 @@ import { runtimeSingleton } from "../runtime-singleton";
 
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts } from "../../db/schema";
-import { eq, asc, and } from "drizzle-orm";
+import { eq, asc, and, gte, ne } from "drizzle-orm";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
@@ -15,6 +15,7 @@ import {
   resolveTenantActiveProvider,
   sendBotPresence,
   sendBotCatalogImage,
+  resetMetaTypingThrottle,
 } from "./sdr-channel-sender";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
@@ -227,6 +228,9 @@ export class SdrEngine {
 
       if (!flowState) {
         const newFlowId = `fs-sdr-${Date.now()}`;
+        const initialStartTs = batchItems[0]?.receivedAt
+          ? new Date(new Date(batchItems[0].receivedAt).getTime() - 5000)
+          : new Date(Date.now() - 60000);
         await db.insert(agentFlowStates).values({
           id: newFlowId,
           tenantId,
@@ -241,7 +245,7 @@ export class SdrEngine {
             funnelStage: "triagem",
             targetFunnel: "Máquinas",
           },
-          startedAt: new Date(),
+          startedAt: initialStartTs,
           lastInteractionAt: new Date(),
           outcome: "in_progress",
         });
@@ -268,14 +272,16 @@ export class SdrEngine {
         return false;
       }
 
-      // 3. Buscar Histórico Recente de Mensagens Reais do Banco (últimas 80)
+      // 3. Buscar Histórico Recente de Mensagens Reais do Banco (últimas 80 da sessão de triagem atual)
       const historyMsgs = await db
         .select()
         .from(messages)
         .where(
           and(
             eq(messages.tenantId, tenantId),
-            eq(messages.conversationId, conversationId)
+            eq(messages.conversationId, conversationId),
+            ne(messages.content, "!reset"),
+            ...(flowState?.startedAt ? [gte(messages.sentAt, flowState.startedAt)] : [])
           )
         )
         .orderBy(asc(messages.sentAt))
@@ -348,9 +354,11 @@ export class SdrEngine {
           .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)));
       }
 
+      const companyPrep = /^grupo\b/i.test(aiPersona.company) ? "do" : "da";
+
       const firstMessageRule = isFirstMessage
         ? `🟢 ATENÇÃO — PRIMEIRA MENSAGEM DO ATENDIMENTO:
-   - A saudação e apresentação ("${greeting}" + "Eu sou ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}, da ${aiPersona.company} 😊") JÁ SERÃO ENVIADAS AUTOMATICAMENTE PELO SISTEMA antes da sua resposta.
+   - A saudação e apresentação ("${greeting}" + "Eu sou ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}, ${companyPrep} ${aiPersona.company} 😊") JÁ SERÃO ENVIADAS AUTOMATICAMENTE PELO SISTEMA antes da sua resposta.
    - 🛑 NÃO inclua a saudação nem a apresentação em "messagesToSend" — o sistema cuida disso.
    - Sua resposta começa DIRETO no contexto do cliente, a partir do que ele disse:
      ✅ Se o cliente APENAS SAUDOU: balão 1 = "Como posso te ajudar?"
@@ -408,7 +416,7 @@ INSTRUÇÕES OBRIGATÓRIAS:
 
       const knowledgeContext = await getKnowledgeBaseContext(tenantId, `${batchSummary}\n${conversationHistoryText}`);
 
-      const valemPromptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) da ${aiPersona.company} (${aiPersona.segment}).
+      const valemPromptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) ${companyPrep} ${aiPersona.company} (${aiPersona.segment}).
 ${knowledgeContext}
 
 HISTÓRICO COMPLETO DA CONVERSA ATE AGORA:
@@ -1303,51 +1311,59 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // DEDUPLICAÇÃO DEFENSIVA DE SAUDAÇÃO:
       // Protege contra dois cenários:
-      // A) Gemini retorna o greeting duas vezes em messagesToSend (bug de prompt)
-      // B) Outra instância/processo já enviou o greeting antes (race condition residual)
+      // A) Gemini retorna o greeting em messagesToSend mesmo quando o sistema já injeta greeting via código (isFirstMessage)
+      // B) Outra instância/processo já enviou o greeting antes (botAlreadyResponded)
       if (aiResult.messagesToSend.length > 0) {
         // LOG diagnóstico para rastrear se Gemini está duplicando no array
         console.log(`[SdrEngine] 📤 messagesToSend do Gemini (${aiResult.messagesToSend.length} balões):`, JSON.stringify(aiResult.messagesToSend));
 
-        // Verificar se DB já tem mensagens bot para esta conversa
+        // Verificar se DB já tem mensagens do bot para esta conversa nesta sessão de triagem
         const existingBotMsg = await db.select({ id: messages.id })
           .from(messages)
           .where(
             and(
               eq(messages.tenantId, tenantId),
-              eq(messages.conversationId, conversationId)
+              eq(messages.conversationId, conversationId),
+              eq(messages.senderType, "bot"),
+              ...(flowState?.startedAt ? [gte(messages.sentAt, flowState.startedAt)] : [])
             )
           )
           .limit(1);
         const botAlreadyResponded = existingBotMsg.length > 0;
 
-        if (botAlreadyResponded) {
-          // Se o bot já respondeu, remove saudações do array (Gemini não deveria mandar, mas protege)
+        // Como o código injeta a saudação oficial em isFirstMessage (logo abaixo), ou se o bot já respondeu antes,
+        // qualquer saudação/apresentação retornada pelo Gemini em messagesToSend deve ser removida para não duplicar.
+        if (isFirstMessage || botAlreadyResponded) {
           const greetingPatterns = [
             /^(boa\s*(tarde|noite)|bom\s*dia)[!.]?\s*$/i,
-            /^eu\s+sou\s+(a\s+)?valentina/i,
-            /^eu\s+sou\s+(o\s+)?fagner/i,
+            /^eu\s+sou\s+(a\s+)?valentina\b/i,
+            /^eu\s+sou\s+(o\s+)?fagner\b/i,
           ];
           const before = aiResult.messagesToSend.length;
           aiResult.messagesToSend = aiResult.messagesToSend.filter(
             msg => !greetingPatterns.some(p => p.test(msg.trim()))
           );
           if (aiResult.messagesToSend.length < before) {
-            console.log(`[SdrEngine] ⚠️ DEDUPLICAÇÃO: removidas ${before - aiResult.messagesToSend.length} mensagem(ns) de saudação duplicada (bot já havia respondido no DB).`);
+            console.log(
+              `[SdrEngine] ⚠️ DEDUPLICAÇÃO: removidas ${before - aiResult.messagesToSend.length} mensagem(ns) de saudação do array do Gemini (${isFirstMessage ? "saudação oficial será enviada pelo sistema" : "bot já havia respondido na sessão"}).`
+            );
           }
-        } else {
-          // Bot ainda não respondeu — remove apenas saudações DUPLICADAS dentro do próprio array
-          const seen = new Set<string>();
-          aiResult.messagesToSend = aiResult.messagesToSend.filter(msg => {
-            const key = msg.trim().toLowerCase();
-            if (seen.has(key)) {
-              console.log(`[SdrEngine] ⚠️ DEDUPLICAÇÃO: mensagem duplicada removida do array do Gemini: "${msg.slice(0, 60)}"`);
-              return false;
-            }
-            seen.add(key);
-            return true;
-          });
+          if (isFirstMessage && aiResult.messagesToSend.length === 0) {
+            aiResult.messagesToSend = ["Como posso te ajudar?"];
+          }
         }
+
+        // Remove mensagens duplicadas idênticas dentro do próprio array
+        const seen = new Set<string>();
+        aiResult.messagesToSend = aiResult.messagesToSend.filter(msg => {
+          const key = msg.trim().toLowerCase();
+          if (seen.has(key)) {
+            console.log(`[SdrEngine] ⚠️ DEDUPLICAÇÃO: mensagem duplicada removida do array do Gemini: "${msg.slice(0, 60)}"`);
+            return false;
+          }
+          seen.add(key);
+          return true;
+        });
       }
 
       const dynamicAudioFinal = dynamicAudio;
@@ -1365,9 +1381,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // GREETING INJETADO PELO CÓDIGO (não pelo Gemini):
       if (isFirstMessage && !signal?.aborted) {
         const aiPersonaForGreeting = getAiPersona(tenantId);
+        const greetingPrep = /^grupo\b/i.test(aiPersonaForGreeting.company) ? "do" : "da";
         const greetingMessages = [
           greeting,
-          `Eu sou ${aiPersonaForGreeting.gender === "female" ? "a" : "o"} ${aiPersonaForGreeting.name}, da ${aiPersonaForGreeting.company} 😊`,
+          `Eu sou ${aiPersonaForGreeting.gender === "female" ? "a" : "o"} ${aiPersonaForGreeting.name}, ${greetingPrep} ${aiPersonaForGreeting.company} 😊`,
         ];
         console.log(`[SdrEngine] 👋 Injetando greeting via código (isFirstMessage=true): ${JSON.stringify(greetingMessages)}`);
         await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal);
@@ -1554,14 +1571,36 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     try {
       if (activeProvider === "meta" || !sock || !realJid) {
         const { metaAdapter } = await import("../whatsapp/adapters/meta");
+        let recipientUserId: string | undefined;
+        let resolvedPhone = phone;
+        try {
+          const [conv] = await db
+            .select({ contactId: conversations.contactId })
+            .from(conversations)
+            .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+            .limit(1);
+          if (conv?.contactId) {
+            const [cnt] = await db
+              .select({ whatsappUserId: contacts.whatsappUserId, phone: contacts.phone })
+              .from(contacts)
+              .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)))
+              .limit(1);
+            if (cnt?.whatsappUserId) recipientUserId = cnt.whatsappUserId;
+            if (!resolvedPhone && cnt?.phone) resolvedPhone = cnt.phone;
+          }
+        } catch {}
+
         const res = await metaAdapter.send(tenantId, {
-          to: phone,
+          tenantId,
+          conversationId,
+          recipientPhone: resolvedPhone,
+          recipientUserId,
           mediaUrl: `/api/baileys/media?messageId=${botMessageId}`,
           mediaType: "audio",
-          mimeType: pttResult.mimeType,
           fileName: `${persona.name.toLowerCase()}_audio.ogg`,
         });
-        if (!res.success) {
+        resetMetaTypingThrottle(tenantId, conversationId);
+        if (res.status === "failed" || !res.externalId) {
           console.error(`[SdrEngine Dynamic PTT] ❌ Erro ao enviar PTT via Meta:`, res.error);
           return;
         }
@@ -1674,9 +1713,31 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     const persona = getAiPersona(tenantId);
     const botSenderName = `${persona.name} (SDR)`;
 
+    let recipientUserId: string | undefined;
+    let resolvedPhone = phone;
+    if (activeProvider === "meta" || !sock || !realJid) {
+      try {
+        const [conv] = await db
+          .select({ contactId: conversations.contactId })
+          .from(conversations)
+          .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+          .limit(1);
+        if (conv?.contactId) {
+          const [cnt] = await db
+            .select({ whatsappUserId: contacts.whatsappUserId, phone: contacts.phone })
+            .from(contacts)
+            .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)))
+            .limit(1);
+          if (cnt?.whatsappUserId) recipientUserId = cnt.whatsappUserId;
+          if (!resolvedPhone && cnt?.phone) resolvedPhone = cnt.phone;
+        }
+      } catch {}
+    }
+
     // Resolver a mensagem a ser citada no WhatsApp (Quoted Reply)
     let finalQuoteObj: any = null;
     let metaReplyExternalId: string | undefined = undefined;
+    let metaQuotedDbMsgId: string | undefined = targetQuoteMessageId || quoteItem?.messageId || undefined;
 
     if (targetQuoteMessageId) {
       try {
@@ -1687,6 +1748,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
         if (dbMsg) {
           metaReplyExternalId = dbMsg.externalId || undefined;
+          metaQuotedDbMsgId = dbMsg.id;
           if (realJid) {
             finalQuoteObj = {
               key: {
@@ -1745,8 +1807,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const hasRequoteInArray = messagesArray.some((m) => /só me responde/i.test(m) || /me responde isso/i.test(m));
 
       const shouldQuoteThisFragment = isRequoteFragment
-        ? Boolean(finalQuoteObj || metaReplyExternalId)
-        : (i === 0 && Boolean(finalQuoteObj || metaReplyExternalId) && !hasRequoteInArray);
+        ? Boolean(finalQuoteObj || metaReplyExternalId || metaQuotedDbMsgId)
+        : (i === 0 && Boolean(finalQuoteObj || metaReplyExternalId || metaQuotedDbMsgId) && !hasRequoteInArray);
 
       let botMessageId = `bot-sdr-${Date.now()}-${i}`;
       let externalId: string | null = null;
@@ -1754,13 +1816,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (activeProvider === "meta" || !sock || !realJid) {
         const { metaAdapter } = await import("../whatsapp/adapters/meta");
         const sendRes = await metaAdapter.send(tenantId, {
-          to: phone,
+          tenantId,
+          conversationId,
+          recipientPhone: resolvedPhone,
+          recipientUserId,
           text: fragmentText,
-          replyToMessageId: shouldQuoteThisFragment ? metaReplyExternalId : undefined,
+          quotedMessageId: shouldQuoteThisFragment ? metaQuotedDbMsgId : undefined,
         });
-        if (sendRes.externalId) {
-          externalId = sendRes.externalId;
+        resetMetaTypingThrottle(tenantId, conversationId);
+        if (sendRes.status === "failed" || !sendRes.externalId) {
+          console.error(`[SdrEngine] ❌ Falha ao enviar balão via Meta (${tenantId}): ${sendRes.error || "sem externalId"}`);
+          continue;
         }
+        externalId = sendRes.externalId;
       } else {
         const sendOptions: any = {};
         if (shouldQuoteThisFragment && finalQuoteObj) {

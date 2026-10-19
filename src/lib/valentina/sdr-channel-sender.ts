@@ -12,6 +12,7 @@ import { eq, and } from "drizzle-orm";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { metaAdapter } from "../whatsapp/adapters/meta";
 import { sendMetaConversationPresence, resetMetaTypingThrottle } from "../whatsapp/meta-presence";
+export { resetMetaTypingThrottle };
 import { getAiPersona } from "../ai-persona";
 
 export async function resolveTenantActiveProvider(tenantId: string): Promise<"baileys" | "meta"> {
@@ -116,7 +117,7 @@ export async function sendBotCatalogImage(params: {
     } catch {}
 
     const sendRes = await metaAdapter.send(tenantId, {
-      messageId: botMessageId,
+      tenantId,
       conversationId,
       recipientPhone: phone,
       recipientUserId,
