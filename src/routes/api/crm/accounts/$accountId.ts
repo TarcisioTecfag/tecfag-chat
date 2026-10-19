@@ -62,19 +62,24 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId")({
           const { accountId } = params as any;
           const body = await request.json();
 
-          const updated = await crmService.updateAccount(tenantId, accountId, {
-            name: body.name,
-            tradeName: body.tradeName,
-            segment: body.segment,
-            type: body.type,
-            document: body.document,
-            email: body.email,
-            phone: body.phone,
-            website: body.website,
-            address: body.address,
-            customFields: body.customFields,
-            notes: body.notes,
-          });
+          const updated = await crmService.updateAccount(
+            tenantId,
+            accountId,
+            {
+              name: body.name,
+              tradeName: body.tradeName,
+              segment: body.segment,
+              type: body.type,
+              document: body.document,
+              email: body.email,
+              phone: body.phone,
+              website: body.website,
+              address: body.address,
+              customFields: body.customFields,
+              notes: body.notes,
+            },
+            session.operator.id,
+          );
 
           return new Response(JSON.stringify({ account: updated }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -102,7 +107,7 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId")({
           const { accountId } = params as any;
           const [account] = await db.select({ name: crmAccounts.name }).from(crmAccounts)
             .where(and(eq(crmAccounts.id, accountId), eq(crmAccounts.tenantId, tenantId))).limit(1);
-          const result = await crmService.archiveAccount(tenantId, accountId);
+          const result = await crmService.archiveAccount(tenantId, accountId, session.operator.id);
           await recordCrmAction({ tenantId, operatorId: session.operator.id,
             operatorName: session.operator.name, action: "archive_account", entityType: "account",
             itemCount: 1, details: { accountId, name: account?.name || accountId } });

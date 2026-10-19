@@ -162,3 +162,66 @@ export interface CrmAccountDetailDTO extends CrmAccountDTO {
   conversations: CrmAccountConversationDTO[];
   history: CrmContactAccountHistoryDTO[];
 }
+
+export type CrmDealEventType =
+  | "created"
+  | "title_changed"
+  | "value_changed"
+  | "rating_changed"
+  | "owner_changed"
+  | "expected_close_date_changed"
+  | "source_changed"
+  | "campaign_changed"
+  | "pipeline_changed"
+  | "stage_changed"
+  | "status_changed"
+  | "bulk_updated"
+  | "custom_fields_changed"
+  | "account_linked"
+  | "account_unlinked"
+  | "account_changed"
+  | "account_updated"
+  | "account_archived"
+  | "participant_added"
+  | "participant_removed"
+  | "participant_role_changed"
+  | "primary_contact_changed"
+  | "contact_updated"
+  | "conversation_linked"
+  | "conversation_unlinked"
+  | "activity_created"
+  | "note_created"
+  | "activity_completed"
+  | "activity_reopened"
+  | "activity_cancelled"
+  | "activity_rescheduled"
+  | "activity_updated"
+  | "activity_deleted"
+  | "message_marked_as_evidence"
+  | "message_evidence_removed"
+  | "product_added"
+  | "product_removed"
+  | "proposal_created"
+  | "proposal_status_changed"
+  | "deal_file_uploaded"
+  | "deal_file_deleted"
+  | "deal_questionnaire_saved"
+  | "deal_email_logged"
+  | "deal_ai_priority_calculated";
+
+export interface CrmDealEventFieldDiff {
+  fieldLabel: string;
+  fromValue: string | null;
+  toValue: string | null;
+}
+
+export interface CrmDealCustomFieldDiff {
+  fieldId: string;
+  fieldName: string;
+  fieldType: string;
+  fromValue: unknown;
+  toValue: unknown;
+  fromLabel: string | null;
+  toLabel: string | null;
+}
+

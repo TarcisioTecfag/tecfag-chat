@@ -873,12 +873,14 @@ export function DealDetailModal({
   };
 
   // Carrega detalhes do Deal (com cache em memória e suporte a prefetch)
-  const loadDealDetail = async (bypassCache = false) => {
+  const loadDealDetail = async (bypassCache = true, silent = false) => {
     if (!dealId) return;
     if (bypassCache) {
       invalidateDealCache(dealId);
     }
-    setLoading(true);
+    if (!silent && !deal) {
+      setLoading(true);
+    }
     setLoadError(null);
     try {
       const data = await fetchDealDetailWithCache(dealId);
@@ -912,7 +914,7 @@ export function DealDetailModal({
 
   useEffect(() => {
     if (isOpen && dealId) {
-      loadDealDetail();
+      loadDealDetail(false, false);
       loadPipelines();
     } else {
       setDeal(null);
@@ -1069,7 +1071,11 @@ export function DealDetailModal({
         `*Validade:* ${prop.validityDays || 15} dias`;
 
       await navigator.clipboard.writeText(text);
-      toast.success("Texto copiado para a área de transferência! Envio deve ser confirmado explicitamente.");
+      if (prop.status === "draft") {
+        await handleUpdateProposalStatus(prop.id, "copied");
+      } else {
+        toast.success("Texto copiado para a área de transferência! Envio deve ser confirmado explicitamente.");
+      }
     } catch (err: any) {
       toast.error("Não foi possível copiar para a área de transferência.");
     }
@@ -1234,6 +1240,7 @@ export function DealDetailModal({
       setDeal((prev: any) => ({ ...prev, ...data.deal }));
       onDealUpdated(data.deal);
       toast.success("Negociação atualizada com sucesso.");
+      void loadDealDetail(true, true);
     } catch (err: any) {
       console.error("[DealDetailModal] Erro no patch:", err);
       toast.error(err.message || "Falha ao salvar alteração.");
@@ -1593,6 +1600,46 @@ export function DealDetailModal({
       if (
         evt.eventType === "activity_created" &&
         deal.activities?.some((a: any) => a.id === evt.metadata?.activityId)
+      ) {
+        return;
+      }
+
+      // Evitar duplicação visual com os cards ricos dedicados na mesma linha do tempo
+      if (
+        evt.eventType === "proposal_created" &&
+        deal.proposals?.some(
+          (p: any) =>
+            p.id === evt.metadata?.proposalId ||
+            p.proposalNumber === evt.metadata?.proposalNumber,
+        )
+      ) {
+        return;
+      }
+      if (
+        evt.eventType === "message_marked_as_evidence" &&
+        deal.evidences?.some(
+          (ev: any) =>
+            ev.id === evt.metadata?.evidenceId ||
+            ev.messageId === evt.metadata?.messageId,
+        )
+      ) {
+        return;
+      }
+      if (
+        evt.eventType === "deal_file_uploaded" &&
+        deal.files?.some((f: any) => f.id === evt.metadata?.fileId)
+      ) {
+        return;
+      }
+      if (
+        evt.eventType === "deal_email_logged" &&
+        deal.emails?.some((em: any) => em.id === evt.metadata?.emailId)
+      ) {
+        return;
+      }
+      if (
+        evt.eventType === "deal_questionnaire_saved" &&
+        deal.questionnaires?.some((q: any) => q.id === evt.metadata?.questionnaireId)
       ) {
         return;
       }
@@ -2389,7 +2436,10 @@ export function DealDetailModal({
                           </button>
                         )}
                       </div>
-                      <ContactCustomFieldsCard contactId={c.contactId} />
+                      <ContactCustomFieldsCard
+                        contactId={c.contactId}
+                        onSaved={() => void loadDealDetail(true, true)}
+                      />
                     </div>
                   ))
                 ) : (

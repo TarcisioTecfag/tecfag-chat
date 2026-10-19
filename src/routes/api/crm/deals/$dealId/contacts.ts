@@ -69,7 +69,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/contacts")({
             dealId,
             body.contactId,
             body.role || "buyer",
-            body.isPrimary || false
+            body.isPrimary || false,
+            session.operator.id,
           );
 
           return new Response(JSON.stringify({ contacts }), {
@@ -114,10 +115,16 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/contacts")({
               dealId,
               body.contactId,
               body.role,
-              Boolean(body.isPrimary)
+              Boolean(body.isPrimary),
+              session.operator.id,
             );
           } else if (body.isPrimary) {
-            contacts = await crmService.setPrimaryDealContact(tenantId, dealId, body.contactId);
+            contacts = await crmService.setPrimaryDealContact(
+              tenantId,
+              dealId,
+              body.contactId,
+              session.operator.id,
+            );
           } else {
             contacts = await crmService.getDealContacts(tenantId, dealId);
           }
@@ -157,7 +164,12 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/contacts")({
             );
           }
 
-          const contacts = await crmService.removeDealContact(tenantId, dealId, contactId);
+          const contacts = await crmService.removeDealContact(
+            tenantId,
+            dealId,
+            contactId,
+            session.operator.id,
+          );
 
           return new Response(JSON.stringify({ contacts }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

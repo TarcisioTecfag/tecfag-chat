@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
 
-export function ContactCustomFieldsCard({ contactId }: { contactId: string }) {
+export function ContactCustomFieldsCard({
+  contactId,
+  onSaved,
+}: {
+  contactId: string;
+  onSaved?: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [saved, setSaved] = useState<Record<string, unknown>>({});
@@ -42,6 +48,7 @@ export function ContactCustomFieldsCard({ contactId }: { contactId: string }) {
       if (!response.ok) throw new Error(data.error || "Não foi possível salvar.");
       setSaved(data.contact?.customFields || values);
       toast.success("Campos do contato atualizados.");
+      onSaved?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível salvar.");
     } finally {

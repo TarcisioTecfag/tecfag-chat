@@ -48,6 +48,8 @@ import type {
 } from "../../db/schema";
 import { vertexAi } from "../vertex-ai";
 import {
+  diffCustomFieldValues,
+  formatCustomFieldLabel,
   isFilled,
   listCustomFields,
   missingStageFields,
@@ -237,6 +239,7 @@ export interface CrmDealFilters {
   operatorId?: string;
   operatorIds?: string[];
   accountId?: string;
+  contactId?: string;
   search?: string;
   minValue?: number;
   maxValue?: number;
@@ -267,7 +270,7 @@ export interface CrmDealFilters {
 
 export function parseExtraDealFilters(params: URLSearchParams): Pick<CrmDealFilters,
   "withoutTask" | "rdStationOnly" | "emptyFields" | "title" | "rating" | "companyId" |
-  "campaign" | "source" | "productId" | "lastContactFrom" | "lastContactTo" |
+  "contactId" | "campaign" | "source" | "productId" | "lastContactFrom" | "lastContactTo" |
   "nextTaskFrom" | "nextTaskTo" | "closedFrom" | "closedTo" |
   "expectedCloseFrom" | "expectedCloseTo"> {
   const date = (key: string) => {
@@ -283,6 +286,7 @@ export function parseExtraDealFilters(params: URLSearchParams): Pick<CrmDealFilt
     title: params.get("title")?.slice(0, 200) || undefined,
     rating,
     companyId: params.get("companyId") || undefined,
+    contactId: params.get("contactId")?.trim() || undefined,
     campaign: params.get("campaign") || undefined,
     source: params.get("source") || undefined,
     productId: params.get("productId") || undefined,
@@ -418,6 +422,18 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
 
   if (typeof filters.accountId === "string" && filters.accountId.trim()) {
     conditions.push(eq(crmDeals.accountId, filters.accountId.trim()));
+  }
+
+  if (typeof filters.contactId === "string" && filters.contactId.trim()) {
+    const targetContactId = filters.contactId.trim();
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM crm_deal_contacts dc
+        WHERE dc.deal_id = ${crmDeals.id}
+          AND dc.tenant_id = ${tenantId}
+          AND dc.contact_id = ${targetContactId}
+      )`
+    );
   }
 
   const minVal = filters.minValue !== undefined && filters.minValue !== null && filters.minValue !== ""
@@ -1389,7 +1405,8 @@ export class CrmService {
       address?: Record<string, any>;
       customFields?: Record<string, any>;
       notes?: string | null;
-    }
+    },
+    operatorId: string | null = null,
   ): Promise<CrmAccount> {
     const [current] = await db
       .select()
@@ -1427,8 +1444,11 @@ export class CrmService {
     if (data.phone !== undefined) updates.phone = data.phone ? normalizeDocument(data.phone) : null;
     if (data.website !== undefined) updates.website = data.website?.trim() || null;
     if (data.address !== undefined) updates.address = data.address || {};
+
+    let companyFieldDefs: CustomFieldDefinition[] = [];
     if (data.customFields !== undefined) {
-      const patch = validateFieldValues(await listCustomFields(tenantId, "company"), data.customFields);
+      companyFieldDefs = await listCustomFields(tenantId, "company");
+      const patch = validateFieldValues(companyFieldDefs, data.customFields);
       updates.customFields = { ...(current.customFields as Record<string, unknown>), ...patch };
     }
     if (data.notes !== undefined) updates.notes = data.notes?.trim() || null;
@@ -1468,6 +1488,69 @@ export class CrmService {
       .where(and(eq(crmAccounts.id, accountId), eq(crmAccounts.tenantId, tenantId)))
       .returning();
 
+    const changes: Array<{ fieldLabel: string; fromValue: string | null; toValue: string | null }> = [];
+    const pushIfChanged = (label: string, fromVal: unknown, toVal: unknown) => {
+      const f = typeof fromVal === "string" && fromVal.trim() ? fromVal.trim() : null;
+      const t = typeof toVal === "string" && toVal.trim() ? toVal.trim() : null;
+      if (f !== t) changes.push({ fieldLabel: label, fromValue: f, toValue: t });
+    };
+
+    if (updates.name !== undefined) pushIfChanged("Nome", current.name, updated.name);
+    if (updates.tradeName !== undefined) pushIfChanged("Nome Fantasia", current.tradeName, updated.tradeName);
+    if (updates.segment !== undefined) pushIfChanged("Segmento", current.segment, updated.segment);
+    if (updates.document !== undefined) pushIfChanged("CPF/CNPJ", current.document, updated.document);
+    if (updates.email !== undefined) pushIfChanged("E-mail", current.email, updated.email);
+    if (updates.phone !== undefined) pushIfChanged("Telefone", current.phone, updated.phone);
+    if (updates.website !== undefined) pushIfChanged("Website", current.website, updated.website);
+    if (updates.notes !== undefined) pushIfChanged("Observações", current.notes, updated.notes);
+
+    if (updates.address !== undefined) {
+      const prevAddr = (current.address as Record<string, any>) || {};
+      const nextAddr = (updated.address as Record<string, any>) || {};
+      const addrFields: Array<[string, string]> = [
+        ["street", "Logradouro"],
+        ["number", "Número"],
+        ["complement", "Complemento"],
+        ["neighborhood", "Bairro"],
+        ["city", "Cidade"],
+        ["state", "UF"],
+        ["zipCode", "CEP"],
+      ];
+      for (const [key, label] of addrFields) {
+        pushIfChanged(label, prevAddr[key], nextAddr[key]);
+      }
+    }
+
+    if (updates.customFields !== undefined) {
+      const cfDiffs = diffCustomFieldValues(
+        companyFieldDefs,
+        current.customFields as Record<string, unknown>,
+        updated.customFields as Record<string, unknown>,
+      );
+      for (const d of cfDiffs) {
+        changes.push({
+          fieldLabel: d.fieldName,
+          fromValue: d.fromLabel,
+          toValue: d.toLabel,
+        });
+      }
+    }
+
+    if (changes.length > 0) {
+      const linkedDeals = await db
+        .select({ id: crmDeals.id })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.accountId, accountId)));
+
+      for (const d of linkedDeals) {
+        await this.logDealEvent(tenantId, d.id, "account_updated", operatorId, {
+          accountId,
+          accountName: updated.name,
+          changes,
+        });
+      }
+    }
+
     return updated;
   }
 
@@ -1476,10 +1559,11 @@ export class CrmService {
    */
   async archiveAccount(
     tenantId: string,
-    accountId: string
+    accountId: string,
+    operatorId: string | null = null,
   ): Promise<{ success: boolean; id: string }> {
     const [current] = await db
-      .select({ id: crmAccounts.id })
+      .select({ id: crmAccounts.id, name: crmAccounts.name })
       .from(crmAccounts)
       .where(
         and(
@@ -1498,6 +1582,18 @@ export class CrmService {
       .update(crmAccounts)
       .set({ archivedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(crmAccounts.id, accountId), eq(crmAccounts.tenantId, tenantId)));
+
+    const linkedDeals = await db
+      .select({ id: crmDeals.id })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.accountId, accountId)));
+
+    for (const d of linkedDeals) {
+      await this.logDealEvent(tenantId, d.id, "account_archived", operatorId, {
+        accountId,
+        accountName: current.name,
+      });
+    }
 
     return { success: true, id: accountId };
   }
@@ -1690,7 +1786,8 @@ export class CrmService {
     dealId: string,
     contactId: string,
     role: string = "buyer",
-    isPrimary: boolean = false
+    isPrimary: boolean = false,
+    operatorId: string | null = null,
   ) {
     return await db.transaction(async (tx) => {
       const [deal] = await tx
@@ -1704,7 +1801,7 @@ export class CrmService {
       }
 
       let [contact] = await tx
-        .select({ id: contacts.id })
+        .select({ id: contacts.id, name: contacts.name, phone: contacts.phone })
         .from(contacts)
         .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
         .limit(1);
@@ -1713,7 +1810,7 @@ export class CrmService {
         const digits = contactId.replace(/\D/g, "");
         if (digits.length >= 8) {
           [contact] = await tx
-            .select({ id: contacts.id })
+            .select({ id: contacts.id, name: contacts.name, phone: contacts.phone })
             .from(contacts)
             .where(
               and(
@@ -1727,7 +1824,7 @@ export class CrmService {
 
       if (!contact) {
         [contact] = await tx
-          .select({ id: contacts.id })
+          .select({ id: contacts.id, name: contacts.name, phone: contacts.phone })
           .from(contacts)
           .where(
             and(
@@ -1757,6 +1854,7 @@ export class CrmService {
 
       const isFirst = existing.length === 0;
       const already = existing.find((p) => p.contactId === finalContactId);
+      const prevPrimary = existing.find((p) => p.isPrimary);
       const shouldBePrimary = isPrimary || isFirst;
 
       if (shouldBePrimary) {
@@ -1771,6 +1869,22 @@ export class CrmService {
           .update(crmDealContacts)
           .set({ role, isPrimary: shouldBePrimary || Boolean(already.isPrimary) })
           .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.id, already.id)));
+
+        if (already.role !== role) {
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "participant_role_changed",
+            operatorId,
+            {
+              contactId: finalContactId,
+              contactName: contact.name,
+              fromRole: already.role,
+              toRole: role,
+            },
+            tx,
+          );
+        }
       } else {
         await tx.insert(crmDealContacts).values({
           id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -1781,6 +1895,21 @@ export class CrmService {
           isPrimary: shouldBePrimary,
           createdAt: new Date(),
         });
+
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "participant_added",
+          operatorId,
+          {
+            contactId: finalContactId,
+            contactName: contact.name,
+            contactPhone: contact.phone,
+            role,
+            isPrimary: shouldBePrimary,
+          },
+          tx,
+        );
       }
 
       // Sincroniza automaticamente as conversas deste contato com a negociação (crm_conversation_deals)
@@ -1809,7 +1938,7 @@ export class CrmService {
               .set({
                 isActive: true,
                 unlinkedAt: null,
-                unlinkedByOperatorId: null,
+                unlinkedByOperatorId: operatorId,
               })
               .where(and(eq(crmConversationDeals.id, existingConvDeal.id), eq(crmConversationDeals.tenantId, tenantId)));
           }
@@ -1820,7 +1949,7 @@ export class CrmService {
             conversationId: conv.id,
             dealId,
             origin: "crm",
-            createdByOperatorId: null,
+            createdByOperatorId: operatorId,
             isActive: true,
             createdAt: new Date(),
           });
@@ -1844,6 +1973,23 @@ export class CrmService {
         )
         .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
 
+      if (shouldBePrimary && prevPrimary && prevPrimary.contactId !== finalContactId) {
+        const prevPrimaryContact = updatedRaw.find((r) => r.contact.id === prevPrimary.contactId)?.contact;
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "primary_contact_changed",
+          operatorId,
+          {
+            fromContactId: prevPrimary.contactId,
+            fromContactName: prevPrimaryContact?.name || null,
+            toContactId: finalContactId,
+            toContactName: contact.name,
+          },
+          tx,
+        );
+      }
+
       return updatedRaw.map((r) => ({
         ...r.dealContact,
         contact: {
@@ -1864,7 +2010,8 @@ export class CrmService {
   async removeDealContact(
     tenantId: string,
     dealId: string,
-    contactId: string
+    contactId: string,
+    operatorId: string | null = null,
   ) {
     return await db.transaction(async (tx) => {
       const [deal] = await tx
@@ -1893,11 +2040,32 @@ export class CrmService {
         return await this.getDealContacts(tenantId, dealId);
       }
 
+      const [removedContact] = await tx
+        .select({ name: contacts.name, phone: contacts.phone })
+        .from(contacts)
+        .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
+        .limit(1);
+
       await lockContactDeals(tx, tenantId, contactId);
       const [otherDeal] = await tx.select({ id: crmDealContacts.id }).from(crmDealContacts)
         .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.contactId, contactId), ne(crmDealContacts.dealId, dealId))).limit(1);
       if (!otherDeal) throw new DealRequiredError();
       await tx.delete(crmDealContacts).where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.id, existing.id)));
+
+      await this.logDealEvent(
+        tenantId,
+        dealId,
+        "participant_removed",
+        operatorId,
+        {
+          contactId,
+          contactName: removedContact?.name || null,
+          contactPhone: removedContact?.phone || null,
+          role: existing.role,
+          wasPrimary: existing.isPrimary,
+        },
+        tx,
+      );
 
       // Desativa o vínculo das conversas deste contato com esta negociação
       const contactConvs = await tx
@@ -1911,6 +2079,7 @@ export class CrmService {
           .set({
             isActive: false,
             unlinkedAt: new Date(),
+            unlinkedByOperatorId: operatorId,
           })
           .where(
             and(
@@ -1922,6 +2091,7 @@ export class CrmService {
           );
       }
 
+      let promotedContactId: string | null = null;
       if (existing.isPrimary) {
         const [next] = await tx
           .select()
@@ -1935,6 +2105,7 @@ export class CrmService {
             .update(crmDealContacts)
             .set({ isPrimary: true })
             .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.id, next.id)));
+          promotedContactId = next.contactId;
         }
       }
 
@@ -1953,6 +2124,23 @@ export class CrmService {
           )
         )
         .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
+
+      if (promotedContactId) {
+        const promotedContact = updatedRaw.find((r) => r.contact.id === promotedContactId)?.contact;
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "primary_contact_changed",
+          operatorId,
+          {
+            fromContactId: contactId,
+            fromContactName: removedContact?.name || null,
+            toContactId: promotedContactId,
+            toContactName: promotedContact?.name || null,
+          },
+          tx,
+        );
+      }
 
       return updatedRaw.map((r) => ({
         ...r.dealContact,
@@ -1973,7 +2161,8 @@ export class CrmService {
   async setPrimaryDealContact(
     tenantId: string,
     dealId: string,
-    contactId: string
+    contactId: string,
+    operatorId: string | null = null,
   ) {
     return await db.transaction(async (tx) => {
       const [deal] = await tx
@@ -2002,6 +2191,18 @@ export class CrmService {
         throw new CrmNotFoundError("Contato participante não encontrado nesta negociação.");
       }
 
+      const [prevPrimary] = await tx
+        .select()
+        .from(crmDealContacts)
+        .where(
+          and(
+            eq(crmDealContacts.tenantId, tenantId),
+            eq(crmDealContacts.dealId, dealId),
+            eq(crmDealContacts.isPrimary, true)
+          )
+        )
+        .limit(1);
+
       await tx
         .update(crmDealContacts)
         .set({ isPrimary: false })
@@ -2027,6 +2228,26 @@ export class CrmService {
           )
         )
         .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
+
+      if (!prevPrimary || prevPrimary.contactId !== contactId) {
+        const fromContact = prevPrimary
+          ? updatedRaw.find((r) => r.contact.id === prevPrimary.contactId)?.contact
+          : null;
+        const toContact = updatedRaw.find((r) => r.contact.id === contactId)?.contact;
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "primary_contact_changed",
+          operatorId,
+          {
+            fromContactId: prevPrimary?.contactId || null,
+            fromContactName: fromContact?.name || null,
+            toContactId: contactId,
+            toContactName: toContact?.name || null,
+          },
+          tx,
+        );
+      }
 
       return updatedRaw.map((r) => ({
         ...r.dealContact,
@@ -3272,6 +3493,7 @@ export class CrmService {
       campaign?: string;
       lossReason?: string | null;
       pausedReason?: string | null;
+      winReason?: string | null;
       expectedVersion?: number;
       customFields?: CustomFieldValues;
     }
@@ -3325,18 +3547,19 @@ export class CrmService {
 
       const dealFields = updates.customFields !== undefined || updates.stageId !== undefined || pipelineChanged
         ? await listCustomFields(tenantId, "deal", tx) : [];
+      const currentCf =
+        typeof current.customFields === "string"
+          ? (() => {
+              try {
+                return JSON.parse(current.customFields) || {};
+              } catch {
+                return {};
+              }
+            })()
+          : (current.customFields as CustomFieldValues) || {};
+
       if (updates.customFields !== undefined) {
         const patch = validateFieldValues(dealFields, updates.customFields, { pipelineId: targetPipelineId });
-        const currentCf =
-          typeof current.customFields === "string"
-            ? (() => {
-                try {
-                  return JSON.parse(current.customFields) || {};
-                } catch {
-                  return {};
-                }
-              })()
-            : (current.customFields as CustomFieldValues) || {};
         setPayload.customFields = { ...currentCf, ...patch };
         await assertDealCustomFieldsUnique(
           tenantId,
@@ -3349,35 +3572,46 @@ export class CrmService {
 
       // Validação de operador se alterado
       const targetOpId = updates.operatorId !== undefined ? updates.operatorId : updates.ownerId;
+      let toOperatorName: string | null = null;
       if (targetOpId !== undefined) {
         if (targetOpId !== null) {
           const [op] = await tx
-            .select({ id: operators.id })
+            .select({ id: operators.id, name: operators.name })
             .from(operators)
             .where(and(eq(operators.id, targetOpId), eq(operators.tenantId, tenantId)))
             .limit(1);
           if (!op) {
             throw new CrmCrossTenantError(`O operador informado (${targetOpId}) não pertence ao tenant ${tenantId}.`);
           }
+          toOperatorName = op.name;
         }
         setPayload.operatorId = targetOpId;
       }
 
       // Validação de conta compradora se alterada
+      let toAccountRow: { id: string; name: string; document: string | null; type: string } | null = null;
       if (updates.accountId !== undefined) {
         if (updates.accountId !== null) {
           const [acc] = await tx
-            .select({ id: crmAccounts.id })
+            .select({
+              id: crmAccounts.id,
+              name: crmAccounts.name,
+              document: crmAccounts.document,
+              type: crmAccounts.type,
+            })
             .from(crmAccounts)
             .where(and(eq(crmAccounts.id, updates.accountId), eq(crmAccounts.tenantId, tenantId)))
             .limit(1);
           if (!acc) {
             throw new CrmCrossTenantError(`A conta informada (${updates.accountId}) não pertence ao tenant ${tenantId}.`);
           }
+          toAccountRow = acc;
         }
         setPayload.accountId = updates.accountId;
       }
 
+      let fromPipelineName: string | null = null;
+      let toPipelineName: string | null = null;
       if (pipelineChanged) {
         const [targetPipe] = await tx
           .select({ id: crmPipelines.id, name: crmPipelines.name })
@@ -3388,6 +3622,14 @@ export class CrmService {
         if (!targetPipe) {
           throw new CrmCrossTenantError(`O funil informado (${updates.pipelineId}) não pertence ao tenant ${tenantId}.`);
         }
+        toPipelineName = targetPipe.name;
+
+        const [prevPipe] = await tx
+          .select({ name: crmPipelines.name })
+          .from(crmPipelines)
+          .where(and(eq(crmPipelines.id, current.pipelineId), eq(crmPipelines.tenantId, tenantId)))
+          .limit(1);
+        fromPipelineName = prevPipe?.name || null;
 
         setPayload.pipelineId = targetPipe.id;
 
@@ -3409,11 +3651,14 @@ export class CrmService {
       // Transição de etapa: validação se pertence ao funil de destino e tenant
       const stageChanged = (updates.stageId && updates.stageId !== current.stageId) || pipelineChanged;
       let effectiveNewStatus = updates.status;
+      let fromStageName: string | null = null;
+      let toStageName: string | null = null;
 
       if (stageChanged && updates.stageId) {
         const [stage] = await tx
           .select({
             id: crmStages.id,
+            name: crmStages.name,
             pipelineId: crmStages.pipelineId,
             orderIndex: crmStages.orderIndex,
             isWinStage: crmStages.isWinStage,
@@ -3434,6 +3679,14 @@ export class CrmService {
             "STAGE_NOT_IN_PIPELINE"
           );
         }
+        toStageName = stage.name;
+
+        const [prevStage] = await tx
+          .select({ name: crmStages.name })
+          .from(crmStages)
+          .where(and(eq(crmStages.id, current.stageId), eq(crmStages.tenantId, tenantId)))
+          .limit(1);
+        fromStageName = prevStage?.name || null;
 
         const pipelineStages = await tx
           .select({ id: crmStages.id, orderIndex: crmStages.orderIndex, pipelineId: crmStages.pipelineId })
@@ -3501,6 +3754,209 @@ export class CrmService {
       if (updates.accountId) await syncAccountDealContacts(tx, tenantId, dealId, updates.accountId, operatorId);
 
       // Auditoria de mudanças dentro da transação
+      if (setPayload.title !== undefined && setPayload.title !== current.title) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "title_changed",
+          operatorId,
+          {
+            fromTitle: current.title,
+            toTitle: setPayload.title,
+          },
+          tx
+        );
+      }
+
+      if (setPayload.value !== undefined && setPayload.value !== current.value) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "value_changed",
+          operatorId,
+          {
+            previousValue: current.value,
+            newValue: setPayload.value,
+            reason: "manual",
+          },
+          tx
+        );
+      }
+
+      if (setPayload.rating !== undefined && setPayload.rating !== current.rating) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "rating_changed",
+          operatorId,
+          {
+            fromRating: current.rating,
+            toRating: setPayload.rating,
+          },
+          tx
+        );
+      }
+
+      if (setPayload.operatorId !== undefined && setPayload.operatorId !== current.operatorId) {
+        let fromOperatorName: string | null = null;
+        if (current.operatorId) {
+          const [prevOp] = await tx
+            .select({ name: operators.name })
+            .from(operators)
+            .where(and(eq(operators.id, current.operatorId), eq(operators.tenantId, tenantId)))
+            .limit(1);
+          fromOperatorName = prevOp?.name || null;
+        }
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "owner_changed",
+          operatorId,
+          {
+            fromOperatorId: current.operatorId,
+            fromOperatorName,
+            toOperatorId: setPayload.operatorId,
+            toOperatorName,
+          },
+          tx
+        );
+      }
+
+      if (setPayload.expectedCloseDate !== undefined) {
+        const fromDate = current.expectedCloseDate
+          ? new Date(current.expectedCloseDate).toISOString().slice(0, 10)
+          : null;
+        const toDate = setPayload.expectedCloseDate
+          ? new Date(setPayload.expectedCloseDate).toISOString().slice(0, 10)
+          : null;
+        if (fromDate !== toDate) {
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "expected_close_date_changed",
+            operatorId,
+            {
+              fromDate,
+              toDate,
+            },
+            tx
+          );
+        }
+      }
+
+      if (
+        setPayload.source !== undefined &&
+        (setPayload.source || null) !== (current.source || null)
+      ) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "source_changed",
+          operatorId,
+          {
+            fromSource: current.source || null,
+            toSource: setPayload.source || null,
+          },
+          tx
+        );
+      }
+
+      if (
+        setPayload.campaign !== undefined &&
+        (setPayload.campaign || null) !== (current.campaign || null)
+      ) {
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          "campaign_changed",
+          operatorId,
+          {
+            fromCampaign: current.campaign || null,
+            toCampaign: setPayload.campaign || null,
+          },
+          tx
+        );
+      }
+
+      if (setPayload.accountId !== undefined && setPayload.accountId !== current.accountId) {
+        let fromAccName: string | null = null;
+        if (current.accountId) {
+          const [prevAcc] = await tx
+            .select({ name: crmAccounts.name })
+            .from(crmAccounts)
+            .where(and(eq(crmAccounts.id, current.accountId), eq(crmAccounts.tenantId, tenantId)))
+            .limit(1);
+          fromAccName = prevAcc?.name || null;
+        }
+
+        if (!current.accountId && toAccountRow) {
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "account_linked",
+            operatorId,
+            {
+              accountId: toAccountRow.id,
+              accountName: toAccountRow.name,
+              accountDocument: toAccountRow.document,
+              accountType: toAccountRow.type,
+            },
+            tx
+          );
+        } else if (current.accountId && !toAccountRow) {
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "account_unlinked",
+            operatorId,
+            {
+              accountId: current.accountId,
+              accountName: fromAccName,
+              fromAccountId: current.accountId,
+              fromAccountName: fromAccName,
+            },
+            tx
+          );
+        } else if (current.accountId && toAccountRow) {
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "account_changed",
+            operatorId,
+            {
+              fromAccountId: current.accountId,
+              fromAccountName: fromAccName,
+              toAccountId: toAccountRow.id,
+              toAccountName: toAccountRow.name,
+              accountId: toAccountRow.id,
+              accountName: toAccountRow.name,
+              accountDocument: toAccountRow.document,
+            },
+            tx
+          );
+        }
+      }
+
+      if (updates.customFields !== undefined) {
+        const cfDiffs = diffCustomFieldValues(
+          dealFields,
+          currentCf,
+          setPayload.customFields as Record<string, unknown>,
+        );
+        if (cfDiffs.length > 0) {
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "custom_fields_changed",
+            operatorId,
+            {
+              changes: cfDiffs,
+            },
+            tx
+          );
+        }
+      }
+
       if (pipelineChanged) {
         await this.logDealEvent(
           tenantId,
@@ -3509,7 +3965,13 @@ export class CrmService {
           operatorId,
           {
             fromPipelineId: current.pipelineId,
+            fromPipelineName,
             toPipelineId: targetPipelineId,
+            toPipelineName,
+            fromStageId: current.stageId,
+            fromStageName,
+            toStageId: updates.stageId || current.stageId,
+            toStageName,
           },
           tx
         );
@@ -3523,7 +3985,9 @@ export class CrmService {
           operatorId,
           {
             fromStageId: current.stageId,
+            fromStageName,
             toStageId: updates.stageId,
+            toStageName,
           },
           tx
         );
@@ -3538,7 +4002,9 @@ export class CrmService {
           {
             fromStatus: current.status,
             toStatus: effectiveNewStatus,
-            lossReason: updates.lossReason,
+            lossReason: updates.lossReason ?? null,
+            pausedReason: updates.pausedReason ?? null,
+            winReason: updates.winReason ?? null,
           },
           tx
         );
@@ -4115,6 +4581,16 @@ export class CrmService {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${"deal-participants:" + dealId}))`);
       const now = new Date();
 
+      let contactInfo: { name: string | null; phone: string | null } | null = null;
+      if (conv.contactId) {
+        const [ct] = await tx
+          .select({ name: contacts.name, phone: contacts.phone })
+          .from(contacts)
+          .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)))
+          .limit(1);
+        contactInfo = ct || null;
+      }
+
       // 2. Garante que o contato desta conversa seja vinculado aos participantes da negociação
       if (conv.contactId) {
         const [existingDealContact] = await tx
@@ -4159,6 +4635,8 @@ export class CrmService {
             operatorId,
             {
               contactId: conv.contactId,
+              contactName: contactInfo?.name || null,
+              contactPhone: contactInfo?.phone || null,
               role: "buyer",
               isPrimary: !hasPrimary,
               source: "conversation_link",
@@ -4202,6 +4680,9 @@ export class CrmService {
             operatorId,
             {
               conversationId,
+              contactId: conv.contactId,
+              contactName: contactInfo?.name || null,
+              contactPhone: contactInfo?.phone || null,
               reactivated: true,
             },
             tx
@@ -4234,6 +4715,9 @@ export class CrmService {
         operatorId,
         {
           conversationId,
+          contactId: conv.contactId,
+          contactName: contactInfo?.name || null,
+          contactPhone: contactInfo?.phone || null,
           origin,
         },
         tx
@@ -4269,6 +4753,16 @@ export class CrmService {
         .limit(1);
 
       if (!conv) throw new CrmCrossTenantError(`Conversa (${conversationId}) não encontrada no tenant ${tenantId}.`);
+
+      let contactInfo: { name: string | null; phone: string | null } | null = null;
+      if (conv.contactId) {
+        const [ct] = await tx
+          .select({ name: contacts.name, phone: contacts.phone })
+          .from(contacts)
+          .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)))
+          .limit(1);
+        contactInfo = ct || null;
+      }
 
       await lockContactDeals(tx, tenantId, conv.contactId);
       const [otherLink] = await tx.select({ id: crmConversationDeals.id }).from(crmConversationDeals)
@@ -4314,6 +4808,9 @@ export class CrmService {
           operatorId,
           {
             conversationId,
+            contactId: conv.contactId,
+            contactName: contactInfo?.name || null,
+            contactPhone: contactInfo?.phone || null,
           },
           tx
         );
@@ -4495,8 +4992,11 @@ export class CrmService {
 
       let dueDateChanged = false;
       if (updates.dueDate !== undefined) {
-        setPayload.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
-        dueDateChanged = true;
+        const nextDue = updates.dueDate ? new Date(updates.dueDate) : null;
+        setPayload.dueDate = nextDue;
+        const prevIso = current.dueDate ? new Date(current.dueDate).toISOString().slice(0, 10) : null;
+        const nextIso = nextDue ? nextDue.toISOString().slice(0, 10) : null;
+        dueDateChanged = prevIso !== nextIso;
       }
 
       if (updates.type !== undefined) {
@@ -4540,6 +5040,21 @@ export class CrmService {
         .set({ lastActivityAt: now, updatedAt: now })
         .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
 
+      const activityChanges: Array<{ fieldLabel: string; fromValue: string | null; toValue: string | null }> = [];
+      if (setPayload.title !== undefined && setPayload.title !== current.title) {
+        activityChanges.push({ fieldLabel: "Título", fromValue: current.title, toValue: setPayload.title });
+      }
+      if (setPayload.description !== undefined && (setPayload.description || null) !== (current.description || null)) {
+        activityChanges.push({
+          fieldLabel: "Descrição",
+          fromValue: current.description || null,
+          toValue: setPayload.description || null,
+        });
+      }
+      if (setPayload.type !== undefined && setPayload.type !== current.type) {
+        activityChanges.push({ fieldLabel: "Tipo", fromValue: current.type, toValue: setPayload.type });
+      }
+
       // Evento de auditoria granular
       let eventType = "activity_updated";
       if (statusChanged) {
@@ -4559,7 +5074,9 @@ export class CrmService {
           activityId,
           activityTitle: updated.title,
           status: updated.status,
+          previousDueDate: current.dueDate,
           dueDate: updated.dueDate,
+          changes: activityChanges.length > 0 ? activityChanges : undefined,
         },
         tx
       );

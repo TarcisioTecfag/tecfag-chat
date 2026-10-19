@@ -297,3 +297,83 @@ export function missingStageFields(
 
   return Array.from(missingNames);
 }
+
+export function formatCustomFieldLabel(
+  field: CustomFieldDefinition,
+  value: unknown,
+): string | null {
+  if (!isFilled(value)) return null;
+  const options = parseJsonArray<{ id: string; label: string }>(field.options);
+  const optionMap = new Map(options.map((o) => [o.id, o.label]));
+
+  if (field.fieldType === "single" && typeof value === "string") {
+    return optionMap.get(value) || value;
+  }
+  if (field.fieldType === "multiple" && Array.isArray(value)) {
+    const labels = value
+      .map((item) => (typeof item === "string" ? optionMap.get(item) || item : String(item)))
+      .filter(Boolean);
+    return labels.length > 0 ? labels.join(", ") : null;
+  }
+  if (field.fieldType === "date" && typeof value === "string") {
+    const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    return value;
+  }
+  return String(value).trim() || null;
+}
+
+export function diffCustomFieldValues(
+  definitions: CustomFieldDefinition[],
+  oldValues: Record<string, unknown> | null | undefined,
+  newValues: Record<string, unknown> | null | undefined,
+): Array<{
+  fieldId: string;
+  fieldName: string;
+  fieldType: string;
+  fromValue: unknown;
+  toValue: unknown;
+  fromLabel: string | null;
+  toLabel: string | null;
+}> {
+  const prev = oldValues && typeof oldValues === "object" ? oldValues : {};
+  const next = newValues && typeof newValues === "object" ? newValues : {};
+  const byId = new Map(definitions.map((d) => [d.id, d]));
+  const allKeys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  const diffs: Array<{
+    fieldId: string;
+    fieldName: string;
+    fieldType: string;
+    fromValue: unknown;
+    toValue: unknown;
+    fromLabel: string | null;
+    toLabel: string | null;
+  }> = [];
+
+  for (const key of allKeys) {
+    const field = byId.get(key);
+    if (!field) continue;
+    const rawFrom = prev[key];
+    const rawTo = next[key];
+    const fromFilled = isFilled(rawFrom);
+    const toFilled = isFilled(rawTo);
+    if (!fromFilled && !toFilled) continue;
+
+    const fromLabel = formatCustomFieldLabel(field, rawFrom);
+    const toLabel = formatCustomFieldLabel(field, rawTo);
+    if (fromLabel === toLabel) continue;
+
+    diffs.push({
+      fieldId: field.id,
+      fieldName: field.name,
+      fieldType: field.fieldType,
+      fromValue: fromFilled ? rawFrom : null,
+      toValue: toFilled ? rawTo : null,
+      fromLabel,
+      toLabel,
+    });
+  }
+
+  return diffs;
+}
+

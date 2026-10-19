@@ -113,7 +113,12 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
             stageId: body.stageId,
             status: body.status,
             value: body.value,
-            expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : undefined,
+            expectedCloseDate:
+              body.expectedCloseDate === null
+                ? null
+                : body.expectedCloseDate
+                  ? new Date(body.expectedCloseDate)
+                  : undefined,
             operatorId: targetOpId,
             accountId: body.accountId,
             rating: body.rating,
@@ -121,6 +126,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
             campaign: body.campaign,
             lossReason: body.lossReason,
             pausedReason: body.pausedReason,
+            winReason: body.winReason,
             expectedVersion: body.expectedVersion,
             customFields: body.customFields,
           });

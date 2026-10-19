@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { contacts } from "../../../db/schema";
+import { contacts, crmDealContacts, crmDealEvents } from "../../../db/schema";
 import { and, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
-import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
+import { diffCustomFieldValues, listCustomFields, validateFieldValues, type CustomFieldDefinition } from "../../../lib/crm/custom-fields";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms, phoneRegistrationError } from "../../../lib/utils";
 
 const CORS = {
@@ -47,7 +47,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           } | null;
           if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Dados inválidos." }, { status: 400 });
 
-          const [currentContact] = await db.select({ id: contacts.id, customFields: contacts.customFields, walletOperatorId: contacts.walletOperatorId })
+          const [currentContact] = await db.select()
             .from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId))).limit(1);
           if (!currentContact) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
           if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only" && currentContact.walletOperatorId !== session.operator.id) {
@@ -93,8 +93,10 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             updates.tags = body.tags;
           }
           if ("cnpjDetails" in body) updates.cnpjDetails = body.cnpjDetails;
+          let contactFieldDefs: CustomFieldDefinition[] = [];
           if (body.customFields !== undefined) {
-            const patch = validateFieldValues(await listCustomFields(session.tenantId, "contact"), body.customFields);
+            contactFieldDefs = await listCustomFields(session.tenantId, "contact");
+            const patch = validateFieldValues(contactFieldDefs, body.customFields);
             updates.customFields = { ...currentContact.customFields, ...patch };
           }
 
@@ -125,6 +127,66 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             .from(contacts)
             .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)))
             .limit(1);
+
+          if (updatedContact) {
+            const changes: Array<{ fieldLabel: string; fromValue: string | null; toValue: string | null }> = [];
+            const pushChange = (label: string, fromVal: unknown, toVal: unknown) => {
+              const f = typeof fromVal === "string" && fromVal.trim() ? fromVal.trim() : null;
+              const t = typeof toVal === "string" && toVal.trim() ? toVal.trim() : null;
+              if (f !== t) changes.push({ fieldLabel: label, fromValue: f, toValue: t });
+            };
+
+            if ("name" in updates) pushChange("Nome", currentContact.name, updatedContact.name);
+            if ("phone" in updates) pushChange("Telefone", currentContact.phone, updatedContact.phone);
+            if ("whatsappUsername" in updates) pushChange("Usuário WhatsApp", currentContact.whatsappUsername, updatedContact.whatsappUsername);
+            if ("email" in updates) pushChange("E-mail", currentContact.email, updatedContact.email);
+            if ("cpf" in updates) pushChange("CPF", currentContact.cpf, updatedContact.cpf);
+            if ("cnpj" in updates) pushChange("CNPJ", currentContact.cnpj, updatedContact.cnpj);
+
+            if (updates.customFields !== undefined) {
+              const cfDiffs = diffCustomFieldValues(
+                contactFieldDefs,
+                currentContact.customFields as Record<string, unknown>,
+                updatedContact.customFields as Record<string, unknown>,
+              );
+              for (const d of cfDiffs) {
+                changes.push({
+                  fieldLabel: d.fieldName,
+                  fromValue: d.fromLabel,
+                  toValue: d.toLabel,
+                });
+              }
+            }
+
+            if (changes.length > 0) {
+              const linkedDealContacts = await db
+                .select({ dealId: crmDealContacts.dealId })
+                .from(crmDealContacts)
+                .where(
+                  and(
+                    eq(crmDealContacts.tenantId, session.tenantId),
+                    eq(crmDealContacts.contactId, contactId),
+                  ),
+                );
+              const uniqueDealIds = Array.from(new Set(linkedDealContacts.map((r) => r.dealId)));
+              const now = new Date();
+              for (const dealId of uniqueDealIds) {
+                await db.insert(crmDealEvents).values({
+                  id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                  tenantId: session.tenantId,
+                  dealId,
+                  eventType: "contact_updated",
+                  operatorId: session.operator.id,
+                  metadata: {
+                    contactId,
+                    contactName: updatedContact.name,
+                    changes,
+                  },
+                  createdAt: now,
+                });
+              }
+            }
+          }
 
           return new Response(JSON.stringify({ success: true, contact: updatedContact }), {
             headers: { ...CORS, "Content-Type": "application/json" },
