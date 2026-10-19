@@ -138,6 +138,134 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao carregar operadores do tenant:", err);
         }
 
+        const currentSessionOp = session.operator?.id
+          ? operatorsById.get(session.operator.id) || {
+              id: session.operator.id,
+              name: session.operator.name,
+              avatar: (session.operator as any).avatar || null,
+            }
+          : null;
+
+        const resolveLinkedDeal = async (
+          conversationId: string,
+          contactId?: string | null,
+          meta?: Record<string, any>,
+        ) => {
+          if (meta?.localCrmDealId) {
+            return {
+              dealId: String(meta.localCrmDealId),
+              dealTitle: String(meta.localCrmDealTitle || "Negociação CRM Local"),
+              action: String(meta.localCrmDealAction || "created_new"),
+              operatorId: meta.allocatedOperatorId ? String(meta.allocatedOperatorId) : null,
+            };
+          }
+
+          const [convDealRow] = await db
+            .select({
+              dealId: crmDeals.id,
+              dealTitle: crmDeals.title,
+              createdAt: crmDeals.createdAt,
+              operatorId: crmDeals.operatorId,
+            })
+            .from(crmConversationDeals)
+            .innerJoin(
+              crmDeals,
+              and(
+                eq(crmConversationDeals.dealId, crmDeals.id),
+                eq(crmDeals.tenantId, tenantId),
+              ),
+            )
+            .where(
+              and(
+                eq(crmConversationDeals.tenantId, tenantId),
+                eq(crmConversationDeals.conversationId, conversationId),
+              ),
+            )
+            .orderBy(desc(crmDeals.createdAt))
+            .limit(1);
+
+          if (convDealRow) {
+            return {
+              dealId: convDealRow.dealId,
+              dealTitle: convDealRow.dealTitle,
+              createdAt: safeFormatIso(convDealRow.createdAt),
+              operatorId: convDealRow.operatorId || null,
+            };
+          }
+
+          if (contactId) {
+            const [contactDealRow] = await db
+              .select({
+                dealId: crmDeals.id,
+                dealTitle: crmDeals.title,
+                createdAt: crmDeals.createdAt,
+                operatorId: crmDeals.operatorId,
+              })
+              .from(crmDeals)
+              .where(
+                and(
+                  eq(crmDeals.tenantId, tenantId),
+                  eq(crmDeals.contactId, contactId),
+                ),
+              )
+              .orderBy(desc(crmDeals.createdAt))
+              .limit(1);
+
+            if (contactDealRow) {
+              return {
+                dealId: contactDealRow.dealId,
+                dealTitle: contactDealRow.dealTitle,
+                createdAt: safeFormatIso(contactDealRow.createdAt),
+                operatorId: contactDealRow.operatorId || null,
+              };
+            }
+          }
+
+          return null;
+        };
+
+        const resolveConversationOperator = (
+          convOperatorId?: string | null,
+          meta?: Record<string, any>,
+          walletOperatorId?: string | null,
+          dealOperatorId?: string | null,
+          rawMsgs?: any[],
+        ) => {
+          const candidateIds = [
+            convOperatorId,
+            meta?.allocatedOperatorId,
+            dealOperatorId,
+            walletOperatorId,
+          ].filter(Boolean) as string[];
+
+          for (const cid of candidateIds) {
+            const found = operatorsById.get(String(cid));
+            if (found) return found;
+          }
+
+          if (meta?.allocatedOperatorName) {
+            const byAllocName = operatorsByName.get(String(meta.allocatedOperatorName).trim().toLowerCase());
+            if (byAllocName) return byAllocName;
+          }
+
+          if (Array.isArray(rawMsgs)) {
+            for (let i = rawMsgs.length - 1; i >= 0; i--) {
+              const m = rawMsgs[i];
+              if (m?.senderType !== "agent") continue;
+              const mOpId = (m.metaDetails as any)?.operatorId;
+              if (mOpId && operatorsById.has(String(mOpId))) {
+                return operatorsById.get(String(mOpId))!;
+              }
+              if (m?.senderName && m.senderName !== "Operador") {
+                const byMsgName = operatorsByName.get(String(m.senderName).trim().toLowerCase());
+                if (byMsgName) return byMsgName;
+              }
+            }
+          }
+
+          return currentSessionOp;
+        };
+
         const formatConversationMessages = (
           rawMsgs: any[],
           defaultOperator: { id: string; name: string; avatar: string | null } | null,
@@ -173,12 +301,18 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             } else if (sender === "agent") {
               const metaOpId = (m.metaDetails as any)?.operatorId;
               const byId = metaOpId ? operatorsById.get(String(metaOpId)) : undefined;
-              const byName = m.senderName
-                ? operatorsByName.get(String(m.senderName).trim().toLowerCase())
-                : undefined;
-              const resolvedOp = byId || byName || defaultOperator;
+              const byName =
+                m.senderName && m.senderName !== "Operador"
+                  ? operatorsByName.get(String(m.senderName).trim().toLowerCase())
+                  : undefined;
+              const resolvedOp = byId || byName || defaultOperator || currentSessionOp;
 
-              senderName = resolvedOp?.name || m.senderName || "Operador";
+              const cleanMsgSenderName =
+                m.senderName && String(m.senderName).trim().toLowerCase() !== "operador"
+                  ? String(m.senderName).trim()
+                  : null;
+
+              senderName = resolvedOp?.name || cleanMsgSenderName || "Operador";
               senderAvatar = resolvedOp?.avatar || null;
             }
 
@@ -257,14 +391,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   })
                 : null;
 
-              const operator = conv?.operatorId
-                ? operatorsById.get(conv.operatorId) ||
-                  (await db.query.operators.findFirst({
-                    where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conv.operatorId!), dEq(t.tenantId, tenantId)),
-                  })) ||
-                  null
-                : null;
-
               const recentMsgsDesc = await db
                 .select()
                 .from(messages)
@@ -272,6 +398,25 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 .orderBy(desc(messages.sentAt))
                 .limit(200);
               const realMsgs = recentMsgsDesc.reverse();
+
+              const meta = (fs.metadata as Record<string, any>) || {};
+              const linkedDealRow = await resolveLinkedDeal(fs.conversationId, conv?.contactId, meta);
+              const linkedDeal = linkedDealRow
+                ? {
+                    dealId: linkedDealRow.dealId,
+                    dealTitle: linkedDealRow.dealTitle,
+                    ...(linkedDealRow.action ? { action: linkedDealRow.action } : {}),
+                    ...(linkedDealRow.createdAt ? { createdAt: linkedDealRow.createdAt } : {}),
+                  }
+                : null;
+
+              const operator = resolveConversationOperator(
+                conv?.operatorId,
+                meta,
+                contact?.walletOperatorId,
+                linkedDealRow?.operatorId,
+                realMsgs,
+              );
 
               const collectedData = (fs.collectedData as any) || {};
               const resolvedContactName =
@@ -283,7 +428,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               if (fs.outcome === "completed" || fs.outcome === "transferred") status = "completed";
               if (fs.outcome === "abandoned" || fs.outcome === "stopped") status = "abandoned";
 
-              const meta = (fs.metadata as Record<string, any>) || {};
               let responsibleName = "IA (Em Triagem)";
               if (status === "completed") {
                 responsibleName = operator?.name || meta.allocatedOperatorName || "Vendedor Alocado (Rodízio)";
@@ -297,53 +441,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 (typeof collectedData["EMPRESA"] === "string" ? collectedData["EMPRESA"] : "") ||
                 (contact?.cnpjDetails as any)?.razaoSocial ||
                 "Empresa não informada";
-
-              // Buscar negociação vinculada no CRM Local (se houver)
-              let linkedDeal: {
-                dealId: string;
-                dealTitle: string;
-                action?: string;
-                createdAt?: string;
-              } | null = null;
-
-              if (meta.localCrmDealId) {
-                linkedDeal = {
-                  dealId: meta.localCrmDealId,
-                  dealTitle: meta.localCrmDealTitle || "Negociação CRM Local",
-                  action: meta.localCrmDealAction || "created_new",
-                };
-              } else {
-                const [convDealRow] = await db
-                  .select({
-                    dealId: crmDeals.id,
-                    dealTitle: crmDeals.title,
-                    createdAt: crmDeals.createdAt,
-                  })
-                  .from(crmConversationDeals)
-                  .innerJoin(
-                    crmDeals,
-                    and(
-                      eq(crmConversationDeals.dealId, crmDeals.id),
-                      eq(crmDeals.tenantId, tenantId),
-                    ),
-                  )
-                  .where(
-                    and(
-                      eq(crmConversationDeals.tenantId, tenantId),
-                      eq(crmConversationDeals.conversationId, fs.conversationId),
-                    ),
-                  )
-                  .orderBy(desc(crmDeals.createdAt))
-                  .limit(1);
-
-                if (convDealRow) {
-                  linkedDeal = {
-                    dealId: convDealRow.dealId,
-                    dealTitle: convDealRow.dealTitle,
-                    createdAt: safeFormatIso(convDealRow.createdAt),
-                  };
-                }
-              }
 
               const previousTriages = Array.isArray(meta.previousTriages) ? [...meta.previousTriages] : [];
 
@@ -414,14 +511,6 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, c.contactId), dEq(t.tenantId, tenantId)),
                 });
 
-                const operator = c.operatorId
-                  ? operatorsById.get(c.operatorId) ||
-                    (await db.query.operators.findFirst({
-                      where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, c.operatorId!), dEq(t.tenantId, tenantId)),
-                    })) ||
-                    null
-                  : null;
-
                 const recentMsgsDesc = await db
                   .select()
                   .from(messages)
@@ -429,6 +518,23 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   .orderBy(desc(messages.sentAt))
                   .limit(200);
                 const realMsgs = recentMsgsDesc.reverse();
+
+                const linkedDealRow = await resolveLinkedDeal(c.id, c.contactId);
+                const linkedDeal = linkedDealRow
+                  ? {
+                      dealId: linkedDealRow.dealId,
+                      dealTitle: linkedDealRow.dealTitle,
+                      ...(linkedDealRow.createdAt ? { createdAt: linkedDealRow.createdAt } : {}),
+                    }
+                  : null;
+
+                const operator = resolveConversationOperator(
+                  c.operatorId,
+                  undefined,
+                  contact?.walletOperatorId,
+                  linkedDealRow?.operatorId,
+                  realMsgs,
+                );
 
                 const resolvedContactName = contact?.name || "Contato WhatsApp";
                 const formattedMessages = formatConversationMessages(realMsgs, operator, resolvedContactName);
@@ -452,6 +558,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   unreadCount: c.unreadCount || 0,
                   channel: contact?.mainChannel || "whatsapp",
                   funnelStage: "triagem",
+                  linkedDeal,
                   previousTriages: [],
                   messages: formattedMessages.length > 0 ? formattedMessages : [
                     {

@@ -3,6 +3,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   UserPlus, CheckCircle, Clock, XCircle, Bot, User as UserIcon,
@@ -479,7 +480,8 @@ export function SdrTab({
   refreshKey,
   onLoadingChange,
 }: SdrTabProps = {}) {
-  const { tenant, setActiveView, setSelectedChatId } = useChat();
+  const { tenant, setActiveView, setSelectedChatId, operators, operatorProfile } = useChat();
+  const navigate = useNavigate();
   const persona = getAiPersona(tenant || "valem");
 
   const [sdrEnabled, setSdrEnabled] = useState(externalSdrEnabled ?? true);
@@ -508,6 +510,10 @@ export function SdrTab({
   // Menu lateral direito de dados coletados (minimizado por padrão conforme solicitação de UX)
   const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
 
+  // Mini pop-up personalizado do botão "Abrir" (escolher entre Abrir Chat ou Abrir Card Vinculado)
+  const [isOpenActionPopupOpen, setIsOpenActionPopupOpen] = useState(false);
+  const openActionPopupRef = useRef<HTMLDivElement | null>(null);
+
   // Filtros
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "completed">("all");
   const [channelFilter, setChannelFilter] = useState<"all" | "whatsapp" | "instagram" | "messenger" | "site">("all");
@@ -524,6 +530,62 @@ export function SdrTab({
   const [selectedSession, setSelectedSession] = useState<SdrTriageSession | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isChatHighlighted, setIsChatHighlighted] = useState(false);
+
+  // Ref para rolagem automática do chat para o final (mensagem mais recente)
+  const chatMessagesContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollChatToBottom = useCallback(() => {
+    const el = chatMessagesContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // Sempre que abrir/trocar de chat na aba SDR, rolar para o final (mensagem mais recente)
+  useEffect(() => {
+    setIsOpenActionPopupOpen(false);
+    if (!selectedSession?.id) return;
+    scrollChatToBottom();
+    const rafId = requestAnimationFrame(() => scrollChatToBottom());
+    const t1 = setTimeout(() => scrollChatToBottom(), 60);
+    const t2 = setTimeout(() => scrollChatToBottom(), 180);
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [selectedSession?.id, selectedSession?.conversationId, scrollChatToBottom]);
+
+  // Rola para o final quando novas mensagens chegarem na sessão aberta
+  useEffect(() => {
+    if (!selectedSession?.messages?.length) return;
+    const rafId = requestAnimationFrame(() => scrollChatToBottom());
+    const t1 = setTimeout(() => scrollChatToBottom(), 80);
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(t1);
+    };
+  }, [selectedSession?.messages?.length, scrollChatToBottom]);
+
+  // Fechar mini pop-up do botão "Abrir" ao clicar fora ou pressionar ESC
+  useEffect(() => {
+    if (!isOpenActionPopupOpen) return;
+    const handlePointerDownOutside = (ev: MouseEvent) => {
+      if (openActionPopupRef.current && !openActionPopupRef.current.contains(ev.target as Node)) {
+        setIsOpenActionPopupOpen(false);
+      }
+    };
+    const handleKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        setIsOpenActionPopupOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDownOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDownOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpenActionPopupOpen]);
 
   // Controle de navegação vertical suave entre Kanban (topo) e Triagens ao Vivo (baixo)
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
@@ -561,6 +623,90 @@ export function SdrTab({
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
+  // Resolve nome e foto real do operador a partir da mensagem + sessão + estado global de operadores
+  const resolveAgentSenderInfo = useCallback(
+    (msg: SdrTriageMessage, session: SdrTriageSession) => {
+      const rawMsgName =
+        msg.senderName && msg.senderName.trim().toLowerCase() !== "operador"
+          ? msg.senderName.trim()
+          : null;
+
+      const rawSessionResp =
+        session.responsibleName &&
+        !session.responsibleName.includes("IA (") &&
+        !session.responsibleName.includes("Vendedor Alocado") &&
+        !session.responsibleName.includes("Interrompido")
+          ? session.responsibleName.trim()
+          : null;
+
+      const candidateName = rawMsgName || rawSessionResp;
+
+      if (candidateName && Array.isArray(operators) && operators.length > 0) {
+        const matchedOp = operators.find(
+          (op) => op.name?.trim().toLowerCase() === candidateName.toLowerCase(),
+        );
+        if (matchedOp) {
+          return {
+            name: matchedOp.name,
+            avatar: msg.senderAvatar || matchedOp.avatar || null,
+          };
+        }
+      }
+
+      if (candidateName) {
+        return {
+          name: candidateName,
+          avatar: msg.senderAvatar || null,
+        };
+      }
+
+      if (operatorProfile?.name && operatorProfile.name.trim().toLowerCase() !== "operador") {
+        return {
+          name: operatorProfile.name,
+          avatar: msg.senderAvatar || operatorProfile.avatar || null,
+        };
+      }
+
+      return {
+        name: msg.senderName || "Operador",
+        avatar: msg.senderAvatar || null,
+      };
+    },
+    [operators, operatorProfile],
+  );
+
+  // Ação para abrir o Chat da triagem selecionada
+  const handleOpenChatFromPopup = useCallback(
+    (session: SdrTriageSession) => {
+      setIsOpenActionPopupOpen(false);
+      setSelectedChatId(session.conversationId);
+      setActiveView("chat");
+      toast.info("Abrindo conversa no chat...");
+    },
+    [setSelectedChatId, setActiveView],
+  );
+
+  // Ação para abrir o Card vinculado àquela triagem em específico (Negociação no CRM ou Card no Kanban)
+  const handleOpenLinkedCardFromPopup = useCallback(
+    (session: SdrTriageSession) => {
+      setIsOpenActionPopupOpen(false);
+      if (session.linkedDeal?.dealId) {
+        toast.info(`Abrindo card vinculado: ${session.linkedDeal.dealTitle}`);
+        navigate({
+          to: "/crm/deals/$dealId",
+          params: { dealId: session.linkedDeal.dealId },
+          search: { from: "valentina" },
+        });
+        return;
+      }
+
+      // Caso a triagem ainda esteja em andamento e não possua card criado no CRM, leva para o card no Kanban SDR
+      scrollToKanban();
+      toast.info("Exibindo o card desta triagem no quadro acima.");
+    },
+    [navigate, scrollToKanban],
+  );
+
   // Manipulação de seleção via card do Kanban com scroll suave para a área de chat
   const handleSelectSessionFromKanban = (session: SdrTriageSession) => {
     setSelectedSession(session);
@@ -570,6 +716,7 @@ export function SdrTab({
 
     setTimeout(() => {
       scrollToLiveChat();
+      scrollChatToBottom();
     }, 60);
   };
 
@@ -1241,7 +1388,10 @@ export function SdrTab({
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 scrollbar-thin">
+                <div
+                  ref={chatMessagesContainerRef}
+                  className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 scrollbar-thin"
+                >
                   <AnimatePresence initial={false}>
                     {timelineItems.map((item) => {
                       if (item.type === "date-divider") {
@@ -1308,6 +1458,7 @@ export function SdrTab({
                       const isOutbound = msg.sender === "bot" || msg.sender === "agent";
                       const isAgent = msg.sender === "agent";
                       const isBot = msg.sender === "bot";
+                      const agentInfo = isAgent ? resolveAgentSenderInfo(msg, selectedSession) : null;
 
                       return (
                         <motion.div
@@ -1352,15 +1503,17 @@ export function SdrTab({
                                 : "bg-muted border border-border text-foreground rounded-bl-[5px]"
                             }`}
                           >
-                            {/* Cabeçalho discreto identificando se foi enviado pelo Operador ou pela IA */}
-                            {isAgent && (
+                            {/* Cabeçalho discreto identificando o nome do Operador que enviou */}
+                            {isAgent && agentInfo && (
                               <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b border-primary/15">
                                 <span className="text-[10px] font-extrabold text-primary truncate">
-                                  {msg.senderName || "Operador"}
+                                  {agentInfo.name}
                                 </span>
-                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-primary/15 text-primary shrink-0">
-                                  {msg.isInternalNote ? "Nota Interna" : "Operador"}
-                                </span>
+                                {msg.isInternalNote && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-primary/15 text-primary shrink-0">
+                                    Nota Interna
+                                  </span>
+                                )}
                               </div>
                             )}
 
@@ -1508,22 +1661,22 @@ export function SdrTab({
                           )}
 
                           {/* Avatar do Operador Humano (Direita — quando enviado por um operador) */}
-                          {isAgent && (
-                            <SystemTooltip content={`${msg.senderName || "Operador"} (Operador)`}>
-                              {msg.senderAvatar ? (
+                          {isAgent && agentInfo && (
+                            <SystemTooltip content={agentInfo.name}>
+                              {agentInfo.avatar ? (
                                 <button
                                   type="button"
                                   onClick={() =>
                                     setPreviewModalImage({
-                                      url: msg.senderAvatar!,
-                                      title: `${msg.senderName || "Operador"} — Operador`,
+                                      url: agentInfo.avatar!,
+                                      title: agentInfo.name,
                                     })
                                   }
                                   className="shrink-0 ml-2 self-end group cursor-pointer focus:outline-none"
                                 >
                                   <img
-                                    src={msg.senderAvatar}
-                                    alt={msg.senderName || "Operador"}
+                                    src={agentInfo.avatar}
+                                    alt={agentInfo.name}
                                     className="h-7 w-7 rounded-full object-cover border-2 border-primary/40 shadow-soft group-hover:scale-110 group-hover:border-primary transition duration-200"
                                     onError={(e) => {
                                       const target = e.currentTarget;
@@ -1536,12 +1689,12 @@ export function SdrTab({
                                     style={{ display: "none" }}
                                     className="h-7 w-7 place-items-center rounded-full bg-primary-soft text-primary border-2 border-primary/30 font-extrabold text-[10px] shadow-soft"
                                   >
-                                    {getOperatorInitials(msg.senderName)}
+                                    {getOperatorInitials(agentInfo.name)}
                                   </div>
                                 </button>
                               ) : (
                                 <div className="grid h-7 w-7 place-items-center rounded-full bg-primary-soft text-primary shrink-0 ml-2 self-end font-extrabold text-[10px] shadow-soft border-2 border-primary/30 select-none">
-                                  {getOperatorInitials(msg.senderName)}
+                                  {getOperatorInitials(agentInfo.name)}
                                 </div>
                               )}
                             </SystemTooltip>
@@ -1623,25 +1776,102 @@ export function SdrTab({
                               </TooltipContent>
                             </Tooltip>
 
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  onClick={() => {
-                                    const targetChatId = selectedSession.conversationId;
-                                    setSelectedChatId(targetChatId);
-                                    setActiveView("chat");
-                                    toast.info("Redirecionando para o chat...");
-                                  }}
-                                  className="text-[10px] font-black text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0"
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                  <span className="hidden sm:inline">Abrir</span>
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="bottom">
-                                Abrir atendimento correspondente
-                              </TooltipContent>
-                            </Tooltip>
+                            {/* Botão "Abrir" com Mini Pop-up Personalizado do Sistema */}
+                            <div ref={openActionPopupRef} className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setIsOpenActionPopupOpen((prev) => !prev)}
+                                className={`text-[10px] font-black px-2.5 py-1.5 rounded-lg border transition flex items-center gap-1 cursor-pointer shrink-0 ${
+                                  isOpenActionPopupOpen
+                                    ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                                    : "text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 border-primary/20"
+                                }`}
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span className="hidden sm:inline">Abrir</span>
+                                <ChevronDown
+                                  className={`h-2.5 w-2.5 transition-transform duration-200 ${
+                                    isOpenActionPopupOpen ? "rotate-180" : ""
+                                  }`}
+                                />
+                              </button>
+
+                              <AnimatePresence>
+                                {isOpenActionPopupOpen && (
+                                  <motion.div
+                                    initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: 4, scale: 0.96 }}
+                                    transition={{ duration: 0.16, ease: [0.4, 0, 0.2, 1] }}
+                                    className="absolute right-0 top-full mt-2 w-64 rounded-2xl bg-card border border-border shadow-2xl p-2 z-50 select-none"
+                                  >
+                                    <div className="flex items-center justify-between px-2 py-1.5 border-b border-border/70 mb-1.5">
+                                      <span className="text-[10px] font-extrabold text-foreground tracking-wide">
+                                        O que deseja abrir?
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setIsOpenActionPopupOpen(false)}
+                                        className="p-0.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                                        aria-label="Fechar opções"
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                      <motion.button
+                                        type="button"
+                                        whileHover={{ x: 2 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={() => handleOpenChatFromPopup(selectedSession)}
+                                        className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group"
+                                      >
+                                        <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 text-primary grid place-items-center shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition">
+                                          <MessageSquare className="h-3.5 w-3.5" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center justify-between gap-1">
+                                            <span className="text-[11px] font-extrabold text-foreground group-hover:text-primary transition">
+                                              Abrir Chat
+                                            </span>
+                                            <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+                                          </div>
+                                          <p className="text-[9px] text-muted-foreground leading-snug mt-0.5">
+                                            Ir para a conversa deste atendimento no módulo de Chat
+                                          </p>
+                                        </div>
+                                      </motion.button>
+
+                                      <motion.button
+                                        type="button"
+                                        whileHover={{ x: 2 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={() => handleOpenLinkedCardFromPopup(selectedSession)}
+                                        className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group"
+                                      >
+                                        <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 text-primary grid place-items-center shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition">
+                                          <ShieldCheck className="h-3.5 w-3.5" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center justify-between gap-1">
+                                            <span className="text-[11px] font-extrabold text-foreground group-hover:text-primary transition">
+                                              Abrir Card Vinculado
+                                            </span>
+                                            <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+                                          </div>
+                                          <p className="text-[9px] text-muted-foreground leading-snug mt-0.5 truncate">
+                                            {selectedSession.linkedDeal?.dealTitle
+                                              ? `Card: ${selectedSession.linkedDeal.dealTitle}`
+                                              : "Ver card vinculado a esta triagem em específico"}
+                                          </p>
+                                        </div>
+                                      </motion.button>
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
 
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -1690,7 +1920,11 @@ export function SdrTab({
                       {/* ── SEÇÃO NEGOCIAÇÃO CRM LOCAL + RESPONSÁVEL (RODÍZIO ALOCADO) ── */}
                       <div className="px-4 py-3 border-t border-line shrink-0 space-y-2">
                         {(tenant === "tecfag" || selectedSession.linkedDeal) && (
-                          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-2.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenLinkedCardFromPopup(selectedSession)}
+                            className="w-full text-left rounded-xl border border-emerald-500/25 bg-emerald-500/10 hover:bg-emerald-500/15 hover:border-emerald-500/40 p-2.5 transition cursor-pointer group"
+                          >
                             <div className="flex items-center justify-between mb-0.5">
                               <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide flex items-center gap-1">
                                 <ShieldCheck className="h-3 w-3 text-emerald-600" />
@@ -1704,11 +1938,14 @@ export function SdrTab({
                                   : "Ao Transferir (3h)"}
                               </span>
                             </div>
-                            <p className="text-xs font-extrabold text-foreground mt-0.5 truncate">
-                              {selectedSession.linkedDeal?.dealTitle ||
-                                `${selectedSession.contactName} — ${selectedSession.targetFunnel || "Em Triagem"}`}
-                            </p>
-                          </div>
+                            <div className="flex items-center justify-between gap-1 mt-0.5">
+                              <p className="text-xs font-extrabold text-foreground truncate group-hover:text-primary transition">
+                                {selectedSession.linkedDeal?.dealTitle ||
+                                  `${selectedSession.contactName} — ${selectedSession.targetFunnel || "Em Triagem"}`}
+                              </p>
+                              <ExternalLink className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+                            </div>
+                          </button>
                         )}
 
                         <div className="rounded-xl border border-primary/20 bg-primary-soft/30 p-2.5">
@@ -1759,45 +1996,6 @@ export function SdrTab({
           )}
         </AnimatePresence>
         </div>
-      </div>
-
-      {/* ── CONTROLE DISCRETO FLUTUANTE (2 ÍCONES: SUBIR PARA KANBAN / DESCER PARA CHAT) ── */}
-      <div className="absolute right-4 bottom-4 z-30 flex flex-col items-center gap-1 rounded-2xl bg-card/95 backdrop-blur-md border border-border p-1 shadow-xl">
-        <SystemTooltip content="Subir para o Kanban">
-          <motion.button
-            type="button"
-            whileHover={{ scale: 1.08, y: -1 }}
-            whileTap={{ scale: 0.92 }}
-            onClick={scrollToKanban}
-            className={`p-1.5 rounded-xl transition cursor-pointer flex items-center justify-center ${
-              activeViewportSection === "kanban"
-                ? "bg-primary text-primary-foreground shadow-soft"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-            aria-label="Subir para o Kanban"
-          >
-            <ChevronUp className="h-4 w-4" />
-          </motion.button>
-        </SystemTooltip>
-
-        <div className="w-4 h-px bg-border" />
-
-        <SystemTooltip content="Descer para Triagens ao Vivo (Tela Cheia)">
-          <motion.button
-            type="button"
-            whileHover={{ scale: 1.08, y: 1 }}
-            whileTap={{ scale: 0.92 }}
-            onClick={scrollToLiveChat}
-            className={`p-1.5 rounded-xl transition cursor-pointer flex items-center justify-center ${
-              activeViewportSection === "chat"
-                ? "bg-primary text-primary-foreground shadow-soft"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-            aria-label="Descer para o Chat"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </motion.button>
-        </SystemTooltip>
       </div>
 
       {/* ── MODAL DE VISUALIZAÇÃO EM TELA CHEIA DA FOTO DE PERFIL ────────── */}

@@ -8,7 +8,12 @@ import { fetchPipelinesCached } from "@/lib/crm/deal-prefetch";
 
 export const Route = createFileRoute("/crm/deals/$dealId")({
   validateSearch: (search: Record<string, unknown>) => ({
-    from: search.from === "chat" ? ("chat" as const) : ("crm" as const),
+    from:
+      search.from === "chat"
+        ? ("chat" as const)
+        : search.from === "valentina"
+        ? ("valentina" as const)
+        : ("crm" as const),
   }),
   component: DealPage,
 });
@@ -73,7 +78,7 @@ function DealPage() {
   ) as CSSProperties;
 
   const goBack = () => {
-    setActiveView(from === "chat" ? "chat" : "crm");
+    setActiveView(from === "chat" ? "chat" : from === "valentina" ? "valentina" : "crm");
     navigate({ to: "/" });
   };
 
