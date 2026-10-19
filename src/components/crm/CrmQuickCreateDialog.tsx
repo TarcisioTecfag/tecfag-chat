@@ -1,5 +1,14 @@
-import { ContactDealPicker } from "./ContactDealPicker";
-import { PhoneContactSuggestions, type ExistingPhoneContact } from "./PhoneContactSuggestions";
+import {
+  ContactDealModal,
+  ContactDealPicker,
+  isContactDealInputComplete,
+  type DealCardSummary,
+} from "./ContactDealPicker";
+import {
+  PhoneContactSuggestions,
+  SelectedExistingContactBanner,
+  type ExistingPhoneContact,
+} from "./PhoneContactSuggestions";
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import { useEffect, useState } from "react";
 import {
@@ -60,6 +69,8 @@ export function CrmQuickCreateDialog({
   currentOperatorId,
 }: CrmQuickCreateDialogProps) {
   const [contactDealInput, setContactDealInput] = useState<ContactDealInput>({});
+  const [selectedDealMeta, setSelectedDealMeta] = useState<DealCardSummary | null>(null);
+  const [showDealModalOnSave, setShowDealModalOnSave] = useState(false);
   const [existingContact, setExistingContact] = useState<ExistingPhoneContact | null>(null);
   const [accountType, setAccountType] = useState<"company" | "person">("company");
   const [name, setName] = useState("");
@@ -82,6 +93,8 @@ export function CrmQuickCreateDialog({
     if (!kind) return;
     setAccountType("company");
     setContactDealInput({});
+    setSelectedDealMeta(null);
+    setShowDealModalOnSave(false);
     setExistingContact(null);
     setName("");
     setTradeName("");
@@ -124,8 +137,7 @@ export function CrmQuickCreateDialog({
     };
   }, [kind, dealQuery]);
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const executeSubmit = async (dealSelection: ContactDealInput) => {
     if (!kind || !name.trim()) return;
     if (kind === "task" && !selectedDeal) {
       toast.error("Selecione uma negociação para a tarefa.");
@@ -163,7 +175,9 @@ export function CrmQuickCreateDialog({
                 name: name.trim(),
                 phone: phone.trim() || undefined,
                 email: email.trim() || undefined,
-                customFields, ...contactDealInput, existingContactId: existingContact?.id,
+                customFields,
+                ...dealSelection,
+                existingContactId: existingContact?.id,
               }
             : {
                 type: "task",
@@ -179,17 +193,23 @@ export function CrmQuickCreateDialog({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok && data.code === "CONTACT_EXISTS" && data.contact) {
-        setExistingContact(data.contact); setName(data.contact.name);
-        toast.info("Este contato já existe e foi selecionado. Confirme a negociação para continuar."); return;
+        setExistingContact(data.contact);
+        setName(data.contact.name);
+        setShowDealModalOnSave(true);
+        toast.info("Este contato já existe e foi selecionado. Confirme a negociação para continuar.");
+        return;
       }
       if (!response.ok) throw new Error(data.error || "Não foi possível concluir o cadastro.");
       toast.success(
         kind === "company"
           ? "Empresa criada."
           : kind === "contact"
-            ? existingContact ? "Contato existente vinculado." : "Contato criado."
+            ? existingContact
+              ? "Contato existente vinculado."
+              : "Contato criado."
             : "Tarefa criada.",
       );
+      setShowDealModalOnSave(false);
       onCreated();
       onClose();
     } catch (error) {
@@ -199,26 +219,36 @@ export function CrmQuickCreateDialog({
     }
   };
 
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!kind || !name.trim()) return;
+    if (kind === "contact" && !isContactDealInputComplete(contactDealInput)) {
+      setShowDealModalOnSave(true);
+      return;
+    }
+    await executeSubmit(contactDealInput);
+  };
+
   return (
-    <Sheet open={kind !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent
-        side="right"
-        className="flex h-full w-full max-w-[480px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[480px] shadow-2xl border-l border-border"
-      >
-        <SheetHeader className="flex h-16 shrink-0 flex-row items-center justify-between border-b border-border px-6 bg-card space-y-0">
-          <SheetTitle className="text-base font-bold text-foreground">
-            {kind ? headings[kind] : "Criar"}
-          </SheetTitle>
-        </SheetHeader>
-        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
-            {kind === "contact" && <div className="space-y-3">
-              <ContactDealPicker value={contactDealInput} onChange={setContactDealInput} />
-              {existingContact ? <div className="rounded-lg border border-primary/30 p-3 text-xs" role="status">
-                <p>Contato existente selecionado: <strong>{existingContact.name}</strong> — {existingContact.phone}</p>
-                <button type="button" className="text-primary" onClick={() => setExistingContact(null)}>Voltar ao cadastro</button>
-              </div> : <PhoneContactSuggestions endpoint="/api/crm/contacts" phone={phone} onSelect={(contact) => { setExistingContact(contact); setName(contact.name); setPhone(contact.phone || ""); setEmail(contact.email || ""); }} />}
-            </div>}
+    <>
+      <Sheet open={kind !== null} onOpenChange={(open) => !open && onClose()}>
+        <SheetContent
+          side="right"
+          className="flex h-full w-full max-w-[480px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[480px] shadow-2xl border-l border-border"
+        >
+          <SheetHeader className="flex h-16 shrink-0 flex-row items-center justify-between border-b border-border px-6 bg-card space-y-0">
+            <SheetTitle className="text-base font-bold text-foreground">
+              {kind ? headings[kind] : "Criar"}
+            </SheetTitle>
+          </SheetHeader>
+          <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
+              {kind === "contact" && existingContact && (
+                <SelectedExistingContactBanner
+                  contact={existingContact}
+                  onClear={() => setExistingContact(null)}
+                />
+              )}
 
             {kind === "task" && (
               <div className="space-y-2">
@@ -384,7 +414,8 @@ export function CrmQuickCreateDialog({
                   <Label htmlFor="crm-quick-phone">Telefone</Label>
                   <Input
                     id="crm-quick-phone"
-                    disabled={kind === "contact" && !!existingContact} value={phone}
+                    disabled={kind === "contact" && !!existingContact}
+                    value={phone}
                     placeholder="(14) 99999-8888"
                     onChange={(event) => setPhone(maskPhone(event.target.value))}
                   />
@@ -394,13 +425,43 @@ export function CrmQuickCreateDialog({
                   <Input
                     id="crm-quick-email"
                     type="email"
-                    disabled={kind === "contact" && !!existingContact} value={email}
+                    disabled={kind === "contact" && !!existingContact}
+                    value={email}
                     onChange={(event) => setEmail(event.target.value)}
                   />
                 </div>
               </div>
             )}
-            {(kind === "company" || kind === "contact") && (
+            {kind === "contact" && !existingContact && (
+              <PhoneContactSuggestions
+                endpoint="/api/crm/contacts"
+                phone={phone}
+                name={name}
+                onSelect={(contact) => {
+                  setExistingContact(contact);
+                  setName(contact.name);
+                  setPhone(contact.phone ? maskPhone(contact.phone) : "");
+                  setEmail(contact.email || "");
+                }}
+              />
+            )}
+            {kind === "contact" && (
+              <ContactDealPicker
+                value={contactDealInput}
+                onChange={setContactDealInput}
+                selectedDealMeta={selectedDealMeta}
+                onSelectedDealMetaChange={setSelectedDealMeta}
+                contactContext={{
+                  contactId: existingContact?.id || null,
+                  name: existingContact?.name || name,
+                  phone: existingContact?.phone || phone,
+                  accountId: existingContact?.accountId || null,
+                  accountName: existingContact?.accountName || null,
+                  linkedDeals: existingContact?.linkedDeals,
+                }}
+              />
+            )}
+            {(kind === "company" || (kind === "contact" && !existingContact)) && (
               <CustomFieldsEditor entity={kind} values={customFields} onChange={setCustomFields} create />
             )}
             {kind === "task" && (
@@ -455,11 +516,43 @@ export function CrmQuickCreateDialog({
                 ? "Criar tarefa"
                 : kind === "company"
                   ? "Criar empresa"
-                  : existingContact ? "Vincular contato existente" : "Criar contato"}
+                  : existingContact
+                    ? isContactDealInputComplete(contactDealInput)
+                      ? "Vincular contato existente"
+                      : "Escolher negociação e vincular"
+                    : isContactDealInputComplete(contactDealInput)
+                      ? "Criar contato"
+                      : "Escolher negociação e salvar"}
             </Button>
           </div>
         </form>
       </SheetContent>
     </Sheet>
+
+    {kind === "contact" && (
+      <ContactDealModal
+        open={showDealModalOnSave}
+        onOpenChange={setShowDealModalOnSave}
+        value={contactDealInput}
+        onChange={setContactDealInput}
+        onSelectDealMeta={setSelectedDealMeta}
+        confirmLabel={existingContact ? "Confirmar e Vincular Contato" : "Confirmar e Criar Contato"}
+        submitting={saving}
+        contactContext={{
+          contactId: existingContact?.id || null,
+          name: existingContact?.name || name,
+          phone: existingContact?.phone || phone,
+          accountId: existingContact?.accountId || null,
+          accountName: existingContact?.accountName || null,
+          linkedDeals: existingContact?.linkedDeals,
+        }}
+        onConfirm={async (confirmedDeal, meta) => {
+          setContactDealInput(confirmedDeal);
+          setSelectedDealMeta(meta || null);
+          await executeSubmit(confirmedDeal);
+        }}
+      />
+    )}
+    </>
   );
 }

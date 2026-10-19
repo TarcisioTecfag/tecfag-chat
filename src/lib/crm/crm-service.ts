@@ -2047,9 +2047,6 @@ export class CrmService {
         .limit(1);
 
       await lockContactDeals(tx, tenantId, contactId);
-      const [otherDeal] = await tx.select({ id: crmDealContacts.id }).from(crmDealContacts)
-        .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.contactId, contactId), ne(crmDealContacts.dealId, dealId))).limit(1);
-      if (!otherDeal) throw new DealRequiredError();
       await tx.delete(crmDealContacts).where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.id, existing.id)));
 
       await this.logDealEvent(

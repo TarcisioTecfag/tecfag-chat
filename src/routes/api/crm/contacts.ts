@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { contacts } from "../../../db/schema";
+import { contacts, crmAccounts, crmDealContacts, crmDeals } from "../../../db/schema";
 import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
@@ -20,29 +20,46 @@ export const Route = createFileRoute("/api/crm/contacts")({
         const permissionError = requireCrmPermission(session, "canViewCrm");
         if (permissionError) return permissionError;
 
-        const identityPhone = new URL(request.url).searchParams.get("identityPhone")?.trim().slice(0, 40);
-        const search = new URL(request.url).searchParams.get("search")?.trim().slice(0, 100) || "";
-        if (search.length < 2 && !identityPhone) {
+        const url = new URL(request.url);
+        const identityPhone = url.searchParams.get("identityPhone")?.trim().slice(0, 40);
+        const identityName = url.searchParams.get("identityName")?.trim().slice(0, 100);
+        const search = url.searchParams.get("search")?.trim().slice(0, 100) || "";
+        if (search.length < 2 && !identityPhone && (!identityName || identityName.length < 3)) {
           return Response.json({ contacts: [] });
         }
 
         const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
         const digits = search.replace(/\D/g, "");
-        const conditions = [
-          eq(contacts.tenantId, tenantId),
-          or(
-            ilike(contacts.name, pattern),
-            ilike(contacts.phone, pattern),
-            ilike(contacts.email, pattern),
-            digits.length >= 4 ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}` : undefined,
-          )!,
-        ];
-        if (identityPhone) {
-          const terms = phoneRegistrationError(identityPhone) ? localPhoneSearchTerms(identityPhone) : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
-          conditions[1] = terms.length ? or(...terms.map((term) => phoneRegistrationError(identityPhone)
-            ? sql`right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}`
-            : sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))! : sql`false`;
+        const conditions = [eq(contacts.tenantId, tenantId)];
+
+        if (identityPhone || identityName) {
+          const identityParts = [];
+          if (identityPhone) {
+            const terms = phoneRegistrationError(identityPhone) ? localPhoneSearchTerms(identityPhone) : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
+            if (terms.length > 0) {
+              identityParts.push(
+                or(...terms.map((term) => phoneRegistrationError(identityPhone)
+                  ? sql`right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}`
+                  : sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))!
+              );
+            }
+          }
+          if (identityName && identityName.length >= 3) {
+            const namePattern = `%${identityName.replace(/[\\%_]/g, "\\$&")}%`;
+            identityParts.push(ilike(contacts.name, namePattern));
+          }
+          conditions.push(identityParts.length > 0 ? or(...identityParts)! : sql`false`);
+        } else {
+          conditions.push(
+            or(
+              ilike(contacts.name, pattern),
+              ilike(contacts.phone, pattern),
+              ilike(contacts.email, pattern),
+              digits.length >= 4 ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}` : undefined,
+            )!
+          );
         }
+
         if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only") {
           conditions.push(eq(contacts.walletOperatorId, session.operator.id));
         }
@@ -53,13 +70,61 @@ export const Route = createFileRoute("/api/crm/contacts")({
             phone: contacts.phone,
             email: contacts.email,
             accountId: contacts.accountId,
+            accountName: crmAccounts.name,
+            accountDocument: crmAccounts.document,
+            mainChannel: contacts.mainChannel,
+            responsibleName: contacts.responsibleName,
           })
           .from(contacts)
+          .leftJoin(crmAccounts, and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)))
           .where(and(...conditions))
           .orderBy(desc(contacts.createdAt))
           .limit(10);
 
-        return Response.json({ contacts: results });
+        const contactIds = results.map((item) => item.id);
+        const dealsByContact = new Map<string, Array<{ id: string; title: string; status: string; value: string | null; pipelineId: string; stageId: string }>>();
+        if (contactIds.length > 0) {
+          const dealLinks = await db
+            .select({
+              contactId: crmDealContacts.contactId,
+              id: crmDeals.id,
+              title: crmDeals.title,
+              status: crmDeals.status,
+              value: crmDeals.value,
+              pipelineId: crmDeals.pipelineId,
+              stageId: crmDeals.stageId,
+            })
+            .from(crmDealContacts)
+            .innerJoin(crmDeals, and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)))
+            .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.contactId, contactIds)))
+            .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt));
+
+          for (const link of dealLinks) {
+            const existing = dealsByContact.get(link.contactId) || [];
+            if (!existing.some((d) => d.id === link.id)) {
+              existing.push({
+                id: link.id,
+                title: link.title,
+                status: link.status,
+                value: link.value !== null && link.value !== undefined ? String(link.value) : null,
+                pipelineId: link.pipelineId,
+                stageId: link.stageId,
+              });
+              dealsByContact.set(link.contactId, existing);
+            }
+          }
+        }
+
+        const enrichedResults = results.map((item) => {
+          const linked = dealsByContact.get(item.id) || [];
+          return {
+            ...item,
+            dealsCount: linked.length,
+            linkedDeals: linked.slice(0, 5),
+          };
+        });
+
+        return Response.json({ contacts: enrichedResults });
       },
       POST: async ({ request }) => {
         const auth = await requireSession(request);

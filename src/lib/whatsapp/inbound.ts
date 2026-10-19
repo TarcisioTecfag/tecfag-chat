@@ -8,11 +8,14 @@ import {
   messages,
   mediaFiles,
   operators,
+  agentFlowStates,
+  agentConfigs,
 } from "../../db/schema";
 import { eq, and, desc, sql, or, like } from "drizzle-orm";
 import { UniversalInboundMessage } from "./types";
-import { getAiPersona } from "../ai-persona";
+import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
+import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
@@ -126,11 +129,136 @@ export class InboundProcessor {
           contactId: conv.contactId,
           incomingMessageTime: inbound.timestamp,
         }).catch(() => {});
+
+        // ── Acionamento do SDR (Fagner / Valentina) para mensagens da Meta Cloud API ──
+        if (inbound.provider === "meta" && isSdrTenant(tenantId) && conv) {
+          void this.handleMetaSdrIntegration(inbound, conv, result.messageId, Boolean((result as any).reopened)).catch(
+            (sdrErr) => console.error("[Inbound/SDR] Erro ao acionar SDR via Meta:", sdrErr)
+          );
+        }
       } catch {
         console.error("[Inbound] Mensagem persistida; notificação indisponível.");
       }
     }
     return result;
+  }
+
+  private async handleMetaSdrIntegration(
+    inbound: UniversalInboundMessage,
+    conv: typeof conversations.$inferSelect,
+    messageId: string,
+    reopened: boolean
+  ): Promise<void> {
+    const { tenantId, fromPhone, text, media } = inbound;
+    const convId = conv.id;
+    const cleanText = (text || "").trim();
+
+    // 1. Comando !reset: Reinicia a triagem da IA sem apagar mensagens
+    if (cleanText.toLowerCase() === "!reset") {
+      console.log(`[Meta/Reset] Comando !reset acionado para a conversa ${convId} (${fromPhone}) no tenant ${tenantId}.`);
+      SdrDebouncer.getInstance().clearSession(convId);
+
+      await db
+        .delete(agentFlowStates)
+        .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
+
+      await db
+        .update(conversations)
+        .set({
+          queueState: "automacao",
+          operatorId: null,
+          unreadCount: 0,
+          lastMessageText: "🔄 Fluxo de triagem reiniciado via !reset",
+          lastMessageTime: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
+
+      await db.insert(agentFlowStates).values({
+        id: `fs-sdr-${Date.now()}`,
+        tenantId,
+        conversationId: convId,
+        agentType: "sdr",
+        currentStep: "Em Qualificação",
+        collectedData: {},
+        metadata: { stepNumber: 1, totalSteps: 7, funnelStage: "triagem" },
+        startedAt: new Date(),
+        lastInteractionAt: new Date(),
+        outcome: "in_progress",
+      });
+
+      SessionManager.getInstance().notifyPublic(tenantId, {
+        type: "queue_update",
+        conversationId: convId,
+        queueState: "automacao",
+        operatorId: null,
+        sectorId: null,
+        responsibleName: `${getAiPersona(tenantId).name} IA`,
+      });
+      return;
+    }
+
+    // 2. Se a conversa estava finalizada e foi reaberta, reinicia o estado de fluxo da triagem
+    if (reopened) {
+      await db
+        .delete(agentFlowStates)
+        .where(and(eq(agentFlowStates.conversationId, convId), eq(agentFlowStates.tenantId, tenantId)));
+    }
+
+    // 3. Verificar se o SDR está habilitado no tenant
+    const sdrConfig = await db.query.agentConfigs.findFirst({
+      where: (t, { eq: dEq, and: dAnd }) =>
+        dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "sdr")),
+    });
+    if (sdrConfig && sdrConfig.enabled === 0) {
+      return;
+    }
+
+    // 4. Trava de Operador: só aciona o SDR se a conversa não estiver com vendedor humano
+    const currentFlow = await db.query.agentFlowStates.findFirst({
+      where: (t, { eq: dEq, and: dAnd }) =>
+        dAnd(dEq(t.conversationId, convId), dEq(t.tenantId, tenantId)),
+    });
+
+    const isHandledByOperator = Boolean(
+      conv.operatorId !== null ||
+      conv.queueState === "meus" ||
+      conv.queueState === "finalizados" ||
+      currentFlow?.outcome === "completed" ||
+      currentFlow?.outcome === "transferred" ||
+      currentFlow?.outcome === "stopped"
+    );
+
+    if (isHandledByOperator) {
+      console.log(`[Meta/SDR] 🛑 Trava de Operador ativa para conversa ${convId} (${fromPhone}). ${getAiPersona(tenantId).name} silenciado.`);
+      return;
+    }
+
+    // 5. Preparar item multimodal (texto, foto, áudio ou PDF) para o SdrDebouncer
+    let mediaType: "text" | "image" | "audio" | "document" = "text";
+    let mediaBase64: string | undefined;
+    let mimeType: string | undefined;
+
+    if (media && media.dataBuffer) {
+      mimeType = media.mimeType;
+      mediaBase64 = media.dataBuffer.toString("base64");
+      if (media.mediaType === "image" || media.mediaType === "sticker") {
+        mediaType = "image";
+      } else if (media.mediaType === "audio") {
+        mediaType = "audio";
+      } else if (media.mediaType === "document") {
+        mediaType = "document";
+      }
+    }
+
+    SdrDebouncer.getInstance().pushIncomingMessage(tenantId, convId, fromPhone || "", {
+      messageId,
+      text: cleanText,
+      mediaType,
+      mimeType,
+      mediaBase64,
+      receivedAt: new Date(),
+    });
   }
 
   private async processInTransaction(
@@ -141,6 +269,7 @@ export class InboundProcessor {
     duplicate?: boolean;
     messageId?: string;
     conversationId?: string;
+    reopened?: boolean;
     error?: string;
   }> {
     const {
@@ -335,6 +464,7 @@ export class InboundProcessor {
       const lastTextPreview = text || (media ? `[Mídia: ${media.fileName || media.mimeType}]` : "");
       const normalizedContactPhone = (cleanPhone || contact.phone || "").replace(/\D/g, "");
       let createdConversation = false;
+      let reopened = false;
 
       if (!activeConv) {
         // 3a. Criação da primeira conversa para o contato
@@ -360,7 +490,7 @@ export class InboundProcessor {
 
         // Se não tem carteira e a empresa usa IA SDR
         if (!initialOperatorId) {
-          if (tenantId === "valem") {
+          if (isSdrTenant(tenantId)) {
             initialQueueState = "automacao";
           } else {
             initialQueueState = "fila";
@@ -456,6 +586,7 @@ export class InboundProcessor {
 
       if (!createdConversation && activeConv.queueState === "finalizados") {
         // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico
+        reopened = true;
         let reOpenOperatorId: string | null =
           provider === "meta" ? null : activeConv.operatorId || null;
         let reOpenQueueState = "fila";
@@ -475,7 +606,7 @@ export class InboundProcessor {
         }
 
         if (!reOpenOperatorId) {
-          if (tenantId === "valem") {
+          if (isSdrTenant(tenantId)) {
             reOpenQueueState = "automacao";
           } else {
             reOpenQueueState = "fila";
@@ -627,6 +758,7 @@ export class InboundProcessor {
         success: true,
         messageId,
         conversationId: activeConv.id,
+        reopened,
       };
     } catch (err) {
       throw err; // rollback de contato, conversa, mídia, mensagem e conclusão do evento

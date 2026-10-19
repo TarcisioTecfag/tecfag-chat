@@ -1039,15 +1039,16 @@ export function RodizioTab() {
         if (data.stats) setStats(data.stats);
         if (Array.isArray(data.byDay)) setByDay(data.byDay);
         if (Array.isArray(data.byFunnel)) setByFunnel(data.byFunnel);
-        if (Array.isArray(data.operators) && data.operators.length > 0) {
+        if (Array.isArray(data.dashboardOperators)) {
+          setOperators(data.dashboardOperators);
+        } else if (Array.isArray(data.operators)) {
           setOperators(data.operators);
         } else {
-          const b = getBenchmarkRodizioData(tenant || "tecfag");
-          setOperators(b.operators);
+          setOperators([]);
         }
         if (Array.isArray(data.deals)) setDeals(data.deals);
-      } else {
-        const b = getBenchmarkRodizioData(tenant || "tecfag");
+      } else if (tenant === "valem") {
+        const b = getBenchmarkRodizioData(tenant);
         setStats(b.stats);
         setByDay(b.byDay);
         setByFunnel(b.byFunnel);
@@ -1055,12 +1056,14 @@ export function RodizioTab() {
         setDeals(b.deals);
       }
     } catch {
-      const b = getBenchmarkRodizioData(tenant || "tecfag");
-      setStats(b.stats);
-      setByDay(b.byDay);
-      setByFunnel(b.byFunnel);
-      setOperators(b.operators);
-      setDeals(b.deals);
+      if (tenant === "valem") {
+        const b = getBenchmarkRodizioData(tenant);
+        setStats(b.stats);
+        setByDay(b.byDay);
+        setByFunnel(b.byFunnel);
+        setOperators(b.operators);
+        setDeals(b.deals);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -1168,24 +1171,32 @@ export function RodizioTab() {
     }
   };
 
-  // Redirecionamento amigável
+  // Redirecionamento amigável (CRM Local ou Conversa)
   const handleOpenLead = (card: OperatorCard) => {
     if (card.chatId) {
       setSelectedChatId(card.chatId);
       setActiveView("chat");
       toast.info(`Abrindo conversa de ${card.name}...`);
-    } else if (card.rdDealId) {
+    } else if (card.rdDealId && card.rdDealId.startsWith("deal-")) {
+      setActiveView("crm" as any);
+      toast.info(`Abrindo negociação "${card.name}" no CRM Local...`);
+    } else if (card.rdDealId && tenant === "valem") {
       window.open(`https://crm.rdstation.com/app/deals/${card.rdDealId}`, "_blank");
     } else {
+      setActiveView("crm" as any);
       toast.info(`Atendimento: ${card.name}`);
     }
   };
 
   const handleOpenDeal = (deal: CrmDeal) => {
-    if (deal.rd_deal_id) {
+    if (deal.rd_deal_id && deal.rd_deal_id.startsWith("deal-")) {
+      setActiveView("crm" as any);
+      toast.info(`Abrindo negociação "${deal.name}" no CRM Local...`);
+    } else if (deal.rd_deal_id && tenant === "valem") {
       window.open(`https://crm.rdstation.com/app/deals/${deal.rd_deal_id}`, "_blank");
     } else {
-      toast.info(`Deal: ${deal.name}`);
+      setActiveView("crm" as any);
+      toast.info(`Negociação: ${deal.name}`);
     }
   };
 
@@ -1198,12 +1209,13 @@ export function RodizioTab() {
     if (!targetOp) return;
 
     const updatedValue = !targetOp[key];
+    const patch: Record<string, boolean> = { [key]: updatedValue };
+    if (key === "isOnLeave" && updatedValue) patch.isPenalized = false;
+    if (key === "isPenalized" && updatedValue) patch.isOnLeave = false;
+
     const updatedOps = operators.map((op) => {
       if (op.id !== opId) return op;
-      const updated = { ...op, [key]: updatedValue };
-      if (key === "isOnLeave" && updated.isOnLeave) updated.isPenalized = false;
-      if (key === "isPenalized" && updated.isPenalized) updated.isOnLeave = false;
-      return updated;
+      return { ...op, ...patch };
     });
 
     setOperators(updatedOps);
@@ -1213,8 +1225,10 @@ export function RodizioTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "update_operator",
           tenantId: tenant,
-          operators: updatedOps,
+          operatorId: opId,
+          patch,
         }),
       });
       toast.success(`Disponibilidade de ${targetOp.name} atualizada!`);

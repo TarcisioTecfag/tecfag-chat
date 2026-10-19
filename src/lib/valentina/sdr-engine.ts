@@ -9,7 +9,14 @@ import { QueuedMessageItem } from "./sdr-debouncer";
 import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 import { getKnowledgeBaseContext, getRealMediaFiles, KNOWLEDGE_MEDIA_DIR } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
-import { getAiPersona } from "../ai-persona";
+import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
+import { buildTecfagFagnerPrompt, resolveTecfagStageAndFunnel } from "./sdr-tecfag-prompt";
+import {
+  resolveTenantActiveProvider,
+  sendBotPresence,
+  sendBotCatalogImage,
+} from "./sdr-channel-sender";
+import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
 import path from "node:path";
@@ -20,6 +27,8 @@ import { readFile } from "node:fs/promises";
 // ── Tipos do Resultado Estruturado da IA ──────────────────────────────────────────
 export interface SdrAiResult {
   extractedData?: Record<string, any>;
+  funnelStage?: string | null;
+  targetFunnel?: string | null;
   messagesToSend: string[];
   audioMessage?: {
     text: string;
@@ -51,13 +60,16 @@ export async function syncContactDataFromTriage(
   cnpjDetailsInput?: any
 ) {
   try {
-    const [contact] = await db.select().from(contacts).where(eq(contacts.id, contactId));
+    const [contact] = await db
+      .select()
+      .from(contacts)
+      .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
     if (!contact) return;
 
     const updates: Record<string, any> = {};
 
     const nameVal = collectedData["NOME COMPLETO"]?.value;
-    const cnpjCpfVal = collectedData["CNPJ OU CPF"]?.value;
+    const cnpjCpfVal = collectedData["CNPJ OU CPF"]?.value || collectedData["CNPJ"]?.value;
 
     if (
       nameVal &&
@@ -92,7 +104,10 @@ export async function syncContactDataFromTriage(
     }
 
     if (Object.keys(updates).length > 0) {
-      await db.update(contacts).set(updates).where(eq(contacts.id, contactId));
+      await db
+        .update(contacts)
+        .set(updates)
+        .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
       console.log(`[SdrEngine] 🔄 Contato ${contactId} atualizado no DB local com dados da triagem/Receita:`, updates);
 
       SessionManager.getInstance().notifyPublic(tenantId, {
@@ -157,6 +172,13 @@ export class SdrEngine {
     try {
       if (!batchItems || batchItems.length === 0) return false;
 
+      if (!isSdrTenant(tenantId)) {
+        console.log(`[SdrEngine] SDR desativado para tenant "${tenantId}".`);
+        return false;
+      }
+
+      const aiPersona = getAiPersona(tenantId);
+
       // 1. Carregar Configuração do Agente SDR no Banco — OBRIGATÓRIO filtrar por tenant.
       //    NUNCA usar fallback sem tenant: isso causa uso de config/prompt do tenant errado.
       let dbConfig = await db.query.agentConfigs.findFirst({
@@ -165,24 +187,35 @@ export class SdrEngine {
       });
 
       if (!dbConfig) {
-        console.warn(
-          `[SdrEngine] agentConfig do tipo "sdr" não encontrado para tenant "${tenantId}". ` +
-          `SDR desativado para este tenant. Crie o agentConfig no banco para ativar.`
-        );
-        return false;
-      }
+        // Inicializa automaticamente a configuração padrão do SDR para o tenant habilitado
+        const defaultCfgId = `cfg-sdr-${tenantId}`;
+        await db
+          .insert(agentConfigs)
+          .values({
+            id: defaultCfgId,
+            tenantId,
+            agentType: "sdr",
+            enabled: 1,
+            config: {
+              whitelistEnabled: false,
+              whitelistPhone: "",
+            },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .onConflictDoNothing();
 
-      // 🛑 REGRA ARQUITETURAL (AGENTS.md): SDR desativado para tecfag até go-live oficial
-      if (tenantId !== "valem") {
-        console.log(`[SdrEngine] SDR desativado para tenant "${tenantId}". Recurso restrito ao tenant "valem" até ativação.`);
-        return false;
+        dbConfig = await db.query.agentConfigs.findFirst({
+          where: (table, { eq: dEq, and: dAnd }) =>
+            dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
+        });
       }
 
       const isEnabled = dbConfig ? dbConfig.enabled === 1 : true;
       const configData = (dbConfig?.config as Record<string, any>) || {};
 
       if (!isEnabled) {
-        console.log(`[SdrEngine] SDR Valentina está DESATIVADO para tenant ${tenantId}. Ignorando lote.`);
+        console.log(`[SdrEngine] SDR ${aiPersona.name} está DESATIVADO para tenant ${tenantId}. Ignorando lote.`);
         return false;
       }
 
@@ -201,7 +234,13 @@ export class SdrEngine {
           agentType: "sdr",
           currentStep: "Em Qualificação",
           collectedData: {},
-          metadata: { stepNumber: 1, totalSteps: 7, followUpStage: 0 },
+          metadata: {
+            stepNumber: 1,
+            totalSteps: 7,
+            followUpStage: 0,
+            funnelStage: "triagem",
+            targetFunnel: "Máquinas",
+          },
           startedAt: new Date(),
           lastInteractionAt: new Date(),
           outcome: "in_progress",
@@ -212,7 +251,7 @@ export class SdrEngine {
         });
       }
 
-      // 🛑 TRAVA DE OPERADOR: Se a conversa possui um operador humano alocado, está na aba 'meus'/'finalizados' ou a triagem terminou/parou, Valentina SILENCIA IMEDIATAMENTE!
+      // 🛑 TRAVA DE OPERADOR: Se a conversa possui um operador humano alocado, está na aba 'meus'/'finalizados' ou a triagem terminou/parou, o SDR SILENCIA IMEDIATAMENTE!
       const convCheck = await db.query.conversations.findFirst({
         where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
       });
@@ -225,7 +264,7 @@ export class SdrEngine {
         flowState?.outcome === "transferred" ||
         flowState?.outcome === "stopped"
       ) {
-        console.log(`[SdrEngine] 🛑 TRAVA DE OPERADOR ATIVA: Conversa ${conversationId} (Cliente ${contactPhone}) possui operador alocado (${convCheck?.operatorId || 'Sim'}) ou status ${flowState?.outcome}. Valentina SILENCIADA.`);
+        console.log(`[SdrEngine] 🛑 TRAVA DE OPERADOR ATIVA: Conversa ${conversationId} (Cliente ${contactPhone}) possui operador alocado (${convCheck?.operatorId || 'Sim'}) ou status ${flowState?.outcome}. ${aiPersona.name} SILENCIADO(A).`);
         return false;
       }
 
@@ -249,13 +288,13 @@ export class SdrEngine {
           if (m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)) {
             hasPreviousEmoji = true;
           }
-          const sender = m.senderType === "client" ? "Cliente" : "Valentina (SDR)";
+          const sender = m.senderType === "client" ? "Cliente" : `${aiPersona.name} (SDR)`;
           
           let contentText = m.content || "";
           if (typeof contentText === "string" && contentText.startsWith("[MEDIA:audio]")) {
-            hasPreviousAudio = true; // Valentina já enviou áudio nessa conversa
+            hasPreviousAudio = true; // SDR já enviou áudio nessa conversa
             contentText = m.mediaInterpretation
-              ? `🎤 [ÁUDIO DE VOZ ENVIADO PELA VALENTINA]: "${m.mediaInterpretation}"`
+              ? `🎤 [ÁUDIO DE VOZ ENVIADO PELO SDR (${aiPersona.name.toUpperCase()})]: "${m.mediaInterpretation}"`
               : "🎤 [ÁUDIO DE VOZ]";
           }
 
@@ -282,8 +321,6 @@ export class SdrEngine {
 
       // 5. Montar Prompt Estruturado para o Gemini 2.5 Pro
       const existingCollectedData = (flowState?.collectedData as Record<string, any>) || {};
-
-      const aiPersona = getAiPersona(tenantId);
 
       const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
         timeZone: "America/Sao_Paulo",
@@ -371,7 +408,7 @@ INSTRUÇÕES OBRIGATÓRIAS:
 
       const knowledgeContext = await getKnowledgeBaseContext(tenantId, `${batchSummary}\n${conversationHistoryText}`);
 
-      const promptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) da ${aiPersona.company} (${aiPersona.segment}).
+      const valemPromptText = `Você é ${aiPersona.name}, ${aiPersona.gender === "female" ? "a" : "o"} consultora(or) comercial pré-vendas (SDR) humana(o) da ${aiPersona.company} (${aiPersona.segment}).
 ${knowledgeContext}
 
 HISTÓRICO COMPLETO DA CONVERSA ATE AGORA:
@@ -657,6 +694,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
   "isCompleted": false
 }`;
 
+      const promptText =
+        tenantId === "tecfag"
+          ? buildTecfagFagnerPrompt({
+              aiPersona,
+              knowledgeContext,
+              conversationHistoryText,
+              batchSummary,
+              currentDataSummary,
+              cnpjDirective,
+              firstMessageRule,
+              hasPreviousEmoji,
+              hasPreviousAudio,
+            })
+          : valemPromptText;
+
       const multimodalParts: MultimodalPart[] = [{ text: promptText }];
 
       // Anexar buffers de imagem e áudio recebidos no lote
@@ -691,9 +743,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (signal?.aborted) return false;
 
       // Se a IA não retornar resultado válido (timeout, erro de parse, etc.), silencia sem enviar
-      // nada ao cliente — Valentina não deve ter fallback de mensagem pública.
+      // nada ao cliente — o SDR não deve ter fallback de mensagem pública.
       if (!aiResult || !aiResult.messagesToSend || aiResult.messagesToSend.length === 0) {
-        console.warn(`[SdrEngine] ⚠️ Vertex AI retornou resultado vazio para conversa ${conversationId}. Valentina silenciada neste turno.`);
+        console.warn(`[SdrEngine] ⚠️ Vertex AI retornou resultado vazio para conversa ${conversationId}. ${aiPersona.name} silenciado(a) neste turno.`);
         return false;
       }
 
@@ -704,13 +756,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         // Checar se o cliente apenas deu oi/saudação ou se já explicou o que precisa
         const isGenericGreetingOnly =
           combinedText.replace(/[^a-z0-9]/g, "").length < 25 &&
-          !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid)/.test(combinedText);
+          !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|envas|empacot|datador|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit)/.test(combinedText);
 
+        const article = aiPersona.gender === "female" ? "a" : "o";
         if (isGenericGreetingOnly) {
           // Cliente só cumprimentou — estrutura fixa de 3 balões
           aiResult.messagesToSend = [
             greeting,
-            `Eu sou a ${aiPersona.name}, da ${aiPersona.company}  😊`,
+            `Eu sou ${article} ${aiPersona.name}, da ${aiPersona.company} 😊`,
             "Como posso te ajudar?",
           ];
         } else {
@@ -719,7 +772,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           // Apenas substitui os 2 primeiros por greeting + apresentação obrigatórios.
           aiResult.messagesToSend = [
             greeting,
-            `Eu sou a ${aiPersona.name}, da ${aiPersona.company}  😊`,
+            `Eu sou ${article} ${aiPersona.name}, da ${aiPersona.company} 😊`,
             ...aiResult.messagesToSend, // todos os balões da IA vêm depois
           ];
         }
@@ -768,8 +821,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         const cnpjCheck = await fetchCnpjInfo(detectedCnpjCandidate);
         if (!cnpjCheck.valid && aiResult.extractedData) {
           delete aiResult.extractedData["CNPJ OU CPF"];
+          delete aiResult.extractedData["CNPJ"];
           delete aiResult.extractedData["EMPRESA"];
           delete updatedCollectedData["CNPJ OU CPF"];
+          delete updatedCollectedData["CNPJ"];
           delete updatedCollectedData["EMPRESA"];
         }
       }
@@ -795,9 +850,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             console.log(`[SdrEngine] 🛡️ Ignorada tentativa da IA de preencher CNPJ com resposta booleana: "${v}"`);
             continue;
           }
-          // Proteção extra: nunca salvar "CPF" literal ou número de 11 dígitos no campo CNPJ
-          if ((k === "CNPJ" || k === "CNPJ OU CPF") && (v.trim().toUpperCase() === "CPF" || v.replace(/\D/g, "").length === 11)) {
-            console.log(`[SdrEngine] 🛡️ Bloqueado preenchimento de CNPJ com CPF: "${v}"`);
+          // Na Valem, nunca salvar "CPF" literal ou número de 11 dígitos no campo CNPJ.
+          // Na Tecfag, aceitamos tanto CNPJ (14 dígitos) quanto CPF (11 dígitos), mas bloqueamos a palavra "CPF" sem números.
+          if (
+            tenantId === "valem" &&
+            (k === "CNPJ" || k === "CNPJ OU CPF") &&
+            (v.trim().toUpperCase() === "CPF" || v.replace(/\D/g, "").length === 11)
+          ) {
+            console.log(`[SdrEngine] 🛡️ Bloqueado preenchimento de CNPJ com CPF no tenant valem: "${v}"`);
+            continue;
+          }
+          if (
+            tenantId === "tecfag" &&
+            (k === "CNPJ" || k === "CNPJ OU CPF") &&
+            v.trim().toUpperCase() === "CPF"
+          ) {
             continue;
           }
           updatedCollectedData[k] = { value: v, status: "filled" };
@@ -808,49 +875,71 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // 8.1 Verificação da presença dos Dados Vitais
       const nameVal = updatedCollectedData["NOME COMPLETO"]?.value || "";
       const companyVal = updatedCollectedData["EMPRESA"]?.value || "";
-      // Suporta tanto a chave nova "CNPJ" quanto a legada "CNPJ OU CPF"
+      // Suporta tanto a chave nova "CNPJ" quanto "CNPJ OU CPF"
       const cnpjVal = updatedCollectedData["CNPJ"]?.value || updatedCollectedData["CNPJ OU CPF"]?.value || "";
-      const productVal = updatedCollectedData["QUAL O TIPO DE PRODUTO?"]?.value || "";
+      const productVal =
+        updatedCollectedData["MÁQUINA / PEÇA / INTERESSE"]?.value ||
+        updatedCollectedData["QUAL O TIPO DE PRODUTO?"]?.value ||
+        updatedCollectedData["PRODUTO DE INTERESSE"]?.value ||
+        "";
 
       const hasName = Boolean(nameVal && nameVal.trim() !== "" && !nameVal.toLowerCase().includes("aguardando"));
       const hasCompany = Boolean(companyVal && companyVal.trim() !== "" && !companyVal.toLowerCase().includes("aguardando"));
-      // hasCnpj = true apenas se for efetivamente um CNPJ (14 dígitos) — nunca aceitar "CPF" literal ou 11 dígitos
       const cnpjClean = cnpjVal.replace(/\D/g, "");
       const hasCnpj = Boolean(
-        cnpjVal && cnpjVal.trim() !== "" &&
+        cnpjVal &&
+        cnpjVal.trim() !== "" &&
         !cnpjVal.toLowerCase().includes("aguardando") &&
         !cnpjVal.toLowerCase().includes("invalido") &&
         cnpjVal.trim().toUpperCase() !== "CPF" &&
-        cnpjClean.length !== 11  // rejeita CPF (11 dígitos)
+        (tenantId === "tecfag" ? cnpjClean.length === 11 || cnpjClean.length === 14 : cnpjClean.length !== 11)
       );
       const hasProduct = Boolean(productVal && productVal.trim() !== "" && !productVal.toLowerCase().includes("aguardando"));
 
       // Todos os dados essenciais para o CRM foram efetivamente fornecidos pelo cliente?
       const hasVitalInformation = hasName && (hasCompany || hasCnpj) && hasProduct;
 
-      // Contagem de campos vitais já preenchidos (usada no metadata do flowState)
-      const filledCount = [hasName, hasCompany || hasCnpj, hasProduct].filter(Boolean).length;
+      // Contagem de campos preenchidos (usada no metadata do flowState)
+      const filledCount = Object.values(updatedCollectedData).filter(
+        (entry: any) => entry?.value && !String(entry.value).toLowerCase().includes("aguardando")
+      ).length || [hasName, hasCompany || hasCnpj, hasProduct].filter(Boolean).length;
 
-      // Verifica se a resposta da Valentina inclui frases EXPLÍCITAS e inequívocas de transferência.
+      // Resolver estágio do Kanban SDR (9 colunas) e Sub-Funil de Fluxos (9 sub-funis)
+      const stageAndFunnel = resolveTecfagStageAndFunnel({
+        aiFunnelStage: aiResult.funnelStage,
+        aiTargetFunnel: aiResult.targetFunnel,
+        collectedData: updatedCollectedData,
+        existingStage: metaState.funnelStage || "triagem",
+        existingFunnel: metaState.targetFunnel || "Máquinas",
+      });
+
+      if (tenantId === "tecfag" && stageAndFunnel.targetFunnel && !updatedCollectedData["SETOR / FUNIL DE DESTINO"]?.value) {
+        updatedCollectedData["SETOR / FUNIL DE DESTINO"] = {
+          value: stageAndFunnel.targetFunnel,
+          status: "filled",
+        };
+      }
+
+      // Verifica se a resposta do SDR inclui frases EXPLÍCITAS e inequívocas de transferência.
       const messagesMentionTransfer = aiResult.messagesToSend.some((m) => {
         const lower = m.toLowerCase();
         return (
           // Padrões explícitos de transferência ativa
           (lower.includes("transferindo agora") || lower.includes("te transferindo")) ||
-          (lower.includes("passando") && (lower.includes("especialista") || lower.includes("vendedor"))) ||
+          (lower.includes("passando") && (lower.includes("especialista") || lower.includes("vendedor") || lower.includes("setor") || lower.includes("consultor"))) ||
           (lower.includes("passando agora") && (lower.includes("contato") || lower.includes("detalhes") || lower.includes("dados"))) ||
-          (lower.includes("encaminhando") && (lower.includes("especialista") || lower.includes("vendedor"))) ||
-          (lower.includes("dar continuidade ao seu atendimento") && lower.includes("especialista")) ||
+          (lower.includes("encaminhando") && (lower.includes("especialista") || lower.includes("vendedor") || lower.includes("setor") || lower.includes("consultor"))) ||
+          (lower.includes("dar continuidade ao seu atendimento") && (lower.includes("especialista") || lower.includes("consultor"))) ||
           // Padrões de despedida pós-triagem inequívocos
           (lower.includes("agradeço muito o seu contato") || lower.includes("agradeco muito o seu contato")) ||
-          (lower.includes("agradecemos o seu contato") || lower.includes("obrigada pelo contato")) ||
+          (lower.includes("agradecemos o seu contato") || lower.includes("obrigada pelo contato") || lower.includes("obrigado pelo contato")) ||
           (lower.includes("boa sorte") && lower.includes("negócios")) ||
-          (lower.includes("vai entrar em contato") && (lower.includes("especialista") || lower.includes("vendedor"))) ||
+          (lower.includes("vai entrar em contato") && (lower.includes("especialista") || lower.includes("vendedor") || lower.includes("consultor"))) ||
           (lower.includes("ligar") && lower.includes("cotação") && lower.includes("especialista"))
         );
       });
 
-      // Verifica se a Valentina está fazendo uma pergunta REAL de coleta de dado neste lote
+      // Verifica se o SDR está fazendo uma pergunta REAL de coleta de dado neste lote
       // (perguntas retóricas de despedida como "ok?" ou "né?" NÃO bloqueiam a conclusão)
       const FAREWELL_QUESTION_PATTERNS = /\b(ok\?|tá\?|ta\?|né\?|ne\?|certo\?|combinado\?|não é\?|não é mesmo\?|tudo bem\?)\s*$/i;
       const REAL_QUESTION_KEYWORDS = /\b(qual|quais|como|onde|quando|quantas|quantos|quanto|você pode|pode me|me informa|me passa|me envia|me confirma o nome|me confirma o cnpj|cnpj|cpf|nome completo|nome da empresa)\b/i;
@@ -876,54 +965,157 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
       // SEM hasVitalInformation → isCompleted = false SEMPRE, independente do que a IA disser
 
-      console.log(`[SdrEngine] 📊 Diagnóstico de conclusão — hasName=${hasName} hasCompany=${hasCompany} hasCnpj=${hasCnpj} hasProduct=${hasProduct} | hasVitalInfo=${hasVitalInformation} | aiIsCompleted=${aiResult.isCompleted} | botAskingQuestion=${botIsAskingQuestion} | mentionTransfer=${messagesMentionTransfer} → isCompleted=${isCompleted}`);
+      console.log(`[SdrEngine] 📊 Diagnóstico de conclusão (${tenantId}) — hasName=${hasName} hasCompany=${hasCompany} hasCnpj=${hasCnpj} hasProduct=${hasProduct} | stage=${stageAndFunnel.funnelStage} funnel=${stageAndFunnel.targetFunnel} | hasVitalInfo=${hasVitalInformation} | aiIsCompleted=${aiResult.isCompleted} | botAskingQuestion=${botIsAskingQuestion} | mentionTransfer=${messagesMentionTransfer} → isCompleted=${isCompleted}`);
 
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
 
-      // 9. Alocar responsável no Rodízio SE a qualificação acabou de ser concluída
+      // 9. Alocar responsável no Rodízio e vincular/criar negociação SE a qualificação acabou de ser concluída
       let allocatedOp: any = null;
+      let localCrmResult: {
+        action: "reused_within_3h" | "created_new";
+        dealId: string;
+        dealTitle: string;
+        funnelId: string;
+        stageId: string;
+      } | null = null;
+
       if (isCompleted && !wasAlreadyCompleted && !signal?.aborted) {
         try {
           const clientName = updatedCollectedData["NOME COMPLETO"]?.value || "Cliente WhatsApp";
           const company = updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
-
-          // Alocação real do próximo vendedor disponível no rodízio de acordo com a área/produto
-          const targetProduct = updatedCollectedData["PRODUTO DE INTERESSE"]?.value || updatedCollectedData["QUAL O TIPO DE PRODUTO"]?.value || updatedCollectedData["SETOR"]?.value || "";
           const { RodizioEngine } = await import("./rodizio-engine");
-          allocatedOp = await RodizioEngine.allocateNextOperator(tenantId, conversationId, clientName, targetProduct);
 
-          const supervisorNotifId = `notif-${Date.now()}`;
-          const targetOpId = allocatedOp?.id;
+          if (tenantId === "tecfag") {
+            // ══════════════════════════════════════════════════════════════════
+            // 🏢 FLUXO FAGNER SDR (TECFAG):
+            // 1) Zero RD Station CRM — apenas CRM Local.
+            // 2) ANTES de transferir a conversa para a fila "meus" do operador,
+            //    executa ensureLocalCrmDealBeforeTransfer com a regra de 3 horas:
+            //    - Se existir negociação criada nas últimas 3h para o cliente → vincula a ela.
+            //    - Se passou de 3h ou não existir → cria nova negociação e vincula antes de transferir.
+            // ══════════════════════════════════════════════════════════════════
+            const targetFunnelForRodizio =
+              stageAndFunnel.targetFunnel ||
+              updatedCollectedData["SETOR / FUNIL DE DESTINO"]?.value ||
+              "Máquinas";
 
-          if (targetOpId) {
-            const personaObj = aiPersona || getAiPersona(tenantId);
-            await db.insert(internalMessages).values({
-              id: supervisorNotifId,
-              tenantId,
-              operatorId: targetOpId,
-              direction: "from_agent",
-              agentType: "supervisor",
-              content: `🎯 Lead qualificado por ${personaObj.name}: *${clientName}* (${company}). Atendimento alocado automaticamente para *${allocatedOp.name}* no rodízio!`,
-              metadata: { type: "lead_transfer", conversationId },
-              read: 0,
-              createdAt: new Date(),
-            });
-          }
+            let crmExecutedBeforeTransfer = false;
 
-          // Automação: Cria e vincula o Card no RD Station CRM com os dados coletados na triagem da Valentina
-          try {
-            console.log(`[SdrEngine] 📦 Disparando autoCreateOrUpdateRdCrmDeal para ${contactPhone} (conversa: ${conversationId})...`);
-            const crmResult = await autoCreateOrUpdateRdCrmDeal({
+            allocatedOp = await RodizioEngine.allocateNextOperator(
               tenantId,
               conversationId,
-              contactPhone,
-              collectedData: updatedCollectedData,
-              allocatedOperator: allocatedOp,
-            });
-            console.log(`[SdrEngine] 🏁 Resultado da automação do RD CRM: ${crmResult ? "SUCESSO ✅" : "FALHA / RECUSADO ⚠️"}`);
-          } catch (crmErr: any) {
-            console.error("[SdrEngine] ❌ Erro ao executar autoCreateOrUpdateRdCrmDeal:", crmErr?.stack || crmErr?.message || crmErr);
+              clientName,
+              targetFunnelForRodizio,
+              {
+                beforeTransfer: async (chosenOp) => {
+                  localCrmResult = await ensureLocalCrmDealBeforeTransfer({
+                    tenantId,
+                    conversationId,
+                    contactId: convCheck?.contactId || null,
+                    contactPhone,
+                    collectedData: updatedCollectedData,
+                    targetFunnel: targetFunnelForRodizio,
+                    funnelStage: stageAndFunnel.funnelStage,
+                    allocatedOperator: { id: chosenOp.id, name: chosenOp.name },
+                  });
+                  crmExecutedBeforeTransfer = true;
+                  console.log(
+                    `[SdrEngine][Fagner] 🤝 CRM Local vinculado ANTES da transferência (${localCrmResult.action}): Deal ${localCrmResult.dealId} ("${localCrmResult.dealTitle}") -> Operador ${chosenOp.name}`,
+                  );
+                },
+              },
+            );
+
+            // Caso não haja nenhum operador elegível na escala no momento, ainda assim garante
+            // o vínculo/criação da negociação no CRM Local (janela de 3h) antes de disponibilizar na fila
+            if (!crmExecutedBeforeTransfer) {
+              localCrmResult = await ensureLocalCrmDealBeforeTransfer({
+                tenantId,
+                conversationId,
+                contactId: convCheck?.contactId || null,
+                contactPhone,
+                collectedData: updatedCollectedData,
+                targetFunnel: targetFunnelForRodizio,
+                funnelStage: stageAndFunnel.funnelStage,
+                allocatedOperator: allocatedOp ? { id: allocatedOp.id, name: allocatedOp.name } : null,
+              });
+              console.log(
+                `[SdrEngine][Fagner] 🤝 CRM Local vinculado sem operador de rodízio (${localCrmResult.action}): Deal ${localCrmResult.dealId}`,
+              );
+            }
+
+            if (allocatedOp?.id) {
+              const supervisorNotifId = `notif-${Date.now()}`;
+              const dealLabel = localCrmResult
+                ? ` | Card CRM: *${localCrmResult.dealTitle}* (${localCrmResult.action === "reused_within_3h" ? "vinculado < 3h" : "criado novo"})`
+                : "";
+              await db.insert(internalMessages).values({
+                id: supervisorNotifId,
+                tenantId,
+                operatorId: allocatedOp.id,
+                direction: "from_agent",
+                agentType: "supervisor",
+                content: `🎯 Lead triado por ${aiPersona.name}: *${clientName}* (${company}) — Funil: *${targetFunnelForRodizio}*${dealLabel}. Atendimento alocado automaticamente para *${allocatedOp.name}* no rodízio!`,
+                metadata: {
+                  type: "lead_transfer",
+                  conversationId,
+                  dealId: localCrmResult?.dealId || null,
+                  dealAction: localCrmResult?.action || null,
+                  targetFunnel: targetFunnelForRodizio,
+                },
+                read: 0,
+                createdAt: new Date(),
+              });
+            }
+          } else {
+            // ══════════════════════════════════════════════════════════════════
+            // 🏢 FLUXO VALENTINA SDR (VALEM) — INALTERADO
+            // ══════════════════════════════════════════════════════════════════
+            const targetProduct =
+              updatedCollectedData["PRODUTO DE INTERESSE"]?.value ||
+              updatedCollectedData["QUAL O TIPO DE PRODUTO"]?.value ||
+              updatedCollectedData["SETOR"]?.value ||
+              "";
+            allocatedOp = await RodizioEngine.allocateNextOperator(
+              tenantId,
+              conversationId,
+              clientName,
+              targetProduct,
+            );
+
+            const supervisorNotifId = `notif-${Date.now()}`;
+            const targetOpId = allocatedOp?.id;
+
+            if (targetOpId) {
+              const personaObj = aiPersona || getAiPersona(tenantId);
+              await db.insert(internalMessages).values({
+                id: supervisorNotifId,
+                tenantId,
+                operatorId: targetOpId,
+                direction: "from_agent",
+                agentType: "supervisor",
+                content: `🎯 Lead qualificado por ${personaObj.name}: *${clientName}* (${company}). Atendimento alocado automaticamente para *${allocatedOp.name}* no rodízio!`,
+                metadata: { type: "lead_transfer", conversationId },
+                read: 0,
+                createdAt: new Date(),
+              });
+            }
+
+            // Automação RD Station CRM exclusiva para Valem
+            try {
+              console.log(`[SdrEngine] 📦 Disparando autoCreateOrUpdateRdCrmDeal para ${contactPhone} (conversa: ${conversationId})...`);
+              const crmResult = await autoCreateOrUpdateRdCrmDeal({
+                tenantId,
+                conversationId,
+                contactPhone,
+                collectedData: updatedCollectedData,
+                allocatedOperator: allocatedOp,
+              });
+              console.log(`[SdrEngine] 🏁 Resultado da automação do RD CRM: ${crmResult ? "SUCESSO ✅" : "FALHA / RECUSADO ⚠️"}`);
+            } catch (crmErr: any) {
+              console.error("[SdrEngine] ❌ Erro ao executar autoCreateOrUpdateRdCrmDeal:", crmErr?.stack || crmErr?.message || crmErr);
+            }
           }
         } catch (rErr: any) {
           console.error("[SdrEngine] ❌ Erro ao alocar no rodízio ou acionar CRM:", rErr?.message || rErr);
@@ -969,19 +1161,35 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           if (!replacedAny && !botIsAskingQuestion) {
             aiResult.messagesToSend.push(
-              `Estou te transferindo agora para ${sellerFirstName}, nosso especialista comercial! Já vai dar continuidade ao seu atendimento 😊`
+              `Estou te transferindo agora para ${sellerFirstName}, nosso especialista! Já vai dar continuidade ao seu atendimento 😊`
             );
           }
         }
       }
 
       if (flowState) {
+        const updatedMetadata = {
+          ...metaState,
+          stepNumber: filledCount,
+          totalSteps: 7,
+          funnelStage: stageAndFunnel.funnelStage,
+          targetFunnel: stageAndFunnel.targetFunnel,
+          ...(localCrmResult
+            ? {
+                localCrmDealId: localCrmResult.dealId,
+                localCrmDealTitle: localCrmResult.dealTitle,
+                localCrmDealAction: localCrmResult.action,
+              }
+            : {}),
+          ...(allocatedOp?.name ? { allocatedOperatorName: allocatedOp.name } : {}),
+        };
+
         await db
           .update(agentFlowStates)
           .set({
             currentStep: isCompleted ? "Concluído" : "Em Qualificação",
             collectedData: updatedCollectedData,
-            metadata: { ...metaState, stepNumber: filledCount, totalSteps: 7 },
+            metadata: updatedMetadata,
             lastInteractionAt: now,
             completedAt: isCompleted ? (flowState.completedAt || now) : null,
             outcome: isCompleted ? (wasAlreadyCompleted ? flowState.outcome : "transferred") : "in_progress",
@@ -992,6 +1200,16 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         if (convCheck?.contactId) {
           await syncContactDataFromTriage(tenantId, convCheck.contactId, updatedCollectedData);
         }
+
+        // Notificar Kanban SDR em tempo real sobre atualização de coluna / dados / card CRM
+        SessionManager.getInstance().notifyPublic(tenantId, {
+          type: "sdr_flow_updated",
+          conversationId,
+          funnelStage: stageAndFunnel.funnelStage,
+          targetFunnel: stageAndFunnel.targetFunnel,
+          outcome: isCompleted ? "transferred" : "in_progress",
+          localCrmDeal: localCrmResult,
+        });
       }
 
       // ── Salvar interpretação de mídia na mensagem do cliente (memória visual futura) ──
@@ -1175,50 +1393,51 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         console.log(`[SdrEngine] 🔍 DIAGNÓSTICO: imageUrlsToSend=${JSON.stringify(imageUrlsToSend)} | messagesToSend count=${aiResult.messagesToSend.length}`);
 
         if (imageUrlsToSend.length > 0 && !signal?.aborted) {
-          const sock = SessionManager.getInstance().getSession(tenantId);
-          const realJid = sock ? await resolveRealJid(sock, contactPhone) : null;
+          // Carrega base64 APENAS das imagens solicitadas do banco (evitando puxar 99 MB de todas as 447 fotos)
+          const realMediaFiles = await getRealMediaFiles(tenantId, imageUrlsToSend);
+          console.log(`[SdrEngine] 🔍 realMediaFiles carregados: ${realMediaFiles.length} arquivo(s) | base64 presente: ${realMediaFiles.filter(f => f.base64Data).length}`);
 
-          if (sock && realJid) {
-            // Carrega base64 APENAS das imagens solicitadas do banco (evitando puxar 99 MB de todas as 447 fotos)
-            const realMediaFiles = await getRealMediaFiles(tenantId, imageUrlsToSend);
-            console.log(`[SdrEngine] 🔍 realMediaFiles carregados: ${realMediaFiles.length} arquivo(s) | base64 presente: ${realMediaFiles.filter(f => f.base64Data).length}`);
+          for (const imageRelUrl of imageUrlsToSend) {
+            if (signal?.aborted) break;
+            try {
+              const mediaFile = realMediaFiles.find(f => f.mediaUrl === imageRelUrl);
+              let imgBuffer: Buffer;
+              let mimeType: string;
+              const fileName = path.basename(imageRelUrl) || "catalogo.jpg";
 
+              if (mediaFile?.base64Data) {
+                // ✅ Fonte primária: base64 persistido no banco de dados
+                imgBuffer = Buffer.from(mediaFile.base64Data, "base64");
+                mimeType = mediaFile.mimeType || "image/jpeg";
+                console.log(`[SdrEngine] 🖼️ Imagem carregada do banco DB: ${imageRelUrl} (${imgBuffer.length} bytes)`);
+              } else {
+                // ⚠️ Fallback: tenta ler do disco (funciona local com volume montado)
+                const filePath = path.join(KNOWLEDGE_MEDIA_DIR, fileName);
+                console.log(`[SdrEngine] 🖼️ Fallback — lendo do disco: ${filePath}`);
+                imgBuffer = await readFile(filePath);
+                const ext = imageRelUrl.split(".").pop()?.toLowerCase() || "jpg";
+                mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
+              }
 
-            for (const imageRelUrl of imageUrlsToSend) {
-              if (signal?.aborted) break;
-              try {
-                const mediaFile = realMediaFiles.find(f => f.mediaUrl === imageRelUrl);
-                let imgBuffer: Buffer;
-                let mimeType: string;
-
-                if (mediaFile?.base64Data) {
-                  // ✅ Fonte primária: base64 persistido no banco de dados
-                  imgBuffer = Buffer.from(mediaFile.base64Data, "base64");
-                  mimeType = mediaFile.mimeType || "image/jpeg";
-                  console.log(`[SdrEngine] 🖼️ Imagem carregada do banco DB: ${imageRelUrl} (${imgBuffer.length} bytes)`);
-                } else {
-                  // ⚠️ Fallback: tenta ler do disco (funciona local com volume montado)
-                  const fileName = path.basename(imageRelUrl);
-                  const filePath = path.join(KNOWLEDGE_MEDIA_DIR, fileName);
-                  console.log(`[SdrEngine] 🖼️ Fallback — lendo do disco: ${filePath}`);
-                  imgBuffer = await readFile(filePath);
-                  const ext = imageRelUrl.split(".").pop()?.toLowerCase() || "jpg";
-                  mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
-                }
-
-                await sock.sendPresenceUpdate("composing", realJid);
-                await new Promise(r => setTimeout(r, 800));
-                await sock.sendMessage(realJid, { image: imgBuffer, mimetype: mimeType, caption: "" });
-                console.log(`[SdrEngine] ✅ Imagem enviada para ${contactPhone}`);
-                await new Promise(r => setTimeout(r, 600));
-              } catch (imgErr: any) {
-                if (!signal?.aborted) {
-                  console.error(`[SdrEngine] ❌ Falha ao enviar imagem Formato Real:`, imgErr.message);
-                }
+              await sendBotPresence(tenantId, conversationId, contactPhone, "composing");
+              await new Promise(r => setTimeout(r, 800));
+              await sendBotCatalogImage({
+                tenantId,
+                conversationId,
+                phone: contactPhone,
+                imgBuffer,
+                mimeType,
+                fileName,
+                caption: "",
+                botSenderName: `${aiPersona.name} (SDR)`,
+              });
+              console.log(`[SdrEngine] ✅ Imagem enviada e registrada para ${contactPhone}`);
+              await new Promise(r => setTimeout(r, 600));
+            } catch (imgErr: any) {
+              if (!signal?.aborted) {
+                console.error(`[SdrEngine] ❌ Falha ao enviar imagem Formato Real:`, imgErr?.message || imgErr);
               }
             }
-          } else {
-            console.warn(`[SdrEngine] ⚠️ Sessão Baileys não disponível para envio de imagem. Pulando.`);
           }
         }
         // ── FIM INTERCEPTAÇÃO DE IMAGENS ─────────────────────────────────────
@@ -1253,15 +1472,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         console.log(`[SdrEngine] Processamento abortado por nova mensagem do cliente (Stop & Restart).`);
         return false;
       }
-      console.error("[SdrEngine] Erro no fluxo SDR Valentina:", e);
+      console.error("[SdrEngine] Erro no fluxo SDR:", e);
       return false;
     }
   }
 
   /**
-   * Sintetiza dinamicamente um áudio com a voz da Valentina via ElevenLabs (formato nativo Opus/OGG)
+   * Sintetiza dinamicamente um áudio com a voz do SDR via ElevenLabs (formato nativo Opus/OGG)
    * e envia como PTT (Push-To-Talk / Mensagem de Voz) com simulação de "gravando áudio..." e registro no banco.
-   * A transcrição exata é persistida em `mediaInterpretation` garantindo memória 100% literal nos turnos futuros!
+   * Suporta tanto Baileys quanto Meta Cloud API.
    */
   private async sendDynamicPttAudio(
     tenantId: string,
@@ -1273,19 +1492,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     const cleanText = audioText.trim();
     if (!cleanText) return;
 
+    const activeProvider = await resolveTenantActiveProvider(tenantId);
     const sock = SessionManager.getInstance().getSession(tenantId);
-    if (!sock) {
-      console.error(`[SdrEngine Dynamic PTT] Sessão Baileys não encontrada para tenant ${tenantId}`);
-      return;
-    }
-
-    const realJid = await resolveRealJid(sock, phone);
+    const realJid = sock ? await resolveRealJid(sock, phone) : null;
 
     // 1. Mostrar imediatamente a presença 'recording' (gravando áudio...) no WhatsApp
-    try {
-      await sock.sendPresenceUpdate("recording", realJid);
-      console.log(`[SdrEngine Dynamic PTT] 🎙️ Presença 'recording' ativada para ${phone}`);
-    } catch { /* silencia */ }
+    await sendBotPresence(tenantId, conversationId, phone, "recording");
 
     // 2. Gerar o áudio dinâmico via ElevenLabs (ou recuperar do cache LRU)
     let pttResult: { buffer: Buffer; durationSeconds: number; mimeType: string };
@@ -1296,7 +1508,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       });
     } catch (ttsErr: any) {
       console.error(`[SdrEngine Dynamic PTT] ⚠️ Falha na síntese ElevenLabs (${ttsErr?.message}). Fazendo fallback para texto.`);
-      try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+      await sendBotPresence(tenantId, conversationId, phone, "paused");
       // Fallback transparente: envia o texto como balão normal sem travar a conversa
       await this.sendHumanizedBotMessages(tenantId, conversationId, phone, [cleanText], signal);
       return;
@@ -1309,32 +1521,79 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     const startTs = Date.now();
     while (Date.now() - startTs < durationMs) {
       if (signal?.aborted) {
-        try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+        await sendBotPresence(tenantId, conversationId, phone, "paused");
         console.log(`[SdrEngine Dynamic PTT] Envio PTT abortado pelo AbortSignal.`);
         return;
       }
       await new Promise((r) => setTimeout(r, 200));
     }
 
-    try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+    await sendBotPresence(tenantId, conversationId, phone, "paused");
     if (signal?.aborted) return;
 
-    // 4. Enviar mensagem de áudio PTT pelo WhatsApp via Baileys
-    let sentMsg: any;
+    const persona = getAiPersona(tenantId);
+    const botSenderName = `${persona.name} (SDR)`;
+    let botMessageId = `bot-ptt-${Date.now()}`;
+
+    // Persistir buffer de áudio em mediaFiles antes para permitir envio via Meta Adapter e reprodução na web
     try {
-      sentMsg = await sock.sendMessage(realJid, {
-        audio: pttResult.buffer,
-        mimetype: pttResult.mimeType,
-        ptt: true,
-      });
-      console.log(`[SdrEngine Dynamic PTT] ✅ PTT dinâmico enviado com sucesso! MessageId: ${sentMsg?.key?.id}`);
+      const { mediaFiles } = await import("../../db/schema");
+      await db.insert(mediaFiles).values({
+        id: botMessageId,
+        tenantId,
+        conversationId,
+        fileName: `${persona.name.toLowerCase()}_audio.ogg`,
+        mimeType: pttResult.mimeType,
+        fileSize: pttResult.buffer.length,
+        base64Data: pttResult.buffer.toString("base64"),
+        createdAt: new Date(),
+      }).onConflictDoNothing();
+    } catch { /* não crítico */ }
+
+    // 4. Enviar mensagem de áudio PTT pelo WhatsApp (Meta ou Baileys)
+    try {
+      if (activeProvider === "meta" || !sock || !realJid) {
+        const { metaAdapter } = await import("../whatsapp/adapters/meta");
+        const res = await metaAdapter.send(tenantId, {
+          to: phone,
+          mediaUrl: `/api/baileys/media?messageId=${botMessageId}`,
+          mediaType: "audio",
+          mimeType: pttResult.mimeType,
+          fileName: `${persona.name.toLowerCase()}_audio.ogg`,
+        });
+        if (!res.success) {
+          console.error(`[SdrEngine Dynamic PTT] ❌ Erro ao enviar PTT via Meta:`, res.error);
+          return;
+        }
+      } else {
+        const sentMsg = await sock.sendMessage(realJid, {
+          audio: pttResult.buffer,
+          mimetype: pttResult.mimeType,
+          ptt: true,
+        });
+        if (sentMsg?.key?.id) {
+          botMessageId = sentMsg.key.id;
+          // Garantir que mediaFiles tenha o mesmo ID caso Baileys gere novo ID
+          const { mediaFiles } = await import("../../db/schema");
+          await db.insert(mediaFiles).values({
+            id: botMessageId,
+            tenantId,
+            conversationId,
+            fileName: `${persona.name.toLowerCase()}_audio.ogg`,
+            mimeType: pttResult.mimeType,
+            fileSize: pttResult.buffer.length,
+            base64Data: pttResult.buffer.toString("base64"),
+            createdAt: new Date(),
+          }).onConflictDoNothing();
+        }
+      }
+      console.log(`[SdrEngine Dynamic PTT] ✅ PTT dinâmico enviado com sucesso! MessageId: ${botMessageId}`);
     } catch (sendErr: any) {
-      console.error(`[SdrEngine Dynamic PTT] ❌ Erro ao enviar PTT via Baileys:`, sendErr?.message);
+      console.error(`[SdrEngine Dynamic PTT] ❌ Erro ao enviar PTT:`, sendErr?.message);
       return;
     }
 
     // 5. Registrar no banco com a transcrição exata em mediaInterpretation (Memória Total)
-    const botMessageId = sentMsg?.key?.id || `bot-ptt-${Date.now()}`;
     const displayContent = `🎤 ${cleanText.slice(0, 45)}...`;
 
     try {
@@ -1348,9 +1607,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         createdAt: new Date(),
       }).onConflictDoNothing();
 
-      const persona = getAiPersona(tenantId);
-      const botSenderName = `${persona.name} (SDR)`;
-
       await db.insert(messages).values({
         id: botMessageId,
         tenantId,
@@ -1358,27 +1614,17 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         senderType: "bot",
         senderName: botSenderName,
         content: `[MEDIA:audio]${botMessageId}`,
-        mediaInterpretation: cleanText, // 👈 MEMÓRIA EXATA DO QUE A VALENTINA DISSE NO ÁUDIO!
+        mediaInterpretation: cleanText,
         isInternalNote: false,
+        direction: "outbound",
+        provider: activeProvider,
+        status: "sent",
         sentAt: new Date(),
       }).onConflictDoNothing();
 
       await db.update(conversations)
         .set({ lastMessageText: displayContent, lastMessageTime: new Date() })
         .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
-
-      // Persistir buffer de áudio em mediaFiles para tocar na interface web
-      try {
-        const { mediaFiles } = await import("../../db/schema");
-        await db.insert(mediaFiles).values({
-          id: botMessageId,
-          tenantId,
-          fileName: `${persona.name.toLowerCase()}_audio.ogg`,
-          mimeType: pttResult.mimeType,
-          base64Data: pttResult.buffer.toString("base64"),
-          createdAt: new Date(),
-        }).onConflictDoNothing();
-      } catch { /* não crítico */ }
 
       const currentConv = await db.query.conversations.findFirst({
         where: (t, { eq: dEq, and: dAnd }) =>
@@ -1404,7 +1650,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
   }
 
   /**
-   * Envia fragmentos de mensagem com efeito de digitação realista, suporte a citação no WhatsApp (Quoted Reply) e checagem de AbortSignal
+   * Envia fragmentos de mensagem com efeito de digitação realista, suporte a citação no WhatsApp (Quoted Reply)
+   * e checagem de AbortSignal. Funciona tanto em Baileys quanto em Meta Cloud API.
    */
   private async sendHumanizedBotMessages(
     tenantId: string,
@@ -1415,18 +1662,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     quoteItem?: QueuedMessageItem | null,
     targetQuoteMessageId?: string | null
   ): Promise<void> {
+    const activeProvider = await resolveTenantActiveProvider(tenantId);
     const sock = SessionManager.getInstance().getSession(tenantId);
-    if (!sock) {
+    const realJid = sock ? await resolveRealJid(sock, phone) : null;
+
+    if (activeProvider === "baileys" && !sock) {
       console.error(`[SdrEngine] Sessão Baileys não encontrada para tenant ${tenantId}`);
       return;
     }
 
-    const realJid = await resolveRealJid(sock, phone);
     const persona = getAiPersona(tenantId);
     const botSenderName = `${persona.name} (SDR)`;
 
     // Resolver a mensagem a ser citada no WhatsApp (Quoted Reply)
     let finalQuoteObj: any = null;
+    let metaReplyExternalId: string | undefined = undefined;
 
     if (targetQuoteMessageId) {
       try {
@@ -1436,16 +1686,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           .where(and(eq(messages.id, targetQuoteMessageId), eq(messages.tenantId, tenantId)));
 
         if (dbMsg) {
-          finalQuoteObj = {
-            key: {
-              remoteJid: realJid,
-              fromMe: dbMsg.senderType === "bot",
-              id: dbMsg.id,
-            },
-            message: {
-              conversation: dbMsg.content,
-            },
-          };
+          metaReplyExternalId = dbMsg.externalId || undefined;
+          if (realJid) {
+            finalQuoteObj = {
+              key: {
+                remoteJid: realJid,
+                fromMe: dbMsg.senderType === "bot",
+                id: dbMsg.id,
+              },
+              message: {
+                conversation: dbMsg.content,
+              },
+            };
+          }
           console.log(`[SdrEngine] 💬 Citação configurada para a mensagem ${dbMsg.id} (${dbMsg.senderType === "bot" ? persona.name : "Cliente"}): "${dbMsg.content.slice(0, 35)}..."`);
         }
       } catch (err: any) {
@@ -1455,30 +1708,31 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
     if (!finalQuoteObj && quoteItem && quoteItem.rawMsg) {
       finalQuoteObj = quoteItem.rawMsg;
+      if (!metaReplyExternalId && quoteItem.rawMsg?.key?.id) {
+        metaReplyExternalId = quoteItem.rawMsg.key.id;
+      }
     }
 
     for (let i = 0; i < messagesArray.length; i++) {
       if (signal?.aborted) {
         console.log("[SdrEngine] Envio de mensagens interrompido por AbortSignal.");
-        try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+        await sendBotPresence(tenantId, conversationId, phone, "paused");
         return;
       }
 
       const fragmentText = messagesArray[i].trim();
       if (!fragmentText) continue;
 
-      // 1. Manter presença de "digitando..." visível no WhatsApp
-      try {
-        await sock.sendPresenceUpdate("composing", realJid);
-      } catch { /* silencia */ }
+      // 1. Manter presença de "digitando..." visível no WhatsApp (Meta ou Baileys)
+      await sendBotPresence(tenantId, conversationId, phone, "composing");
 
       // 2. Delay de digitação humana realista estendido (2.2s a 4.2s)
       const typingDelay = Math.min(4200, Math.max(2200, fragmentText.length * 60));
-      
+
       const startDelay = Date.now();
       while (Date.now() - startDelay < typingDelay) {
         if (signal?.aborted) {
-          try { await sock.sendPresenceUpdate("paused", realJid); } catch {}
+          await sendBotPresence(tenantId, conversationId, phone, "paused");
           return;
         }
         await new Promise((r) => setTimeout(r, 100));
@@ -1487,27 +1741,40 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (signal?.aborted) return;
 
       // 3. Determinar se este balão deve conter a CITAÇÃO (Quoted Reply):
-      // - Se o balão contiver a frase "só me responde", aplica NELA!
-      // - Senão, se não houver re-quote em nenhum outro balão, aplica no 1º balão.
       const isRequoteFragment = /só me responde/i.test(fragmentText) || /me responde isso/i.test(fragmentText);
       const hasRequoteInArray = messagesArray.some((m) => /só me responde/i.test(m) || /me responde isso/i.test(m));
 
       const shouldQuoteThisFragment = isRequoteFragment
-        ? Boolean(finalQuoteObj)
-        : (i === 0 && Boolean(finalQuoteObj) && !hasRequoteInArray);
+        ? Boolean(finalQuoteObj || metaReplyExternalId)
+        : (i === 0 && Boolean(finalQuoteObj || metaReplyExternalId) && !hasRequoteInArray);
 
-      const sendOptions: any = {};
-      if (shouldQuoteThisFragment && finalQuoteObj) {
-        sendOptions.quoted = finalQuoteObj;
-        console.log(`[SdrEngine] 💬 Aplicando CITAÇÃO NATIVA do WhatsApp no balão ${i + 1}: "${fragmentText.slice(0, 35)}..."`);
+      let botMessageId = `bot-sdr-${Date.now()}-${i}`;
+      let externalId: string | null = null;
+
+      if (activeProvider === "meta" || !sock || !realJid) {
+        const { metaAdapter } = await import("../whatsapp/adapters/meta");
+        const sendRes = await metaAdapter.send(tenantId, {
+          to: phone,
+          text: fragmentText,
+          replyToMessageId: shouldQuoteThisFragment ? metaReplyExternalId : undefined,
+        });
+        if (sendRes.externalId) {
+          externalId = sendRes.externalId;
+        }
+      } else {
+        const sendOptions: any = {};
+        if (shouldQuoteThisFragment && finalQuoteObj) {
+          sendOptions.quoted = finalQuoteObj;
+          console.log(`[SdrEngine] 💬 Aplicando CITAÇÃO NATIVA do WhatsApp no balão ${i + 1}: "${fragmentText.slice(0, 35)}..."`);
+        }
+        const sentMsg = await sock.sendMessage(realJid, { text: fragmentText }, sendOptions);
+        if (sentMsg?.key?.id) {
+          botMessageId = sentMsg.key.id;
+          externalId = sentMsg.key.id;
+        }
       }
 
-      const sentMsg = await sock.sendMessage(realJid, { text: fragmentText }, sendOptions);
-      const botMessageId = sentMsg?.key?.id || `bot-sdr-${Date.now()}-${i}`;
-
-      try {
-        await sock.sendPresenceUpdate("paused", realJid);
-      } catch { /* silencia */ }
+      await sendBotPresence(tenantId, conversationId, phone, "paused");
 
       // 4. Gravar no banco de dados e notificar UI via SSE
       await db.insert(conversations).values({
@@ -1531,11 +1798,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         senderName: botSenderName,
         content: fragmentText,
         isInternalNote: false,
+        direction: "outbound",
+        provider: activeProvider,
+        externalId,
+        status: "sent",
         quotedMessageId: quotedMsgId,
         quotedMessageSender: quotedMsgId ? "Cliente" : null,
         quotedMessageContent: quotedContent,
         sentAt: new Date(),
       }).onConflictDoNothing();
+
+      // Atualizar lastMessageText da conversa existente
+      await db
+        .update(conversations)
+        .set({ lastMessageText: fragmentText, lastMessageTime: new Date(), updatedAt: new Date() })
+        .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
 
       // Buscar dados atualizados da conversa e do contato para enviar no SSE
       const currentConv = await db.query.conversations.findFirst({
@@ -1581,3 +1858,4 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     }
   }
 }
+

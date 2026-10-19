@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Sparkles,
   CheckCircle2,
@@ -12,10 +12,12 @@ import {
   ArrowRight,
   ArrowLeft,
   RefreshCw,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { expandPtBrAbbreviationsAndAccents } from "@/lib/valentina/grammar-corrector";
 
 interface ValentinaAssistantModalProps {
   isOpen: boolean;
@@ -42,32 +44,32 @@ interface ActionCard {
 }
 
 function getActionCards(aiPersonaName: string): ActionCard[] {
+  const isValentina = aiPersonaName === "Valentina";
   return [
     {
       id: "best_response",
       title: "Melhor Resposta",
-      description:
-        aiPersonaName === "Valentina"
-          ? "Lê o histórico recente e sugere uma resposta comercial rápida, objetiva e natural para o WhatsApp."
-          : "Lê o histórico recente e sugere uma orientação técnica clara, rápida e objetiva para o atendimento.",
+      description: isValentina
+        ? "Lê o histórico, CRM e catálogo para sugerir uma resposta comercial rápida, objetiva e natural para o WhatsApp."
+        : "Analisa a conversa, o card do CRM e o catálogo Tecfag para sugerir uma resposta técnica e comercial pronta para enviar.",
       icon: Sparkles,
-      badge: "Mais Rápido",
+      badge: "Contextual",
     },
     {
       id: "grammar_fix",
       title: "Corretor Gramatical",
       description:
-        "Corrige pontuação, acentuação e expande abreviações (ex: vc → você, mt → muito) no seu rascunho.",
+        "Corrige pontuação, acentuação e expande abreviações (vc → você, pra → para, mt → muito) sem mudar o sentido da sua frase.",
       icon: CheckCircle2,
+      badge: "Ultra-Rápido",
       requiresDraft: true,
     },
     {
       id: "lead_summary",
-      title: aiPersonaName === "Valentina" ? "Resumo do Lead" : "Resumo do Atendimento",
-      description:
-        aiPersonaName === "Valentina"
-          ? "Gera uma síntese estruturada da conversa (necessidade, perfil e próximo passo) para anotação interna."
-          : "Gera uma síntese estruturada do atendimento (necessidade técnica, ambiente e próximo passo) para anotação interna.",
+      title: isValentina ? "Resumo do Lead" : "Resumo do Atendimento",
+      description: isValentina
+        ? "Gera uma síntese estruturada da conversa e do CRM (necessidade, perfil e próximo passo) para anotação interna."
+        : "Lê todo o atendimento e dados do CRM para gerar uma síntese estruturada (cliente, máquina, aplicação, status e próximo passo).",
       icon: FileText,
     },
   ];
@@ -81,7 +83,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
   currentDraftText,
   recentMessages = [],
   tenantId = "valem",
-  operatorName = "Vendedor",
+  operatorName = "Consultor",
   onApplyText,
   inline = true,
 }) => {
@@ -89,11 +91,35 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
   const actionCards = getActionCards(aiPersona.name);
   const [selectedAction, setSelectedAction] = useState<AssistantAction | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefiningGrammar, setIsRefiningGrammar] = useState(false);
   const [generatedText, setGeneratedText] = useState<string>("");
+  const [originalDraftSnapshot, setOriginalDraftSnapshot] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const userEditedResultRef = useRef(false);
+
+  // Reseta o estado ao alternar entre conversas diferentes
+  useEffect(() => {
+    setSelectedAction(null);
+    setGeneratedText("");
+    setOriginalDraftSnapshot("");
+    setErrorMessage(null);
+    setIsLoading(false);
+    setIsRefiningGrammar(false);
+    userEditedResultRef.current = false;
+  }, [conversationId]);
 
   if (!isOpen) return null;
+
+  const handleQuickApplyGrammar = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentDraftText || !currentDraftText.trim()) return;
+    const instantFixed = expandPtBrAbbreviationsAndAccents(currentDraftText.trim());
+    onApplyText(instantFixed, false);
+    toast.success("Texto corrigido e aplicado no campo de mensagem!");
+    handleReset();
+    onClose();
+  };
 
   const handleExecute = async (action: AssistantAction) => {
     if (action === "grammar_fix" && (!currentDraftText || !currentDraftText.trim())) {
@@ -102,8 +128,45 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
     }
 
     setSelectedAction(action);
-    setIsLoading(true);
     setErrorMessage(null);
+    userEditedResultRef.current = false;
+
+    // ── MODO ULTRA-RÁPIDO (0ms) PARA O CORRETOR GRAMATICAL ───────────────────
+    if (action === "grammar_fix") {
+      const snapshot = currentDraftText.trim();
+      setOriginalDraftSnapshot(snapshot);
+      const instantFixed = expandPtBrAbbreviationsAndAccents(snapshot);
+      setGeneratedText(instantFixed);
+      setIsLoading(false);
+      setIsRefiningGrammar(true);
+
+      try {
+        const res = await fetch("/api/valentina/assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId,
+            action,
+            conversationId,
+            contactName,
+            operatorName,
+            currentText: snapshot,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success && data.text && !userEditedResultRef.current) {
+          setGeneratedText(data.text);
+        }
+      } catch {
+        // Mantém o resultado instantâneo determinístico já exibido em tela
+      } finally {
+        setIsRefiningGrammar(false);
+      }
+      return;
+    }
+
+    // ── MELHOR RESPOSTA & RESUMO DO ATENDIMENTO ──────────────────────────────
+    setIsLoading(true);
     setGeneratedText("");
 
     try {
@@ -150,7 +213,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
     toast.success(
       asInternalNote
         ? "Resumo inserido como Nota Interna"
-        : "Resposta inserida no campo de mensagem"
+        : "Texto inserido no campo de mensagem",
     );
     handleReset();
     onClose();
@@ -159,8 +222,11 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
   const handleReset = () => {
     setSelectedAction(null);
     setGeneratedText("");
+    setOriginalDraftSnapshot("");
     setErrorMessage(null);
     setIsLoading(false);
+    setIsRefiningGrammar(false);
+    userEditedResultRef.current = false;
   };
 
   const handleClose = () => {
@@ -200,8 +266,8 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
               {contactName
                 ? `Atendimento: ${contactName}`
                 : aiPersona.name === "Valentina"
-                ? "Suporte inteligente para o vendedor"
-                : "Suporte inteligente para o consultor técnico"}
+                  ? "Suporte inteligente para o vendedor"
+                  : "Suporte inteligente para o consultor técnico"}
             </p>
           </div>
         </div>
@@ -232,15 +298,23 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
                   card.requiresDraft && (!currentDraftText || !currentDraftText.trim());
 
                 return (
-                  <button
+                  <div
                     key={card.id}
-                    type="button"
-                    onClick={() => handleExecute(card.id)}
-                    disabled={isGrammarDisabled}
-                    className={`group relative flex items-start gap-3 rounded-xl border p-3 text-left transition-all cursor-pointer ${
+                    onClick={() => {
+                      if (!isGrammarDisabled) void handleExecute(card.id);
+                    }}
+                    role="button"
+                    tabIndex={isGrammarDisabled ? -1 : 0}
+                    onKeyDown={(e) => {
+                      if (!isGrammarDisabled && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        void handleExecute(card.id);
+                      }
+                    }}
+                    className={`group relative flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${
                       isGrammarDisabled
                         ? "opacity-55 border-border/60 bg-muted/20 cursor-not-allowed"
-                        : "border-border/80 bg-background hover:border-primary/50 hover:bg-primary/5 hover:shadow-2xs"
+                        : "border-border/80 bg-background hover:border-primary/50 hover:bg-primary/5 hover:shadow-2xs cursor-pointer"
                     }`}
                   >
                     <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted border border-border group-hover:bg-primary/10 group-hover:text-primary group-hover:border-primary/20 transition">
@@ -248,7 +322,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
+                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                         <span className="text-xs font-bold text-foreground group-hover:text-primary transition">
                           {card.title}
                         </span>
@@ -268,8 +342,23 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
                       )}
                     </div>
 
-                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition mt-1.5" />
-                  </button>
+                    {card.id === "grammar_fix" && !isGrammarDisabled ? (
+                      <div className="flex items-center gap-1.5 shrink-0 self-center">
+                        <button
+                          type="button"
+                          onClick={handleQuickApplyGrammar}
+                          title="Corrigir e aplicar direto no campo de mensagem em 1 clique"
+                          className="flex items-center gap-1 rounded-lg bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/25 px-2 py-1 text-[10px] font-bold transition cursor-pointer"
+                        >
+                          <Zap className="h-3 w-3" />
+                          Aplicar Direto
+                        </button>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition" />
+                      </div>
+                    ) : (
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition mt-1.5" />
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -295,19 +384,17 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
             </div>
             <div className="text-center space-y-1">
               <h4 className="text-xs md:text-sm font-bold text-foreground">
-                {aiPersona.name} analisando a conversa...
+                {aiPersona.name} analisando o atendimento...
               </h4>
               <p className="text-xs text-muted-foreground max-w-sm">
                 {selectedAction === "best_response" &&
                   (aiPersona.name === "Valentina"
-                    ? "Lendo o histórico e formulando a melhor proposta comercial..."
-                    : "Lendo o histórico e formulando a melhor orientação técnica...")}
-                {selectedAction === "grammar_fix" &&
-                  "Revisando ortografia, pontuação e gramática em português..."}
+                    ? "Cruzando histórico, CRM e catálogo para sugerir a melhor resposta..."
+                    : "Cruzando histórico, card do CRM e catálogo Tecfag para sugerir a melhor resposta...")}
                 {selectedAction === "lead_summary" &&
                   (aiPersona.name === "Valentina"
-                    ? "Consolidando necessidade, perfil e próximos passos do atendimento..."
-                    : "Consolidando necessidade técnica e próximos passos do chamado...")}
+                    ? "Consolidando histórico completo, perfil e próximos passos do lead..."
+                    : "Consolidando histórico completo, máquina, aplicação e próximos passos do atendimento...")}
               </p>
             </div>
           </div>
@@ -333,7 +420,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
 
         {/* Result State */}
         {generatedText && !isLoading && (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 text-primary text-[10px] font-bold">
@@ -344,22 +431,42 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
                   {selectedAction === "grammar_fix" && "Texto Corrigido"}
                   {selectedAction === "lead_summary" && "Resumo Estruturado do Atendimento"}
                 </span>
+                {selectedAction === "grammar_fix" && isRefiningGrammar && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-primary font-medium">
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    Refinando concordância...
+                  </span>
+                )}
               </div>
 
               <button
                 type="button"
-                onClick={() => handleExecute(selectedAction!)}
+                onClick={() => void handleExecute(selectedAction!)}
                 className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition cursor-pointer"
               >
                 <RefreshCw className="h-3 w-3" /> Gerar outra
               </button>
             </div>
 
+            {selectedAction === "grammar_fix" &&
+              originalDraftSnapshot &&
+              originalDraftSnapshot !== generatedText && (
+                <div className="rounded-lg border border-border/60 bg-muted/25 px-2.5 py-1.5 text-[11px]">
+                  <span className="font-semibold text-muted-foreground mr-1.5">Original:</span>
+                  <span className="line-through text-muted-foreground/80">
+                    {originalDraftSnapshot}
+                  </span>
+                </div>
+              )}
+
             <div className="rounded-xl border border-border bg-background p-3 shadow-2xs">
               <textarea
                 value={generatedText}
-                onChange={(e) => setGeneratedText(e.target.value)}
-                rows={4}
+                onChange={(e) => {
+                  userEditedResultRef.current = true;
+                  setGeneratedText(e.target.value);
+                }}
+                rows={selectedAction === "lead_summary" ? 6 : 4}
                 className="w-full bg-transparent text-xs text-foreground leading-relaxed focus:outline-none resize-none scrollbar-thin"
               />
             </div>
@@ -440,7 +547,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
     return (
       <div
         data-assistant-inline-panel="true"
-        className="flex flex-col max-h-[52vh] w-full bg-card border border-border rounded-2xl overflow-hidden shadow-soft animate-in slide-in-from-bottom-2 duration-200 mb-2.5"
+        className="flex flex-col max-h-[56vh] w-full bg-card border border-border rounded-2xl overflow-hidden shadow-soft animate-in slide-in-from-bottom-2 duration-200 mb-2.5"
       >
         {panelBody}
       </div>
@@ -458,4 +565,3 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
     </div>
   );
 };
-

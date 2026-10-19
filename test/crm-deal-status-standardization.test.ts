@@ -63,6 +63,7 @@ describe("Padronização Global de Ícones e Rótulos de Status de Negociação"
       "src/components/crm/CrmSearchModal.tsx",
       "src/components/crm/RdMarketingJourneyControls.tsx",
       "src/components/commercial/CommercialAnalysisPanels.tsx",
+      "src/components/crm/ContactDealPicker.tsx",
     ];
 
     for (const relPath of filesToCheck) {
@@ -71,4 +72,51 @@ describe("Padronização Global de Ícones e Rótulos de Status de Negociação"
       expect(source).toContain("deal-status-config");
     }
   });
+
+  it("garante ausência de caracteres quebrados (Mojibake), uso de Radix Select e validação de ContactDealModal", async () => {
+    const { isContactDealInputComplete } = await import("../src/lib/crm/contact-deal-input");
+    const { parseExtraDealFilters } = await import("../src/lib/crm/crm-service");
+
+    expect(isContactDealInputComplete(undefined)).toBe(false);
+    expect(isContactDealInputComplete({})).toBe(false);
+    expect(isContactDealInputComplete({ dealId: "deal-123" })).toBe(true);
+    expect(
+      isContactDealInputComplete({
+        newDeal: { title: "Nova", pipelineId: "pipe-1", stageId: "stage-1" },
+      }),
+    ).toBe(true);
+    expect(
+      isContactDealInputComplete({
+        newDeal: { title: "   ", pipelineId: "pipe-1", stageId: "stage-1" },
+      }),
+    ).toBe(false);
+
+    const parsed = parseExtraDealFilters(
+      new URLSearchParams("contactId=contact-99&rating=4"),
+    );
+    expect(parsed.contactId).toBe("contact-99");
+    expect(parsed.rating).toBe(4);
+
+    const uiFiles = [
+      "src/components/crm/ContactDealPicker.tsx",
+      "src/components/crm/ContactDealResolutionDialog.tsx",
+      "src/components/crm/PhoneContactSuggestions.tsx",
+      "src/components/chat/ContactsView.tsx",
+      "src/components/crm/CrmQuickCreateDialog.tsx",
+    ];
+    const mojibakeRegex = /Ã§|Ã£|Ã³|Ã­|Ãª|Ã¡|Ã©|Ãº/;
+    for (const relPath of uiFiles) {
+      const fullPath = path.resolve(import.meta.dir, "..", relPath);
+      const source = readFileSync(fullPath, "utf8");
+      expect(mojibakeRegex.test(source)).toBe(false);
+    }
+
+    const pickerSource = readFileSync(
+      path.resolve(import.meta.dir, "..", "src/components/crm/ContactDealPicker.tsx"),
+      "utf8",
+    );
+    expect(pickerSource).not.toContain("<select");
+    expect(pickerSource).toContain("ContactDealModal");
+  });
 });
+

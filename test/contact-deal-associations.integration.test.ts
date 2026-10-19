@@ -263,13 +263,11 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)(
       expect(lateLink.dealId).toBe(existingCard.id);
     });
 
-    test("último vínculo não pode ser removido nem por exclusão em lote", async () => {
+    test("último vínculo de conversa não pode ser removido pelo chat nem por exclusão em lote, mas negociação permite remover contato ou ficar sem contato", async () => {
       const contactId = await createContact();
+      const secondContactId = await createContact();
       const convId = await createConversation(contactId);
       const first = await createDeal(contactId);
-      await expect(
-        service.crmService.removeDealContact("tenant-a", first.id, contactId),
-      ).rejects.toThrow("negociação");
       await expect(
         service.crmService.unlinkConversationDeal("tenant-a", convId, first.id, null),
       ).rejects.toThrow("negociação");
@@ -293,9 +291,17 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)(
           ),
         );
       expect(remainingLinks.map((l: any) => l.dealId)).toEqual([second.id]);
-      await expect(
-        service.crmService.removeDealContact("tenant-a", second.id, contactId),
-      ).rejects.toThrow("negociação");
+
+      // Na negociação (card), vincula um segundo contato, remove o primeiro (que era principal)
+      // e garante que o segundo se torna principal; em seguida remove o segundo, permitindo negociação sem contato.
+      await service.crmService.addDealContact("tenant-a", second.id, secondContactId, "financial", false, "operator-a");
+      const afterRemoveFirst = await service.crmService.removeDealContact("tenant-a", second.id, contactId, "operator-a");
+      expect(afterRemoveFirst).toHaveLength(1);
+      expect(afterRemoveFirst[0].contactId).toBe(secondContactId);
+      expect(afterRemoveFirst[0].isPrimary).toBe(true);
+
+      const afterRemoveAll = await service.crmService.removeDealContact("tenant-a", second.id, secondContactId, "operator-a");
+      expect(afterRemoveAll).toHaveLength(0);
     });
 
     test("cadastro manual exige card/DDD e criação inválida faz rollback de contato e conversa", async () => {

@@ -55,9 +55,10 @@ const PERSONAS: Record<string, AiPersona> = {
   },
   tecfag: {
     name: "Fagner",
-    company: "Tecfag Informática",
-    segment: "soluções de TI, suporte técnico, hardware e informática",
-    tone: "técnico, masculino, consultivo e objetivo",
+    company: "Grupo Tecfag",
+    segment:
+      "máquinas industriais de embalagem, envasadoras, dosadoras, seladoras, datadores, empacotadoras, encapsuladoras, contadoras, rotuladoras, linha Personnalité, peças de reposição e assistência técnica",
+    tone: "técnico-comercial, masculino, consultivo, especialista industrial e objetivo",
     gender: "male",
     avatar: "🤖",
     avatarUrl: "/fagner-dark.png",
@@ -69,9 +70,9 @@ const PERSONAS: Record<string, AiPersona> = {
   },
 };
 
-/** Gate central de implantação dos motores SDR, supervisor e QA. */
+/** Gate central de implantação dos motores SDR (ativo para valem e tecfag). */
 export function isSdrTenant(tenantId: string) {
-  return PERSONAS[tenantId]?.chatFeatureKey === "valentina_chat";
+  return Boolean(PERSONAS[tenantId]);
 }
 
 /**

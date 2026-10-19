@@ -42,6 +42,14 @@ export interface SdrTriageSession {
   status: "active" | "completed" | "abandoned";
   outcome?: string;
   responsibleName?: string;
+  funnelStage?: string;
+  targetFunnel?: string;
+  linkedDeal?: {
+    dealId: string;
+    dealTitle: string;
+    action?: string;
+    createdAt?: string;
+  } | null;
   messages: SdrTriageMessage[];
 }
 
@@ -109,7 +117,7 @@ function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
   );
 }
 
-const DEFAULT_SDR_FIELDS = [
+const VALEM_SDR_FIELDS = [
   "NOME COMPLETO",
   "EMPRESA",
   "CNPJ",
@@ -120,7 +128,17 @@ const DEFAULT_SDR_FIELDS = [
   "QUALIFICAÇÃO (TEMPERATURA)",
 ];
 
-function normalizeKey(key: string): string {
+const TECFAG_SDR_FIELDS = [
+  "NOME COMPLETO",
+  "EMPRESA",
+  "CNPJ OU CPF",
+  "RAMO / O QUE EMBALA",
+  "MÁQUINA / PEÇA / INTERESSE",
+  "VOLUME / PRODUÇÃO",
+  "SETOR / FUNIL DE DESTINO",
+];
+
+function normalizeKey(key: string, tenantId: string = "valem"): string {
   const clean = key.toUpperCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^A-Z0-9]/g, " ")
@@ -128,7 +146,19 @@ function normalizeKey(key: string): string {
 
   if (clean.includes("NOME")) return "NOME COMPLETO";
   if (clean.includes("EMPRESA") || clean.includes("RAZAO")) return "EMPRESA";
-  // Suporta tanto "CNPJ" quanto "CNPJ OU CPF" legado
+
+  if (tenantId === "tecfag") {
+    if (clean.includes("CNPJ") || clean.includes("CPF") || clean.includes("DOCUMENTO")) return "CNPJ OU CPF";
+    if (clean.includes("RAMO") || clean.includes("EMBALA") || clean.includes("ENVASA")) return "RAMO / O QUE EMBALA";
+    if (clean.includes("MAQUINA") || clean.includes("PECA") || clean.includes("INTERESSE") || clean.includes("PRODUTO")) {
+      return "MÁQUINA / PEÇA / INTERESSE";
+    }
+    if (clean.includes("VOLUME") || clean.includes("PRODUCAO") || clean.includes("QUANTIDADE")) return "VOLUME / PRODUÇÃO";
+    if (clean.includes("SETOR") || clean.includes("FUNIL") || clean.includes("DESTINO")) return "SETOR / FUNIL DE DESTINO";
+    return key.trim().toUpperCase();
+  }
+
+  // Suporta tanto "CNPJ" quanto "CNPJ OU CPF" legado na Valem
   if (clean.includes("CNPJ") || clean.includes("CPF") || clean.includes("DOCUMENTO")) return "CNPJ";
   if (clean.includes("EMAIL") || clean.includes("E MAIL") || clean.includes("CORREIO")) return "EMAIL";
   if (clean.includes("PRODUTO")) return "QUAL O TIPO DE PRODUTO?";
@@ -139,10 +169,11 @@ function normalizeKey(key: string): string {
   return key.trim().toUpperCase();
 }
 
-function getMergedCollectedData(rawCollected: Record<string, any> = {}) {
+function getMergedCollectedData(rawCollected: Record<string, any> = {}, tenantId: string = "valem") {
   const merged: Record<string, { value: string; status: "filled" | "pending" }> = {};
-  
-  for (const field of DEFAULT_SDR_FIELDS) {
+  const targetFields = tenantId === "tecfag" ? TECFAG_SDR_FIELDS : VALEM_SDR_FIELDS;
+
+  for (const field of targetFields) {
     merged[field] = {
       value: "Aguardando...",
       status: "pending",
@@ -157,10 +188,10 @@ function getMergedCollectedData(rawCollected: Record<string, any> = {}) {
       : Boolean(textVal && textVal.trim() !== "" && textVal !== "Aguardando..." && !textVal.toLowerCase().includes("mantem"));
 
     if (isFilled && textVal) {
-      const canonicalKey = normalizeKey(rawKey);
+      const canonicalKey = normalizeKey(rawKey, tenantId);
 
       // Normalização das 6 categorias oficiais da Valem para TIPO DE QUALIFICAÇÃO
-      if (canonicalKey === "TIPO DE QUALIFICAÇÃO") {
+      if (tenantId === "valem" && canonicalKey === "TIPO DE QUALIFICAÇÃO") {
         const lower = textVal.toLowerCase();
         if (lower.includes("varejo") || lower.includes("baixo volume") || lower.includes("pequeno")) {
           textVal = "Varejo / Baixo Volume";
@@ -310,6 +341,8 @@ export function SdrTab({
             responsibleName: s.responsibleName,
             messages: s.messages || [],
             ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
+            ...(s.targetFunnel ? { targetFunnel: s.targetFunnel } : {}),
+            ...(s.linkedDeal ? { linkedDeal: s.linkedDeal } : {}),
             ...(s.unreadCount !== undefined ? { unreadCount: s.unreadCount } : {}),
             ...(s.channel ? { channel: s.channel } : {}),
             ...(s.timeAgo ? { timeAgo: s.timeAgo } : {}),
@@ -1062,7 +1095,7 @@ export function SdrTab({
             >
               {selectedSession ? (
                 (() => {
-                  const mergedData = getMergedCollectedData(selectedSession.collectedData);
+                  const mergedData = getMergedCollectedData(selectedSession.collectedData, tenant || "valem");
                   const filledCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
                   const totalCount = Object.keys(mergedData).length;
 
@@ -1161,8 +1194,30 @@ export function SdrTab({
                         ))}
                       </div>
 
-                      {/* ── SEÇÃO RESPONSÁVEL (RODÍZIO ALOCADO) ────────────────────────── */}
+                      {/* ── SEÇÃO NEGOCIAÇÃO CRM LOCAL + RESPONSÁVEL (RODÍZIO ALOCADO) ── */}
                       <div className="px-4 py-3 border-t border-line shrink-0 space-y-2">
+                        {(tenant === "tecfag" || selectedSession.linkedDeal) && (
+                          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-2.5">
+                            <div className="flex items-center justify-between mb-0.5">
+                              <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide flex items-center gap-1">
+                                <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                                Negociação (CRM Local)
+                              </span>
+                              <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded-md">
+                                {selectedSession.linkedDeal
+                                  ? selectedSession.linkedDeal.action === "reused_within_3h"
+                                    ? "Vinculado (< 3h)"
+                                    : "Criado Novo"
+                                  : "Ao Transferir (3h)"}
+                              </span>
+                            </div>
+                            <p className="text-xs font-extrabold text-foreground mt-0.5 truncate">
+                              {selectedSession.linkedDeal?.dealTitle ||
+                                `${selectedSession.contactName} — ${selectedSession.targetFunnel || "Em Triagem"}`}
+                            </p>
+                          </div>
+                        )}
+
                         <div className="rounded-xl border border-primary/20 bg-primary-soft/30 p-2.5">
                           <div className="flex items-center justify-between mb-0.5">
                             <span className="text-[10px] font-bold text-primary uppercase tracking-wide flex items-center gap-1">

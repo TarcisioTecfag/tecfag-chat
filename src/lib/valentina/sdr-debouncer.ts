@@ -1,6 +1,6 @@
 import { runtimeSingleton } from "../runtime-singleton";
 import { SdrEngine } from "./sdr-engine";
-import { SessionManager, resolveRealJid } from "../baileys/session-manager";
+import { sendBotPresence } from "./sdr-channel-sender";
 
 export interface QueuedMessageItem {
   messageId?: string;
@@ -115,16 +115,14 @@ export class SdrDebouncer {
 
     // 1. Mostrar caixinha de "gravando áudio..." ou "digitando..." no WhatsApp imediatamente ao iniciar raciocínio
     try {
-      const sock = SessionManager.getInstance().getSession(session.tenantId);
-      if (sock) {
-        const realJid = await resolveRealJid(sock, session.phone);
-
-        // Verificar se a conversa está em um turno de áudio PTT
-        const clientText = session.messagesQueue.map((m) => m.text).join(" ").toLowerCase();
-        const isAudioTurn = /(?:claro|sim|pode|manda|é essa|essa mesma|correto|exato|isso mesmo)/i.test(clientText);
-        
-        await sock.sendPresenceUpdate(isAudioTurn ? "recording" : "composing", realJid);
-      }
+      const clientText = session.messagesQueue.map((m) => m.text).join(" ").toLowerCase();
+      const isAudioTurn = /(?:claro|sim|pode|manda|é essa|essa mesma|correto|exato|isso mesmo)/i.test(clientText);
+      await sendBotPresence(
+        session.tenantId,
+        session.conversationId,
+        session.phone,
+        isAudioTurn ? "recording" : "composing"
+      );
     } catch { /* silencia */ }
 
     // Extrair lote atual e esvaziar a fila

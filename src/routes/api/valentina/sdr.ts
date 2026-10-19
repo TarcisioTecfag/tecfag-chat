@@ -1,6 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { agentConfigs, agentFlowStates, conversations, contacts, messages } from "../../../db/schema";
+import {
+  agentConfigs,
+  agentFlowStates,
+  conversations,
+  contacts,
+  messages,
+  crmConversationDeals,
+  crmDeals,
+} from "../../../db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 
@@ -153,20 +161,67 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   })
                 : null;
 
+              const meta = (fs.metadata as Record<string, any>) || {};
               let responsibleName = "IA (Em Triagem)";
               if (status === "completed") {
-                responsibleName = operator?.name || "Vendedor Alocado (Rodízio)";
+                responsibleName = operator?.name || meta.allocatedOperatorName || "Vendedor Alocado (Rodízio)";
               } else if (fs.outcome === "stopped") {
                 responsibleName = "Interrompido (Atendimento Manual)";
               }
 
-              const meta = (fs.metadata as Record<string, any>) || {};
               const companyVal =
                 collectedData["EMPRESA"]?.value ||
                 collectedData["empresa"]?.value ||
                 (typeof collectedData["EMPRESA"] === "string" ? collectedData["EMPRESA"] : "") ||
                 (contact?.cnpjDetails as any)?.razaoSocial ||
                 "Empresa não informada";
+
+              // Buscar negociação vinculada no CRM Local (se houver)
+              let linkedDeal: {
+                dealId: string;
+                dealTitle: string;
+                action?: string;
+                createdAt?: string;
+              } | null = null;
+
+              if (meta.localCrmDealId) {
+                linkedDeal = {
+                  dealId: meta.localCrmDealId,
+                  dealTitle: meta.localCrmDealTitle || "Negociação CRM Local",
+                  action: meta.localCrmDealAction || "created_new",
+                };
+              } else {
+                const [convDealRow] = await db
+                  .select({
+                    dealId: crmDeals.id,
+                    dealTitle: crmDeals.title,
+                    createdAt: crmDeals.createdAt,
+                  })
+                  .from(crmConversationDeals)
+                  .innerJoin(
+                    crmDeals,
+                    and(
+                      eq(crmConversationDeals.dealId, crmDeals.id),
+                      eq(crmDeals.tenantId, tenantId),
+                    ),
+                  )
+                  .where(
+                    and(
+                      eq(crmConversationDeals.tenantId, tenantId),
+                      eq(crmConversationDeals.conversationId, fs.conversationId),
+                    ),
+                  )
+                  .orderBy(desc(crmDeals.createdAt))
+                  .limit(1);
+
+                if (convDealRow) {
+                  linkedDeal = {
+                    dealId: convDealRow.dealId,
+                    dealTitle: convDealRow.dealTitle,
+                    createdAt: safeFormatIso(convDealRow.createdAt),
+                  };
+                }
+              }
 
               sessions.push({
                 id: fs.id,
@@ -184,6 +239,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 unreadCount: conv?.unreadCount || 0,
                 channel: contact?.mainChannel || "whatsapp",
                 funnelStage: meta.funnelStage || meta.targetArea || undefined,
+                targetFunnel: meta.targetFunnel || collectedData["SETOR / FUNIL DE DESTINO"]?.value || undefined,
+                linkedDeal,
                 messages: formattedMessages.length > 0 ? formattedMessages : [
                   { sender: "bot", text: "Atendimento em andamento...", time: "Agora" }
                 ],
@@ -196,14 +253,19 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           console.warn("[api/valentina/sdr] Erro ao buscar agentFlowStates:", err);
         }
 
-        // 3. Buscar conversas ativas reais do tenant (excluindo apenas dados mock de teste)
+        // 3. Buscar conversas que estão em queueState === "automacao" mas ainda não geraram agentFlowStates
         try {
           const allConvs = await db
             .select()
             .from(conversations)
-            .where(eq(conversations.tenantId, tenantId))
+            .where(
+              and(
+                eq(conversations.tenantId, tenantId),
+                eq(conversations.queueState, "automacao"),
+              ),
+            )
             .orderBy(desc(conversations.lastMessageTime))
-            .limit(50);
+            .limit(30);
 
           for (const c of allConvs) {
             if (c.id === "tec-1" || c.id === "tec-2" || c.id === "val-1" || c.id === "val-2") continue;
@@ -259,6 +321,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   responsibleName: operator?.name || "IA (Em Triagem)",
                   unreadCount: c.unreadCount || 0,
                   channel: contact?.mainChannel || "whatsapp",
+                  funnelStage: "triagem",
                   messages: formattedMessages.length > 0 ? formattedMessages : [
                     { sender: "bot", text: "Atendimento iniciado...", time: "Agora" }
                   ],

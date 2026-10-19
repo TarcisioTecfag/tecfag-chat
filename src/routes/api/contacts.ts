@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db/index.js";
-import { channelConfigs, contacts, conversations, crmAccounts, crmContactAccountHistory } from "../../db/schema.js";
-import { eq, and, count, desc, ilike, or, sql } from "drizzle-orm";
+import { channelConfigs, contacts, conversations, crmAccounts, crmContactAccountHistory, crmDealContacts, crmDeals } from "../../db/schema.js";
+import { eq, and, count, desc, ilike, inArray, or, sql } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
 import { requireSession } from "../../lib/auth-session.js";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms, phoneRegistrationError, localPhoneSearchTerms } from "../../lib/utils.js";
@@ -34,6 +34,7 @@ export const Route = createFileRoute("/api/contacts")({
         const url = new URL(request.url);
         const search = (url.searchParams.get("search") || "").trim().slice(0, 100);
         const identityPhone = url.searchParams.get("identityPhone")?.trim().slice(0, 40);
+        const identityName = url.searchParams.get("identityName")?.trim().slice(0, 100);
         const channel = url.searchParams.get("channel");
         if (channel && !["whatsapp", "instagram", "messenger", "livechat"].includes(channel)) {
           return Response.json({ error: "Canal inválido." }, { status: 400 });
@@ -46,11 +47,23 @@ export const Route = createFileRoute("/api/contacts")({
         if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only") {
           conditions.push(eq(contacts.walletOperatorId, session.operator.id));
         }
-        if (identityPhone) {
-          const terms = phoneRegistrationError(identityPhone) ? localPhoneSearchTerms(identityPhone) : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
-          conditions.push(terms.length ? or(...terms.map((term) => phoneRegistrationError(identityPhone)
-            ? sql`right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}`
-            : sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))! : sql`false`);
+        if (identityPhone || identityName) {
+          const identityParts = [];
+          if (identityPhone) {
+            const terms = phoneRegistrationError(identityPhone) ? localPhoneSearchTerms(identityPhone) : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
+            if (terms.length > 0) {
+              identityParts.push(
+                or(...terms.map((term) => phoneRegistrationError(identityPhone)
+                  ? sql`right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}`
+                  : sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))!
+              );
+            }
+          }
+          if (identityName && identityName.length >= 3) {
+            const namePattern = `%${identityName.replace(/[\\%_]/g, "\\$&")}%`;
+            identityParts.push(ilike(contacts.name, namePattern));
+          }
+          conditions.push(identityParts.length > 0 ? or(...identityParts)! : sql`false`);
         }
         if (channel) conditions.push(eq(contacts.mainChannel, channel));
         if (search) {
@@ -90,7 +103,51 @@ export const Route = createFileRoute("/api/contacts")({
             }).from(contacts).leftJoin(crmAccounts, and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId))).where(where).orderBy(desc(contacts.createdAt), desc(contacts.id)).limit(limit).offset(offset),
             db.select({ total: count() }).from(contacts).leftJoin(crmAccounts, and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId))).where(where),
           ]);
-          return Response.json({ contacts: items, total: totals[0]?.total || 0, limit, offset });
+
+          const contactIds = items.map((item) => item.id);
+          const dealsByContact = new Map<string, Array<{ id: string; title: string; status: string; value: string | null; pipelineId: string; stageId: string }>>();
+          if (contactIds.length > 0) {
+            const dealLinks = await db
+              .select({
+                contactId: crmDealContacts.contactId,
+                id: crmDeals.id,
+                title: crmDeals.title,
+                status: crmDeals.status,
+                value: crmDeals.value,
+                pipelineId: crmDeals.pipelineId,
+                stageId: crmDeals.stageId,
+              })
+              .from(crmDealContacts)
+              .innerJoin(crmDeals, and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)))
+              .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.contactId, contactIds)))
+              .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt));
+
+            for (const link of dealLinks) {
+              const existing = dealsByContact.get(link.contactId) || [];
+              if (!existing.some((d) => d.id === link.id)) {
+                existing.push({
+                  id: link.id,
+                  title: link.title,
+                  status: link.status,
+                  value: link.value !== null && link.value !== undefined ? String(link.value) : null,
+                  pipelineId: link.pipelineId,
+                  stageId: link.stageId,
+                });
+                dealsByContact.set(link.contactId, existing);
+              }
+            }
+          }
+
+          const enrichedItems = items.map((item) => {
+            const linked = dealsByContact.get(item.id) || [];
+            return {
+              ...item,
+              dealsCount: linked.length,
+              linkedDeals: linked.slice(0, 5),
+            };
+          });
+
+          return Response.json({ contacts: enrichedItems, total: totals[0]?.total || 0, limit, offset });
         } catch (error) {
           console.error("[GET /api/contacts] Erro ao listar contatos:", error);
           return Response.json({ error: "Não foi possível listar os contatos." }, { status: 500 });

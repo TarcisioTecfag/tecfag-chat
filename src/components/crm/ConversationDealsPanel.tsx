@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateDealDialog } from "./CreateDealDialog";
+import { ContactDealModal } from "./ContactDealPicker";
+import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import { useChat } from "@/hooks/useChatState";
 import { useNavigate } from "@tanstack/react-router";
 import { SystemTooltip } from "@/components/ui/tooltip";
@@ -1147,83 +1149,50 @@ export function ConversationDealsPanel({
         </div>
       )}
 
-      {/* Modal para Vincular Negociação Existente */}
-      {isLinkingOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl animate-in fade-in">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <h4 className="text-xs font-bold text-foreground">Vincular Negociação Existente</h4>
-              <button
-                onClick={() => setIsLinkingOpen(false)}
-                className="p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <XCircle className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="my-3 flex gap-2">
-              <input
-                type="text"
-                placeholder="Buscar negociação por título..."
-                value={searchDealsQuery}
-                onChange={(e) => setSearchDealsQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearchDeals()}
-                className="h-8 flex-1 rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <button
-                onClick={handleSearchDeals}
-                className="h-8 px-3 rounded-xl bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
-              >
-                Buscar
-              </button>
-            </div>
-
-            <div className="max-h-60 overflow-y-auto space-y-1.5">
-              {searchingDeals ? (
-                <div className="py-6 text-center">
-                  <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
-                </div>
-              ) : availableDealsToLink.length === 0 ? (
-                <p className="py-6 text-center text-xs text-muted-foreground/60 italic">
-                  Nenhuma negociação disponível para vincular.
-                </p>
-              ) : (
-                availableDealsToLink.map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between p-2 rounded-xl border border-border/60 hover:bg-muted/30 transition-colors"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <p className="text-xs font-bold text-foreground truncate">{d.title}</p>
-                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                        {renderStatusBadge(d.status)}
-                        {d.account?.name && (
-                          <SystemTooltip content={`Empresa: ${d.account.name}`}>
-                            <span className="inline-flex items-center gap-1 text-[10px] text-primary font-medium truncate max-w-[140px] cursor-default">
-                              <Building2 className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{d.account.name}</span>
-                            </span>
-                          </SystemTooltip>
-                        )}
-                        <span className="text-[10px] text-muted-foreground">
-                          {d.value ? `R$ ${Number(d.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "Sem valor"}
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleLinkExistingDeal(d)}
-                      className="flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors cursor-pointer shrink-0"
-                    >
-                      <Check className="h-3 w-3" />
-                      <span>Vincular</span>
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal Detalhado para Vincular Negociação Existente */}
+      <ContactDealModal
+        open={isLinkingOpen}
+        onOpenChange={setIsLinkingOpen}
+        value={{}}
+        onChange={() => {}}
+        confirmLabel="Vincular Negociação ao Atendimento"
+        contactContext={{
+          contactId: contactId || contactInfo?.id || null,
+          name: contactInfo?.name || customerName || null,
+          accountId: contactInfo?.accountId || null,
+          accountName: contactInfo?.accountName || null,
+        }}
+        onConfirm={async (confirmedSelection: ContactDealInput, meta) => {
+          if (confirmedSelection.dealId) {
+            await handleLinkExistingDeal(
+              meta || {
+                id: confirmedSelection.dealId,
+                title: "Negociação selecionada",
+              },
+            );
+          } else if (confirmedSelection.newDeal) {
+            try {
+              const res = await fetch("/api/crm/deals", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  ...confirmedSelection.newDeal,
+                  contactId: contactId || contactInfo?.id || undefined,
+                  accountId: contactInfo?.accountId || undefined,
+                  conversationId,
+                }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(data.error || "Falha ao criar e vincular negociação.");
+              toast.success("Nova negociação criada e vinculada com sucesso!");
+              setIsLinkingOpen(false);
+              fetchLinkedDeals();
+            } catch (e: any) {
+              toast.error(e.message || "Erro ao criar negociação.");
+            }
+          }
+        }}
+      />
 
       {/* Modal de Criação de Negociação a partir do Chat */}
       <CreateDealDialog

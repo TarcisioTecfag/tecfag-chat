@@ -244,8 +244,14 @@ export function classifySessionToColumn(session: SdrTriageSession): KanbanColumn
   const outcome = norm(session.outcome);
   const step = norm(session.currentStep);
   const resp = norm(session.responsibleName);
-  const qualif = norm(session.collectedData?.["TIPO DE QUALIFICAÇÃO"]?.value);
-  const prod = norm(session.collectedData?.["QUAL O TIPO DE PRODUTO?"]?.value);
+  const qualif = norm(
+    session.collectedData?.["SETOR / FUNIL DE DESTINO"]?.value ||
+    session.collectedData?.["TIPO DE QUALIFICAÇÃO"]?.value
+  );
+  const prod = norm(
+    session.collectedData?.["MÁQUINA / PEÇA / INTERESSE"]?.value ||
+    session.collectedData?.["QUAL O TIPO DE PRODUTO?"]?.value
+  );
 
   // 1. Sem Resposta / Abandonado
   if (

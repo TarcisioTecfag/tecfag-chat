@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ContactDealPicker } from "./ContactDealPicker";
+import { useEffect, useState } from "react";
+import { ContactDealModal, type ContactDealContext } from "./ContactDealPicker";
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
+import { toast } from "sonner";
 
 export function ContactDealResolutionDialog({
   contactId,
@@ -13,59 +13,66 @@ export function ContactDealResolutionDialog({
   onSuccess: () => void;
 }) {
   const [value, setValue] = useState<ContactDealInput>({});
-  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [contactContext, setContactContext] = useState<ContactDealContext>({
+    id: contactId,
+    isExisting: true,
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/contacts/${encodeURIComponent(contactId)}`, { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!controller.signal.aborted && data) {
+          setContactContext({
+            id: contactId,
+            name: data.name || "",
+            phone: data.phone || null,
+            email: data.email || null,
+            accountId: data.accountId || null,
+            accountName: data.accountName || null,
+            isExisting: true,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [contactId]);
+
+  const handleConfirm = async (confirmedValue: ContactDealInput) => {
+    setSaving(true);
+    try {
+      const res = await fetch(
+        `/api/contacts/${encodeURIComponent(contactId)}/conversations`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(confirmedValue),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Não foi possível vincular a negociação.");
+      }
+      onSuccess();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao vincular negociação.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <Sheet
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <SheetContent className="overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>Vincular negociação ao atendimento</SheetTitle>
-        </SheetHeader>
-        <form
-          className="space-y-4 py-4"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setSaving(true);
-            setError("");
-            try {
-              const res = await fetch(
-                `/api/contacts/${encodeURIComponent(contactId)}/conversations`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(value),
-                },
-              );
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.error || "Não foi possível vincular a negociação.");
-              onSuccess();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "Falha ao vincular negociação.");
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          <ContactDealPicker value={value} onChange={setValue} />
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
-          >
-            {saving ? "Salvando..." : "Vincular e continuar"}
-          </button>
-        </form>
-      </SheetContent>
-    </Sheet>
+    <ContactDealModal
+      isOpen={true}
+      onClose={onClose}
+      value={value}
+      onChange={(nextVal) => setValue(nextVal)}
+      onConfirm={handleConfirm}
+      confirmLabel="Vincular e Iniciar Atendimento"
+      saving={saving}
+      contactContext={contactContext}
+    />
   );
 }

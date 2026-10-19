@@ -3,8 +3,19 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 import { db } from "../../db";
-import { operators, conversations, contacts, agentConfigs, internalMessages } from "../../db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import {
+  operators,
+  conversations,
+  contacts,
+  agentConfigs,
+  agentFlowStates,
+  crmDeals,
+  crmConversationDeals,
+  crmDealEvents,
+  crmFunnels,
+  crmAccounts,
+} from "../../db/schema";
+import { eq, and, asc, desc, inArray } from "drizzle-orm";
 import {
   RodizioOperatorConfig,
   FlowOperator,
@@ -369,7 +380,7 @@ export class RodizioEngine {
   }
 
   /**
-   * Reatribui um lead/card para outro operador e atualiza a compensação
+   * Reatribui um lead/card para outro operador e sincroniza com conversa, contato e CRM Local
    */
   static async reassignLead(
     tenantId: string,
@@ -378,11 +389,32 @@ export class RodizioEngine {
     toOperatorName: string
   ) {
     try {
-      // 1. Atualiza a conversa se existir no banco
-      const conv = await db.query.conversations.findFirst({
+      const now = new Date();
+
+      // 1. Atualiza a conversa se existir no banco (cardId pode ser conversationId ou dealId)
+      let conv = await db.query.conversations.findFirst({
         where: (t, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(t.tenantId, tenantId), dEq(t.id, cardId)),
       });
+
+      if (!conv) {
+        const [dealLink] = await db
+          .select({ conversationId: crmConversationDeals.conversationId })
+          .from(crmConversationDeals)
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              eq(crmConversationDeals.dealId, cardId),
+            ),
+          )
+          .limit(1);
+        if (dealLink?.conversationId) {
+          conv = await db.query.conversations.findFirst({
+            where: (t, { eq: dEq, and: dAnd }) =>
+              dAnd(dEq(t.tenantId, tenantId), dEq(t.id, dealLink.conversationId)),
+          });
+        }
+      }
 
       if (conv) {
         await db
@@ -390,9 +422,9 @@ export class RodizioEngine {
           .set({
             operatorId: toOperatorId,
             queueState: "meus",
-            updatedAt: new Date(),
+            updatedAt: now,
           })
-          .where(and(eq(conversations.id, cardId), eq(conversations.tenantId, tenantId)));
+          .where(and(eq(conversations.id, conv.id), eq(conversations.tenantId, tenantId)));
 
         if (conv.contactId) {
           await db
@@ -405,7 +437,65 @@ export class RodizioEngine {
         }
       }
 
-      // 2. Atualizar compensações no agentConfigs do rodízio
+      // 1b. Sincroniza também as negociações vinculadas no CRM Local (crm_deals)
+      const targetDealIds = new Set<string>();
+      const [directDeal] = await db
+        .select({ id: crmDeals.id, operatorId: crmDeals.operatorId })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, cardId)))
+        .limit(1);
+      if (directDeal) {
+        targetDealIds.add(directDeal.id);
+      }
+
+      if (conv) {
+        const convDealLinks = await db
+          .select({ dealId: crmConversationDeals.dealId })
+          .from(crmConversationDeals)
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              eq(crmConversationDeals.conversationId, conv.id),
+            ),
+          );
+        for (const link of convDealLinks) {
+          targetDealIds.add(link.dealId);
+        }
+      }
+
+      if (targetDealIds.size > 0) {
+        const dealIdList = Array.from(targetDealIds);
+        await db
+          .update(crmDeals)
+          .set({
+            operatorId: toOperatorId,
+            updatedAt: now,
+          })
+          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, dealIdList)));
+
+        for (const dealId of dealIdList) {
+          await db.insert(crmDealEvents).values({
+            id: `cdev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            tenantId,
+            dealId,
+            eventType: "owner_changed",
+            fromValue: null,
+            toValue: toOperatorId,
+            payload: {
+              source: "rodizio_reassignment",
+              toOperatorId,
+              toOperatorName,
+            },
+            actorOperatorId: toOperatorId,
+            actorName: "Rodízio SDR",
+            createdAt: now,
+          });
+        }
+      }
+
+      // 2. Atualizar compensações no agentConfigs do rodízio e na escala flowOperators
+      await this.updateCompensation(tenantId, toOperatorId, 1, false);
+
       const existingConfig = await db.query.agentConfigs.findFirst({
         where: (t, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
@@ -421,20 +511,22 @@ export class RodizioEngine {
         cardId,
         toOperatorId,
         toOperatorName,
-        at: new Date().toISOString(),
+        at: now.toISOString(),
       });
 
-      await db
-        .update(agentConfigs)
-        .set({
-          config: {
-            ...configData,
-            compensations,
-            reassignments: reassignments.slice(0, 100),
-          },
-          updatedAt: new Date(),
-        })
-        .where(eq(agentConfigs.id, existingConfig!.id));
+      if (existingConfig) {
+        await db
+          .update(agentConfigs)
+          .set({
+            config: {
+              ...configData,
+              compensations,
+              reassignments: reassignments.slice(0, 100),
+            },
+            updatedAt: now,
+          })
+          .where(eq(agentConfigs.id, existingConfig.id));
+      }
 
       return { success: true };
     } catch (err: any) {
@@ -481,6 +573,7 @@ export class RodizioEngine {
 
   /**
    * Obtém os dados completos de inteligência do Dashboard de Rodízio
+   * Mescla dados reais do banco (agentFlowStates + crmDeals + flowOperators) com o estado do tenant.
    */
   static async getDashboardData(
     tenantId: string = "valem",
@@ -492,12 +585,14 @@ export class RodizioEngine {
       );
       const benchmark = getBenchmarkRodizioData(tenantId);
 
-      // 1. Buscar operadores do tenant
+      // 1. Buscar operadores do tenant e escala atual
       const dbOps = await db
         .select()
         .from(operators)
         .where(eq(operators.tenantId, tenantId))
         .orderBy(asc(operators.name));
+
+      const flowOps = await this.getRodizioState(tenantId);
 
       // 2. Buscar configuração salva do rodízio
       const configRow = await db.query.agentConfigs.findFirst({
@@ -509,52 +604,180 @@ export class RodizioEngine {
       const storedOpsMap: Record<string, RodizioOperatorConfig> = configData.operatorsMap || {};
       const compensations: Record<string, number> = configData.compensations || {};
       const removedCards: string[] = configData.removedCards || [];
-      const reassignments: Array<{ cardId: string; toOperatorId: string }> =
+      const reassignments: Array<{ cardId: string; toOperatorId: string; toOperatorName?: string }> =
         configData.reassignments || [];
 
-      // Mapeamento de reatribuições recentes
-      const reassignMap = new Map<string, string>();
+      const reassignMap = new Map<string, { toOperatorId: string; toOperatorName?: string }>();
       for (const r of reassignments) {
-        reassignMap.set(r.cardId, r.toOperatorId);
+        if (!reassignMap.has(r.cardId)) {
+          reassignMap.set(r.cardId, { toOperatorId: r.toOperatorId, toOperatorName: r.toOperatorName });
+        }
       }
 
-      // Se o banco tiver os operadores do tenant, mesclamos o benchmark com os operadores reais
+      // 3. Buscar negociações reais do CRM Local criadas ou vinculadas pelo SDR neste tenant
+      const realDealsRows = await db
+        .select({
+          dealId: crmDeals.id,
+          title: crmDeals.title,
+          operatorId: crmDeals.operatorId,
+          createdAt: crmDeals.createdAt,
+          funnelName: crmFunnels.name,
+          accountName: crmAccounts.name,
+          contactPhone: contacts.phone,
+          conversationId: crmConversationDeals.conversationId,
+          origin: crmConversationDeals.origin,
+        })
+        .from(crmConversationDeals)
+        .innerJoin(
+          crmDeals,
+          and(
+            eq(crmConversationDeals.dealId, crmDeals.id),
+            eq(crmDeals.tenantId, tenantId),
+          ),
+        )
+        .leftJoin(
+          crmFunnels,
+          and(
+            eq(crmDeals.funnelId, crmFunnels.id),
+            eq(crmFunnels.tenantId, tenantId),
+          ),
+        )
+        .leftJoin(
+          crmAccounts,
+          and(
+            eq(crmDeals.accountId, crmAccounts.id),
+            eq(crmAccounts.tenantId, tenantId),
+          ),
+        )
+        .leftJoin(
+          contacts,
+          and(
+            eq(crmDeals.primaryContactId, contacts.id),
+            eq(contacts.tenantId, tenantId),
+          ),
+        )
+        .where(eq(crmConversationDeals.tenantId, tenantId))
+        .orderBy(desc(crmDeals.createdAt))
+        .limit(100);
+
+      // 4. Buscar estados de triagem reais em agentFlowStates
+      const realFlowStates = await db
+        .select()
+        .from(agentFlowStates)
+        .where(eq(agentFlowStates.tenantId, tenantId));
+
+      const opById = new Map<string, { id: string; name: string }>();
+      for (const op of dbOps) opById.set(op.id, { id: op.id, name: op.name });
+      for (const fOp of flowOps) {
+        if (!opById.has(fOp.id)) opById.set(fOp.id, { id: fOp.id, name: fOp.name });
+      }
+
+      // Agrupar cards reais por operatorId
+      const realCardsByOpId = new Map<string, any[]>();
+      const realCrmDealsList: any[] = [];
+      const seenDealIds = new Set<string>();
+
+      for (const row of realDealsRows) {
+        if (seenDealIds.has(row.dealId)) continue;
+        seenDealIds.add(row.dealId);
+
+        const reassigned = reassignMap.get(row.dealId) || (row.conversationId ? reassignMap.get(row.conversationId) : undefined);
+        const effectiveOpId = reassigned?.toOperatorId || row.operatorId || "";
+        const effectiveOpName =
+          reassigned?.toOperatorName ||
+          (effectiveOpId ? opById.get(effectiveOpId)?.name : null) ||
+          "Operador";
+
+        const createdAtIso = row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString();
+
+        if (effectiveOpId && !removedCards.includes(row.dealId) && (!row.conversationId || !removedCards.includes(row.conversationId))) {
+          const opCards = realCardsByOpId.get(effectiveOpId) || [];
+          opCards.push({
+            id: row.conversationId || row.dealId,
+            name: row.title,
+            company: row.accountName || null,
+            created_at: createdAtIso,
+            chatId: row.conversationId || undefined,
+            rdDealId: row.dealId,
+            phone: row.contactPhone || null,
+            subject: row.funnelName || null,
+          });
+          realCardsByOpId.set(effectiveOpId, opCards);
+        }
+
+        realCrmDealsList.push({
+          id: row.dealId,
+          name: row.title,
+          company: row.accountName || null,
+          phone: row.contactPhone || null,
+          rd_deal_id: row.dealId,
+          operator_name: effectiveOpName,
+          sector: row.funnelName || "Comercial",
+          funnel: (row.funnelName || "maquinas").toLowerCase(),
+          created_at: createdAtIso,
+        });
+      }
+
+      // Se o banco tiver os operadores do tenant, mesclamos o benchmark com os operadores reais e cards reais
       let operatorRows = benchmark.operators;
-      if (dbOps.length > 0) {
-        // Enriquecer ou mapear operadores reais do banco com dados de visualização
+      if (dbOps.length > 0 || flowOps.length > 0) {
         operatorRows = benchmark.operators.map((bOp) => {
           const matchedDbOp = dbOps.find(
             (o) =>
+              o.id === bOp.id ||
               o.name.toLowerCase().trim() === bOp.name.toLowerCase().trim() ||
               (o.email && bOp.email && o.email.toLowerCase().trim() === bOp.email.toLowerCase().trim())
           );
+          const matchedFlowOp = flowOps.find(
+            (fo) =>
+              fo.id === (matchedDbOp?.id || bOp.id) ||
+              fo.name.toLowerCase().trim() === bOp.name.toLowerCase().trim()
+          );
 
-          const opId = matchedDbOp?.id || bOp.id;
+          const opId = matchedDbOp?.id || matchedFlowOp?.id || bOp.id;
           const savedConfig = storedOpsMap[opId];
-          const dynamicComp = compensations[opId] !== undefined ? compensations[opId] : bOp.compensation;
+          const dynamicComp =
+            matchedFlowOp?.compensation !== undefined
+              ? matchedFlowOp.compensation
+              : compensations[opId] !== undefined
+                ? compensations[opId]
+                : bOp.compensation;
 
-          // Filtra cards removidos
-          const validCards = (bOp.cards || []).filter((c) => !removedCards.includes(c.id));
+          const realOpCards = realCardsByOpId.get(opId) || [];
+          const benchmarkCards = (bOp.cards || []).filter((c) => !removedCards.includes(c.id));
+          const mergedCards = [...realOpCards, ...benchmarkCards];
 
           return {
             ...bOp,
             id: opId,
-            avatar: matchedDbOp?.avatar || bOp.avatar,
+            avatar: matchedDbOp?.avatar || matchedFlowOp?.avatar || bOp.avatar,
+            sector: matchedFlowOp?.area || bOp.sector,
+            allowed_subflows: matchedFlowOp?.funnels || bOp.allowed_subflows,
             compensation: dynamicComp,
-            isParticipating: savedConfig?.isParticipating ?? bOp.isParticipating ?? true,
-            isOnLeave: savedConfig?.isOnLeave ?? bOp.isOnLeave ?? false,
-            isPenalized: savedConfig?.isPenalized ?? bOp.isPenalized ?? false,
-            cards: validCards,
+            count: (bOp.count || 0) + realOpCards.length,
+            isParticipating: matchedFlowOp?.isParticipating ?? savedConfig?.isParticipating ?? bOp.isParticipating ?? true,
+            isOnLeave: matchedFlowOp?.isOnLeave ?? savedConfig?.isOnLeave ?? bOp.isOnLeave ?? false,
+            isPenalized: matchedFlowOp?.isPenalized ?? savedConfig?.isPenalized ?? bOp.isPenalized ?? false,
+            cards: mergedCards,
           };
         });
       }
 
+      const activeRealSessions = realFlowStates.filter((fs) => fs.status === "active").length;
+      const completedRealSessions = realFlowStates.filter((fs) => fs.status === "completed").length;
+
       return {
-        stats: benchmark.stats,
+        stats: {
+          ...benchmark.stats,
+          totalLeads: benchmark.stats.totalLeads + realFlowStates.length,
+          syncedToCrm: benchmark.stats.syncedToCrm + realCrmDealsList.length,
+          triageDone: benchmark.stats.triageDone + completedRealSessions,
+          activeSessions: benchmark.stats.activeSessions + activeRealSessions,
+        },
         byDay: benchmark.byDay,
         byFunnel: benchmark.byFunnel,
         operators: operatorRows,
-        deals: benchmark.deals,
+        deals: [...realCrmDealsList, ...benchmark.deals],
       };
     } catch (err: any) {
       console.error("[RodizioEngine] Erro ao montar dashboard do rodízio:", err?.message);
@@ -567,13 +790,18 @@ export class RodizioEngine {
 
   /**
    * ALOCA O PRÓXIMO VENDEDOR NO RODÍZIO QUANDO A IA CONCLUI A TRIAGEM
-   * Considera área/funil alvo, compensações acumuladas e menor quantidade de leads
+   * Considera área/funil alvo, compensações acumuladas e menor quantidade de leads.
+   * Suporta o callback `beforeTransfer(chosenOperator)` para vincular/criar negociação no CRM Local
+   * ANTES de efetivar a transferência da conversa para a fila "meus" do operador.
    */
   static async allocateNextOperator(
     tenantId: string,
     conversationId: string,
     clientName: string,
-    targetAreaOrFunnel?: string
+    targetAreaOrFunnel?: string,
+    options?: {
+      beforeTransfer?: (chosenOperator: FlowOperator) => Promise<void>;
+    }
   ): Promise<FlowOperator | null> {
     try {
       const allOps = await this.getRodizioState(tenantId);
@@ -618,6 +846,11 @@ export class RodizioEngine {
 
       const chosenOperator = eligible[0];
       const timeNow = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+      // 0. Hook opcional ANTES da transferência (ex: criar ou vincular card no CRM Local com janela de 3h)
+      if (options?.beforeTransfer) {
+        await options.beforeTransfer(chosenOperator);
+      }
 
       // 1. Atualiza conversa para o operador alocado e coloca na aba "Meus Atendimentos"
       await db
@@ -688,4 +921,5 @@ export class RodizioEngine {
     }
   }
 }
+
 

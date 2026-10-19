@@ -19,10 +19,18 @@ export type MultimodalPart =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } };
 
+export interface VertexGenerationOptions {
+  temperature?: number;
+  maxOutputTokens?: number;
+  thinkingBudget?: number;
+  systemInstruction?: string;
+}
+
 export interface VertexCallContext {
   tenantId?: string;
   feature?: string;
   metadata?: Record<string, any>;
+  generationConfig?: VertexGenerationOptions;
 }
 
 export function calculateVertexCost(model: string, promptTokens: number, completionTokens: number): { usd: number; brl: number } {
@@ -229,27 +237,64 @@ class VertexAiService {
     const url = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${this.location}/publishers/google/models/${model}:generateContent`;
     const parts: MultimodalPart[] = typeof promptInput === "string" ? [{ text: promptInput }] : promptInput;
 
+    const genCfg: Record<string, any> = {
+      temperature: context?.generationConfig?.temperature ?? 0.2,
+      maxOutputTokens: context?.generationConfig?.maxOutputTokens ?? 8192,
+    };
+
+    if (
+      typeof context?.generationConfig?.thinkingBudget === "number" &&
+      model.toLowerCase().includes("gemini-2.5")
+    ) {
+      genCfg.thinkingConfig = {
+        thinkingBudget: context.generationConfig.thinkingBudget,
+      };
+    }
+
+    const requestBody: Record<string, any> = {
+      contents: [
+        {
+          role: "user",
+          parts,
+        },
+      ],
+      generationConfig: genCfg,
+    };
+
+    if (context?.generationConfig?.systemInstruction) {
+      requestBody.systemInstruction = {
+        parts: [{ text: context.generationConfig.systemInstruction }],
+      };
+    }
+
     try {
-      const response = await fetch(url, {
+      let response = await fetch(url, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts,
-            },
-          ],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 8192,
-          },
-        }),
+        body: JSON.stringify(requestBody),
         signal,
       });
+
+      // Fallback transparente caso algum modelo/região não aceite thinkingConfig
+      if (!response.ok && response.status === 400 && genCfg.thinkingConfig) {
+        const fallbackGenCfg = { ...genCfg };
+        delete fallbackGenCfg.thinkingConfig;
+        response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...requestBody,
+            generationConfig: fallbackGenCfg,
+          }),
+          signal,
+        });
+      }
 
       const latencyMs = Date.now() - startTime;
 
@@ -272,7 +317,12 @@ class VertexAiService {
       }
 
       const data: any = await response.json();
-      const responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const candidateParts: any[] = data?.candidates?.[0]?.content?.parts || [];
+      const nonThoughtText = candidateParts
+        .filter((p: any) => !p?.thought && typeof p?.text === "string")
+        .map((p: any) => p.text)
+        .join("");
+      const responseText = nonThoughtText || candidateParts[0]?.text;
       
       // Extrair uso de tokens real da resposta do Vertex AI
       const usage = data?.usageMetadata || {};

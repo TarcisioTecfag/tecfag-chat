@@ -462,4 +462,29 @@ describe("CRM Deal Full History Audit — Formatters & Diffs", () => {
       toLabel: "01/12/2026",
     });
   });
+
+  it("permite remover contato de uma negociação (inclusive o primeiro após vincular um segundo ou deixar a negociação sem contato), mantendo DealRequiredError apenas na conversa/atendimento", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const crmServiceSource = fs.readFileSync(
+      path.resolve(process.cwd(), "src/lib/crm/crm-service.ts"),
+      "utf8",
+    );
+
+    const removeMethodStart = crmServiceSource.indexOf("async removeDealContact(");
+    const setPrimaryMethodStart = crmServiceSource.indexOf("async setPrimaryDealContact(");
+    expect(removeMethodStart).toBeGreaterThan(-1);
+    expect(setPrimaryMethodStart).toBeGreaterThan(removeMethodStart);
+
+    const removeMethodBody = crmServiceSource.slice(removeMethodStart, setPrimaryMethodStart);
+    expect(removeMethodBody).not.toContain("throw new DealRequiredError()");
+    expect(removeMethodBody).toContain('"participant_removed"');
+    expect(removeMethodBody).toContain('"primary_contact_changed"');
+
+    const unlinkMethodStart = crmServiceSource.indexOf("async unlinkConversationDeal(");
+    expect(unlinkMethodStart).toBeGreaterThan(-1);
+    const unlinkMethodBody = crmServiceSource.slice(unlinkMethodStart, unlinkMethodStart + 1800);
+    expect(unlinkMethodBody).toContain("throw new DealRequiredError()");
+  });
 });
+
