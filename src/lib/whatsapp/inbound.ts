@@ -195,6 +195,23 @@ export class InboundProcessor {
         sectorId: null,
         responsibleName: `${getAiPersona(tenantId).name} IA`,
       });
+
+      // Enviar confirmação visual no WhatsApp do cliente (igual ao Baileys)
+      try {
+        const { metaAdapter } = await import("./adapters/meta");
+        const { sendMetaConversationPresence, resetMetaTypingThrottle } = await import("./meta-presence");
+        await sendMetaConversationPresence(tenantId, convId, "read").catch(() => {});
+        await metaAdapter.send(tenantId, {
+          tenantId,
+          conversationId: convId,
+          recipientPhone: fromPhone || "",
+          recipientUserId: inbound.fromUserId,
+          text: `🔄 Fluxo de triagem reiniciado com sucesso! A persona ${getAiPersona(tenantId).name} está pronta para um novo atendimento.`,
+        });
+        resetMetaTypingThrottle(tenantId, convId);
+      } catch (err: any) {
+        console.error("[Meta/Reset] Erro ao enviar confirmação de !reset no WhatsApp:", err?.message);
+      }
       return;
     }
 
@@ -234,7 +251,13 @@ export class InboundProcessor {
       return;
     }
 
-    // 5. Preparar item multimodal (texto, foto, áudio ou PDF) para o SdrDebouncer
+    // 5. Dar sinal imediato de leitura (✓✓ azul) no WhatsApp do cliente assim que entra na fila do SDR
+    try {
+      const { sendMetaConversationPresence } = await import("./meta-presence");
+      void sendMetaConversationPresence(tenantId, convId, "read").catch(() => {});
+    } catch {}
+
+    // 6. Preparar item multimodal (texto, foto, áudio ou PDF) para o SdrDebouncer
     let mediaType: "text" | "image" | "audio" | "document" = "text";
     let mediaBase64: string | undefined;
     let mimeType: string | undefined;
