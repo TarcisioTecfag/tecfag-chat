@@ -163,7 +163,11 @@ export const Route = createFileRoute("/api/chats")({
 
           await db
             .update(conversations)
-            .set({ lastMessageTime: now, updatedAt: now, unreadCount: 0 })
+            .set({
+              ...(isInternalNote || senderType === "system" ? {} : { lastMessageTime: now }),
+              updatedAt: now,
+              unreadCount: 0,
+            })
             .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId)));
 
           // Se for nota comercial vinculada explicitamente a um card/deal
@@ -349,10 +353,37 @@ export const Route = createFileRoute("/api/chats")({
             .where(and(eq(messages.tenantId, session.tenantId), eq(messages.conversationId, conversations.id)))
             .orderBy(desc(messages.sentAt), desc(messages.id))
             .limit(recentPerConversation).as("latest_message");
-          const recentMessages = (await db.select().from(conversations)
-            .leftJoinLateral(latestMessage, sql`true`)
-            .where(and(eq(conversations.tenantId, session.tenantId), inArray(conversations.id, convIds))))
-            .flatMap((row) => row.latest_message ? [row.latest_message] : []);
+          const [recentMessages, latestClientTimes] = await Promise.all([
+            db.select().from(conversations)
+              .leftJoinLateral(latestMessage, sql`true`)
+              .where(and(eq(conversations.tenantId, session.tenantId), inArray(conversations.id, convIds)))
+              .then((rowsRes) => rowsRes.flatMap((row) => row.latest_message ? [row.latest_message] : [])),
+            db.select({
+              conversationId: messages.conversationId,
+              lastClientSentAt: sql<Date | string | null>`max(${messages.sentAt})`,
+            })
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.tenantId, session.tenantId),
+                  inArray(messages.conversationId, convIds),
+                  eq(messages.senderType, "client"),
+                ),
+              )
+              .groupBy(messages.conversationId),
+          ]);
+
+          const lastClientTimeByConv = new Map<string, string>();
+          for (const item of latestClientTimes) {
+            if (item.lastClientSentAt) {
+              try {
+                const d = new Date(item.lastClientSentAt);
+                if (!isNaN(d.getTime())) {
+                  lastClientTimeByConv.set(item.conversationId, d.toISOString());
+                }
+              } catch {}
+            }
+          }
 
           // Agrupa mensagens por conversa
           const messagesByConv = new Map<string, any[]>();
@@ -387,6 +418,9 @@ export const Route = createFileRoute("/api/chats")({
               respName = row.contact.responsibleName;
             }
 
+            const clientIso = lastClientTimeByConv.get(row.conversation.id);
+            const fallbackIso = row.conversation.lastMessageTime.toISOString();
+
             return {
               id: row.conversation.id,
               contactId: row.contact.id,
@@ -414,11 +448,12 @@ export const Route = createFileRoute("/api/chats")({
                 ? row.conversation.unreadCount
                 : 0,
               version: row.conversation.version || 1, // Concorrência otimista (Entrega C)
-              lastMessageTime: new Date(row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
+              lastMessageTime: new Date(clientIso || row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
                 hour: "2-digit",
                 minute: "2-digit",
               }),
-              lastMessageAtISO: row.conversation.lastMessageTime.toISOString(),
+              lastMessageAtISO: clientIso || fallbackIso,
+              lastClientMessageAtISO: clientIso || fallbackIso,
               messages: convMsgs.map((m) => ({
                 id: m.id,
                 author: m.senderType === "client" ? row.contact.name : m.senderName,

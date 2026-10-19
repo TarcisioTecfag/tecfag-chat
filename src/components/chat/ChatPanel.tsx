@@ -1259,9 +1259,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     lastTypingPingRef.current = 0;
   }, [activeChat?.id]);
 
+  const isLoadingOlderRef = useRef(false);
+
   const loadOlderMessages = async () => {
     if (!history?.nextCursor || loadingHistory) return;
     const { chatId, nextCursor } = history;
+    isLoadingOlderRef.current = true;
     setLoadingHistory(true);
     try {
       const response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(chatId)}/messages?limit=100&before=${encodeURIComponent(nextCursor)}`, { credentials: "include" });
@@ -1274,6 +1277,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       toast.error(error.message);
     } finally {
       setLoadingHistory(false);
+      requestAnimationFrame(() => {
+        isLoadingOlderRef.current = false;
+      });
     }
   };
 
@@ -1734,19 +1740,92 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     return `${(bytes / 1048576).toFixed(1)} MB`;
   };
 
-  // Auto scroll suave ao rodapé quando novas mensagens são adicionadas ou ao trocar de conversa
-  const prevMsgCountRef = useRef(0);
+  // Auto scroll ao rodapé (de baixo para cima) sempre ao abrir conversa, carregar histórico ou receber nova mensagem/imagem
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const prevChatIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    const currentCount = activeChat?.messages?.length || 0;
-    const currentChatId = activeChat?.id || null;
-    const isNewChat = currentChatId !== prevChatIdRef.current;
-    if (isNewChat || currentCount > prevMsgCountRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? "auto" : "smooth" });
+  const prevHistoryChatIdRef = useRef<string | null>(null);
+  const prevLastMsgIdRef = useRef<string | null>(null);
+  const chatOpenedAtRef = useRef<number>(0);
+  const shouldStickToBottomRef = useRef<boolean>(true);
+
+  const scrollToBottom = useCallback((instant = true) => {
+    const el = messagesContainerRef.current;
+    if (el) {
+      if (instant) {
+        el.scrollTop = el.scrollHeight;
+      } else {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      }
     }
-    prevMsgCountRef.current = currentCount;
+    messagesEndRef.current?.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "end" });
+  }, []);
+
+  const handleMessagesContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom <= 180;
+  }, []);
+
+  const handleMediaLoadScroll = useCallback(
+    (e: React.SyntheticEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || (target.tagName !== "IMG" && target.tagName !== "VIDEO")) return;
+      if (isLoadingOlderRef.current) return;
+      if (Date.now() - chatOpenedAtRef.current < 3000 || shouldStickToBottomRef.current) {
+        scrollToBottom(true);
+        requestAnimationFrame(() => scrollToBottom(true));
+      }
+    },
+    [scrollToBottom],
+  );
+
+  useEffect(() => {
+    const currentChatId = activeChat?.id || null;
+    if (!currentChatId) {
+      prevChatIdRef.current = null;
+      prevHistoryChatIdRef.current = null;
+      prevLastMsgIdRef.current = null;
+      return;
+    }
+
+    const isNewChat = currentChatId !== prevChatIdRef.current;
+    const historyLoadedForCurrent =
+      history?.chatId === currentChatId && prevHistoryChatIdRef.current !== currentChatId;
+    const lastMsg = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+    const lastMsgId = lastMsg ? lastMsg.clientMessageId || lastMsg.id : null;
+    const hasNewLastMsg = lastMsgId !== null && lastMsgId !== prevLastMsgIdRef.current;
+
     prevChatIdRef.current = currentChatId;
-  }, [activeChat?.id, activeChat?.messages?.length]);
+    if (history?.chatId === currentChatId) {
+      prevHistoryChatIdRef.current = currentChatId;
+    }
+    prevLastMsgIdRef.current = lastMsgId;
+
+    if (isLoadingOlderRef.current) return;
+
+    if (isNewChat || historyLoadedForCurrent) {
+      chatOpenedAtRef.current = Date.now();
+      shouldStickToBottomRef.current = true;
+      scrollToBottom(true);
+      const rafId = requestAnimationFrame(() => scrollToBottom(true));
+      const t1 = setTimeout(() => scrollToBottom(true), 60);
+      const t2 = setTimeout(() => scrollToBottom(true), 180);
+      const t3 = setTimeout(() => scrollToBottom(true), 350);
+      return () => {
+        cancelAnimationFrame(rafId);
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
+    }
+
+    if (hasNewLastMsg) {
+      shouldStickToBottomRef.current = true;
+      scrollToBottom(false);
+      const t1 = setTimeout(() => scrollToBottom(true), 100);
+      return () => clearTimeout(t1);
+    }
+  }, [activeChat?.id, history?.chatId, history?.messages?.length, allMessages, scrollToBottom]);
 
   // Auto-redimensionar o campo de texto conforme o conteúdo
   useEffect(() => {
@@ -2504,7 +2583,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         </div>
       )}
       {/* Messages Window */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleMessagesContainerScroll}
+        onLoadCapture={handleMediaLoadScroll}
+        className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin"
+      >
         {activeChat.id !== "valentina" &&
           history?.chatId === activeChat.id &&
           history.nextCursor && (

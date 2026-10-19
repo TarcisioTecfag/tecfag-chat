@@ -66,7 +66,7 @@ import {
   normalizeTemplateCustomGroups,
 } from "@/lib/whatsapp/meta-template-common";
 import { toast } from "sonner";
-import type { Conversation, Message } from "@/lib/mockData";
+import { getConversationSortTimestamp, type Conversation, type Message } from "@/lib/mockData";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -1363,7 +1363,7 @@ export function CrmChatWidget() {
     .sort((a, b) => {
       const aPinned = (a as any).pinned ? 1 : 0;
       const bPinned = (b as any).pinned ? 1 : 0;
-      return bPinned - aPinned;
+      return bPinned - aPinned || getConversationSortTimestamp(b) - getConversationSortTimestamp(a);
     })
     .filter(
       (conversation) =>
@@ -1700,12 +1700,89 @@ export function CrmChatWidget() {
     };
   }, [open, activeProvider, selected?.id, selected?.channel, lastInboundMessage?.id]);
 
-  // Scroll automático ao final da conversa
-  useEffect(() => {
-    if (open && view === "thread") {
-      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  // Scroll automático ao final da conversa (sempre começa da mensagem/imagem mais recente, de baixo para cima)
+  const threadScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const prevThreadChatIdRef = useRef<string | null>(null);
+  const prevThreadHistoryChatIdRef = useRef<string | null>(null);
+  const prevThreadLastMsgIdRef = useRef<string | null>(null);
+  const threadOpenedAtRef = useRef<number>(0);
+  const shouldStickThreadToBottomRef = useRef<boolean>(true);
+
+  const scrollThreadToBottom = useCallback((instant = true) => {
+    const el = threadScrollContainerRef.current;
+    if (el) {
+      if (instant) {
+        el.scrollTop = el.scrollHeight;
+      } else {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      }
     }
-  }, [open, view, selected?.id, threadMessages.length]);
+    endRef.current?.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "end" });
+  }, []);
+
+  const handleThreadScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldStickThreadToBottomRef.current = distanceFromBottom <= 140;
+  }, []);
+
+  const handleThreadMediaLoad = useCallback(
+    (e: React.SyntheticEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || (target.tagName !== "IMG" && target.tagName !== "VIDEO")) return;
+      if (Date.now() - threadOpenedAtRef.current < 3000 || shouldStickThreadToBottomRef.current) {
+        scrollThreadToBottom(true);
+        requestAnimationFrame(() => scrollThreadToBottom(true));
+      }
+    },
+    [scrollThreadToBottom],
+  );
+
+  useEffect(() => {
+    if (!open || view !== "thread" || !selected?.id) {
+      prevThreadChatIdRef.current = null;
+      prevThreadHistoryChatIdRef.current = null;
+      prevThreadLastMsgIdRef.current = null;
+      return;
+    }
+
+    const currentChatId = selected.id;
+    const isNewChat = currentChatId !== prevThreadChatIdRef.current;
+    const historyLoadedForCurrent =
+      history?.chatId === currentChatId && prevThreadHistoryChatIdRef.current !== currentChatId;
+    const lastMsg = threadMessages.length > 0 ? threadMessages[threadMessages.length - 1] : null;
+    const lastMsgId = lastMsg ? lastMsg.clientMessageId || lastMsg.id : null;
+    const hasNewLastMsg = lastMsgId !== null && lastMsgId !== prevThreadLastMsgIdRef.current;
+
+    prevThreadChatIdRef.current = currentChatId;
+    if (history?.chatId === currentChatId) {
+      prevThreadHistoryChatIdRef.current = currentChatId;
+    }
+    prevThreadLastMsgIdRef.current = lastMsgId;
+
+    if (isNewChat || historyLoadedForCurrent) {
+      threadOpenedAtRef.current = Date.now();
+      shouldStickThreadToBottomRef.current = true;
+      scrollThreadToBottom(true);
+      const rafId = requestAnimationFrame(() => scrollThreadToBottom(true));
+      const t1 = setTimeout(() => scrollThreadToBottom(true), 60);
+      const t2 = setTimeout(() => scrollThreadToBottom(true), 190);
+      const t3 = setTimeout(() => scrollThreadToBottom(true), 350);
+      return () => {
+        cancelAnimationFrame(rafId);
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
+    }
+
+    if (hasNewLastMsg) {
+      shouldStickThreadToBottomRef.current = true;
+      scrollThreadToBottom(false);
+      const t1 = setTimeout(() => scrollThreadToBottom(true), 100);
+      return () => clearTimeout(t1);
+    }
+  }, [open, view, selected?.id, history?.chatId, history?.messages?.length, threadMessages, scrollThreadToBottom]);
 
   // Posição horizontal do widget (distância em px a partir da borda direita da viewport)
   const STORAGE_KEY = "crm_chat_widget_right_offset";
@@ -2102,7 +2179,12 @@ export function CrmChatWidget() {
                       </AnimatePresence>
 
                       {/* Área de Mensagens com Balões Refinados */}
-                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background/85 px-3 py-3.5 text-xs scrollbar-thin">
+                      <div
+                        ref={threadScrollContainerRef}
+                        onScroll={handleThreadScroll}
+                        onLoadCapture={handleThreadMediaLoad}
+                        className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background/85 px-3 py-3.5 text-xs scrollbar-thin"
+                      >
                         {selected.id === "__resolving__" ? (
                           <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
                             <Loader2 className="h-6 w-6 animate-spin text-primary mb-2" />

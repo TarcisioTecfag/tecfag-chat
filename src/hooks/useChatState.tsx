@@ -2954,15 +2954,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           setConversations((prev) => {
             const exists = prev.some((c) => c.id === message.conversationId);
-            const timeStr = new Date(message.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            const sentAtIso = message.sentAt ? new Date(message.sentAt).toISOString() : new Date().toISOString();
+            const timeStr = new Date(sentAtIso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            const isClientMsg = message.senderType === "client";
             const incomingMsg: Message = {
             id: message.id,
             clientMessageId: message.clientMessageId || undefined,
             author: message.senderName,
             text: message.content ?? "",
             time: timeStr,
-            sentAtISO: message.sentAt ? new Date(message.sentAt).toISOString() : new Date().toISOString(),
-            side: message.senderType === "client" ? "in" : "out",
+            sentAtISO: sentAtIso,
+            side: isClientMsg ? "in" : "out",
             isInternalNote: !!message.isInternalNote,
             senderType: message.senderType,
             quotedMessageId: message.quotedMessageId || null,
@@ -2983,13 +2985,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                   const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
                   const newUnread =
-                    message.senderType === "client"
+                    isClientMsg
                       ? isCurrentOpen
                         ? 0
                         : c.unreadCount + 1
                       : c.unreadCount;
 
-                  if (isCurrentOpen && message.senderType === "client") {
+                  if (isCurrentOpen && isClientMsg) {
                   fetch(`${BACKEND_URL}/api/chats`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
@@ -3010,7 +3012,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                   return {
                   ...c,
-                  lastMessageTime: timeStr,
+                  lastMessageTime: isClientMsg ? timeStr : c.lastMessageTime || timeStr,
+                  lastMessageAtISO: isClientMsg ? sentAtIso : c.lastMessageAtISO || sentAtIso,
+                  lastClientMessageAtISO: isClientMsg ? sentAtIso : c.lastClientMessageAtISO,
                   unreadCount: newUnread,
                   messages: updatedList,
                   phone: message.phone || c.phone,
@@ -3034,7 +3038,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
               const newUnread = isCurrentOpen ? 0 : 1;
 
-              if (isCurrentOpen && message.senderType === "client") {
+              if (isCurrentOpen && isClientMsg) {
               fetch(`${BACKEND_URL}/api/chats`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
@@ -3065,6 +3069,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               walletOperatorId: message.walletOperatorId || null,
               unreadCount: newUnread,
               lastMessageTime: timeStr,
+              lastMessageAtISO: sentAtIso,
+              lastClientMessageAtISO: isClientMsg ? sentAtIso : undefined,
               messages: [incomingMsg],
               pinned: isPinned,
             } as any;

@@ -10,7 +10,7 @@ import {
   ChevronRight,
   ChevronLeft,
 } from "lucide-react";
-import { SdrTriageSession } from "./SdrTab";
+import { SdrTriageSession, getSdrSessionLatestClientTimestamp } from "./SdrTab";
 import {
   KANBAN_COLUMNS,
   KanbanColumnKey,
@@ -186,7 +186,7 @@ export function SdrKanbanBoard({
       }
 
       return true;
-    });
+    }).sort((a, b) => getSdrSessionLatestClientTimestamp(b) - getSdrSessionLatestClientTimestamp(a));
   }, [sessions, searchQuery, unreadOnly, showCompleted, statusFilter, selectedDate]);
 
   // Agrupamento pelas 9 colunas ativas

@@ -3,7 +3,7 @@ import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
 import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle } from "lucide-react";
-import { Channel, QueueType } from "@/lib/mockData";
+import { Channel, QueueType, getConversationSortTimestamp } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusWizardModal } from "./StatusWizardModal";
@@ -198,9 +198,11 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     }
 
     return true;
-  }).sort((a, b) => Number(!!(b as any).pinned) - Number(!!(a as any).pinned) ||
+  }).sort((a, b) =>
+    Number(!!(b as any).pinned) - Number(!!(a as any).pinned) ||
     Number(a.queue === "finalizados") - Number(b.queue === "finalizados") ||
-    (a.lastMessageAtISO && b.lastMessageAtISO ? b.lastMessageAtISO.localeCompare(a.lastMessageAtISO) : 0)),
+    (getConversationSortTimestamp(b) - getConversationSortTimestamp(a))
+  ),
     [conversations, activeQueue, currentOperatorId, channelFilter, searchQuery]);
 
   return (

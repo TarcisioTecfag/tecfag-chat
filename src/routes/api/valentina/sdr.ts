@@ -443,6 +443,12 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 "Empresa não informada";
 
               const previousTriages = Array.isArray(meta.previousTriages) ? [...meta.previousTriages] : [];
+              const lastClientMsg = [...formattedMessages].reverse().find((m) => m.sender === "client");
+              const lastAnyMsg = formattedMessages[formattedMessages.length - 1];
+              const lastMessageAtIso =
+                lastAnyMsg?.sentAt ||
+                (conv?.lastMessageTime ? safeFormatIso(conv.lastMessageTime) : safeFormatIso(fs.lastInteractionAt || fs.startedAt));
+              const lastClientMessageAtIso = lastClientMsg?.sentAt || lastMessageAtIso;
 
               const sessionObj = {
                 id: fs.id,
@@ -455,6 +461,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 collectedData,
                 startedAt: safeFormatIso(fs.startedAt),
                 completedAt: fs.completedAt ? safeFormatIso(fs.completedAt) : null,
+                lastClientMessageAt: lastClientMessageAtIso,
+                lastMessageAt: lastMessageAtIso,
                 status,
                 outcome: fs.outcome || undefined,
                 responsibleName,
@@ -540,6 +548,11 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 const formattedMessages = formatConversationMessages(realMsgs, operator, resolvedContactName);
 
                 const isFinished = c.queueState === "finalizados";
+                const lastClientMsg = [...formattedMessages].reverse().find((m) => m.sender === "client");
+                const lastAnyMsg = formattedMessages[formattedMessages.length - 1];
+                const lastMessageAtIso =
+                  lastAnyMsg?.sentAt || safeFormatIso(c.lastMessageTime || c.createdAt);
+                const lastClientMessageAtIso = lastClientMsg?.sentAt || lastMessageAtIso;
 
                 const sessionObj = {
                   id: `fs-auto-${c.id}`,
@@ -552,6 +565,8 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   collectedData: {},
                   startedAt: safeFormatIso(c.createdAt),
                   completedAt: null,
+                  lastClientMessageAt: lastClientMessageAtIso,
+                  lastMessageAt: lastMessageAtIso,
                   status: isFinished ? "completed" : "active",
                   outcome: isFinished ? "completed" : "in_progress",
                   responsibleName: operator?.name || "IA (Em Triagem)",
@@ -582,6 +597,13 @@ export const Route = createFileRoute('/api/valentina/sdr')({
         } catch (err) {
           console.warn("[api/valentina/sdr] Erro ao buscar conversations:", err);
         }
+
+        // Ordenar todas as sessões SDR da mais recente para a mais antiga com base na última mensagem do cliente
+        sessions.sort((a, b) => {
+          const tsA = Date.parse(a.lastClientMessageAt || a.lastMessageAt || a.startedAt || "") || 0;
+          const tsB = Date.parse(b.lastClientMessageAt || b.lastMessageAt || b.startedAt || "") || 0;
+          return tsB - tsA;
+        });
 
         return new Response(JSON.stringify({ config, sessions }), {
           status: 200,

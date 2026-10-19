@@ -53,6 +53,7 @@ export type Conversation = {
   messages: Message[];
   lastMessageTime: string;
   lastMessageAtISO?: string;
+  lastClientMessageAtISO?: string;
   unreadCount: number;
   operatorId?: string | null;
   walletOperatorId?: string | null;
@@ -61,6 +62,46 @@ export type Conversation = {
   responsibleName?: string;
   version?: number;
 };
+
+/**
+ * Calcula o timestamp numérico de ordenação de uma conversa priorizando
+ * sempre a última mensagem enviada pelo cliente (ou a última mensagem geral
+ * caso a conversa ainda não possua mensagens recebidas do cliente).
+ */
+export function getConversationSortTimestamp(c: Conversation): number {
+  let maxClientTs = 0;
+  if (c.lastClientMessageAtISO) {
+    const parsed = Date.parse(c.lastClientMessageAtISO);
+    if (!Number.isNaN(parsed)) maxClientTs = parsed;
+  }
+
+  let maxAnyTs = 0;
+  if (c.lastMessageAtISO) {
+    const parsed = Date.parse(c.lastMessageAtISO);
+    if (!Number.isNaN(parsed)) maxAnyTs = parsed;
+  }
+
+  if (Array.isArray(c.messages)) {
+    for (const m of c.messages) {
+      const iso = m.sentAtISO || (m as any).sentAt;
+      if (!iso) continue;
+      const ts = Date.parse(iso);
+      if (Number.isNaN(ts)) continue;
+      if (ts > maxAnyTs) maxAnyTs = ts;
+      const isClient =
+        m.side === "in" &&
+        !m.isInternalNote &&
+        m.author !== "Sistema" &&
+        m.senderType !== "system" &&
+        !m.isWarning;
+      if (isClient && ts > maxClientTs) {
+        maxClientTs = ts;
+      }
+    }
+  }
+
+  return maxClientTs > 0 ? maxClientTs : maxAnyTs;
+}
 
 export type OperatorTemplate = {
   id: string;

@@ -55,6 +55,8 @@ export interface SdrTriageSession {
   collectedData: Record<string, { value: string; status: "filled" | "pending" }>;
   startedAt: string;
   completedAt?: string | null;
+  lastClientMessageAt?: string | null;
+  lastMessageAt?: string | null;
   status: "active" | "completed" | "abandoned";
   outcome?: string;
   responsibleName?: string;
@@ -68,6 +70,40 @@ export interface SdrTriageSession {
   } | null;
   previousTriages?: SdrPreviousTriage[];
   messages: SdrTriageMessage[];
+}
+
+export function getSdrSessionLatestClientTimestamp(session: SdrTriageSession): number {
+  let maxClientTs = 0;
+  if (session.lastClientMessageAt) {
+    const parsed = Date.parse(session.lastClientMessageAt);
+    if (!Number.isNaN(parsed)) maxClientTs = parsed;
+  }
+
+  let maxAnyTs = 0;
+  if (session.lastMessageAt) {
+    const parsed = Date.parse(session.lastMessageAt);
+    if (!Number.isNaN(parsed)) maxAnyTs = parsed;
+  }
+
+  if (Array.isArray(session.messages)) {
+    for (const msg of session.messages) {
+      if (!msg.sentAt) continue;
+      const ts = Date.parse(msg.sentAt);
+      if (Number.isNaN(ts)) continue;
+      if (ts > maxAnyTs) maxAnyTs = ts;
+      if (msg.sender === "client" && ts > maxClientTs) {
+        maxClientTs = ts;
+      }
+    }
+  }
+
+  if (maxClientTs > 0) return maxClientTs;
+  if (maxAnyTs > 0) return maxAnyTs;
+  if (session.startedAt) {
+    const started = Date.parse(session.startedAt);
+    if (!Number.isNaN(started)) return started;
+  }
+  return 0;
 }
 
 type SdrTimelineItem =
@@ -531,8 +567,10 @@ export function SdrTab({
   const [searchQuery, setSearchQuery] = useState("");
   const [isChatHighlighted, setIsChatHighlighted] = useState(false);
 
-  // Ref para rolagem automática do chat para o final (mensagem mais recente)
+  // Ref para rolagem automática do chat para o final (mensagem/imagem mais recente)
   const chatMessagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const chatOpenedAtRef = useRef<number>(0);
+  const shouldStickChatToBottomRef = useRef<boolean>(true);
 
   const scrollChatToBottom = useCallback(() => {
     const el = chatMessagesContainerRef.current;
@@ -540,24 +578,47 @@ export function SdrTab({
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  const handleChatContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldStickChatToBottomRef.current = distanceFromBottom <= 160;
+  }, []);
+
+  const handleChatMediaLoad = useCallback(
+    (e: React.SyntheticEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || (target.tagName !== "IMG" && target.tagName !== "VIDEO")) return;
+      if (Date.now() - chatOpenedAtRef.current < 3000 || shouldStickChatToBottomRef.current) {
+        scrollChatToBottom();
+        requestAnimationFrame(() => scrollChatToBottom());
+      }
+    },
+    [scrollChatToBottom],
+  );
+
   // Sempre que abrir/trocar de chat na aba SDR, rolar para o final (mensagem mais recente)
   useEffect(() => {
     setIsOpenActionPopupOpen(false);
     if (!selectedSession?.id) return;
+    chatOpenedAtRef.current = Date.now();
+    shouldStickChatToBottomRef.current = true;
     scrollChatToBottom();
     const rafId = requestAnimationFrame(() => scrollChatToBottom());
     const t1 = setTimeout(() => scrollChatToBottom(), 60);
     const t2 = setTimeout(() => scrollChatToBottom(), 180);
+    const t3 = setTimeout(() => scrollChatToBottom(), 350);
     return () => {
       cancelAnimationFrame(rafId);
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
     };
   }, [selectedSession?.id, selectedSession?.conversationId, scrollChatToBottom]);
 
   // Rola para o final quando novas mensagens chegarem na sessão aberta
   useEffect(() => {
     if (!selectedSession?.messages?.length) return;
+    shouldStickChatToBottomRef.current = true;
     const rafId = requestAnimationFrame(() => scrollChatToBottom());
     const t1 = setTimeout(() => scrollChatToBottom(), 80);
     return () => {
@@ -733,29 +794,36 @@ export function SdrTab({
           onSdrConfigChange?.(isEn);
         }
         if (Array.isArray(data.sessions)) {
-          const formattedLiveSessions: SdrTriageSession[] = data.sessions.map((s: any) => ({
-            id: s.id,
-            conversationId: s.conversationId,
-            contactName: s.contactName || "Cliente WhatsApp",
-            contactAvatar: s.contactAvatar || null,
-            company: s.company || "Empresa não informada",
-            phone: s.phone || "",
-            currentStep: s.currentStep || "Qualificação",
-            collectedData: s.collectedData || {},
-            startedAt: s.startedAt,
-            completedAt: s.completedAt || null,
-            status: s.status,
-            outcome: s.outcome,
-            responsibleName: s.responsibleName,
-            previousTriages: Array.isArray(s.previousTriages) ? s.previousTriages : [],
-            messages: s.messages || [],
-            ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
-            ...(s.targetFunnel ? { targetFunnel: s.targetFunnel } : {}),
-            ...(s.linkedDeal ? { linkedDeal: s.linkedDeal } : {}),
-            ...(s.unreadCount !== undefined ? { unreadCount: s.unreadCount } : {}),
-            ...(s.channel ? { channel: s.channel } : {}),
-            ...(s.timeAgo ? { timeAgo: s.timeAgo } : {}),
-          }));
+          const formattedLiveSessions: SdrTriageSession[] = data.sessions
+            .map((s: any) => ({
+              id: s.id,
+              conversationId: s.conversationId,
+              contactName: s.contactName || "Cliente WhatsApp",
+              contactAvatar: s.contactAvatar || null,
+              company: s.company || "Empresa não informada",
+              phone: s.phone || "",
+              currentStep: s.currentStep || "Qualificação",
+              collectedData: s.collectedData || {},
+              startedAt: s.startedAt,
+              completedAt: s.completedAt || null,
+              lastClientMessageAt: s.lastClientMessageAt || null,
+              lastMessageAt: s.lastMessageAt || null,
+              status: s.status,
+              outcome: s.outcome,
+              responsibleName: s.responsibleName,
+              previousTriages: Array.isArray(s.previousTriages) ? s.previousTriages : [],
+              messages: s.messages || [],
+              ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
+              ...(s.targetFunnel ? { targetFunnel: s.targetFunnel } : {}),
+              ...(s.linkedDeal ? { linkedDeal: s.linkedDeal } : {}),
+              ...(s.unreadCount !== undefined ? { unreadCount: s.unreadCount } : {}),
+              ...(s.channel ? { channel: s.channel } : {}),
+              ...(s.timeAgo ? { timeAgo: s.timeAgo } : {}),
+            }))
+            .sort(
+              (a: SdrTriageSession, b: SdrTriageSession) =>
+                getSdrSessionLatestClientTimestamp(b) - getSdrSessionLatestClientTimestamp(a),
+            );
 
           setSessions(formattedLiveSessions);
           setSelectedSession((prev) => {
@@ -917,7 +985,7 @@ export function SdrTab({
     }
 
     return true;
-  });
+  }).sort((a, b) => getSdrSessionLatestClientTimestamp(b) - getSdrSessionLatestClientTimestamp(a));
 
   const effectiveFilterState = filterState || DEFAULT_SDR_FILTER_STATE;
 
@@ -1390,6 +1458,8 @@ export function SdrTab({
 
                 <div
                   ref={chatMessagesContainerRef}
+                  onScroll={handleChatContainerScroll}
+                  onLoadCapture={handleChatMediaLoad}
                   className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5 scrollbar-thin"
                 >
                   <AnimatePresence initial={false}>
