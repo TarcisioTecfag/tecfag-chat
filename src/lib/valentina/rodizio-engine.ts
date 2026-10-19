@@ -12,7 +12,7 @@ import {
   crmDeals,
   crmConversationDeals,
   crmDealEvents,
-  crmFunnels,
+  crmPipelines,
   crmAccounts,
 } from "../../db/schema";
 import { eq, and, asc, desc, inArray } from "drizzle-orm";
@@ -479,15 +479,12 @@ export class RodizioEngine {
             tenantId,
             dealId,
             eventType: "owner_changed",
-            fromValue: null,
-            toValue: toOperatorId,
-            payload: {
+            operatorId: toOperatorId,
+            metadata: {
               source: "rodizio_reassignment",
               toOperatorId,
               toOperatorName,
             },
-            actorOperatorId: toOperatorId,
-            actorName: "Rodízio SDR",
             createdAt: now,
           });
         }
@@ -621,9 +618,9 @@ export class RodizioEngine {
           title: crmDeals.title,
           operatorId: crmDeals.operatorId,
           createdAt: crmDeals.createdAt,
-          funnelName: crmFunnels.name,
+          funnelName: crmPipelines.name,
           accountName: crmAccounts.name,
-          contactPhone: contacts.phone,
+          contactPhone: crmAccounts.phone,
           conversationId: crmConversationDeals.conversationId,
           origin: crmConversationDeals.origin,
         })
@@ -636,10 +633,10 @@ export class RodizioEngine {
           ),
         )
         .leftJoin(
-          crmFunnels,
+          crmPipelines,
           and(
-            eq(crmDeals.funnelId, crmFunnels.id),
-            eq(crmFunnels.tenantId, tenantId),
+            eq(crmDeals.pipelineId, crmPipelines.id),
+            eq(crmPipelines.tenantId, tenantId),
           ),
         )
         .leftJoin(
@@ -647,13 +644,6 @@ export class RodizioEngine {
           and(
             eq(crmDeals.accountId, crmAccounts.id),
             eq(crmAccounts.tenantId, tenantId),
-          ),
-        )
-        .leftJoin(
-          contacts,
-          and(
-            eq(crmDeals.primaryContactId, contacts.id),
-            eq(contacts.tenantId, tenantId),
           ),
         )
         .where(eq(crmConversationDeals.tenantId, tenantId))
@@ -763,8 +753,10 @@ export class RodizioEngine {
         });
       }
 
-      const activeRealSessions = realFlowStates.filter((fs) => fs.status === "active").length;
-      const completedRealSessions = realFlowStates.filter((fs) => fs.status === "completed").length;
+      const activeRealSessions = realFlowStates.filter((fs) => fs.outcome === "in_progress").length;
+      const completedRealSessions = realFlowStates.filter(
+        (fs) => fs.outcome === "completed" || fs.outcome === "transferred"
+      ).length;
 
       return {
         stats: {
