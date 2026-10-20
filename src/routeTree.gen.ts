@@ -45,6 +45,8 @@ import { Route as ApiWhatsappPresenceRouteImport } from './routes/api/whatsapp/p
 import { Route as ApiWhatsappMetaTemplatesRouteImport } from './routes/api/whatsapp/meta-templates'
 import { Route as ApiWhatsappMetaStateRouteImport } from './routes/api/whatsapp/meta-state'
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
+import { Route as ApiValentinaTriageReviewRouteImport } from './routes/api/valentina/triage-review'
+import { Route as ApiValentinaTriageHistoryRouteImport } from './routes/api/valentina/triage-history'
 import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
 import { Route as ApiValentinaSiteChannelRouteImport } from './routes/api/valentina/site-channel'
 import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
@@ -356,6 +358,18 @@ const ApiWebhooksMetaRoute = ApiWebhooksMetaRouteImport.update({
   path: '/api/webhooks/meta',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiValentinaTriageReviewRoute =
+  ApiValentinaTriageReviewRouteImport.update({
+    id: '/api/valentina/triage-review',
+    path: '/api/valentina/triage-review',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiValentinaTriageHistoryRoute =
+  ApiValentinaTriageHistoryRouteImport.update({
+    id: '/api/valentina/triage-history',
+    path: '/api/valentina/triage-history',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiValentinaSupervisorRoute = ApiValentinaSupervisorRouteImport.update({
   id: '/api/valentina/supervisor',
   path: '/api/valentina/supervisor',
@@ -1152,6 +1166,8 @@ export interface FileRoutesByFullPath {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
+  '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
@@ -1318,6 +1334,8 @@ export interface FileRoutesByTo {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
+  '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
@@ -1485,6 +1503,8 @@ export interface FileRoutesById {
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
   '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
+  '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
+  '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
@@ -1653,6 +1673,8 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
+    | '/api/valentina/triage-history'
+    | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/meta-templates'
@@ -1819,6 +1841,8 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
+    | '/api/valentina/triage-history'
+    | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/meta-templates'
@@ -1985,6 +2009,8 @@ export interface FileRouteTypes {
     | '/api/valentina/sdr'
     | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
+    | '/api/valentina/triage-history'
+    | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/meta-templates'
@@ -2143,6 +2169,8 @@ export interface RootRouteChildren {
   ApiValentinaSdrRoute: typeof ApiValentinaSdrRoute
   ApiValentinaSiteChannelRoute: typeof ApiValentinaSiteChannelRoute
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
+  ApiValentinaTriageHistoryRoute: typeof ApiValentinaTriageHistoryRoute
+  ApiValentinaTriageReviewRoute: typeof ApiValentinaTriageReviewRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
   ApiWhatsappMetaStateRoute: typeof ApiWhatsappMetaStateRoute
   ApiWhatsappMetaTemplatesRoute: typeof ApiWhatsappMetaTemplatesRoute
@@ -2410,6 +2438,20 @@ declare module '@tanstack/react-router' {
       path: '/api/webhooks/meta'
       fullPath: '/api/webhooks/meta'
       preLoaderRoute: typeof ApiWebhooksMetaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/triage-review': {
+      id: '/api/valentina/triage-review'
+      path: '/api/valentina/triage-review'
+      fullPath: '/api/valentina/triage-review'
+      preLoaderRoute: typeof ApiValentinaTriageReviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/triage-history': {
+      id: '/api/valentina/triage-history'
+      path: '/api/valentina/triage-history'
+      fullPath: '/api/valentina/triage-history'
+      preLoaderRoute: typeof ApiValentinaTriageHistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina/supervisor': {
@@ -3742,6 +3784,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaSdrRoute: ApiValentinaSdrRoute,
   ApiValentinaSiteChannelRoute: ApiValentinaSiteChannelRoute,
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
+  ApiValentinaTriageHistoryRoute: ApiValentinaTriageHistoryRoute,
+  ApiValentinaTriageReviewRoute: ApiValentinaTriageReviewRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
   ApiWhatsappMetaStateRoute: ApiWhatsappMetaStateRoute,
   ApiWhatsappMetaTemplatesRoute: ApiWhatsappMetaTemplatesRoute,

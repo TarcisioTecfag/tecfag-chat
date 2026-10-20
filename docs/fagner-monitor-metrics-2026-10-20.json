@@ -1,0 +1,117 @@
+{
+  "date": "2026-10-20",
+  "recordedAt": "2026-10-20T18:30:11.940Z",
+  "checkoutCommit": "efdb9872fbcf95b5e21db0b9df90d5ac0d313929",
+  "status": "E6 primeiro lote implementado, homologação operacional pendente",
+  "uncommitted": true,
+  "verification": {
+    "pure": {
+      "passed": 180,
+      "suites": 15,
+      "failed": 0,
+      "command": "npm run test:triage"
+    },
+    "postgres": {
+      "suite": "industrial-handoff-postgres",
+      "passed": 33,
+      "database": "industrial_triage_test",
+      "isolatedSchema": "triage_6334f21255d6414185a1cac66004dd26",
+      "command": "bun --no-env-file test/industrial-handoff-postgres.test.ts",
+      "localOnly": true,
+      "privateSchemaRemoved": true,
+      "serverStoppedAfterTest": true
+    },
+    "build": {
+      "exitCode": 0,
+      "command": "node node_modules/vite/bin/vite.js build"
+    },
+    "eslint": {
+      "exitCode": 0,
+      "files": [
+        "src/lib/triage/agent-monitor-store.ts",
+        "src/lib/triage/industrial-monitor.ts",
+        "src/routes/api/valentina/agents.ts",
+        "src/components/valentina/IndustrialMonitoringPanel.tsx",
+        "test/industrial-monitor.test.mjs",
+        "test/industrial-handoff-postgres.test.ts"
+      ],
+      "globalLintPassed": false
+    },
+    "typescript": {
+      "exitCode": 1,
+      "before": 22,
+      "after": 21,
+      "newDiagnostics": [],
+      "removedDiagnostics": [
+        "src/routes/api/valentina/sdr.ts(208,31): error TS2339: Property 'contactId' does not exist on type 'PgTableWithColumns<{ name: \"crm_deals\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"crm_deals\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}, {}>; ... 26 more ...; updatedAt: PgColum...'."
+      ],
+      "diagnostics": [
+        "src/components/chat/ContactsView.tsx(151,60): error TS2304: Cannot find name 'DealCardSummary'.",
+        "src/components/chat/ContactsView.tsx(492,11): error TS2322: Type '{ key: string; contactId: string; contactName: string | undefined; onClose: () => void; onSuccess: () => void; }' is not assignable to type 'IntrinsicAttributes & { contactId: string; onClose: () => void; onSuccess: () => void; }'.",
+        "src/components/chat/ContactsView.tsx(1040,19): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/chat/ContactsView.tsx(1333,11): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/crm/ConversationDealsPanel.tsx(1161,11): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(5,8): error TS2305: Module '\"./ContactDealPicker\"' has no exported member 'DealCardSummary'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(455,19): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(542,11): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/lib/valentina/assistant-engine.ts(226,46): error TS2339: Property 'extractedData' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'.",
+        "src/lib/valentina/assistant-engine.ts(227,45): error TS2551: Property 'currentStage' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'. Did you mean 'currentStep'?",
+        "src/lib/valentina/assistant-engine.ts(236,43): error TS2339: Property 'updatedAt' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'.",
+        "src/lib/valentina/operator-notifications.ts(222,7): error TS2353: Object literal may only specify known properties, and 'notification' does not exist in type 'SessionEvent'.",
+        "src/lib/valentina/sdr-followup-engine.ts(512,30): error TS2531: Object is possibly 'null'.",
+        "src/lib/valentina/supervisor-engine.ts(441,13): error TS2322: Type '\"operator_ai_notification\"' is not assignable to type '\"status\" | \"message\" | \"qr\" | \"contact_avatar\" | \"chat_updated\" | \"presence_update\" | \"contact_updated\" | \"message_reaction\" | \"message_status\" | \"operator_typing\" | \"queue_update\" | \"sdr_flow_updated\"'.",
+        "src/routes/api/valentina/messages.ts(1383,38): error TS2339: Property 'lastClientMessageAt' does not exist on type 'PgTableWithColumns<{ name: \"conversations\"; schema: undefined; columns: { rdMarketingCycle: PgColumn<{ name: \"rd_marketing_cycle\"; tableName: \"conversations\"; dataType: \"number\"; columnType: \"PgInteger\"; data: number; ... 9 more ...; generated: undefined; }, {}, {}>; ... 11 more ...; createdAt: PgColumn<...>; }; dia...'.",
+        "src/routes/api/valentina/messages.ts(1384,34): error TS2339: Property 'lastOperatorMessageAt' does not exist on type 'PgTableWithColumns<{ name: \"conversations\"; schema: undefined; columns: { rdMarketingCycle: PgColumn<{ name: \"rd_marketing_cycle\"; tableName: \"conversations\"; dataType: \"number\"; columnType: \"PgInteger\"; data: number; ... 9 more ...; generated: undefined; }, {}, {}>; ... 11 more ...; createdAt: PgColumn<...>; }; dia...'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(1,38): error TS2307: Cannot find module 'vitest' or its corresponding type declarations.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(199,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(211,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(223,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(235,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'."
+      ]
+    },
+    "gitDiffCheck": {
+      "exitCode": 0
+    }
+  },
+  "metricScope": {
+    "source": "agent_flow_states + conversations, filtrados por tenant",
+    "snapshot": "Ciclo mais recente por conversa e tipo de agente; não é histórico completo",
+    "activeSdr": "in_progress, sem completedAt, conversa automacao e sem operador",
+    "today": "Data de início em America/Sao_Paulo",
+    "unavailable": [
+      "Conversão em vendas",
+      "Tempo médio histórico"
+    ]
+  },
+  "covered": [
+    "Autenticação e tenant da sessão",
+    "Indisponibilidade não vira zero",
+    "Recibo de outro ciclo não confirma transferência",
+    "Operador atual precisa corresponder ao recibo",
+    "Tomada humana e encerramento prevalecem",
+    "Site usa o filtro correto",
+    "Sem card ou mensagem fabricada",
+    "Contagem por ciclo e separação por agente",
+    "Meia-noite de Brasília no banco"
+  ],
+  "limits": [
+    "Sem teste visual em navegador",
+    "Sem homologação com canais publicados ou Vertex",
+    "Erros globais de tipos e lint ainda existentes",
+    "Causas detalhadas das pendências de handoff ainda não instrumentadas",
+    "Histórico completo, NPS, score e exportações permanecem na matriz E6",
+    "Sem publicação, importação ou ativação operacional"
+  ],
+  "sourceSha256": {
+    "src/lib/triage/agent-monitor-store.ts": "0e6bb022de0d099a987b4b8aa046924442c2d2b6dd9ab994c74374ba78e89a99",
+    "src/lib/triage/industrial-monitor.ts": "181675cc2c83e9a96f418d9a850b3403a1ba55d293f7e7853aa17e76df992350",
+    "src/routes/api/valentina/agents.ts": "abacbbb39e0edff41d74593a3373a49cb3a4f24d6c9db24d2385c5504427651a",
+    "src/routes/api/valentina/sdr.ts": "e67a62e7b4323131d32cb03b792a61b7e0f67c99c0e4d850c9448dc415459841",
+    "src/components/valentina/IndustrialMonitoringPanel.tsx": "ac4bd39663019701c8072bde423092bb7152e9ed9e1152f8d94ce6cabb31bae6",
+    "src/components/valentina/SdrTab.tsx": "af25589e2697c1dacaa5b24885ca143d24e8ee4bcab562d1ffa0820af1fa89f1",
+    "test/industrial-monitor.test.mjs": "793162bc0cc26f60ead027831f192e42ed53b6141ca9eb45877df63a70603c9d",
+    "test/industrial-handoff-postgres.test.ts": "e1c2bcd66c0b93b6d634f223b25ee701e84a16828c39b54114453949c3311f3d",
+    "package.json": "57a8aa958307959c4d4775d59c08638f60c5eb1146c2b7fb26ff884d625fb6ab",
+    "docs/IMPLEMENTACAO-MONITOR-METRICAS-2026-10-20.md": "2459df8176a67eb541e917efb560ab1415a08d47c89890d03b0c3470048110f1"
+  }
+}

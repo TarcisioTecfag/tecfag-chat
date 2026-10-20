@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
+import { restartIndustrialCycle } from "../../../lib/triage/industrial-cycle-restart";
 
 export const Route = createFileRoute("/api/contacts/update-wallet")({
   server: {
@@ -77,6 +78,14 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
             const aiName = `${aiPersona.name} IA`;
 
             for (const conv of clientConvs) {
+              let queueSectorId = conv.sectorId;
+              let queueVersion: number | undefined;
+              if (aiPersona.triagePolicy === "industrial") {
+                const restarted = await restartIndustrialCycle(db, session.tenantId, conv.id, { reason: "wallet_released", sourceKey: crypto.randomUUID() });
+                if (!restarted) continue;
+                queueSectorId = restarted.conversation.sectorId;
+                queueVersion = restarted.conversation.version;
+              } else {
               // Redireciona a fila para 'automacao' e zera o operador responsável
               await db
                 .update(conversations)
@@ -91,7 +100,8 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
               // Reseta o estado do fluxo SDR para que a IA realize novo atendimento quando o cliente falar
               await db
                 .delete(agentFlowStates)
-                .where(eq(agentFlowStates.conversationId, conv.id));
+                .where(and(eq(agentFlowStates.conversationId, conv.id), eq(agentFlowStates.tenantId, session.tenantId)));
+              }
 
               // Notifica SSE em tempo real para o painel atualizar a fila do atendimento
               SessionManager.getInstance().notifyPublic(session.tenantId, {
@@ -99,7 +109,8 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
                 conversationId: conv.id,
                 queueState: "automacao",
                 operatorId: null,
-                sectorId: conv.sectorId,
+                sectorId: queueSectorId,
+                version: queueVersion,
                 responsibleName: aiName,
               });
             }

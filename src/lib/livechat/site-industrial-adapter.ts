@@ -9,11 +9,12 @@
 import crypto from "crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, contacts, conversations, mediaFiles, messages } from "../../db/schema";
+import { agentConfigs, contacts, conversations, mediaFiles, messages } from "../../db/schema";
 import type { LcVisitor } from "../../db/schema";
 import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
+import { reopenIndustrialSiteConversation } from "./site-conversation-store";
 import {
   SITE_CHANNEL,
   SITE_PROVIDER,
@@ -86,67 +87,16 @@ export async function ensureSiteConversation(tenantId: string, visitor: LcVisito
 }
 
 /** Reabre um atendimento finalizado como novo ciclo de triagem, preservando o histórico do ciclo anterior. */
-async function reopenSiteConversation(tenantId: string, conversationId: string) {
-  await db.transaction(async (tx) => {
-    const flows = await tx
-      .select()
-      .from(agentFlowStates)
-      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, conversationId)))
-      .for("update");
-    const previousTriages: unknown[] = [];
-    for (const flow of flows) {
-      const meta = (flow.metadata as Record<string, any>) || {};
-      if (Array.isArray(meta.previousTriages)) previousTriages.push(...meta.previousTriages);
-      previousTriages.push({
-        id: flow.id,
-        startedAt: flow.startedAt ? new Date(flow.startedAt).toISOString() : null,
-        completedAt: (flow.completedAt || flow.lastInteractionAt || new Date()).toISOString(),
-        outcome: flow.outcome && flow.outcome !== "in_progress" ? flow.outcome : "completed",
-        targetFunnel: meta.targetFunnel || null,
-        responsibleName: meta.allocatedOperatorName || null,
-      });
-    }
-    await tx
-      .delete(agentFlowStates)
-      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, conversationId)));
-    const now = new Date();
-    await tx.insert(agentFlowStates).values({
-      id: `fs-sdr-${tenantId}-${conversationId}`,
-      tenantId,
-      conversationId,
-      agentType: "sdr",
-      currentStep: "Em Qualificação",
-      collectedData: {},
-      metadata: {
-        stepNumber: 1,
-        totalSteps: 7,
-        followUpStage: 0,
-        funnelStage: "triagem",
-        targetFunnel: null,
-        channel: SITE_CHANNEL,
-        previousTriages: previousTriages.slice(-20),
-      },
-      startedAt: new Date(now.getTime() - 2000),
-      lastInteractionAt: now,
-      outcome: "in_progress",
-    });
-    await tx
-      .update(conversations)
-      .set({ queueState: "automacao", operatorId: null, updatedAt: now, version: sql`${conversations.version} + 1` })
-      .where(
-        and(
-          eq(conversations.tenantId, tenantId),
-          eq(conversations.id, conversationId),
-          eq(conversations.queueState, "finalizados"),
-        ),
-      );
-  });
+async function reopenSiteConversation(tenantId: string, conversationId: string, inboundMessageId: string) {
+  const reopened = await reopenIndustrialSiteConversation(db, tenantId, conversationId, inboundMessageId);
+  if (!reopened) return;
   SessionManager.getInstance().notifyPublic(tenantId, {
     type: "queue_update",
     conversationId,
-    queueState: "automacao",
-    operatorId: null,
-    sectorId: null,
+    queueState: reopened.queueState,
+    operatorId: reopened.operatorId,
+    sectorId: reopened.sectorId,
+    version: reopened.version,
     responsibleName: `${getAiPersona(tenantId).name} IA`,
   });
 }
@@ -187,15 +137,15 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
   const settings = await loadSiteChannelSettings(tenantId);
   if (!settings.enabled) return { accepted: false as const, reason: "site_channel_disabled" };
 
+  const messageId = `lcm-${crypto.createHash("sha256").update(`${tenantId}:${item.siteMessageId}`).digest("hex").slice(0, 40)}`;
   let conv = await ensureSiteConversation(tenantId, visitor);
   if (conv.queueState === "finalizados") {
-    await reopenSiteConversation(tenantId, conv.id);
+    await reopenSiteConversation(tenantId, conv.id, messageId);
     conv = (await db.query.conversations.findFirst({
       where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conv.id)),
     }))!;
   }
 
-  const messageId = `lcm-${crypto.createHash("sha256").update(`${tenantId}:${item.siteMessageId}`).digest("hex").slice(0, 40)}`;
   let content = item.text;
   if (item.mediaBase64 && item.mediaType && item.mediaType !== "text") {
     const mediaFileId = `med_lc_${messageId.slice(4)}`;

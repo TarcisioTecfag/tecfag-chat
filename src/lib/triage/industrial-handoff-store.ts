@@ -24,8 +24,20 @@ import type {
   EnsureLocalCrmDealResult,
 } from "../valentina/sdr-crm-local";
 import { industrialDestinationKey } from "./industrial-settings";
-import { readIndustrialSettings, validateIndustrialDestination } from "./industrial-settings-store";
+import {
+  IndustrialSettingsError,
+  readIndustrialSettings,
+  validateIndustrialDestination,
+} from "./industrial-settings-store";
+import {
+  HandoffOperationalError,
+  createHandoffIssue,
+  recordHandoffIssue,
+  type HandoffIssue,
+  type HandoffIssueCode,
+} from "./industrial-handoff-issues";
 import type { MachineDecision } from "./industrial-decisor";
+import { appendIndustrialJournal } from "./industrial-triage-journal-store";
 
 export interface HandoffRequest {
   version: 1;
@@ -51,6 +63,11 @@ export interface HandoffOutbox {
   clientNotifiedAt: string | null;
   attempts: number;
   nextAttemptAt: string;
+  operatorCancelledAt?: string | null;
+  clientCancelledAt?: string | null;
+  cancellationReason?: "owner_changed" | "conversation_closed";
+  operatorIssue?: HandoffIssue | null;
+  clientIssue?: HandoffIssue | null;
 }
 type HandoffMetadata = Record<string, unknown> & {
   handoffRequest?: HandoffRequest;
@@ -122,6 +139,23 @@ export function createIndustrialHandoffStore(
   function ownsAutomation(conv: typeof conversations.$inferSelect) {
     return !conv.operatorId && conv.queueState !== "meus" && conv.queueState !== "finalizados";
   }
+  async function deferPolicy(
+    tx: IndustrialTransaction,
+    key: IndustrialFlowKey,
+    state: NonNullable<Awaited<ReturnType<typeof lockFlow>>>,
+    code: HandoffIssueCode,
+  ) {
+    await tx
+      .update(agentFlowStates)
+      .set({
+        metadata: {
+          ...state.meta,
+          ...recordHandoffIssue(state.meta, key.cycle, code),
+          handoffNextAttemptAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        },
+      })
+      .where(and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)));
+  }
   async function persist(
     tx: IndustrialTransaction,
     key: IndustrialFlowKey,
@@ -130,7 +164,7 @@ export function createIndustrialHandoffStore(
     metadata: HandoffMetadata,
   ) {
     const outcome = industrialHandoffOutcome(result.status);
-    await tx
+    const [updated] = await tx
       .update(agentFlowStates)
       .set({
         collectedData: metadata.handoffRequest?.data || state.flow.collectedData,
@@ -145,7 +179,8 @@ export function createIndustrialHandoffStore(
               ? "Aguardando equipe"
               : "Encaminhamento pendente",
       })
-      .where(and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)));
+      .where(and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId))).returning();
+    if (updated) await appendIndustrialJournal(tx, state.flow, updated, "handoff", state.flow.lastInteractionAt.toISOString());
   }
   return {
     /** Checkpoint durável separado: se o processo cair antes do commit, o worker retoma sem IA. */
@@ -173,7 +208,7 @@ export function createIndustrialHandoffStore(
           cycle: key.cycle,
           preparedAt: new Date().toISOString(),
         };
-        await tx
+        const [prepared] = await tx
           .update(agentFlowStates)
           .set({
             collectedData: input.data,
@@ -193,6 +228,7 @@ export function createIndustrialHandoffStore(
               readyForHandoff: true,
               handoffStatus: "handoff_failed",
               handoffRequest: request,
+              handoffIssue: null,
               ...(input.machineDecision ? { machineDecision: input.machineDecision } : {}),
               handoffAttempts: 0,
               handoffNextAttemptAt: new Date().toISOString(),
@@ -200,7 +236,8 @@ export function createIndustrialHandoffStore(
           })
           .where(
             and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
-          );
+          ).returning();
+        if (prepared) await appendIndustrialJournal(tx, state.flow, prepared, "collection", state.flow.lastInteractionAt.toISOString());
         return true;
       });
     },
@@ -241,13 +278,16 @@ export function createIndustrialHandoffStore(
             .from(agentConfigs)
             .where(and(eq(agentConfigs.tenantId, key.tenantId), eq(agentConfigs.agentType, "sdr")))
             .for("share");
-          if (cfg?.enabled !== 1 || options.signal?.aborted)
+          if (options.signal?.aborted) throw new HandoffOperationalError("processing_cancelled");
+          if (cfg?.enabled !== 1) {
+            await deferPolicy(tx, key, state, "sdr_disabled");
             return { status: "handoff_failed", ...empty, superseded: true };
+          }
           const [contact] = await tx
             .select()
             .from(contacts)
             .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, state.conv.contactId)));
-          if (!contact) throw new Error("Contato não pertence ao tenant");
+          if (!contact) throw new HandoffOperationalError("contact_missing");
           const settings = cfg.config as Record<string, unknown>;
           const siteContact = contact.mainChannel === "livechat";
           if (siteContact && settings.siteChannelEnabled !== true) {
@@ -256,6 +296,7 @@ export function createIndustrialHandoffStore(
               .set({
                 metadata: {
                   ...state.meta,
+                  ...recordHandoffIssue(state.meta, key.cycle, "site_channel_disabled"),
                   handoffNextAttemptAt: new Date(Date.now() + 15 * 60_000).toISOString(),
                 },
               })
@@ -278,6 +319,7 @@ export function createIndustrialHandoffStore(
                 .set({
                   metadata: {
                     ...state.meta,
+                    ...recordHandoffIssue(state.meta, key.cycle, "whitelist_restricted"),
                     handoffNextAttemptAt: new Date(Date.now() + 15 * 60_000).toISOString(),
                   },
                 })
@@ -293,6 +335,7 @@ export function createIndustrialHandoffStore(
           let readiness = assessIndustrialReadiness(request.route, request.data);
           if (!readiness.ready) return { status: "collecting", ...empty, superseded: true };
           let result: IndustrialStoredResult;
+          let pendingIssue: HandoffIssueCode | null = null;
           if (readiness.action === "inform") result = { status: "resolved", ...empty };
           else {
             const configuration = await readIndustrialSettings(tx, key.tenantId, true);
@@ -316,8 +359,7 @@ export function createIndustrialHandoffStore(
             const destination = destinationKey
               ? configuration.settings.destinations[destinationKey]
               : null;
-            if (!destination)
-              throw new Error("Vincule o setor de destino na configuração industrial");
+            if (!destination) throw new HandoffOperationalError("destination_unconfigured");
             const sector = await validateIndustrialDestination(tx, key.tenantId, destination);
             const funnel =
               readiness.action === "review" ? "Atendimento Geral" : request.route.targetFunnel;
@@ -330,7 +372,7 @@ export function createIndustrialHandoffStore(
             const config = (rodizio?.config || {}) as RodizioConfig;
             const all = Array.isArray(config.flowOperators) ? config.flowOperators : [];
             if (new Set(all.map((op) => op.id)).size !== all.length)
-              throw new Error("Operador duplicado na escala");
+              throw new HandoffOperationalError("rodizio_invalid");
             const eligible = all.filter(
               (op) =>
                 funnel &&
@@ -346,8 +388,10 @@ export function createIndustrialHandoffStore(
                 a.id.localeCompare(b.id),
             );
             const chosen = eligible[0];
-            if (!chosen || !rodizio) result = { status: "waiting_for_team", ...empty };
-            else {
+            if (!chosen || !rodizio) {
+              result = { status: "waiting_for_team", ...empty };
+              pendingIssue = rodizio ? "no_eligible_operator" : "rodizio_unconfigured";
+            } else {
               const operator = {
                 id: chosen.id,
                 name: registered.find((op) => op.id === chosen.id)!.name,
@@ -384,11 +428,14 @@ export function createIndustrialHandoffStore(
                         : undefined,
                     },
                     tx,
-                  )
+                  ).catch(() => {
+                    throw new HandoffOperationalError("crm_failed");
+                  })
                 : null;
               if (readiness.createsDeal && (!deal?.success || !deal.dealId))
-                throw new Error("Negociação não confirmada");
-              if (options.signal?.aborted) throw new Error("Processamento cancelado");
+                throw new HandoffOperationalError("crm_failed");
+              if (options.signal?.aborted)
+                throw new HandoffOperationalError("processing_cancelled");
               const [assigned] = await tx
                 .update(conversations)
                 .set({
@@ -408,7 +455,7 @@ export function createIndustrialHandoffStore(
                   ),
                 )
                 .returning({ id: conversations.id, version: conversations.version });
-              if (!assigned) throw new Error("Atribuição não confirmada");
+              if (!assigned) throw new HandoffOperationalError("assignment_failed");
               await tx
                 .update(contacts)
                 .set({ walletOperatorId: operator.id, responsibleName: operator.name })
@@ -447,6 +494,9 @@ export function createIndustrialHandoffStore(
           const attempts = (state.meta.handoffAttempts || 0) + 1;
           const meta: HandoffMetadata = {
             ...state.meta,
+            ...(pendingIssue
+              ? recordHandoffIssue(state.meta, key.cycle, pendingIssue)
+              : { handoffIssue: null }),
             needsReview: readiness.action === "review",
             handoffAttempts: attempts,
             handoffNextAttemptAt: new Date(
@@ -468,10 +518,7 @@ export function createIndustrialHandoffStore(
           };
           if (result.status === "transferred" || result.status === "resolved") {
             const committedIso = new Date().toISOString();
-            const confirmationText = industrialHandoffMessage(
-              result.status,
-              result.operator?.name,
-            );
+            const confirmationText = industrialHandoffMessage(result.status, result.operator?.name);
             meta.handoffReceipt = {
               cycle: key.cycle,
               committedAt: committedIso,
@@ -489,15 +536,13 @@ export function createIndustrialHandoffStore(
               clientConfirmationText: confirmationText,
               clientNotifiedAt: null,
               attempts: 0,
-              nextAttemptAt: new Date(
-                Date.now() + (options.recovery ? 0 : 25_000),
-              ).toISOString(),
+              nextAttemptAt: new Date(Date.now() + (options.recovery ? 0 : 25_000)).toISOString(),
             };
           }
           await persist(tx, key, state, result, meta);
           return result;
         });
-      } catch {
+      } catch (error) {
         // A transação anterior já reverteu TODOS os efeitos. Só a pendência é registrada agora.
         await database.transaction(async (tx) => {
           const state = await lockFlow(tx, key);
@@ -516,6 +561,15 @@ export function createIndustrialHandoffStore(
             { status: "handoff_failed", ...empty },
             {
               ...state.meta,
+              ...recordHandoffIssue(
+                state.meta,
+                key.cycle,
+                error instanceof HandoffOperationalError
+                  ? error.issueCode
+                  : error instanceof IndustrialSettingsError
+                    ? error.diagnosticCode
+                    : "transaction_failed",
+              ),
               handoffAttempts: attempts,
               handoffNextAttemptAt: new Date(
                 Date.now() + Math.min(15 * 60_000, 30_000 * 2 ** Math.min(attempts - 1, 5)),
@@ -527,7 +581,10 @@ export function createIndustrialHandoffStore(
       }
     },
     /** Reserva tentativa de entrega pós-commit (aviso ao operador e confirmação ao cliente). */
-    async claimPostCommitOutbox(key: IndustrialFlowKey): Promise<{
+    async claimPostCommitOutbox(
+      key: IndustrialFlowKey,
+      options: { immediate?: boolean } = {},
+    ): Promise<{
       receipt: HandoffReceipt;
       outbox: HandoffOutbox;
       request?: HandoffRequest;
@@ -539,18 +596,7 @@ export function createIndustrialHandoffStore(
         if (!state) return null;
         const receipt = state.meta.handoffReceipt;
         const outbox = state.meta.handoffOutbox;
-        if (
-          !receipt ||
-          receipt.cycle !== key.cycle ||
-          !outbox ||
-          outbox.cycle !== key.cycle
-        ) {
-          return null;
-        }
-        if (
-          (outbox.attempts || 0) >= 6 ||
-          Date.parse(outbox.nextAttemptAt || "") > Date.now()
-        ) {
+        if (!receipt || receipt.cycle !== key.cycle || !outbox || outbox.cycle !== key.cycle) {
           return null;
         }
         const assignedOpId = receipt.result.operator?.id || null;
@@ -558,62 +604,67 @@ export function createIndustrialHandoffStore(
           state.conv.queueState === "finalizados" ||
           Boolean(
             assignedOpId &&
-              state.conv.operatorId &&
-              state.conv.operatorId !== assignedOpId,
+            (state.conv.operatorId !== assignedOpId || state.conv.queueState !== "meus"),
           );
         const nowIso = new Date().toISOString();
-        const nextClientNotifiedAt =
-          outbox.clientNotifiedAt || (humanChanged ? nowIso : null);
-        const nextOperatorNotifiedAt =
-          outbox.operatorNotifiedAt ||
-          (assignedOpId &&
-          state.conv.operatorId &&
-          state.conv.operatorId !== assignedOpId
-            ? nowIso
-            : null);
+        if (humanChanged) {
+          await tx
+            .update(agentFlowStates)
+            .set({
+              metadata: {
+                ...state.meta,
+                handoffOutbox: {
+                  ...outbox,
+                  clientCancelledAt:
+                    outbox.clientCancelledAt ||
+                    (!outbox.clientNotifiedAt && outbox.clientConfirmationRequired ? nowIso : null),
+                  operatorCancelledAt:
+                    outbox.operatorCancelledAt ||
+                    (!outbox.operatorNotifiedAt && outbox.operatorNotificationRequired
+                      ? nowIso
+                      : null),
+                  cancellationReason:
+                    state.conv.queueState === "finalizados"
+                      ? "conversation_closed"
+                      : "owner_changed",
+                },
+              },
+            })
+            .where(
+              and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
+            );
+          return null;
+        }
+        const attemptCount =
+          Number.isSafeInteger(outbox.attempts) && outbox.attempts >= 0 ? outbox.attempts : 0;
+        if (
+          attemptCount >= 6 ||
+          (!(options.immediate && !attemptCount) &&
+            Date.parse(outbox.nextAttemptAt || "") > Date.now())
+        )
+          return null;
 
         const needOperatorNotification = Boolean(
-          outbox.operatorNotificationRequired && !nextOperatorNotifiedAt && assignedOpId,
+          outbox.operatorNotificationRequired === true &&
+          !outbox.operatorNotifiedAt &&
+          !outbox.operatorCancelledAt &&
+          assignedOpId,
         );
         const needClientConfirmation = Boolean(
-          outbox.clientConfirmationRequired &&
-            !nextClientNotifiedAt &&
-            outbox.clientConfirmationText &&
-            !humanChanged,
+          outbox.clientConfirmationRequired === true &&
+          !outbox.clientNotifiedAt &&
+          !outbox.clientCancelledAt &&
+          outbox.clientConfirmationText &&
+          !humanChanged,
         );
 
         if (!needOperatorNotification && !needClientConfirmation) {
-          if (
-            nextClientNotifiedAt !== outbox.clientNotifiedAt ||
-            nextOperatorNotifiedAt !== outbox.operatorNotifiedAt
-          ) {
-            await tx
-              .update(agentFlowStates)
-              .set({
-                metadata: {
-                  ...state.meta,
-                  handoffOutbox: {
-                    ...outbox,
-                    operatorNotifiedAt: nextOperatorNotifiedAt,
-                    clientNotifiedAt: nextClientNotifiedAt,
-                  },
-                },
-              })
-              .where(
-                and(
-                  eq(agentFlowStates.tenantId, key.tenantId),
-                  eq(agentFlowStates.id, key.flowId),
-                ),
-              );
-          }
           return null;
         }
 
-        const attempts = (outbox.attempts || 0) + 1;
+        const attempts = attemptCount + 1;
         const updatedOutbox: HandoffOutbox = {
           ...outbox,
-          operatorNotifiedAt: nextOperatorNotifiedAt,
-          clientNotifiedAt: nextClientNotifiedAt,
           attempts,
           nextAttemptAt: new Date(
             Date.now() + Math.min(15 * 60_000, 30_000 * 2 ** Math.min(attempts - 1, 5)),
@@ -628,10 +679,7 @@ export function createIndustrialHandoffStore(
             },
           })
           .where(
-            and(
-              eq(agentFlowStates.tenantId, key.tenantId),
-              eq(agentFlowStates.id, key.flowId),
-            ),
+            and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
           );
 
         return {
@@ -663,6 +711,8 @@ export function createIndustrialHandoffStore(
           clientNotifiedAt: ack.clientNotified
             ? outbox.clientNotifiedAt || nowIso
             : outbox.clientNotifiedAt,
+          operatorIssue: ack.operatorNotified ? null : outbox.operatorIssue,
+          clientIssue: ack.clientNotified ? null : outbox.clientIssue,
         };
         await tx
           .update(agentFlowStates)
@@ -673,10 +723,54 @@ export function createIndustrialHandoffStore(
             },
           })
           .where(
-            and(
-              eq(agentFlowStates.tenantId, key.tenantId),
-              eq(agentFlowStates.id, key.flowId),
-            ),
+            and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
+          );
+        return true;
+      });
+    },
+    async recordPostCommitFailure(
+      key: IndustrialFlowKey,
+      failure: { operatorFailed?: boolean; clientFailed?: boolean },
+    ): Promise<boolean> {
+      if (!failure.operatorFailed && !failure.clientFailed) return false;
+      return database.transaction(async (tx) => {
+        const state = await lockFlow(tx, key);
+        const outbox = state?.meta.handoffOutbox;
+        if (
+          !state ||
+          !outbox ||
+          outbox.cycle !== key.cycle ||
+          state.meta.handoffReceipt?.cycle !== key.cycle
+        )
+          return false;
+        const updated = { ...outbox };
+        if (
+          failure.operatorFailed &&
+          outbox.operatorNotificationRequired &&
+          !outbox.operatorNotifiedAt &&
+          !outbox.operatorCancelledAt
+        )
+          updated.operatorIssue = createHandoffIssue(
+            "operator_notification_failed",
+            key.cycle,
+            outbox.operatorIssue,
+          );
+        if (
+          failure.clientFailed &&
+          outbox.clientConfirmationRequired &&
+          !outbox.clientNotifiedAt &&
+          !outbox.clientCancelledAt
+        )
+          updated.clientIssue = createHandoffIssue(
+            "client_confirmation_failed",
+            key.cycle,
+            outbox.clientIssue,
+          );
+        await tx
+          .update(agentFlowStates)
+          .set({ metadata: { ...state.meta, handoffOutbox: updated } })
+          .where(
+            and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
           );
         return true;
       });

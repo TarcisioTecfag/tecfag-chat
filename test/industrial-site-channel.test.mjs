@@ -18,6 +18,7 @@ import {
   buildContinuationUrl,
   stripHandoffState,
   CONTINUITY_TTL_MS,
+  isUsableContinuityRecord,
 } from "../src/lib/livechat/site-channel-policy.ts";
 import crypto from "node:crypto";
 
@@ -192,6 +193,24 @@ describe("widget do site por marca", () => {
 describe("continuidade site → WhatsApp (E4)", () => {
   const sha = (v) => crypto.createHash("sha256").update(v).digest("hex");
 
+  it("código só é utilizável antes do vencimento e com prazo válido", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    assert.equal(isUsableContinuityRecord({ expiresAt: new Date(now + 1).toISOString() }, now), true);
+    for (const expiresAt of [undefined, null, "", "inválido", 42, new Date(now).toISOString(), new Date(now - 1).toISOString()])
+      assert.equal(isUsableContinuityRecord({ expiresAt }, now), false, String(expiresAt));
+    for (const record of [null, undefined, [], false, "texto"])
+      assert.equal(isUsableContinuityRecord(record, now), false);
+  });
+
+  it("código consumido ou registro corrompido não pode ser reutilizado", () => {
+    const now = Date.parse("2026-10-20T12:00:00Z");
+    const valid = { expiresAt: new Date(now + CONTINUITY_TTL_MS).toISOString() };
+    assert.equal(isUsableContinuityRecord({ ...valid, usedAt: null }, now), true);
+    for (const usedAt of ["2026-10-20T11:59:00Z", "", false, 0])
+      assert.equal(isUsableContinuityRecord({ ...valid, usedAt }, now), false);
+    assert.equal(isUsableContinuityRecord(valid, NaN), false);
+  });
+
   it("gera código legível, sem caracteres ambíguos, e o reconhece em mensagem livre", () => {
     for (let i = 0; i < 200; i++) {
       const code = generateContinuityCode((n) => crypto.randomBytes(n));
@@ -253,7 +272,7 @@ describe("continuidade site → WhatsApp (E4)", () => {
     assert.match(continuity, /db\.transaction\(/);
     assert.match(continuity, /pg_advisory_xact_lock/);
     assert.match(continuity, /eq\(contacts\.tenantId, tenantId\)/);
-    assert.match(continuity, /continuity\.usedAt \|\| Date\.parse\(continuity\.expiresAt/);
+    assert.match(continuity, /isUsableContinuityRecord\(continuity\)/);
     assert.match(continuity, /usedAt: now\.toISOString\(\)/);
     assert.doesNotMatch(continuity, /"valem"|"tecfag"/);
   });

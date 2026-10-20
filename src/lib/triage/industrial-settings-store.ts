@@ -9,11 +9,13 @@ import {
   type IndustrialDestination,
 } from "./industrial-settings";
 import type { IndustrialDatabase, IndustrialTransaction } from "./industrial-rodizio-store";
+import type { HandoffIssueCode } from "./industrial-handoff-issues";
 
 export class IndustrialSettingsError extends Error {
   constructor(
     message: string,
     public status = 400,
+    public diagnosticCode: HandoffIssueCode = "settings_invalid",
   ) {
     super(message);
   }
@@ -77,7 +79,11 @@ export async function validateIndustrialDestination(
     .where(and(eq(sectors.tenantId, tenantId), eq(sectors.id, destination.sectorId)))
     .for("share");
   if (!sector)
-    throw new IndustrialSettingsError("Setor de destino não pertence à empresa ou foi removido");
+    throw new IndustrialSettingsError(
+      "Setor de destino não pertence à empresa ou foi removido",
+      400,
+      "destination_sector_invalid",
+    );
   if (destination.pipelineId || destination.stageId) {
     const [pipeline] = await tx
       .select()
@@ -96,7 +102,11 @@ export async function validateIndustrialDestination(
       )
       .for("share");
     if (!pipeline || !stage || stage.isWinStage || stage.isLossStage)
-      throw new IndustrialSettingsError("Funil/etapa de entrada inválidos para esta empresa");
+      throw new IndustrialSettingsError(
+        "Funil/etapa de entrada inválidos para esta empresa",
+        400,
+        "destination_pipeline_invalid",
+      );
   }
   return sector;
 }

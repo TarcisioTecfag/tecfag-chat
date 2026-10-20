@@ -1,0 +1,72 @@
+import type { JournalSnapshot } from "./industrial-triage-journal.ts";
+
+const missingLabels: Record<string, string> = {
+  name: "Nome",
+  document: "CPF/CNPJ",
+  request: "Solicitação",
+  application: "Aplicação",
+  production: "Produção",
+};
+const formatTime = (value: string) =>
+  `${new Date(value).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} (Brasília)`;
+export function buildIndustrialBriefing(snapshot: JournalSnapshot) {
+  const terminal = Boolean(
+    snapshot.completedAt || (snapshot.outcome && snapshot.outcome !== "in_progress"),
+  );
+  const status =
+    snapshot.outcome === "transferred" && snapshot.responsible
+      ? "Encaminhamento registrado"
+      : snapshot.outcome === "stopped"
+        ? "Triagem interrompida"
+        : snapshot.outcome === "abandoned"
+          ? "Sem resposta"
+          : terminal
+            ? "Ciclo concluído/arquivado"
+            : "Coleta em andamento";
+  const lines = [
+    terminal ? "BRIEFING FINAL DA TRIAGEM" : "RESUMO DA TRIAGEM EM ANDAMENTO",
+    `Situação do ciclo: ${status}`,
+    `Início: ${formatTime(snapshot.startedAt)}`,
+    snapshot.lastInteractionAt
+      ? `Registro do ciclo: ${formatTime(snapshot.lastInteractionAt)}`
+      : "",
+    `Destino registrado: ${snapshot.targetFunnel || "Não definido"}`,
+    snapshot.subflow ? `Subfluxo: ${snapshot.subflow}` : "",
+    snapshot.responsible
+      ? `Responsável no encaminhamento: ${snapshot.responsible.name || snapshot.responsible.id}`
+      : "Sem responsável comprovado por recibo neste ciclo.",
+    snapshot.dealId
+      ? `Negociação vinculada no encaminhamento: ${snapshot.dealId}`
+      : "Este resumo não comprova criação de negociação.",
+    snapshot.needsReview
+      ? "Revisão especializada necessária. A coleta não confirma adequação técnica do produto."
+      : "",
+    snapshot.missingFields.length
+      ? `Dados pendentes: ${snapshot.missingFields.map((field) => missingLabels[field] || field).join(", ")}`
+      : "",
+    snapshot.machine
+      ? `Decisão de catálogo: ${snapshot.machine.status || "Não confirmada"}${snapshot.machine.line ? ` · Linha: ${snapshot.machine.line}` : ""}${snapshot.machine.machineId ? ` · Referência: ${snapshot.machine.machineId}` : ""}`
+      : "",
+    snapshot.humanReview
+      ? `Revisão humana: ${snapshot.humanReview.operatorName} · ${formatTime(snapshot.humanReview.reviewedAt)}${snapshot.humanReview.current ? "" : " · A coleta mudou após a revisão"}\nMotivo: ${snapshot.humanReview.reason}`
+      : "Dados ainda sem revisão humana registrada.",
+    "",
+    "DADOS REGISTRADOS (não comprovam validação cadastral ou titularidade):",
+    ...Object.entries(snapshot.collectedData)
+      .filter(([key]) => !key.startsWith("_"))
+      .map(
+        ([key, field]) =>
+          `${key}: ${field.status === "filled" ? field.value : `Pendente${field.value ? ` — ${field.value}` : ""}`}`,
+      ),
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+  return {
+    version: 1 as const,
+    final: terminal,
+    text:
+      lines.length > 10_000
+        ? `${lines.slice(0, 9800)}\n[Resumo truncado. Consulte os dados completos do ciclo.]`
+        : lines,
+  };
+}

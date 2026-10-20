@@ -20,6 +20,7 @@ export interface LeadTransferNotificationParams {
   transferSource?: "sdr_auto" | "manual_transfer" | "rodizio_reassignment";
   transferredBy?: string | null;
   cycle?: string | null;
+  triageBriefing?: string;
 }
 
 /**
@@ -59,7 +60,7 @@ export async function notifyOperatorLeadTransferred(
           lastMessageText: conversations.lastMessageText,
         })
         .from(conversations)
-        .leftJoin(contacts, eq(contacts.id, conversations.contactId))
+        .leftJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, tenantId)))
         .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
         .limit(1);
 
@@ -79,7 +80,7 @@ export async function notifyOperatorLeadTransferred(
           value: crmDeals.value,
         })
         .from(crmConversationDeals)
-        .innerJoin(crmDeals, eq(crmDeals.id, crmConversationDeals.dealId))
+        .innerJoin(crmDeals, and(eq(crmDeals.id, crmConversationDeals.dealId), eq(crmDeals.tenantId, tenantId)))
         .where(
           and(
             eq(crmConversationDeals.tenantId, tenantId),
@@ -111,6 +112,8 @@ export async function notifyOperatorLeadTransferred(
     } else {
       content = `🎯 *Novo lead qualificado por ${persona.name} e transferido para você!*\nCliente: *${displayClient}*${companySuffix}${funnelLabel}${dealLabel}. Já está em *Meus Atendimentos* aguardando seu contato!`;
     }
+
+    if (params.triageBriefing) content += `\n\n${params.triageBriefing.slice(0, 10_000)}`;
 
     const interestDisplay =
       [

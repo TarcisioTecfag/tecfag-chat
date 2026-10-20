@@ -9,10 +9,14 @@ import {
   operators,
   crmConversationDeals,
   crmDeals,
+  crmDealContacts,
 } from "../../../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
+import { projectIndustrialMonitoring } from "../../../lib/triage/industrial-monitor";
+import { readAgentMonitoringSummary, readLatestSdrFlows } from "../../../lib/triage/agent-monitor-store";
+import { stopIndustrialCycle } from "../../../lib/triage/industrial-cycle-stop";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -108,7 +112,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
         const persona = getAiPersona(tenantId);
 
         let config = {
-          enabled: true,
+          enabled: false,
         };
 
         const sessions: any[] = [];
@@ -151,7 +155,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           contactId?: string | null,
           meta?: Record<string, any>,
         ) => {
-          if (meta?.localCrmDealId) {
+          if (persona.triagePolicy !== "industrial" && meta?.localCrmDealId) {
             return {
               dealId: String(meta.localCrmDealId),
               dealTitle: String(meta.localCrmDealTitle || "Negociação CRM Local"),
@@ -179,6 +183,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               and(
                 eq(crmConversationDeals.tenantId, tenantId),
                 eq(crmConversationDeals.conversationId, conversationId),
+                eq(crmConversationDeals.isActive, true),
               ),
             )
             .orderBy(desc(crmDeals.createdAt))
@@ -193,7 +198,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
             };
           }
 
-          if (contactId) {
+          if (contactId && persona.triagePolicy !== "industrial") {
             const [contactDealRow] = await db
               .select({
                 dealId: crmDeals.id,
@@ -202,10 +207,11 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 operatorId: crmDeals.operatorId,
               })
               .from(crmDeals)
+              .innerJoin(crmDealContacts, and(eq(crmDealContacts.dealId, crmDeals.id), eq(crmDealContacts.tenantId, tenantId)))
               .where(
                 and(
                   eq(crmDeals.tenantId, tenantId),
-                  eq(crmDeals.contactId, contactId),
+                  eq(crmDealContacts.contactId, contactId),
                 ),
               )
               .orderBy(desc(crmDeals.createdAt))
@@ -231,6 +237,9 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           dealOperatorId?: string | null,
           rawMsgs?: any[],
         ) => {
+          if (persona.triagePolicy === "industrial") {
+            return convOperatorId ? operatorsById.get(convOperatorId) || null : null;
+          }
           const candidateIds = [
             convOperatorId,
             meta?.allocatedOperatorId,
@@ -351,9 +360,11 @@ export const Route = createFileRoute('/api/valentina/sdr')({
 
         // 2. Buscar sessões registradas em agentFlowStates do tenant
         try {
-          const flowStates = await db.select()
+          const flowStates = persona.triagePolicy === "industrial"
+            ? await readLatestSdrFlows(db, tenantId)
+            : await db.select()
             .from(agentFlowStates)
-            .where(eq(agentFlowStates.tenantId, tenantId))
+            .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.agentType, "sdr")))
             .orderBy(desc(agentFlowStates.lastInteractionAt))
             .limit(50);
 
@@ -394,7 +405,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               const recentMsgsDesc = await db
                 .select()
                 .from(messages)
-                .where(and(eq(messages.conversationId, fs.conversationId), eq(messages.tenantId, tenantId)))
+                .where(and(eq(messages.conversationId, fs.conversationId), eq(messages.tenantId, tenantId), persona.triagePolicy === "industrial" ? sql`${messages.metaDetails}->'industrialTriage' IS NULL` : undefined))
                 .orderBy(desc(messages.sentAt))
                 .limit(200);
               const realMsgs = recentMsgsDesc.reverse();
@@ -428,12 +439,19 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               if (fs.outcome === "completed" || fs.outcome === "transferred") status = "completed";
               if (fs.outcome === "abandoned" || fs.outcome === "stopped") status = "abandoned";
 
+              const monitoring = persona.triagePolicy === "industrial" ? projectIndustrialMonitoring(fs, conv || null) : undefined;
+              if (monitoring) {
+                status = ["transferred", "resolved", "closed", "continued", "manual", "manual_queue"].includes(monitoring.state)
+                  ? "completed" : ["stopped", "no_response"].includes(monitoring.state) ? "abandoned" : "active";
+              }
+
               let responsibleName = "IA (Em Triagem)";
               if (status === "completed") {
                 responsibleName = operator?.name || meta.allocatedOperatorName || "Vendedor Alocado (Rodízio)";
               } else if (fs.outcome === "stopped") {
                 responsibleName = operator?.name || "Interrompido (Atendimento Manual)";
               }
+              if (monitoring) responsibleName = operator?.name || (monitoring.state === "collecting" || monitoring.state === "ready" ? `${persona.name} IA` : "Sem responsável atribuído");
 
               const companyVal =
                 collectedData["EMPRESA"]?.value ||
@@ -471,17 +489,9 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 funnelStage: meta.funnelStage || meta.targetArea || undefined,
                 targetFunnel: meta.targetFunnel || collectedData["SETOR / FUNIL DE DESTINO"]?.value || undefined,
                 linkedDeal,
+                ...(monitoring ? { monitoring } : {}),
                 previousTriages,
-                messages: formattedMessages.length > 0 ? formattedMessages : [
-                  {
-                    sender: "bot",
-                    senderName: persona.name,
-                    text: "Atendimento em andamento...",
-                    time: "Agora",
-                    date: safeFormatDate(fs.startedAt),
-                    sentAt: safeFormatIso(fs.startedAt),
-                  }
-                ],
+                messages: formattedMessages,
               };
 
               sessions.push(sessionObj);
@@ -522,7 +532,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 const recentMsgsDesc = await db
                   .select()
                   .from(messages)
-                  .where(and(eq(messages.conversationId, c.id), eq(messages.tenantId, tenantId)))
+                  .where(and(eq(messages.conversationId, c.id), eq(messages.tenantId, tenantId), persona.triagePolicy === "industrial" ? sql`${messages.metaDetails}->'industrialTriage' IS NULL` : undefined))
                   .orderBy(desc(messages.sentAt))
                   .limit(200);
                 const realMsgs = recentMsgsDesc.reverse();
@@ -574,17 +584,9 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   channel: contact?.mainChannel || "whatsapp",
                   funnelStage: "triagem",
                   linkedDeal,
+                  ...(persona.triagePolicy === "industrial" ? { monitoring: projectIndustrialMonitoring({ startedAt: c.createdAt, outcome: "in_progress", metadata: {} }, c) } : {}),
                   previousTriages: [],
-                  messages: formattedMessages.length > 0 ? formattedMessages : [
-                    {
-                      sender: "bot",
-                      senderName: persona.name,
-                      text: "Atendimento iniciado...",
-                      time: "Agora",
-                      date: safeFormatDate(c.createdAt),
-                      sentAt: safeFormatIso(c.createdAt),
-                    }
-                  ],
+                  messages: formattedMessages,
                 };
 
                 sessions.push(sessionObj);
@@ -605,9 +607,16 @@ export const Route = createFileRoute('/api/valentina/sdr')({
           return tsB - tsA;
         });
 
-        return new Response(JSON.stringify({ config, sessions }), {
+        let monitoringSummary;
+        try {
+          monitoringSummary = await readAgentMonitoringSummary(db, tenantId);
+        } catch (error) {
+          console.error("[api/valentina/sdr] Métricas indisponíveis:", error);
+          monitoringSummary = { available: false, reason: "Métricas temporariamente indisponíveis." };
+        }
+        return new Response(JSON.stringify({ config, sessions, monitoringSummary }), {
           status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
         });
       },
 
@@ -644,6 +653,9 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               console.warn("[api/valentina/sdr] Erro ao limpar debouncer no stop:", err);
             }
 
+            if (getAiPersona(tenantId).triagePolicy === "industrial") {
+              await stopIndustrialCycle(db, tenantId, conversationId, session.operator.id);
+            } else {
             await db
               .update(agentFlowStates)
               .set({
@@ -659,6 +671,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 queueState: "fila",
               })
               .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+            }
 
             return new Response(JSON.stringify({ success: true, message: "IA de triagem interrompida para esta conversa." }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },

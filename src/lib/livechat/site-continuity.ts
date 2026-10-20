@@ -10,7 +10,7 @@
  *    responsável, a conversa do WhatsApp vai para o mesmo operador e card, sem novo rodízio.
  */
 import crypto from "crypto";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   agentFlowStates,
@@ -32,13 +32,15 @@ import {
   generateContinuityCode,
   hashContinuityCode,
   isSiteConversationId,
+  isUsableContinuityRecord,
   siteIdentityIds,
   stripHandoffState,
 } from "./site-channel-policy";
 import { ensureSiteConversation, loadSiteChannelSettings, usesIndustrialSiteCore } from "./site-industrial-adapter";
+import { readSiteContinuationHistory } from "./site-conversation-store";
+import { appendIndustrialJournal } from "../triage/industrial-triage-journal-store";
 
 const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
-const MAX_COPIED_MESSAGES = 200;
 
 export type ContinuationRequestResult =
   | { ok: true; code: string; url: string; expiresAt: string }
@@ -133,7 +135,7 @@ export async function linkSiteContinuity(
       )
       .for("update");
     const continuity = (siteContact?.customFields as Record<string, any> | undefined)?.siteContinuity;
-    if (!siteContact || !continuity || continuity.usedAt || Date.parse(continuity.expiresAt || "") <= Date.now())
+    if (!siteContact || !isUsableContinuityRecord(continuity))
       return { linked: false as const, reason: "invalid_or_expired" as const };
 
     const [siteConv] = await tx
@@ -180,18 +182,7 @@ export async function linkSiteContinuity(
     await tx.update(contacts).set(identity).where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, waContact.id)));
 
     // 2. Histórico do site copiado (idempotente), preservando horário e interpretação de mídia.
-    const siteMessages = await tx
-      .select()
-      .from(messages)
-      .where(
-        and(
-          eq(messages.tenantId, tenantId),
-          eq(messages.conversationId, siteConv.id),
-          eq(messages.isInternalNote, false),
-        ),
-      )
-      .orderBy(asc(messages.sentAt))
-      .limit(MAX_COPIED_MESSAGES);
+    const siteMessages = await readSiteContinuationHistory(tx, tenantId, siteConv.id);
     if (siteMessages.length) {
       await tx
         .insert(messages)
@@ -220,7 +211,7 @@ export async function linkSiteContinuity(
     const siteFlows = await tx
       .select()
       .from(agentFlowStates)
-      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, siteConv.id)))
+      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, siteConv.id), eq(agentFlowStates.agentType, "sdr")))
       .for("update");
     const siteFlow = siteFlows.sort((a, b) => +new Date(b.startedAt) - +new Date(a.startedAt))[0];
     const siteOwner = siteConv.operatorId && siteConv.queueState === "meus" ? siteConv.operatorId : null;
@@ -296,14 +287,14 @@ export async function linkSiteContinuity(
     const waFlows = await tx
       .select()
       .from(agentFlowStates)
-      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, waConv.id)))
+      .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, waConv.id), eq(agentFlowStates.agentType, "sdr")))
       .for("update");
     const continuedFrom = { channel: SITE_CHANNEL, conversationId: siteConv.id, linkedAt: now.toISOString() };
 
     if (mode === "operator") {
       // IA silenciada: o atendimento humano continua no WhatsApp.
-      for (const flow of waFlows.filter((f) => f.outcome === "in_progress"))
-        await tx
+      for (const flow of waFlows.filter((f) => f.outcome === "in_progress")) {
+        const [continued] = await tx
           .update(agentFlowStates)
           .set({
             outcome: "transferred",
@@ -311,11 +302,14 @@ export async function linkSiteContinuity(
             completedAt: now,
             metadata: { ...((flow.metadata as Record<string, unknown>) || {}), continuedFrom },
           })
-          .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id)));
+          .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id))).returning();
+        if (continued) await appendIndustrialJournal(tx, flow, continued, "continuity", codeHash);
+      }
     } else {
       // IA continua a mesma triagem: ciclo do WhatsApp recebe os dados coletados e o início do ciclo do site.
       const previousTriages: unknown[] = [];
       for (const flow of waFlows) {
+        await appendIndustrialJournal(tx, null, { ...flow, completedAt: flow.completedAt || now, outcome: flow.outcome === "in_progress" ? "merged_site" : flow.outcome }, "archive", codeHash);
         const meta = (flow.metadata as Record<string, any>) || {};
         if (Array.isArray(meta.previousTriages)) previousTriages.push(...meta.previousTriages);
         previousTriages.push({
@@ -329,7 +323,7 @@ export async function linkSiteContinuity(
       if (waFlows.length)
         await tx
           .delete(agentFlowStates)
-          .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, waConv.id)));
+          .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, waConv.id), eq(agentFlowStates.agentType, "sdr")));
       const firstCopied = siteMessages[0]?.sentAt ? new Date(siteMessages[0].sentAt) : now;
       const siteMeta = (siteFlow?.metadata as Record<string, unknown>) || {};
       await tx.insert(agentFlowStates).values({
@@ -363,8 +357,8 @@ export async function linkSiteContinuity(
     }
 
     // 4. Site encerrado: o atendimento segue em uma única conversa (WhatsApp).
-    for (const flow of siteFlows.filter((f) => f.outcome === "in_progress"))
-      await tx
+    for (const flow of siteFlows.filter((f) => f.outcome === "in_progress")) {
+      const [continued] = await tx
         .update(agentFlowStates)
         .set({
           outcome: "completed",
@@ -375,7 +369,9 @@ export async function linkSiteContinuity(
             continuedTo: { channel: "whatsapp", conversationId: waConv.id, linkedAt: now.toISOString() },
           },
         })
-        .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id)));
+        .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id))).returning();
+      if (continued) await appendIndustrialJournal(tx, flow, continued, "continuity", codeHash);
+    }
     await tx
       .update(conversations)
       .set({ queueState: "finalizados", updatedAt: now, version: sql`${conversations.version} + 1` })

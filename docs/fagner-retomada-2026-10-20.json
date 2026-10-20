@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-20",
+  "recordedAt": "2026-10-20T18:15:23.771Z",
+  "checkoutCommit": "efdb9872fbcf95b5e21db0b9df90d5ac0d313929",
+  "changesUncommitted": true,
+  "scope": "Retomada E0-E5; concorrência e idempotência na reabertura do site, contexto recente e validade da continuidade",
+  "verification": {
+    "pureTests": {
+      "command": "npm run test:triage",
+      "passed": 164,
+      "suites": 12,
+      "failed": 0
+    },
+    "postgres": {
+      "command": "bun --no-env-file test/industrial-handoff-postgres.test.ts",
+      "suite": "industrial-handoff-postgres",
+      "passed": 32,
+      "database": "industrial_triage_test",
+      "isolatedSchema": "triage_61b8775ee3274f738b93b10c7bd833ae",
+      "localOnly": true,
+      "privateSchemaRemoved": true,
+      "testServerStopped": true
+    },
+    "build": {
+      "command": "node node_modules/vite/bin/vite.js build",
+      "exitCode": 0,
+      "output": ".output/nitro.json",
+      "warnings": [
+        "chunk size",
+        "ineffective dynamic imports"
+      ]
+    },
+    "typescript": {
+      "command": "node node_modules/typescript/bin/tsc --noEmit --pretty false",
+      "exitCode": 1,
+      "initialErrors": 22,
+      "finalErrors": 22,
+      "sameDiagnostics": true,
+      "newDiagnostics": [],
+      "affectedFilesDiagnostics": [],
+      "diagnostics": [
+        "src/components/chat/ContactsView.tsx(151,60): error TS2304: Cannot find name 'DealCardSummary'.",
+        "src/components/chat/ContactsView.tsx(492,11): error TS2322: Type '{ key: string; contactId: string; contactName: string | undefined; onClose: () => void; onSuccess: () => void; }' is not assignable to type 'IntrinsicAttributes & { contactId: string; onClose: () => void; onSuccess: () => void; }'.",
+        "src/components/chat/ContactsView.tsx(1040,19): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/chat/ContactsView.tsx(1333,11): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/crm/ConversationDealsPanel.tsx(1161,11): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(5,8): error TS2305: Module '\"./ContactDealPicker\"' has no exported member 'DealCardSummary'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(455,19): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(542,11): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/lib/valentina/assistant-engine.ts(226,46): error TS2339: Property 'extractedData' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'.",
+        "src/lib/valentina/assistant-engine.ts(227,45): error TS2551: Property 'currentStage' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'. Did you mean 'currentStep'?",
+        "src/lib/valentina/assistant-engine.ts(236,43): error TS2339: Property 'updatedAt' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'.",
+        "src/lib/valentina/operator-notifications.ts(222,7): error TS2353: Object literal may only specify known properties, and 'notification' does not exist in type 'SessionEvent'.",
+        "src/lib/valentina/sdr-followup-engine.ts(512,30): error TS2531: Object is possibly 'null'.",
+        "src/lib/valentina/supervisor-engine.ts(441,13): error TS2322: Type '\"operator_ai_notification\"' is not assignable to type '\"status\" | \"message\" | \"qr\" | \"contact_avatar\" | \"chat_updated\" | \"presence_update\" | \"contact_updated\" | \"message_reaction\" | \"message_status\" | \"operator_typing\" | \"queue_update\" | \"sdr_flow_updated\"'.",
+        "src/routes/api/valentina/messages.ts(1383,38): error TS2339: Property 'lastClientMessageAt' does not exist on type 'PgTableWithColumns<{ name: \"conversations\"; schema: undefined; columns: { rdMarketingCycle: PgColumn<{ name: \"rd_marketing_cycle\"; tableName: \"conversations\"; dataType: \"number\"; columnType: \"PgInteger\"; data: number; ... 9 more ...; generated: undefined; }, {}, {}>; ... 11 more ...; createdAt: PgColumn<...>; }; dia...'.",
+        "src/routes/api/valentina/messages.ts(1384,34): error TS2339: Property 'lastOperatorMessageAt' does not exist on type 'PgTableWithColumns<{ name: \"conversations\"; schema: undefined; columns: { rdMarketingCycle: PgColumn<{ name: \"rd_marketing_cycle\"; tableName: \"conversations\"; dataType: \"number\"; columnType: \"PgInteger\"; data: number; ... 9 more ...; generated: undefined; }, {}, {}>; ... 11 more ...; createdAt: PgColumn<...>; }; dia...'.",
+        "src/routes/api/valentina/sdr.ts(208,31): error TS2339: Property 'contactId' does not exist on type 'PgTableWithColumns<{ name: \"crm_deals\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"crm_deals\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; hasDefault: false; ... 6 more ...; generated: undefined; }, {}, {}>; ... 26 more ...; updatedAt: PgColum...'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(1,38): error TS2307: Cannot find module 'vitest' or its corresponding type declarations.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(199,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(211,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(223,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(235,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'."
+      ]
+    },
+    "eslint": {
+      "cleanFiles": [
+        "src/lib/livechat/site-conversation-store.ts",
+        "test/industrial-handoff-postgres.test.ts"
+      ],
+      "exitCode": 0,
+      "expandedCheck": {
+        "exitCode": 1,
+        "errors": 128,
+        "formattingErrors": 125,
+        "explicitAnyErrors": 3
+      },
+      "globalLintPassed": false
+    },
+    "gitDiffCheck": {
+      "exitCode": 0
+    }
+  },
+  "limits": [
+    "Não valida a instalação publicada do widget",
+    "Não executa Vertex AI ou envio a provedores",
+    "Não homologa o fluxo completo site -> WhatsApp",
+    "Não altera produção, ativa SDR ou importa catálogo"
+  ],
+  "next": [
+    "E6: monitor e métricas reais",
+    "E7: importação e homologação integrada",
+    "E8: virada controlada e rollback"
+  ],
+  "sourceSha256": {
+    "src/lib/livechat/site-conversation-store.ts": "e637b2349c64f43d0e0661b3a31b4b31e84a2b16ed88259eb19e217392470d33",
+    "src/lib/livechat/site-channel-policy.ts": "4c77eba25be8f92bf66933aac230f640e23f76fa9402bcd3cb1d77e6042d2e10",
+    "src/lib/livechat/site-continuity.ts": "91e3a59338a171b244ad5303997879f289545a0ce4649e8e3df60d7670bdcb45",
+    "src/lib/livechat/site-industrial-adapter.ts": "ebe744a88cce3a678a55ca951af4365861aa9948b901c3107320f56091d7f469",
+    "test/industrial-handoff-postgres.test.ts": "c5ad1c637f42676c8eb7322a9f1bfbd2f45c4a170b70901f7c05820ccaac1460",
+    "test/industrial-site-channel.test.mjs": "57222b762f0311cec6f6d5d993f2777134d0d630144dc5cf4623bf01cef8d55c",
+    "docs/RETOMADA-PORTE-FAGNER-2026-10-20.md": "d4f7947bbc076c3e560e2378cf0a2307c65aac6ac4b4844ea96a36b617cc286f",
+    "docs/MAPA-PORTE-FAGNER-2026-10-20.md": "eccaf6e62dbf83e6131248eeb9b846cbd1f78b832d0c13ac7b3932a9166225a3"
+  }
+}

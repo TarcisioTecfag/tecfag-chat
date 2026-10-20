@@ -16,6 +16,8 @@ import { INDUSTRIAL_POLICY_VERSION, resolveIndustrialRoute, assessIndustrialRead
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
 import { industrialHandoffOutcome, industrialClientMessages, type IndustrialHandoffResult } from "../triage/industrial-handoff";
 import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
+import { deliverIndustrialPostCommit } from "../triage/industrial-post-commit-delivery";
+import { appendIndustrialJournal } from "../triage/industrial-triage-journal-store";
 import {
   selectRecentCycleMessages,
   buildIndustrialReactivationPatch,
@@ -31,6 +33,7 @@ import {
   sendBotPresence,
   sendBotCatalogImage,
   resetMetaTypingThrottle,
+  sendSdrChannelText,
 } from "./sdr-channel-sender";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
@@ -332,6 +335,7 @@ export class SdrEngine {
             eq(messages.tenantId, tenantId),
             eq(messages.conversationId, conversationId),
             ne(messages.content, "!reset"),
+            ...(industrialTriage ? [eq(messages.isInternalNote, false)] : []),
             ...(flowState?.startedAt ? [gte(messages.sentAt, flowState.startedAt)] : [])
           )
         )
@@ -1286,26 +1290,33 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         };
 
         if (!industrialHandoffPersisted) {
-        const persisted = await db
-          .update(agentFlowStates)
-          .set({
-            currentStep: industrialTriage
-              ? industrialHandoff.status === "waiting_for_team" ? "Aguardando equipe"
-                : industrialHandoff.status === "handoff_failed" ? "Encaminhamento pendente"
-                : flowIsFinished ? "Concluído" : industrialRoute?.needsReview ? "Aguardando análise" : "Em Qualificação"
-              : isCompleted ? "Concluído" : "Em Qualificação",
-            collectedData: updatedCollectedData,
-            metadata: industrialTriage ? sql`${agentFlowStates.metadata} || ${JSON.stringify(updatedMetadata)}::jsonb` : updatedMetadata,
-            lastInteractionAt: now,
-            completedAt: flowIsFinished ? (flowState.completedAt || now) : null,
-            outcome: flowOutcome,
-          })
-          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId),
-            ...(industrialTriage ? [eq(agentFlowStates.outcome, "in_progress"), isNull(agentFlowStates.completedAt),
-              sql`date_trunc('milliseconds', ${agentFlowStates.lastInteractionAt}) = ${flowState.lastInteractionAt.toISOString()}::timestamp`,
-              sql`${agentFlowStates.metadata}->'handoffRequest' IS NULL`] : [])))
-          .returning({ id: agentFlowStates.id });
-        if (industrialTriage && persisted.length === 0) return false;
+          const persistCollection = async (executor: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
+            const persisted = await executor
+              .update(agentFlowStates)
+              .set({
+                currentStep: industrialTriage
+                  ? industrialHandoff.status === "waiting_for_team" ? "Aguardando equipe"
+                    : industrialHandoff.status === "handoff_failed" ? "Encaminhamento pendente"
+                    : flowIsFinished ? "Concluído" : industrialRoute?.needsReview ? "Aguardando análise" : "Em Qualificação"
+                  : isCompleted ? "Concluído" : "Em Qualificação",
+                collectedData: updatedCollectedData,
+                metadata: industrialTriage ? sql`${agentFlowStates.metadata} || ${JSON.stringify(updatedMetadata)}::jsonb` : updatedMetadata,
+                lastInteractionAt: now,
+                completedAt: flowIsFinished ? (flowState.completedAt || now) : null,
+                outcome: flowOutcome,
+              })
+              .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId),
+                ...(industrialTriage ? [eq(agentFlowStates.outcome, "in_progress"), isNull(agentFlowStates.completedAt),
+                  sql`date_trunc('milliseconds', ${agentFlowStates.lastInteractionAt}) = ${flowState.lastInteractionAt.toISOString()}::timestamp`,
+                  sql`${agentFlowStates.metadata}->'handoffRequest' IS NULL`] : [])))
+              .returning();
+            if (industrialTriage && flowState && persisted[0]) {
+              await appendIndustrialJournal(executor as Parameters<Parameters<typeof db.transaction>[0]>[0], flowState, persisted[0], "collection", batchItems.map(item => item.messageId || "").join(":"));
+            }
+            return persisted;
+          };
+          const persisted = industrialTriage ? await db.transaction(persistCollection) : await persistCollection(db);
+          if (industrialTriage && persisted.length === 0) return false;
         }
 
         // Sincronizar o Contato no DB local (Nome, CNPJ, CPF, Receita Federal) e notificar a interface
@@ -1592,7 +1603,24 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
         // ── FIM INTERCEPTAÇÃO DE IMAGENS ─────────────────────────────────────
 
-        await this.sendHumanizedBotMessages(
+        if (industrialHandoff?.status === "transferred" && industrialHandoffStoreRef && industrialHandoffKeyRef) {
+          const store = industrialHandoffStoreRef;
+          const key = industrialHandoffKeyRef;
+          const claimed = await store.claimPostCommitOutbox(key, { immediate: true });
+          if (claimed) {
+            const { notifyOperatorLeadTransferred } = await import("./operator-notifications");
+            const ack = await deliverIndustrialPostCommit({ key, ...claimed }, {
+              notifyOperator: notifyOperatorLeadTransferred,
+              getContactPhone: async () => contactPhone,
+              sendText: params => signal?.aborted ? Promise.resolve({ sent: false }) : sendSdrChannelText(params),
+            });
+            await store.ackPostCommit(key, ack);
+            await store.recordPostCommitFailure(key, {
+              operatorFailed: claimed.needOperatorNotification && !ack.operatorNotified,
+              clientFailed: claimed.needClientConfirmation && !ack.clientNotified,
+            });
+          }
+        } else await this.sendHumanizedBotMessages(
           tenantId,
           conversationId,
           contactPhone,
@@ -1602,9 +1630,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           aiResult.quoteMessageId,
           allocatedOp?.id || null
         );
-        if (industrialHandoffPersisted && industrialHandoffStoreRef && industrialHandoffKeyRef && !signal?.aborted) {
-          await industrialHandoffStoreRef.ackPostCommit(industrialHandoffKeyRef, { clientNotified: true });
-        }
       }
 
 

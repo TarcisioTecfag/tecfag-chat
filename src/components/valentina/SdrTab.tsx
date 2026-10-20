@@ -19,6 +19,10 @@ import { toast } from "sonner";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, SystemTooltip } from "@/components/ui/tooltip";
 import { SdrKanbanBoard } from "./SdrKanbanBoard";
 import { SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
+import type { IndustrialMonitoring } from "@/lib/triage/industrial-monitor";
+import type { AgentMonitoringSummary } from "@/lib/triage/agent-monitor-store";
+import { IndustrialMonitoringPanel } from "./IndustrialMonitoringPanel";
+import { IndustrialTriageHistory } from "./IndustrialTriageHistory";
 
 export interface SdrTriageMessage {
   id?: string;
@@ -60,6 +64,7 @@ export interface SdrTriageSession {
   status: "active" | "completed" | "abandoned";
   outcome?: string;
   responsibleName?: string;
+  monitoring?: IndustrialMonitoring;
   funnelStage?: string;
   targetFunnel?: string;
   linkedDeal?: {
@@ -567,6 +572,19 @@ export function SdrTab({
 
   // SESSÕES DE TRIAGEM (100% Reais do banco de dados)
   const [sessions, setSessions] = useState<SdrTriageSession[]>([]);
+  const [monitoringSummary, setMonitoringSummary] = useState<AgentMonitoringSummary | null>(null);
+  const [monitoringError, setMonitoringError] = useState<string | null>(null);
+  const monitorFetchRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    setSessions([]);
+    setSelectedSession(null);
+    setMonitoringSummary(null);
+    setMonitoringError(null);
+    return () => {
+      monitorFetchRef.current?.abort();
+      monitorFetchRef.current = null;
+    };
+  }, [tenant]);
   const [selectedSession, setSelectedSession] = useState<SdrTriageSession | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isChatHighlighted, setIsChatHighlighted] = useState(false);
@@ -835,11 +853,17 @@ export function SdrTab({
 
   // Carregar dados e configurações REAIS do SDR via API
   const fetchSdrData = useCallback(async () => {
+    if (!tenant || monitorFetchRef.current) return;
+    const controller = new AbortController();
+    monitorFetchRef.current = controller;
     setIsLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/valentina/sdr?tenantId=${tenant}`);
+      const res = await fetch(`${BACKEND_URL}/api/valentina/sdr`, { signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
+        if (controller.signal.aborted) return;
+        setMonitoringSummary(data.monitoringSummary?.available === true ? data.monitoringSummary : null);
+        setMonitoringError(data.monitoringSummary?.available === true ? null : "Métricas temporariamente indisponíveis.");
         if (data.config) {
           const isEn = Boolean(data.config.enabled);
           setSdrEnabled(isEn);
@@ -863,13 +887,14 @@ export function SdrTab({
               status: s.status,
               outcome: s.outcome,
               responsibleName: s.responsibleName,
+              monitoring: s.monitoring,
               previousTriages: Array.isArray(s.previousTriages) ? s.previousTriages : [],
               messages: s.messages || [],
               ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
               ...(s.targetFunnel ? { targetFunnel: s.targetFunnel } : {}),
               ...(s.linkedDeal ? { linkedDeal: s.linkedDeal } : {}),
               ...(s.unreadCount !== undefined ? { unreadCount: s.unreadCount } : {}),
-              ...(s.channel ? { channel: s.channel } : {}),
+              ...(s.channel ? { channel: s.channel === "livechat" ? "site" : s.channel } : {}),
               ...(s.timeAgo ? { timeAgo: s.timeAgo } : {}),
             }))
             .sort(
@@ -886,11 +911,20 @@ export function SdrTab({
             return match || formattedLiveSessions[0] || null;
           });
         }
+      } else {
+        setMonitoringSummary(null);
+        setMonitoringError("Não foi possível atualizar o monitor. Os atendimentos exibidos podem estar desatualizados.");
       }
     } catch (e) {
+      if (controller.signal.aborted) return;
+      setMonitoringSummary(null);
+      setMonitoringError("Sem conexão com o monitor. Os atendimentos exibidos podem estar desatualizados.");
       console.warn("[SdrTab] Erro ao carregar dados reais do SDR:", e);
     } finally {
-      setIsLoading(false);
+      if (monitorFetchRef.current === controller) {
+        monitorFetchRef.current = null;
+        setIsLoading(false);
+      }
     }
   }, [tenant, BACKEND_URL, onSdrConfigChange]);
 
@@ -1054,6 +1088,7 @@ export function SdrTab({
         className="flex flex-col flex-1 h-full overflow-y-auto scrollbar-thin scroll-smooth space-y-4 pr-1"
       >
         {/* ── PARTE SUPERIOR: KANBAN DE TRIAGEM (ORGANIZADOR DO FUNIL) ────────── */}
+        {persona.triagePolicy === "industrial" && <div className="flex justify-end"><IndustrialTriageHistory key={tenant} tenantId={tenant} initialConversationId={selectedSession?.conversationId} /></div>}
         <div id="sdr-kanban-section" className="shrink-0 scroll-mt-1">
           <SdrKanbanBoard
             sessions={sessions}
@@ -1079,9 +1114,13 @@ export function SdrTab({
                     <UserPlus className="h-3.5 w-3.5 text-primary" />
                     Triagens SDR (Ao Vivo)
                   </h3>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {sessions.filter((s) => s.status === "active").length} ativas de {sessions.length} total
+                  <p className="text-[10px] text-muted-foreground mt-0.5" title="Ciclos SDR registrados: somente o ciclo mais recente de cada atendimento. Hoje usa o horário de Brasília.">
+                    {monitoringSummary
+                      ? `${monitoringSummary.byAgent.sdr?.activeFlows || 0} em triagem · ${monitoringSummary.byAgent.sdr?.currentCycles || 0} ciclos atuais · ${monitoringSummary.byAgent.sdr?.startedToday || 0} iniciados hoje (Brasília)`
+                      : "Métricas indisponíveis"}
+                    {` · ${sessions.length} atendimentos carregados`}
                   </p>
+                  {monitoringError && <p className="text-[10px] text-amber-700 dark:text-amber-400" role="status">{monitoringError}</p>}
                 </div>
                 <div className="flex items-center gap-1">
                   {/* Dois ícones discretos para angular a tela entre Kanban (cima) e Chat (baixo) */}
@@ -1442,7 +1481,9 @@ export function SdrTab({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <StatusBadge status={selectedSession.status} />
+                      {selectedSession.monitoring
+                        ? <span className="text-[10px] font-bold text-primary">{selectedSession.monitoring.label}</span>
+                        : <StatusBadge status={selectedSession.status} />}
 
                       {/* Ícones discretos de navegação rápida no cabeçalho do chat */}
                       <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
@@ -1830,7 +1871,7 @@ export function SdrTab({
                     <div className="flex justify-center mt-3 animate-fadeIn">
                       <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold bg-primary-soft text-primary border border-primary/20">
                         <CheckCircle className="h-3 w-3 text-primary" />
-                        {selectedSession.outcome === "completed"
+                        {selectedSession.monitoring ? selectedSession.monitoring.label : selectedSession.outcome === "completed"
                           ? `Triagem Concluída${selectedSession.responsibleName ? ` · ${selectedSession.responsibleName}` : ""}`
                           : selectedSession.outcome === "transferred"
                           ? `Transferido para ${selectedSession.responsibleName || "Vendedor"}`
@@ -2039,9 +2080,10 @@ export function SdrTab({
                         ))}
                       </div>
 
+                      {selectedSession.monitoring && <IndustrialMonitoringPanel monitoring={selectedSession.monitoring} />}
                       {/* ── SEÇÃO NEGOCIAÇÃO CRM LOCAL + RESPONSÁVEL (RODÍZIO ALOCADO) ── */}
                       <div className="px-4 py-3 border-t border-line shrink-0 space-y-2">
-                        {(tenant === "tecfag" || selectedSession.linkedDeal) && (
+                        {selectedSession.linkedDeal && (
                           <button
                             type="button"
                             onClick={() => handleOpenLinkedCardFromPopup(selectedSession)}
@@ -2056,7 +2098,7 @@ export function SdrTab({
                                 {selectedSession.linkedDeal
                                   ? selectedSession.linkedDeal.action === "reused_within_3h"
                                     ? "Vinculado (< 3h)"
-                                    : "Criado Novo"
+                                    : selectedSession.linkedDeal.action === "created_new" ? "Criado neste ciclo" : "Vinculado"
                                   : "Ao Transferir (3h)"}
                               </span>
                             </div>
@@ -2077,7 +2119,9 @@ export function SdrTab({
                               Responsável (Rodízio)
                             </span>
                             <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-primary/15 text-primary rounded-md">
-                              {selectedSession.status === "completed" ? "Alocado" : "Pendente"}
+                                {selectedSession.monitoring
+                                  ? selectedSession.monitoring.operatorId ? "Atribuído" : "Sem atribuição"
+                                  : selectedSession.status === "completed" ? "Alocado" : "Pendente"}
                             </span>
                           </div>
                           <p className="text-xs font-extrabold text-foreground mt-0.5">

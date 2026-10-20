@@ -142,12 +142,12 @@ export async function recoverIndustrialPostCommitOutbox(params: {
           eq(agentFlowStates.agentType, "sdr"),
           sql`${agentFlowStates.metadata}->'handoffReceipt' IS NOT NULL`,
           sql`${agentFlowStates.metadata}->'handoffOutbox' IS NOT NULL`,
-          sql`coalesce((${agentFlowStates.metadata}->'handoffOutbox'->>'attempts')::int, 0) < 6`,
+          sql`(case when ${agentFlowStates.metadata}->'handoffOutbox'->>'attempts' ~ '^[0-9]{1,6}$' then (${agentFlowStates.metadata}->'handoffOutbox'->>'attempts')::int else 0 end) < 6`,
           sql`coalesce(${agentFlowStates.metadata}->'handoffOutbox'->>'nextAttemptAt', '') <= ${nowIso}`,
           sql`(
-            (coalesce((${agentFlowStates.metadata}->'handoffOutbox'->>'operatorNotificationRequired')::boolean, false) = true AND ${agentFlowStates.metadata}->'handoffOutbox'->>'operatorNotifiedAt' IS NULL)
+            (${agentFlowStates.metadata}->'handoffOutbox'->'operatorNotificationRequired' = 'true'::jsonb AND ${agentFlowStates.metadata}->'handoffOutbox'->>'operatorNotifiedAt' IS NULL AND ${agentFlowStates.metadata}->'handoffOutbox'->>'operatorCancelledAt' IS NULL)
             OR
-            (coalesce((${agentFlowStates.metadata}->'handoffOutbox'->>'clientConfirmationRequired')::boolean, false) = true AND ${agentFlowStates.metadata}->'handoffOutbox'->>'clientNotifiedAt' IS NULL)
+            (${agentFlowStates.metadata}->'handoffOutbox'->'clientConfirmationRequired' = 'true'::jsonb AND ${agentFlowStates.metadata}->'handoffOutbox'->>'clientNotifiedAt' IS NULL AND ${agentFlowStates.metadata}->'handoffOutbox'->>'clientCancelledAt' IS NULL)
           )`,
           notExists(
             params.database
@@ -188,7 +188,15 @@ export async function recoverIndustrialPostCommitOutbox(params: {
           await params.store.ackPostCommit(key, ack);
           flushed++;
         }
+        await params.store.recordPostCommitFailure(key, {
+          operatorFailed: claimed.needOperatorNotification && !ack.operatorNotified,
+          clientFailed: claimed.needClientConfirmation && !ack.clientNotified,
+        });
       } catch {
+        await params.store.recordPostCommitFailure(key, {
+          operatorFailed: claimed.needOperatorNotification,
+          clientFailed: claimed.needClientConfirmation,
+        });
         console.error("[IndustrialRecovery] Falha ao entregar outbox pós-commit; agendado retry.");
       }
     }

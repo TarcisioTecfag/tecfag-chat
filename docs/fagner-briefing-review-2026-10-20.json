@@ -1,0 +1,207 @@
+{
+  "date": "2026-10-20",
+  "recordedAt": "2026-10-20T20:17:10.8232013Z",
+  "checkoutCommit": "efdb9872fbcf95b5e21db0b9df90d5ac0d313929",
+  "uncommitted": true,
+  "stage": "E6 lote 4 — briefing final e revisão humana",
+  "checks": {
+    "pure": {
+      "command": "npm run test:triage",
+      "exitCode": 0,
+      "passed": 258,
+      "failed": 0,
+      "suites": 24
+    },
+    "postgres": {
+      "passed": 55,
+      "command": "bun --no-env-file test/industrial-handoff-postgres.test.ts",
+      "exitCode": 0,
+      "isolatedSchema": "triage_09a23cd53b2d4f25ab705b2af04d1018",
+      "database": "industrial_triage_test",
+      "testServerStopped": true,
+      "privateSchemaRemoved": true,
+      "localOnly": true
+    },
+    "build": {
+      "command": "node node_modules/vite/bin/vite.js build",
+      "exitCode": 0
+    },
+    "eslint": {
+      "files": [
+        "src/lib/triage/industrial-briefing.ts",
+        "src/lib/triage/industrial-silence-store.ts",
+        "src/lib/triage/industrial-review-contract.ts",
+        "src/lib/triage/industrial-review-store.ts",
+        "src/lib/triage/industrial-triage-journal.ts",
+        "src/lib/triage/industrial-triage-journal-store.ts",
+        "src/lib/triage/industrial-post-commit-delivery.ts",
+        "src/routes/api/valentina/triage-review.ts",
+        "src/components/valentina/IndustrialTriageReview.tsx",
+        "src/components/valentina/IndustrialTriageHistory.tsx",
+        "test/industrial-review.test.mjs",
+        "test/industrial-handoff-postgres.test.ts"
+      ],
+      "exitCode": 0,
+      "globalLintPassed": false
+    },
+    "typescript": {
+      "validationConfig": {
+        "extends": "../../../tsconfig.json",
+        "include": [
+          "../../../src/**/*.ts",
+          "../../../src/**/*.tsx",
+          "../../../vite.config.ts",
+          "../../../eslint.config.js",
+          "../../../server/plugins/industrial-triage-recovery.ts"
+        ]
+      },
+      "diagnostics": [
+        "src/components/chat/ContactsView.tsx(151,60): error TS2304: Cannot find name 'DealCardSummary'.",
+        "src/components/chat/ContactsView.tsx(492,11): error TS2322: Type '{ key: string; contactId: string; contactName: string | undefined; onClose: () => void; onSuccess: () => void; }' is not assignable to type 'IntrinsicAttributes & { contactId: string; onClose: () => void; onSuccess: () => void; }'.",
+        "src/components/chat/ContactsView.tsx(1040,19): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/chat/ContactsView.tsx(1333,11): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/crm/ConversationDealsPanel.tsx(1161,11): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(5,8): error TS2305: Module '\"./ContactDealPicker\"' has no exported member 'DealCardSummary'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(455,19): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/components/crm/CrmQuickCreateDialog.tsx(542,11): error TS2353: Object literal may only specify known properties, and 'contactId' does not exist in type 'ContactDealContext'.",
+        "src/lib/valentina/assistant-engine.ts(226,46): error TS2339: Property 'extractedData' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'.",
+        "src/lib/valentina/assistant-engine.ts(227,45): error TS2551: Property 'currentStage' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'. Did you mean 'currentStep'?",
+        "src/lib/valentina/assistant-engine.ts(236,43): error TS2339: Property 'updatedAt' does not exist on type 'PgTableWithColumns<{ name: \"agent_flow_states\"; schema: undefined; columns: { id: PgColumn<{ name: \"id\"; tableName: \"agent_flow_states\"; dataType: \"string\"; columnType: \"PgText\"; data: string; driverParam: string; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; ... 9 more ...; outcome: PgColumn<...>...'.",
+        "src/lib/valentina/operator-notifications.ts(225,7): error TS2353: Object literal may only specify known properties, and 'notification' does not exist in type 'SessionEvent'.",
+        "src/lib/valentina/sdr-followup-engine.ts(478,30): error TS2531: Object is possibly 'null'.",
+        "src/lib/valentina/supervisor-engine.ts(441,13): error TS2322: Type '\"operator_ai_notification\"' is not assignable to type '\"status\" | \"message\" | \"qr\" | \"contact_avatar\" | \"chat_updated\" | \"presence_update\" | \"contact_updated\" | \"message_reaction\" | \"message_status\" | \"operator_typing\" | \"queue_update\" | \"sdr_flow_updated\"'.",
+        "src/routes/api/valentina/messages.ts(1383,38): error TS2339: Property 'lastClientMessageAt' does not exist on type 'PgTableWithColumns<{ name: \"conversations\"; schema: undefined; columns: { rdMarketingCycle: PgColumn<{ name: \"rd_marketing_cycle\"; tableName: \"conversations\"; dataType: \"number\"; columnType: \"PgInteger\"; data: number; ... 9 more ...; generated: undefined; }, {}, {}>; ... 11 more ...; createdAt: PgColumn<...>; }; dia...'.",
+        "src/routes/api/valentina/messages.ts(1384,34): error TS2339: Property 'lastOperatorMessageAt' does not exist on type 'PgTableWithColumns<{ name: \"conversations\"; schema: undefined; columns: { rdMarketingCycle: PgColumn<{ name: \"rd_marketing_cycle\"; tableName: \"conversations\"; dataType: \"number\"; columnType: \"PgInteger\"; data: number; ... 9 more ...; generated: undefined; }, {}, {}>; ... 11 more ...; createdAt: PgColumn<...>; }; dia...'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(1,38): error TS2307: Cannot find module 'vitest' or its corresponding type declarations.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(199,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(211,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(223,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'.",
+        "src/test/fagner-sdr-local-crm-3h.test.ts(235,9): error TS2353: Object literal may only specify known properties, and 'id' does not exist in type '{ name: string; sector?: string | null | undefined; rawArea?: string | null | undefined; allowed_subflows?: string[] | null | undefined; is_sdr?: boolean | undefined; }'."
+      ],
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p node_modules/.cache/industrial-triage-pg/review-tsconfig.json",
+      "exitCode": 2,
+      "previousErrors": 21,
+      "currentErrors": 21,
+      "newDiagnostics": [],
+      "includesRecoveryPlugin": true
+    },
+    "browser": {
+      "browserTabClosed": true,
+      "mockedApis": true,
+      "fakeDataOnly": true,
+      "isolatedComponentPreview": true,
+      "actualBackendUsed": false,
+      "realAuthenticationTested": false,
+      "steps": [
+        "Abrir histórico e selecionar ciclo atual.",
+        "Visualizar briefing com horários de Brasília.",
+        "Abrir edição, corrigir nome e registrar motivo.",
+        "Verificar confirmação, briefing atualizado e nova nota na trilha."
+      ],
+      "previewServerStopped": true,
+      "screenshot": "docs/preview-briefing-review-2026-10-20.png"
+    },
+    "diffCheck": {
+      "exitCode": 0
+    }
+  },
+  "scope": {
+    "seeds": false,
+    "commitsOrPushes": false,
+    "deployed": false,
+    "operationalDatabaseAccess": false,
+    "realChannelSends": false,
+    "aiActivation": false,
+    "vertexCalls": false,
+    "operationalMigrations": false
+  },
+  "limitations": [
+    "Homologação de autenticação, canais e equipe continua pendente.",
+    "Revisão edita a coleta; cadastro do contato permanece na tela própria.",
+    "Decisão técnica e destinos não são aprovados ou redistribuídos pela edição.",
+    "Briefing vinculado a CRM exige recibo e vínculo ativo confirmados no mesmo tenant e conversa.",
+    "Dados legados já descartados não são reconstruídos."
+  ],
+  "sourceHashes": [
+    {
+      "path": "src/lib/triage/industrial-briefing.ts",
+      "sha256": "9cc4ffb953b06889bc987af86f1bdc05d0257b190c9e13de99de4c2f8372309c"
+    },
+    {
+      "path": "src/lib/triage/industrial-silence-store.ts",
+      "sha256": "7010db6f24bf8daf74d95fa718a3d197a69312583976bd15e3661f0694b9a90e"
+    },
+    {
+      "path": "src/lib/triage/industrial-review-contract.ts",
+      "sha256": "4ca1586a07ec8386926a9663c49691756a2889658ce10c38e9fa79bcfd46062c"
+    },
+    {
+      "path": "src/lib/triage/industrial-review-store.ts",
+      "sha256": "7ac4bd23a8dbce0706edac831d168fc88f438df9bbf825f74371a884609e7c1a"
+    },
+    {
+      "path": "src/lib/triage/industrial-triage-journal.ts",
+      "sha256": "cd9cba428d81c64b70b3455548f6e18fafa5990d2c16d9b981825e5747028fb0"
+    },
+    {
+      "path": "src/lib/triage/industrial-triage-journal-store.ts",
+      "sha256": "a283b2551efe6bb1c8c0096f60fc0d5627f7e07f2e681079c02eda19f436aee1"
+    },
+    {
+      "path": "src/lib/triage/industrial-post-commit-delivery.ts",
+      "sha256": "5dfca09315f17320dae037eb32dfb9362423de8511ea0d4681c0005db8f63dbd"
+    },
+    {
+      "path": "src/routes/api/valentina/triage-review.ts",
+      "sha256": "47259d0765763bbce17960f020a1fdc52256d941830dded7254106fbc2e90072"
+    },
+    {
+      "path": "src/components/valentina/IndustrialTriageReview.tsx",
+      "sha256": "fbfcee270ea9ed407f6119855c156ee59c5dd20dddf3b7ff364eee18499a2b33"
+    },
+    {
+      "path": "src/components/valentina/IndustrialTriageHistory.tsx",
+      "sha256": "f5e160953e9efd8d78d588c858f3becbfbee806a852ec2e80c2ec2df1f4430e7"
+    },
+    {
+      "path": "test/industrial-review.test.mjs",
+      "sha256": "8984c406c7ae26ccda6e0b7a77473ce979bd11dfa2a238c12ed3ebd36c163d2a"
+    },
+    {
+      "path": "test/industrial-handoff-postgres.test.ts",
+      "sha256": "d910667dcc8ceaf0e6c1c4826715ac9b0290334edac07bb52c1bd4727821f8cd"
+    },
+    {
+      "path": "src/lib/valentina/operator-notifications.ts",
+      "sha256": "220ced0cbe238337137c05f38008b73fb927f6315367a551d7c0ee0793f1fb07"
+    },
+    {
+      "path": "src/lib/valentina/sdr-followup-engine.ts",
+      "sha256": "4ae801467408b411e19beaf35814a4b59dc2f9994f2220bbeaab1dff9106a233"
+    },
+    {
+      "path": "src/routeTree.gen.ts",
+      "sha256": "4c89aa03c4b5a870bc02e760c6b44d0600726d3c7bfcdb2535afdfaae7efea8c"
+    },
+    {
+      "path": "package.json",
+      "sha256": "4a4b3a82428dfd0225ce0660c7cd36bf2ad8d7a9368a3fbfff7b59078749b70c"
+    },
+    {
+      "path": "docs/IMPLEMENTACAO-BRIEFING-REVISAO-2026-10-20.md",
+      "sha256": "3e6bc7722b328063b1c4408bfc86f6fc412b699794f6a767df27d441ecf43a52"
+    },
+    {
+      "path": "docs/MATRIZ-PARIDADE-FAGNER-2026-10-20.md",
+      "sha256": "3ab6ba833f63ded5c607be1606e24d678cb26e6835a3528161ae710b1ecd09df"
+    },
+    {
+      "path": "docs/RETOMADA-PORTE-FAGNER-2026-10-20.md",
+      "sha256": "4694d1c4c32511683776f19f42c3ba7fd5350095dc347f6756ff1e43bee0d798"
+    },
+    {
+      "path": "docs/preview-briefing-review-2026-10-20.png",
+      "sha256": "dd7f22e7709fbf9da548a46b63d8af241104d150259d54db3d3fb67dd1aded21"
+    }
+  ]
+}

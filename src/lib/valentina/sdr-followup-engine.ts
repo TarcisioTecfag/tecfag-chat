@@ -8,6 +8,7 @@ import { resolveTenantActiveProvider, sendBotPresence, sendSdrChannelText } from
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { SdrDebouncer } from "./sdr-debouncer";
 import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
+import { markIndustrialNoResponse } from "../triage/industrial-silence-store";
 import {
   parseIndustrialScheduleConfig,
   isWithinIndustrialSchedule,
@@ -136,6 +137,7 @@ export class SdrFollowupEngine {
               eq(messages.tenantId, tenantId),
               eq(messages.conversationId, flow.conversationId),
               ne(messages.content, "!reset"),
+              eq(messages.isInternalNote, false),
               ...(flow.startedAt ? [gte(messages.sentAt, flow.startedAt)] : []),
             ),
           )
@@ -322,46 +324,10 @@ export class SdrFollowupEngine {
         }
 
         if (decision.action === "mark_no_response") {
-          const currentFunnelStage =
-            typeof meta.funnelStage === "string" && meta.funnelStage.trim()
-              ? meta.funnelStage.trim()
-              : "triagem";
-          const preSilenceStage =
-            currentFunnelStage !== "sem_resposta"
-              ? currentFunnelStage
-              : typeof meta.preSilenceFunnelStage === "string" && meta.preSilenceFunnelStage.trim()
-                ? meta.preSilenceFunnelStage.trim()
-                : "triagem";
-
-          const abandonedMeta = {
-            ...meta,
-            followUpStage: 3,
-            preSilenceFunnelStage: preSilenceStage,
-            funnelStage: "sem_resposta",
-            noResponseAt: now.toISOString(),
-            noResponseReason: decision.reason,
-            ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
-          };
-
-          const updatedAbandoned = await db
-            .update(agentFlowStates)
-            .set({
-              currentStep: "Sem Resposta",
-              outcome: "abandoned",
-              metadata: abandonedMeta,
-              lastInteractionAt: now,
-            })
-            .where(
-              and(
-                eq(agentFlowStates.id, flow.id),
-                eq(agentFlowStates.tenantId, tenantId),
-                eq(agentFlowStates.outcome, "in_progress"),
-                isNull(agentFlowStates.completedAt),
-              ),
-            )
-            .returning({ id: agentFlowStates.id });
-
-          if (updatedAbandoned.length > 0) {
+          const updatedAbandoned = await markIndustrialNoResponse(db, tenantId, flow.conversationId, {
+            flowId: flow.id, cycle: flow.startedAt.toISOString(), expectedInteraction: flow.lastInteractionAt.toISOString(), at: now, reason: decision.reason, partialLeadRescuedAt,
+          });
+          if (updatedAbandoned) {
             SessionManager.getInstance().notifyPublic(tenantId, {
               type: "sdr_flow_updated",
               conversationId: flow.conversationId,

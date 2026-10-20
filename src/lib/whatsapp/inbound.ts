@@ -16,6 +16,7 @@ import { UniversalInboundMessage } from "./types";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
+import { restartIndustrialCycle } from "../triage/industrial-cycle-restart";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
@@ -190,6 +191,10 @@ export class InboundProcessor {
       console.log(`[Meta/Reset] Comando !reset acionado para a conversa ${convId} (${fromPhone}) no tenant ${tenantId}.`);
       SdrDebouncer.getInstance().clearSession(convId);
 
+      if (getAiPersona(tenantId).triagePolicy === "industrial") {
+        const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reset", sourceKey: messageId, receivedAt: inbound.timestamp });
+        if (!restarted || restarted.replayed) return;
+      } else {
       const previousTriages = await archivePreviousFlowState("reset");
 
       await db
@@ -236,6 +241,7 @@ export class InboundProcessor {
         })
         .onConflictDoNothing();
 
+      }
       SessionManager.getInstance().notifyPublic(tenantId, {
         type: "queue_update",
         conversationId: convId,
@@ -266,6 +272,10 @@ export class InboundProcessor {
 
     // 2. Se a conversa estava finalizada e foi reaberta, arquiva a triagem anterior e inicia novo ciclo
     if (reopened) {
+      if (getAiPersona(tenantId).triagePolicy === "industrial") {
+        const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reopened", sourceKey: messageId, receivedAt: inbound.timestamp });
+        if (!restarted) return;
+      } else {
       const previousTriages = await archivePreviousFlowState("completed");
       await db.insert(agentFlowStates).values({
         id: `fs-sdr-${Date.now()}`,
@@ -286,6 +296,7 @@ export class InboundProcessor {
         lastInteractionAt: new Date(),
         outcome: "in_progress",
       });
+      }
     }
 
     // 2b. Continuidade site → WhatsApp (perfil industrial): código de uso único enviado pelo cliente.

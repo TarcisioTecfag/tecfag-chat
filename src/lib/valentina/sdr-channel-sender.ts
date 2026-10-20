@@ -97,11 +97,11 @@ export async function sendSdrChannelText(params: {
 
   if (idempotencyMessageId) {
     const [existing] = await db
-      .select({ id: messages.id })
+      .select({ id: messages.id, status: messages.status, provider: messages.provider, externalId: messages.externalId })
       .from(messages)
-      .where(and(eq(messages.tenantId, tenantId), eq(messages.id, idempotencyMessageId)))
+      .where(and(eq(messages.tenantId, tenantId), eq(messages.conversationId, conversationId), eq(messages.id, idempotencyMessageId)))
       .limit(1);
-    if (existing) {
+    if (existing && ["sent", "accepted", "delivered", "read"].includes(existing.status) && (existing.provider === "livechat" || existing.externalId)) {
       return { sent: true, messageId: existing.id, alreadySent: true };
     }
   }
@@ -130,21 +130,12 @@ export async function sendSdrChannelText(params: {
   const botSenderName = `${persona.name} (SDR)`;
 
   if (isSiteConversationId(conversationId)) {
-    if (idempotencyMessageId) {
-      const [existingMsg] = await db
-        .select({ id: messages.id })
-        .from(messages)
-        .where(and(eq(messages.tenantId, tenantId), eq(messages.id, idempotencyMessageId)))
-        .limit(1);
-      if (existingMsg) {
-        return { sent: true, messageId: existingMsg.id };
-      }
-    }
     const delivered = await deliverSiteBotFragment({
       tenantId,
       conversationId,
       text: cleanText,
       senderName: botSenderName,
+      idempotencyMessageId,
     });
     return { sent: true, messageId: delivered.id };
   }
@@ -198,6 +189,7 @@ export async function sendSdrChannelText(params: {
       return { sent: false, reason: "baileys_session_unavailable" };
     }
     const sentMsg = await sock.sendMessage(realJid, { text: cleanText });
+    if (!sentMsg?.key?.id) return { sent: false, reason: "baileys_send_unconfirmed" };
     if (sentMsg?.key?.id) {
       externalId = sentMsg.key.id;
       if (!idempotencyMessageId) botMessageId = sentMsg.key.id;
@@ -222,7 +214,8 @@ export async function sendSdrChannelText(params: {
       sentAt: now,
       updatedAt: now,
     })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({ target: messages.id, set: { externalId, status: "sent", updatedAt: now },
+      setWhere: and(eq(messages.tenantId, tenantId), eq(messages.conversationId, conversationId)) });
 
   await db
     .update(conversations)

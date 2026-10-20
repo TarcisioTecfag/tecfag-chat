@@ -31,6 +31,7 @@ import { eq, isNull, and, or, inArray, desc, sql } from "drizzle-orm";
 import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
+import { restartIndustrialCycle } from "../triage/industrial-cycle-restart";
 import { urlToBase64, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { shouldIgnoreJid, ignoreReason } from "./jid-validator";
@@ -1246,6 +1247,11 @@ export class SessionManager {
         SdrDebouncer.getInstance().clearSession(convId);
 
         // 2. Arquivar a triagem anterior em previousTriages antes de reiniciar (preserva histórico compilado)
+        if (getAiPersona(tenantId).triagePolicy === "industrial") {
+          if (!conversation) await db.insert(conversations).values({ id: convId, tenantId, contactId, queueState: "automacao" }).onConflictDoNothing();
+          const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reset", sourceKey: messageId, receivedAt: eventTime });
+          if (!restarted || restarted.replayed) return;
+        } else {
         const existingFlows = await db
           .select()
           .from(agentFlowStates)
@@ -1322,6 +1328,7 @@ export class SessionManager {
           .onConflictDoNothing();
 
         // 5. Notificar a UI via SSE
+        }
         this.notify(tenantId, {
           type: "queue_update",
           conversationId: convId,
@@ -1409,6 +1416,14 @@ export class SessionManager {
             operatorId: targetOperatorId,
           })
           .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
+      }
+
+      if (!rawMsg.__historical && !isFromMe && conversation?.queueState === "finalizados" && targetQueue === "fila" && getAiPersona(tenantId).triagePolicy === "industrial") {
+        const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reopened", sourceKey: messageId, receivedAt: eventTime });
+        if (restarted) {
+          targetQueue = restarted.conversation.queueState;
+          targetOperatorId = restarted.conversation.operatorId;
+        }
       }
 
       await syncConversationDeals(db, tenantId, convId, contactId);

@@ -4,7 +4,7 @@ Data: 20/10/2026. Entrega: diagnóstico de código, inventário funcional, evid�
 
 Atualização: o [primeiro lote do núcleo industrial](./IMPLEMENTACAO-NUCLEO-TRIAGEM-2026-10-20.md) foi implementado após este diagnóstico. As constatações abaixo registram o estado inicial; o resumo da implementação distingue correções e pendências atuais.
 
-Continuação: [handoff atômico e recuperação](./IMPLEMENTACAO-HANDOFF-ATOMICO-2026-10-20.md) e [catálogo, Decisor e destinos por ID](./IMPLEMENTACAO-CATALOGO-DESTINOS-2026-10-20.md) implementados em seguida. Site, continuidade entre canais e homologação operacional permanecem pendentes.
+Continuação: [handoff atômico e recuperação](./IMPLEMENTACAO-HANDOFF-ATOMICO-2026-10-20.md), [catálogo, Decisor e destinos por ID](./IMPLEMENTACAO-CATALOGO-DESTINOS-2026-10-20.md), [site no núcleo único](./IMPLEMENTACAO-SITE-NUCLEO-2026-10-20.md), [continuidade site → WhatsApp](./IMPLEMENTACAO-CONTINUIDADE-SITE-WHATSAPP-2026-10-20.md) e [silêncio e resiliência](./IMPLEMENTACAO-SILENCIO-RESILIENCIA-2026-10-20.md) já possuem implementação. O [checkpoint de retomada](./RETOMADA-PORTE-FAGNER-2026-10-20.md) consolida o estado atual, as verificações e as pendências. As constatações do diagnóstico abaixo são históricas; a homologação operacional e a virada continuam pendentes.
 
 ## 1. Decisões e alcance
 

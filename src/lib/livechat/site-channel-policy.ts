@@ -105,6 +105,16 @@ export function clampSiteText(raw: unknown, max = 4000): string {
 const CONTINUITY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export const CONTINUITY_TTL_MS = 30 * 60 * 1000;
 
+/** Metadado inválido nunca amplia a validade do código de uso único. */
+export function isUsableContinuityRecord(record: unknown, now = Date.now()): boolean {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return false;
+  const { expiresAt, usedAt } = record as Record<string, unknown>;
+  if (usedAt !== undefined && usedAt !== null) return false;
+  if (typeof expiresAt !== "string" || !Number.isFinite(now)) return false;
+  const expiry = Date.parse(expiresAt);
+  return Number.isFinite(expiry) && expiry > now;
+}
+
 export function generateContinuityCode(randomBytes: (size: number) => Uint8Array): string {
   const bytes = randomBytes(8);
   const chars = Array.from(bytes, (b) => CONTINUITY_ALPHABET[b % CONTINUITY_ALPHABET.length]).join("");

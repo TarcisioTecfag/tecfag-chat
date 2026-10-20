@@ -18,14 +18,9 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
       await import("../../src/lib/triage/industrial-handoff-store");
     const { recoverIndustrialHandoffs, recoverIndustrialPostCommitOutbox } =
       await import("../../src/lib/triage/industrial-handoff-recovery");
-    const { industrialClientMessages } =
-      await import("../../src/lib/triage/industrial-handoff");
-    const { resolveIndustrialRoute } =
-      await import("../../src/lib/triage/industrial-policy");
-    const { deterministicIndustrialHandoffConfirmMessageId } =
-      await import("../../src/lib/triage/industrial-silence-policy");
-    const { sendSdrChannelText } =
-      await import("../../src/lib/valentina/sdr-channel-sender");
+    const { deliverIndustrialPostCommit } =
+      await import("../../src/lib/triage/industrial-post-commit-delivery");
+    const { sendSdrChannelText } = await import("../../src/lib/valentina/sdr-channel-sender");
     const { recoverIndustrialInterruptedTurns } =
       await import("../../src/lib/valentina/sdr-recovery");
     const { SessionManager } = await import("../../src/lib/baileys/session-manager");
@@ -51,7 +46,7 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
               );
             const metadata = (flow?.metadata || {}) as Record<string, unknown>;
             const manager = SessionManager.getInstance();
-            if (result.operator) {
+            if (result.operator)
               manager.notifyPublic(key.tenantId, {
                 type: "chat_updated",
                 chat: {
@@ -64,21 +59,6 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
                   sectorId: result.sectorId,
                 },
               });
-              const opNotified = await notifyOperatorLeadTransferred({
-                tenantId: key.tenantId,
-                conversationId: key.conversationId,
-                operatorId: result.operator.id,
-                operatorName: result.operator.name,
-                dealId: result.deal?.dealId || null,
-                dealTitle: result.deal?.dealTitle || null,
-                temperature: "quente",
-                transferSource: "sdr_auto",
-                cycle: key.cycle,
-              });
-              if (opNotified) {
-                await store.ackPostCommit(key, { operatorNotified: true });
-              }
-            }
             manager.notifyPublic(key.tenantId, {
               type: "sdr_flow_updated",
               conversationId: key.conversationId,
@@ -91,132 +71,32 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
             });
           },
         });
-
         await recoverIndustrialPostCommitOutbox({
           database: db,
           store,
           isIndustrialTenant: (id) => getAiPersona(id).triagePolicy === "industrial",
-          deliverPostCommit: async ({ key, receipt, outbox, request, collectedData, metadata }) => {
-            let operatorNotified = outbox.operatorNotified;
-            let clientNotified = outbox.clientNotified;
-
-            if (!operatorNotified) {
-              if (!receipt.operator) {
-                operatorNotified = true;
-              } else {
-                const clientName =
-                  String((collectedData["NOME COMPLETO"] as any)?.value || "").trim() ||
-                  request?.clientName ||
-                  "Cliente";
-                const company =
-                  String((collectedData["EMPRESA"] as any)?.value || "").trim() ||
-                  request?.companyName ||
-                  "Empresa não informada";
-                const interest =
-                  String(
-                    (collectedData["MÁQUINA / PEÇA / INTERESSE"] as any)?.value ||
-                      (collectedData["PRODUTO DE INTERESSE"] as any)?.value ||
-                      "",
-                  ).trim() ||
-                  request?.route?.targetFunnel ||
-                  "";
-                operatorNotified = await notifyOperatorLeadTransferred({
-                  tenantId: key.tenantId,
-                  conversationId: key.conversationId,
-                  operatorId: receipt.operator.id,
-                  operatorName: receipt.operator.name,
-                  clientName,
-                  company,
-                  interest,
-                  targetFunnel:
-                    request?.route?.targetFunnel ||
-                    (typeof metadata.targetFunnel === "string" ? metadata.targetFunnel : null),
-                  dealId: receipt.deal?.dealId || null,
-                  dealTitle: receipt.deal?.dealTitle || null,
-                  temperature: "quente",
-                  transferSource: "sdr_auto",
-                  cycle: key.cycle,
-                });
-              }
-            }
-
-            if (!clientNotified) {
-              const route =
-                request?.route ||
-                resolveIndustrialRoute({
-                  text: "",
-                  collectedData: collectedData as any,
-                  existingStage:
-                    typeof metadata.funnelStage === "string" ? metadata.funnelStage : "triagem",
-                  existingFunnel:
-                    typeof metadata.targetFunnel === "string" ? metadata.targetFunnel : null,
-                  existingSubflow:
-                    typeof metadata.subflow === "string" ? (metadata.subflow as any) : null,
-                });
-              const confirmBubbles = industrialClientMessages({
-                result: {
-                  status: receipt.status,
-                  operator: receipt.operator,
-                  deal: receipt.deal,
-                  sectorId: receipt.sectorId,
-                  conversationVersion: receipt.conversationVersion,
-                },
-                route,
-                data: collectedData as any,
-                messages: [],
-              });
-
-              let contactPhone = "";
-              const [conv] = await db
-                .select({ contactId: conversations.contactId })
-                .from(conversations)
-                .where(
-                  and(
-                    eq(conversations.id, key.conversationId),
-                    eq(conversations.tenantId, key.tenantId),
-                  ),
-                )
-                .limit(1);
-              if (conv?.contactId) {
-                const [cnt] = await db
-                  .select({ phone: contacts.phone })
-                  .from(contacts)
+          deliverOutbox: (item) =>
+            deliverIndustrialPostCommit(item, {
+              notifyOperator: notifyOperatorLeadTransferred,
+              sendText: sendSdrChannelText,
+              getContactPhone: async (tenantId, conversationId) => {
+                const [conv] = await db
+                  .select({ contactId: conversations.contactId })
+                  .from(conversations)
                   .where(
-                    and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, key.tenantId)),
+                    and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)),
                   )
                   .limit(1);
-                contactPhone = cnt?.phone || conv.contactId.replace(/^c-/, "");
-              }
-
-              const baseMsgId = deterministicIndustrialHandoffConfirmMessageId(
-                key.tenantId,
-                key.flowId,
-                key.cycle,
-              );
-              let allSent = true;
-              for (let i = 0; i < confirmBubbles.length; i++) {
-                const bubble = confirmBubbles[i];
-                const msgId = i === 0 ? baseMsgId : `${baseMsgId}-${i}`;
-                const sendRes = await sendSdrChannelText({
-                  tenantId: key.tenantId,
-                  conversationId: key.conversationId,
-                  phone: contactPhone,
-                  text: bubble,
-                  idempotencyMessageId: msgId,
-                  expectedOperatorId: receipt.operator?.id || null,
-                });
-                if (!sendRes.sent) {
-                  allSent = false;
-                  break;
-                }
-              }
-              clientNotified = allSent;
-            }
-
-            return { operatorNotified, clientNotified };
-          },
+                if (!conv) return "";
+                const [contact] = await db
+                  .select({ phone: contacts.phone })
+                  .from(contacts)
+                  .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)))
+                  .limit(1);
+                return contact?.phone || "";
+              },
+            }),
         });
-
         await recoverIndustrialInterruptedTurns();
       } catch {
         console.error(

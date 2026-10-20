@@ -35,10 +35,12 @@ export async function deliverSiteText(params: {
   text: string;
   sender: "ai" | "operator";
   senderName?: string;
+  idempotencyMessageId?: string;
 }) {
   const visitor = await resolveSiteVisitor(params.tenantId, params.conversationId);
   const chat = await getOrCreateActiveChat(params.tenantId, visitor.id);
-  const saved = await saveMessage(params.tenantId, chat.id, params.sender, params.text);
+  const saved = await saveMessage(params.tenantId, chat.id, params.sender, params.text,
+    params.idempotencyMessageId ? { id: `${params.idempotencyMessageId}-widget` } : {});
   const delivered = siteGateway.push(params.tenantId, visitor.id, {
     type: "message",
     chatId: chat.id,
@@ -67,10 +69,11 @@ export async function deliverSiteBotFragment(params: {
   conversationId: string;
   text: string;
   senderName: string;
+  idempotencyMessageId?: string;
 }) {
   const { tenantId, conversationId, text, senderName } = params;
-  const delivery = await deliverSiteText({ tenantId, conversationId, text, sender: "ai", senderName });
-  const id = `bot-site-${crypto.randomUUID()}`;
+  const delivery = await deliverSiteText({ tenantId, conversationId, text, sender: "ai", senderName, idempotencyMessageId: params.idempotencyMessageId });
+  const id = params.idempotencyMessageId || `bot-site-${crypto.randomUUID()}`;
   const now = new Date();
   await db.insert(messages).values({
     id,
@@ -86,7 +89,7 @@ export async function deliverSiteBotFragment(params: {
     status: delivery.delivered ? "delivered" : "accepted",
     sentAt: now,
     updatedAt: now,
-  });
+  }).onConflictDoNothing();
   const conv = await touchConversation(tenantId, conversationId, text);
   SessionManager.getInstance().notifyPublic(tenantId, {
     type: "message",
