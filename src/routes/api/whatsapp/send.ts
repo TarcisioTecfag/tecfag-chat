@@ -11,6 +11,7 @@ import { resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-c
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
 import { SITE_CHANNEL } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
+import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import fs from "fs";
 import path from "path";
 
@@ -177,6 +178,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
 
           // Canal Site (widget): entrega pelo WebSocket do visitante, não pelo provedor WhatsApp.
           if (!isInternalNote) {
+            SdrDebouncer.getInstance().clearSession(conversationId);
             const [targetContact] = await db
               .select({ mainChannel: contacts.mainChannel })
               .from(contacts)

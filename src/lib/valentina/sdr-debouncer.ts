@@ -38,7 +38,7 @@ export class SdrDebouncer {
   }
 
   /**
-   * Limpa e cancela completamente o estado de debounce de uma conversa (!reset)
+   * Limpa e cancela completamente o estado de debounce de uma conversa (!reset ou intervenção humana)
    */
   public clearSession(conversationId: string): void {
     const session = this.sessions.get(conversationId);
@@ -46,8 +46,17 @@ export class SdrDebouncer {
       if (session.timer) clearTimeout(session.timer);
       if (session.abortController) session.abortController.abort();
       this.sessions.delete(conversationId);
-      console.log(`[SdrDebouncer] Sessão zerada com sucesso para conversa ${conversationId} via !reset`);
+      console.log(`[SdrDebouncer] Sessão zerada com sucesso para conversa ${conversationId}`);
     }
+  }
+
+  /**
+   * Informa se a conversa possui lote aguardando debounce ou geração de IA em andamento.
+   */
+  public isBusy(conversationId: string): boolean {
+    const session = this.sessions.get(conversationId);
+    if (!session) return false;
+    return Boolean(session.timer !== null || session.isProcessing || session.messagesQueue.length > 0);
   }
 
   /**

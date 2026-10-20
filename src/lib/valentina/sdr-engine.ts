@@ -2,7 +2,7 @@ import { runtimeSingleton } from "../runtime-singleton";
 
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts } from "../../db/schema";
-import { eq, asc, and, gte, ne, sql, isNull } from "drizzle-orm";
+import { eq, asc, desc, and, gte, ne, sql, isNull } from "drizzle-orm";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
@@ -16,6 +16,13 @@ import { INDUSTRIAL_POLICY_VERSION, resolveIndustrialRoute, assessIndustrialRead
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
 import { industrialHandoffOutcome, industrialClientMessages, type IndustrialHandoffResult } from "../triage/industrial-handoff";
 import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
+import {
+  selectRecentCycleMessages,
+  buildIndustrialReactivationPatch,
+  parseIndustrialScheduleConfig,
+  isWithinIndustrialSchedule,
+  buildIndustrialOffHoursClosingNotice,
+} from "../triage/industrial-silence-policy";
 import { runIndustrialDecisor, lookupIndustrialBlockedFamily } from "../triage/industrial-decisor-runtime";
 import { applyMachineDecision, parseIndustrialCapital, type MachineDecision } from "../triage/industrial-decisor";
 import { collectedValue } from "../triage/industrial-policy";
@@ -288,8 +295,36 @@ export class SdrEngine {
       // A conclusão já tem checkpoint durável. O worker transacional retoma sem outra chamada de IA.
       if (industrialTriage && (flowState?.metadata as Record<string, unknown>)?.handoffRequest) return false;
 
-      // 3. Buscar Histórico Recente de Mensagens Reais do Banco (últimas 80 da sessão de triagem atual)
-      const historyMsgs = await db
+      // Retomada automática do fluxo industrial se o cliente voltou a responder após follow-up ou Sem Resposta (outcome='abandoned')
+      if (
+        industrialTriage &&
+        flowState &&
+        (flowState.outcome === "abandoned" ||
+          Number((flowState.metadata as Record<string, unknown>)?.followUpStage || 0) > 0)
+      ) {
+        const reactivation = buildIndustrialReactivationPatch({
+          outcome: flowState.outcome,
+          followUpStage: Number((flowState.metadata as Record<string, unknown>)?.followUpStage || 0),
+          metadata: (flowState.metadata as Record<string, unknown>) || {},
+        });
+        const reactivatedRows = await db
+          .update(agentFlowStates)
+          .set({
+            outcome: "in_progress",
+            completedAt: null,
+            currentStep: "Em Qualificação",
+            metadata: reactivation.metadata,
+            lastInteractionAt: new Date(),
+          })
+          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)))
+          .returning();
+        if (reactivatedRows[0]) {
+          flowState = reactivatedRows[0];
+        }
+      }
+
+      // 3. Buscar Histórico Recente de Mensagens Reais do Banco (últimas 80 da sessão de triagem atual em ordem cronológica)
+      const rawHistoryMsgs = await db
         .select()
         .from(messages)
         .where(
@@ -300,8 +335,9 @@ export class SdrEngine {
             ...(flowState?.startedAt ? [gte(messages.sentAt, flowState.startedAt)] : [])
           )
         )
-        .orderBy(asc(messages.sentAt))
+        .orderBy(desc(messages.sentAt), desc(messages.id))
         .limit(80);
+      const historyMsgs = selectRecentCycleMessages(rawHistoryMsgs, flowState?.startedAt || null, 80);
 
       let hasPreviousEmoji = false;
       let hasPreviousAudio = false;
@@ -1037,6 +1073,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const now = new Date();
       let industrialHandoff: IndustrialHandoffResult = { status: "collecting", operator: null, deal: null };
       let industrialHandoffPersisted = false;
+      let industrialHandoffStoreRef: ReturnType<typeof createIndustrialHandoffStore> | null = null;
+      let industrialHandoffKeyRef: { tenantId: string; conversationId: string; flowId: string; cycle: string } | null = null;
 
       // 9. Alocar responsável no Rodízio e vincular/criar negociação SE a qualificação acabou de ser concluída
       let allocatedOp: any = null;
@@ -1063,6 +1101,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             if (committed.replayed || committed.superseded) return false;
             industrialHandoff = committed;
             industrialHandoffPersisted = true;
+            industrialHandoffStoreRef = store;
+            industrialHandoffKeyRef = key;
             allocatedOp = industrialHandoff.operator;
             localCrmResult = industrialHandoff.deal;
 
@@ -1073,7 +1113,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                   version: committed.conversationVersion, sectorId: committed.sectorId },
               });
               const { notifyOperatorLeadTransferred } = await import("./operator-notifications");
-              await notifyOperatorLeadTransferred({
+              const opNotified = await notifyOperatorLeadTransferred({
                 tenantId,
                 operatorId: allocatedOp.id,
                 operatorName: allocatedOp.name,
@@ -1086,7 +1126,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 dealTitle: localCrmResult?.dealTitle || null,
                 temperature: "quente",
                 transferSource: "sdr_auto",
+                cycle: key.cycle,
               });
+              if (opNotified) {
+                await store.ackPostCommit(key, { operatorNotified: true });
+              }
             }
           } else {
             // ══════════════════════════════════════════════════════════════════
@@ -1198,6 +1242,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const flowIsFinished = flowOutcome === "transferred" || flowOutcome === "completed";
       if (industrialTriage && industrialRoute) {
         aiResult.messagesToSend = industrialClientMessages({ result: industrialHandoff, route: industrialRoute, data: updatedCollectedData, messages: aiResult.messagesToSend });
+        if (industrialHandoff.status === "transferred") {
+          const scheduleCfg = parseIndustrialScheduleConfig(configData);
+          if (scheduleCfg.enabled && !isWithinIndustrialSchedule(now, scheduleCfg)) {
+            aiResult.messagesToSend = [
+              ...aiResult.messagesToSend,
+              buildIndustrialOffHoursClosingNotice(now, scheduleCfg, allocatedOp?.name || null),
+            ];
+          }
+        }
       }
 
       if (flowState) {
@@ -1205,6 +1258,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           ...metaState,
           stepNumber: filledCount,
           totalSteps: 7,
+          followUpStage: 0,
           funnelStage: stageAndFunnel.funnelStage,
           targetFunnel: stageAndFunnel.targetFunnel,
           ...(industrialRoute ? {
@@ -1215,6 +1269,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             missingFields: industrialReadiness?.missing || [],
             handoffStatus: industrialHandoff.status,
             readyForHandoff: Boolean(industrialReadiness?.ready),
+            turnRecoveryMessageId: null,
+            turnRecoveryAttempts: 0,
+            turnRecoveryNextAttemptAt: null,
             ...(machineDecision ? { machineDecision } : {}),
           } : {}),
           ...(localCrmResult
@@ -1464,6 +1521,19 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
           for (const imageRelUrl of imageUrlsToSend) {
             if (signal?.aborted) break;
+            if (industrialTriage) {
+              const ownerBeforeImg = await db.query.conversations.findFirst({
+                where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
+              });
+              if (
+                !ownerBeforeImg ||
+                ownerBeforeImg.queueState === "finalizados" ||
+                (ownerBeforeImg.operatorId || null) !== (allocatedOp?.id || null) ||
+                (ownerBeforeImg.queueState === "meus" && !allocatedOp?.id)
+              ) {
+                break;
+              }
+            }
             try {
               const mediaFile = realMediaFiles.find(f => f.mediaUrl === imageRelUrl);
               let imgBuffer: Buffer;
@@ -1532,6 +1602,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           aiResult.quoteMessageId,
           allocatedOp?.id || null
         );
+        if (industrialHandoffPersisted && industrialHandoffStoreRef && industrialHandoffKeyRef && !signal?.aborted) {
+          await industrialHandoffStoreRef.ackPostCommit(industrialHandoffKeyRef, { clientNotified: true });
+        }
       }
 
 
@@ -1619,6 +1692,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     if (signal?.aborted) return;
 
     const persona = getAiPersona(tenantId);
+    if (persona.triagePolicy === "industrial") {
+      const owner = await db.query.conversations.findFirst({
+        where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
+      });
+      if (!owner || owner.queueState === "finalizados" || owner.queueState === "meus" || owner.operatorId) {
+        return;
+      }
+    }
     const botSenderName = `${persona.name} (SDR)`;
     let botMessageId = `bot-ptt-${Date.now()}`;
 

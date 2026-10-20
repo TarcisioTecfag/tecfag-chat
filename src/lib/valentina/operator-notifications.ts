@@ -19,6 +19,7 @@ export interface LeadTransferNotificationParams {
   temperature?: "quente" | "morno" | "frio";
   transferSource?: "sdr_auto" | "manual_transfer" | "rodizio_reassignment";
   transferredBy?: string | null;
+  cycle?: string | null;
 }
 
 /**
@@ -27,7 +28,7 @@ export interface LeadTransferNotificationParams {
  */
 export async function notifyOperatorLeadTransferred(
   params: LeadTransferNotificationParams,
-): Promise<void> {
+): Promise<boolean> {
   const {
     tenantId,
     operatorId,
@@ -35,9 +36,10 @@ export async function notifyOperatorLeadTransferred(
     temperature = "quente",
     transferSource = "sdr_auto",
     transferredBy = null,
+    cycle = null,
   } = params;
 
-  if (!tenantId || !operatorId || !conversationId) return;
+  if (!tenantId || !operatorId || !conversationId) return false;
 
   try {
     const persona = getAiPersona(tenantId);
@@ -119,6 +121,24 @@ export async function notifyOperatorLeadTransferred(
         .filter(Boolean)
         .join(" | ") || "Atendimento comercial transferido para sua fila";
 
+    const deterministicId = cycle
+      ? `notif-transfer-${crypto.createHash("sha256").update(`${tenantId}:${conversationId}:${operatorId}:${cycle}`).digest("hex").slice(0, 24)}`
+      : null;
+
+    if (deterministicId) {
+      const [byId] = await db
+        .select({ id: internalMessages.id })
+        .from(internalMessages)
+        .where(
+          and(
+            eq(internalMessages.tenantId, tenantId),
+            eq(internalMessages.id, deterministicId),
+          ),
+        )
+        .limit(1);
+      if (byId) return true;
+    }
+
     // Evitar duplicação se o mesmo aviso de transferência já foi gerado nos últimos 2 minutos
     const recentWindow = new Date(Date.now() - 2 * 60 * 1000);
     const existing = await db
@@ -135,10 +155,11 @@ export async function notifyOperatorLeadTransferred(
       )
       .limit(1);
 
-    if (existing.length > 0) return;
+    if (existing.length > 0) return true;
 
     const now = new Date();
-    const notifId = `notif-transfer-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
+    const notifId =
+      deterministicId || `notif-transfer-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
     const metadata = {
       type: "lead_transfer",
       scope: "operator",
@@ -156,24 +177,31 @@ export async function notifyOperatorLeadTransferred(
       targetFunnel,
       transferSource,
       transferredBy,
+      ...(cycle ? { cycle } : {}),
     };
 
-    await db.insert(internalMessages).values({
-      id: notifId,
-      tenantId,
-      operatorId,
-      direction: "from_agent",
-      agentType: "supervisor",
-      content,
-      metadata,
-      read: 0,
-      createdAt: now,
-      repeatCount: 1,
-      lastFiredAt: now,
-    });
+    const inserted = await db
+      .insert(internalMessages)
+      .values({
+        id: notifId,
+        tenantId,
+        operatorId,
+        direction: "from_agent",
+        agentType: "supervisor",
+        content,
+        metadata,
+        read: 0,
+        createdAt: now,
+        repeatCount: 1,
+        lastFiredAt: now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: internalMessages.id });
+
+    if (inserted.length === 0) return true;
 
     SessionManager.getInstance().notifyPublic(tenantId, {
-      type: "operator_ai_notification",
+      type: "operator_ai_notification" as any,
       operatorId,
       message: {
         id: notifId,
@@ -206,7 +234,9 @@ export async function notifyOperatorLeadTransferred(
         },
       },
     });
+    return true;
   } catch (err: any) {
     console.error("[notifyOperatorLeadTransferred] Erro ao notificar transferência:", err?.message || err);
+    return false;
   }
 }

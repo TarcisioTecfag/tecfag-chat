@@ -7,7 +7,11 @@ import {
   type CollectedFields,
   type IndustrialRoute,
 } from "./industrial-policy";
-import { industrialHandoffOutcome, type IndustrialHandoffResult } from "./industrial-handoff";
+import {
+  industrialHandoffMessage,
+  industrialHandoffOutcome,
+  type IndustrialHandoffResult,
+} from "./industrial-handoff";
 import {
   lockIndustrialRodizio,
   writeIndustrialRodizio,
@@ -23,7 +27,7 @@ import { industrialDestinationKey } from "./industrial-settings";
 import { readIndustrialSettings, validateIndustrialDestination } from "./industrial-settings-store";
 import type { MachineDecision } from "./industrial-decisor";
 
-interface HandoffRequest {
+export interface HandoffRequest {
   version: 1;
   cycle: string;
   route: IndustrialRoute;
@@ -33,14 +37,25 @@ interface HandoffRequest {
   preparedAt: string;
   machineDecision?: MachineDecision;
 }
-interface HandoffReceipt {
+export interface HandoffReceipt {
   cycle: string;
   committedAt: string;
   result: IndustrialStoredResult;
 }
+export interface HandoffOutbox {
+  cycle: string;
+  operatorNotificationRequired: boolean;
+  operatorNotifiedAt: string | null;
+  clientConfirmationRequired: boolean;
+  clientConfirmationText: string | null;
+  clientNotifiedAt: string | null;
+  attempts: number;
+  nextAttemptAt: string;
+}
 type HandoffMetadata = Record<string, unknown> & {
   handoffRequest?: HandoffRequest;
   handoffReceipt?: HandoffReceipt;
+  handoffOutbox?: HandoffOutbox;
   handoffAttempts?: number;
   handoffNextAttemptAt?: string;
 };
@@ -452,10 +467,31 @@ export function createIndustrialHandoffStore(
               : {}),
           };
           if (result.status === "transferred" || result.status === "resolved") {
+            const committedIso = new Date().toISOString();
+            const confirmationText = industrialHandoffMessage(
+              result.status,
+              result.operator?.name,
+            );
             meta.handoffReceipt = {
               cycle: key.cycle,
-              committedAt: new Date().toISOString(),
+              committedAt: committedIso,
               result,
+            };
+            meta.handoffOutbox = {
+              cycle: key.cycle,
+              operatorNotificationRequired: Boolean(
+                result.status === "transferred" && result.operator?.id,
+              ),
+              operatorNotifiedAt: null,
+              clientConfirmationRequired: Boolean(
+                result.status === "transferred" && confirmationText,
+              ),
+              clientConfirmationText: confirmationText,
+              clientNotifiedAt: null,
+              attempts: 0,
+              nextAttemptAt: new Date(
+                Date.now() + (options.recovery ? 0 : 25_000),
+              ).toISOString(),
             };
           }
           await persist(tx, key, state, result, meta);
@@ -489,6 +525,161 @@ export function createIndustrialHandoffStore(
         });
         return { status: "handoff_failed", ...empty };
       }
+    },
+    /** Reserva tentativa de entrega pós-commit (aviso ao operador e confirmação ao cliente). */
+    async claimPostCommitOutbox(key: IndustrialFlowKey): Promise<{
+      receipt: HandoffReceipt;
+      outbox: HandoffOutbox;
+      request?: HandoffRequest;
+      needOperatorNotification: boolean;
+      needClientConfirmation: boolean;
+    } | null> {
+      return database.transaction(async (tx) => {
+        const state = await lockFlow(tx, key);
+        if (!state) return null;
+        const receipt = state.meta.handoffReceipt;
+        const outbox = state.meta.handoffOutbox;
+        if (
+          !receipt ||
+          receipt.cycle !== key.cycle ||
+          !outbox ||
+          outbox.cycle !== key.cycle
+        ) {
+          return null;
+        }
+        if (
+          (outbox.attempts || 0) >= 6 ||
+          Date.parse(outbox.nextAttemptAt || "") > Date.now()
+        ) {
+          return null;
+        }
+        const assignedOpId = receipt.result.operator?.id || null;
+        const humanChanged =
+          state.conv.queueState === "finalizados" ||
+          Boolean(
+            assignedOpId &&
+              state.conv.operatorId &&
+              state.conv.operatorId !== assignedOpId,
+          );
+        const nowIso = new Date().toISOString();
+        const nextClientNotifiedAt =
+          outbox.clientNotifiedAt || (humanChanged ? nowIso : null);
+        const nextOperatorNotifiedAt =
+          outbox.operatorNotifiedAt ||
+          (assignedOpId &&
+          state.conv.operatorId &&
+          state.conv.operatorId !== assignedOpId
+            ? nowIso
+            : null);
+
+        const needOperatorNotification = Boolean(
+          outbox.operatorNotificationRequired && !nextOperatorNotifiedAt && assignedOpId,
+        );
+        const needClientConfirmation = Boolean(
+          outbox.clientConfirmationRequired &&
+            !nextClientNotifiedAt &&
+            outbox.clientConfirmationText &&
+            !humanChanged,
+        );
+
+        if (!needOperatorNotification && !needClientConfirmation) {
+          if (
+            nextClientNotifiedAt !== outbox.clientNotifiedAt ||
+            nextOperatorNotifiedAt !== outbox.operatorNotifiedAt
+          ) {
+            await tx
+              .update(agentFlowStates)
+              .set({
+                metadata: {
+                  ...state.meta,
+                  handoffOutbox: {
+                    ...outbox,
+                    operatorNotifiedAt: nextOperatorNotifiedAt,
+                    clientNotifiedAt: nextClientNotifiedAt,
+                  },
+                },
+              })
+              .where(
+                and(
+                  eq(agentFlowStates.tenantId, key.tenantId),
+                  eq(agentFlowStates.id, key.flowId),
+                ),
+              );
+          }
+          return null;
+        }
+
+        const attempts = (outbox.attempts || 0) + 1;
+        const updatedOutbox: HandoffOutbox = {
+          ...outbox,
+          operatorNotifiedAt: nextOperatorNotifiedAt,
+          clientNotifiedAt: nextClientNotifiedAt,
+          attempts,
+          nextAttemptAt: new Date(
+            Date.now() + Math.min(15 * 60_000, 30_000 * 2 ** Math.min(attempts - 1, 5)),
+          ).toISOString(),
+        };
+        await tx
+          .update(agentFlowStates)
+          .set({
+            metadata: {
+              ...state.meta,
+              handoffOutbox: updatedOutbox,
+            },
+          })
+          .where(
+            and(
+              eq(agentFlowStates.tenantId, key.tenantId),
+              eq(agentFlowStates.id, key.flowId),
+            ),
+          );
+
+        return {
+          receipt,
+          outbox: updatedOutbox,
+          request: state.meta.handoffRequest,
+          needOperatorNotification,
+          needClientConfirmation,
+        };
+      });
+    },
+    /** Confirma a entrega dos avisos pós-commit para não reexecutar no worker. */
+    async ackPostCommit(
+      key: IndustrialFlowKey,
+      ack: { operatorNotified?: boolean; clientNotified?: boolean },
+    ): Promise<boolean> {
+      if (!ack.operatorNotified && !ack.clientNotified) return false;
+      return database.transaction(async (tx) => {
+        const state = await lockFlow(tx, key);
+        if (!state) return false;
+        const outbox = state.meta.handoffOutbox;
+        if (!outbox || outbox.cycle !== key.cycle) return false;
+        const nowIso = new Date().toISOString();
+        const updatedOutbox: HandoffOutbox = {
+          ...outbox,
+          operatorNotifiedAt: ack.operatorNotified
+            ? outbox.operatorNotifiedAt || nowIso
+            : outbox.operatorNotifiedAt,
+          clientNotifiedAt: ack.clientNotified
+            ? outbox.clientNotifiedAt || nowIso
+            : outbox.clientNotifiedAt,
+        };
+        await tx
+          .update(agentFlowStates)
+          .set({
+            metadata: {
+              ...state.meta,
+              handoffOutbox: updatedOutbox,
+            },
+          })
+          .where(
+            and(
+              eq(agentFlowStates.tenantId, key.tenantId),
+              eq(agentFlowStates.id, key.flowId),
+            ),
+          );
+        return true;
+      });
     },
   };
 }

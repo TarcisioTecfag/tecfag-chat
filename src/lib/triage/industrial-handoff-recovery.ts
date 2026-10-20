@@ -4,6 +4,9 @@ import { agentConfigs, agentFlowStates, tenants } from "../../db/schema";
 import type { IndustrialDatabase } from "./industrial-rodizio-store";
 import type {
   createIndustrialHandoffStore,
+  HandoffOutbox,
+  HandoffReceipt,
+  HandoffRequest,
   IndustrialFlowKey,
   IndustrialStoredResult,
 } from "./industrial-handoff-store";
@@ -91,4 +94,105 @@ export async function recoverIndustrialHandoffs(params: {
     }
   }
   return recovered;
+}
+
+/**
+ * Entrega avisos pós-commit pendentes (notificação interna ao operador e mensagem de confirmação
+ * ao cliente) quando o processo reinicia após o commit da transação ou após recuperação.
+ */
+export async function recoverIndustrialPostCommitOutbox(params: {
+  database: IndustrialDatabase;
+  store: ReturnType<typeof createIndustrialHandoffStore>;
+  isIndustrialTenant: (tenantId: string) => boolean;
+  deliverOutbox: (item: {
+    key: IndustrialFlowKey;
+    receipt: HandoffReceipt;
+    outbox: HandoffOutbox;
+    request?: HandoffRequest;
+    needOperatorNotification: boolean;
+    needClientConfirmation: boolean;
+  }) => Promise<{ operatorNotified?: boolean; clientNotified?: boolean }>;
+}): Promise<number> {
+  const tenantRows = await params.database.select({ id: tenants.id }).from(tenants);
+  let flushed = 0;
+  const newer = alias(agentFlowStates, "newer_industrial_outbox_flow");
+  const nowIso = new Date().toISOString();
+
+  for (const tenant of tenantRows) {
+    if (!params.isIndustrialTenant(tenant.id)) continue;
+    const [enabled] = await params.database
+      .select({ id: agentConfigs.id })
+      .from(agentConfigs)
+      .where(
+        and(
+          eq(agentConfigs.tenantId, tenant.id),
+          eq(agentConfigs.agentType, "sdr"),
+          eq(agentConfigs.enabled, 1),
+        ),
+      )
+      .limit(1);
+    if (!enabled) continue;
+
+    const flows = await params.database
+      .select()
+      .from(agentFlowStates)
+      .where(
+        and(
+          eq(agentFlowStates.tenantId, tenant.id),
+          eq(agentFlowStates.agentType, "sdr"),
+          sql`${agentFlowStates.metadata}->'handoffReceipt' IS NOT NULL`,
+          sql`${agentFlowStates.metadata}->'handoffOutbox' IS NOT NULL`,
+          sql`coalesce((${agentFlowStates.metadata}->'handoffOutbox'->>'attempts')::int, 0) < 6`,
+          sql`coalesce(${agentFlowStates.metadata}->'handoffOutbox'->>'nextAttemptAt', '') <= ${nowIso}`,
+          sql`(
+            (coalesce((${agentFlowStates.metadata}->'handoffOutbox'->>'operatorNotificationRequired')::boolean, false) = true AND ${agentFlowStates.metadata}->'handoffOutbox'->>'operatorNotifiedAt' IS NULL)
+            OR
+            (coalesce((${agentFlowStates.metadata}->'handoffOutbox'->>'clientConfirmationRequired')::boolean, false) = true AND ${agentFlowStates.metadata}->'handoffOutbox'->>'clientNotifiedAt' IS NULL)
+          )`,
+          notExists(
+            params.database
+              .select({ id: newer.id })
+              .from(newer)
+              .where(
+                and(
+                  eq(newer.tenantId, tenant.id),
+                  eq(newer.conversationId, agentFlowStates.conversationId),
+                  eq(newer.agentType, "sdr"),
+                  or(
+                    gt(newer.startedAt, agentFlowStates.startedAt),
+                    and(
+                      eq(newer.startedAt, agentFlowStates.startedAt),
+                      gt(newer.id, agentFlowStates.id),
+                    ),
+                  ),
+                ),
+              ),
+          ),
+        ),
+      )
+      .orderBy(asc(agentFlowStates.lastInteractionAt))
+      .limit(20);
+
+    for (const flow of flows) {
+      const key: IndustrialFlowKey = {
+        tenantId: tenant.id,
+        conversationId: flow.conversationId,
+        flowId: flow.id,
+        cycle: flow.startedAt.toISOString(),
+      };
+      const claimed = await params.store.claimPostCommitOutbox(key);
+      if (!claimed) continue;
+      try {
+        const ack = await params.deliverOutbox({ key, ...claimed });
+        if (ack.operatorNotified || ack.clientNotified) {
+          await params.store.ackPostCommit(key, ack);
+          flushed++;
+        }
+      } catch {
+        console.error("[IndustrialRecovery] Falha ao entregar outbox pós-commit; agendado retry.");
+      }
+    }
+  }
+
+  return flushed;
 }

@@ -15,9 +15,15 @@ import { sendMetaConversationPresence, resetMetaTypingThrottle } from "../whatsa
 export { resetMetaTypingThrottle };
 import { getAiPersona } from "../ai-persona";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
-import { pushSiteTyping } from "../livechat/site-delivery";
+import { deliverSiteBotFragment, pushSiteTyping } from "../livechat/site-delivery";
 
-export async function resolveTenantActiveProvider(tenantId: string): Promise<"baileys" | "meta"> {
+/**
+ * Resolve o provedor WhatsApp explicitamente configurado no banco para o tenant (B19).
+ * Retorna `null` quando a configuração está ausente ou inválida.
+ */
+export async function resolveConfiguredWhatsappProvider(
+  tenantId: string,
+): Promise<"baileys" | "meta" | null> {
   try {
     const [cfg] = await db
       .select({ activeProvider: channelConfigs.activeProvider })
@@ -31,7 +37,13 @@ export async function resolveTenantActiveProvider(tenantId: string): Promise<"ba
   } catch (err) {
     console.warn(`[SdrChannelSender] Erro ao consultar channelConfigs para tenant ${tenantId}:`, err);
   }
-  return tenantId === "tecfag" ? "meta" : "baileys";
+  return null;
+}
+
+export async function resolveTenantActiveProvider(tenantId: string): Promise<"baileys" | "meta"> {
+  const configured = await resolveConfiguredWhatsappProvider(tenantId);
+  if (configured) return configured;
+  return getAiPersona(tenantId).triagePolicy === "industrial" ? "meta" : "baileys";
 }
 
 export async function sendBotPresence(
@@ -45,7 +57,11 @@ export async function sendBotPresence(
       await pushSiteTyping(tenantId, conversationId, action !== "paused");
       return;
     }
-    const provider = await resolveTenantActiveProvider(tenantId);
+    const provider =
+      getAiPersona(tenantId).triagePolicy === "industrial"
+        ? await resolveConfiguredWhatsappProvider(tenantId)
+        : await resolveTenantActiveProvider(tenantId);
+    if (!provider) return;
     if (provider === "meta") {
       if (action === "composing" || action === "recording") {
         await sendMetaConversationPresence(tenantId, conversationId, "typing");
@@ -63,6 +79,177 @@ export async function sendBotPresence(
   }
 }
 
+/**
+ * Envia uma mensagem textual do bot no canal da conversa (Site ou WhatsApp configurado)
+ * com verificação de posse e idempotência por `idempotencyMessageId`.
+ */
+export async function sendSdrChannelText(params: {
+  tenantId: string;
+  conversationId: string;
+  phone?: string | null;
+  text: string;
+  idempotencyMessageId?: string;
+  expectedOperatorId?: string | null;
+}): Promise<{ sent: boolean; messageId?: string; alreadySent?: boolean; reason?: string }> {
+  const { tenantId, conversationId, text, idempotencyMessageId, expectedOperatorId = null } = params;
+  const cleanText = text.trim();
+  if (!cleanText) return { sent: false, reason: "empty_text" };
+
+  if (idempotencyMessageId) {
+    const [existing] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(and(eq(messages.tenantId, tenantId), eq(messages.id, idempotencyMessageId)))
+      .limit(1);
+    if (existing) {
+      return { sent: true, messageId: existing.id, alreadySent: true };
+    }
+  }
+
+  const [conv] = await db
+    .select({
+      id: conversations.id,
+      contactId: conversations.contactId,
+      queueState: conversations.queueState,
+      operatorId: conversations.operatorId,
+    })
+    .from(conversations)
+    .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+    .limit(1);
+
+  if (
+    !conv ||
+    conv.queueState === "finalizados" ||
+    (conv.operatorId || null) !== (expectedOperatorId || null) ||
+    (conv.queueState === "meus" && !expectedOperatorId)
+  ) {
+    return { sent: false, reason: "ownership_changed" };
+  }
+
+  const persona = getAiPersona(tenantId);
+  const botSenderName = `${persona.name} (SDR)`;
+
+  if (isSiteConversationId(conversationId)) {
+    if (idempotencyMessageId) {
+      const [existingMsg] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(eq(messages.tenantId, tenantId), eq(messages.id, idempotencyMessageId)))
+        .limit(1);
+      if (existingMsg) {
+        return { sent: true, messageId: existingMsg.id };
+      }
+    }
+    const delivered = await deliverSiteBotFragment({
+      tenantId,
+      conversationId,
+      text: cleanText,
+      senderName: botSenderName,
+    });
+    return { sent: true, messageId: delivered.id };
+  }
+
+  const provider =
+    persona.triagePolicy === "industrial"
+      ? await resolveConfiguredWhatsappProvider(tenantId)
+      : await resolveTenantActiveProvider(tenantId);
+
+  if (!provider) {
+    return { sent: false, reason: "channel_not_configured" };
+  }
+
+  let resolvedPhone = (params.phone || "").trim();
+  let recipientUserId: string | undefined;
+  if (conv.contactId) {
+    const [cnt] = await db
+      .select({ phone: contacts.phone, whatsappUserId: contacts.whatsappUserId })
+      .from(contacts)
+      .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)))
+      .limit(1);
+    if (!resolvedPhone && cnt?.phone) resolvedPhone = cnt.phone;
+    if (cnt?.whatsappUserId) recipientUserId = cnt.whatsappUserId;
+  }
+
+  let externalId: string | null = null;
+  let botMessageId =
+    idempotencyMessageId || `bot-sdr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+  if (provider === "meta") {
+    if (!resolvedPhone && !recipientUserId) {
+      return { sent: false, reason: "missing_recipient" };
+    }
+    const sendRes = await metaAdapter.send(tenantId, {
+      tenantId,
+      conversationId,
+      recipientPhone: resolvedPhone,
+      recipientUserId,
+      text: cleanText,
+    });
+    resetMetaTypingThrottle(tenantId, conversationId);
+    if (sendRes.status === "failed" || !sendRes.externalId) {
+      return { sent: false, reason: sendRes.error || "meta_send_failed" };
+    }
+    externalId = sendRes.externalId;
+  } else {
+    if (!resolvedPhone) return { sent: false, reason: "missing_recipient" };
+    const sock = SessionManager.getInstance().getSession(tenantId);
+    const realJid = sock ? await resolveRealJid(sock, resolvedPhone) : null;
+    if (!sock || !realJid) {
+      return { sent: false, reason: "baileys_session_unavailable" };
+    }
+    const sentMsg = await sock.sendMessage(realJid, { text: cleanText });
+    if (sentMsg?.key?.id) {
+      externalId = sentMsg.key.id;
+      if (!idempotencyMessageId) botMessageId = sentMsg.key.id;
+    }
+  }
+
+  const now = new Date();
+  await db
+    .insert(messages)
+    .values({
+      id: botMessageId,
+      tenantId,
+      conversationId,
+      senderType: "bot",
+      senderName: botSenderName,
+      content: cleanText,
+      isInternalNote: false,
+      direction: "outbound",
+      provider,
+      externalId,
+      status: "sent",
+      sentAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
+
+  await db
+    .update(conversations)
+    .set({
+      lastMessageText: cleanText.slice(0, 100),
+      lastMessageTime: now,
+      updatedAt: now,
+    })
+    .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+
+  SessionManager.getInstance().notifyPublic(tenantId, {
+    type: "message",
+    message: {
+      id: botMessageId,
+      conversationId,
+      senderType: "bot",
+      senderName: botSenderName,
+      content: cleanText,
+      sentAt: now,
+      queue: conv.queueState || "automacao",
+      operatorId: conv.operatorId || null,
+    },
+  });
+
+  return { sent: true, messageId: botMessageId };
+}
+
 export async function sendBotCatalogImage(params: {
   tenantId: string;
   conversationId: string;
@@ -73,8 +260,15 @@ export async function sendBotCatalogImage(params: {
   caption?: string;
 }): Promise<{ sent: boolean; messageId?: string }> {
   const { tenantId, conversationId, phone, imgBuffer, mimeType, fileName, caption = "" } = params;
-  const provider = await resolveTenantActiveProvider(tenantId);
   const persona = getAiPersona(tenantId);
+  const provider =
+    persona.triagePolicy === "industrial"
+      ? await resolveConfiguredWhatsappProvider(tenantId)
+      : await resolveTenantActiveProvider(tenantId);
+  if (!provider) {
+    console.warn(`[SdrChannelSender] Canal WhatsApp não configurado para envio de imagem (${tenantId}).`);
+    return { sent: false };
+  }
   const botSenderName = `${persona.name} (SDR)`;
   const now = new Date();
 

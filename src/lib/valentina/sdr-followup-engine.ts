@@ -1,317 +1,606 @@
-// src/lib/valentina/sdr-followup-engine.ts
-//
-// Motor de Follow-ups Inteligentes Temporizados para Triagens SDR inativas.
-// Roda a cada 60s buscando conversas elegÌveis (valem, sdr, in_progress, sem operador, ˙ltima msg do bot).
-// RÈgua:
-//   followUpStage 0 + silÍncio >= 6min  ? Follow-up 1: texto consultivo Gemini
-//   followUpStage 1 + silÍncio >= 15min ? Follow-up 2: texto consultivo Gemini
-//   followUpStage 2 + silÍncio >= 20min ? Follow-up 3: ·udio ElevenLabs + ligaÁ„o Twilio em 15s
-
+import { runtimeSingleton } from "../runtime-singleton";
 import { db } from "../../db";
-import { agentFlowStates, conversations, messages } from "../../db/schema";
-import { eq, desc, asc } from "drizzle-orm";
+import { agentConfigs, agentFlowStates, conversations, messages, contacts } from "../../db/schema";
+import { eq, and, asc, desc, gte, ne, isNull, sql } from "drizzle-orm";
 import { vertexAi } from "../vertex-ai";
-import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
-import { SdrEngine } from "./sdr-engine";
-
-const FOLLOWUP_INTERVAL_MS = 60_000; // 60 segundos
-const TENANT_ID = "valem"; // Exclusivo para valem ó tecfag permanece inativo
-
-// Tempos de silÍncio em milissegundos
-const SILENCE_FU1_MS = 6 * 60 * 1000;   // 6 minutos
-const SILENCE_FU2_MS = 15 * 60 * 1000;  // 15 minutos
-const SILENCE_FU3_MS = 20 * 60 * 1000;  // 20 minutos
-
-let engineTimer: NodeJS.Timeout | null = null;
+import { SessionManager, resolveRealJid } from "../baileys/session-manager";
+import { resolveTenantActiveProvider, sendBotPresence, sendSdrChannelText } from "./sdr-channel-sender";
+import { getAiPersona, isSdrTenant } from "../ai-persona";
+import { SdrDebouncer } from "./sdr-debouncer";
+import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
+import {
+  parseIndustrialScheduleConfig,
+  isWithinIndustrialSchedule,
+  parseIndustrialSilenceConfig,
+  evaluateIndustrialSilence,
+  buildIndustrialFollowUpText,
+  deterministicIndustrialFollowUpMessageId,
+  selectRecentCycleMessages,
+} from "../triage/industrial-silence-policy";
 
 /**
- * Gera um texto de follow-up personalizado pelo Gemini relendo o histÛrico real da conversa
+ * Motor Aut√¥nomo de Follow-up de Sil√™ncio (Reengajamento Ativo)
+ * - Para tenants legados (`valem` / `triagePolicy === "legacy"`): preserva integralmente os 3 est√°gios (6 min, 15 min, 20 min).
+ * - Para tenants industriais (`triagePolicy === "industrial"`): executa a pol√≠tica de sil√™ncio industrial configur√°vel
+ *   (FU1 25 min, FU2 +20 min, Sem Resposta +30 min ou 20h BRT, resgate parcial no site em 10 min e respeito ao expediente).
  */
-async function generateFollowUpText(
-  conversationId: string,
-  stage: number,
-  collectedData: Record<string, any>
-): Promise<string> {
-  try {
-    const historyMsgs = await db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.sentAt))
-      .limit(30);
+export class SdrFollowupEngine {
+  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private isRunning = false;
 
-    const historyText = historyMsgs
-      .map((m: any) => {
-        const sender = m.senderType === "client" ? "Cliente" : "Valentina";
-        let content = m.content || "";
-        if (content.startsWith("[MEDIA:audio]") && m.mediaInterpretation) {
-          content = `[¡UDIO: "${m.mediaInterpretation}"]`;
+  public static getInstance(): SdrFollowupEngine {
+    return runtimeSingleton("__valem_sdrFollowupEngine", () => new SdrFollowupEngine());
+  }
+
+  public start() {
+    if (this.intervalId) return;
+    console.log("[SdrFollowupEngine] ‚è±Ô∏è Motor de Follow-up de Sil√™ncio iniciado (ciclo: 60s)");
+    this.intervalId = setInterval(() => {
+      this.runFollowupCycle().catch((err) =>
+        console.error("[SdrFollowupEngine] Erro no ciclo de follow-up:", err)
+      );
+    }, 60 * 1000);
+  }
+
+  public stop() {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+
+  public async runFollowupCycle(): Promise<void> {
+    if (this.isRunning) return;
+    this.isRunning = true;
+
+    try {
+      const configs = await db
+        .select()
+        .from(agentConfigs)
+        .where(and(eq(agentConfigs.agentType, "sdr"), eq(agentConfigs.enabled, 1)));
+
+      for (const sdrConfig of configs) {
+        const tenantId = sdrConfig.tenantId;
+        if (!isSdrTenant(tenantId)) continue;
+
+        const persona = getAiPersona(tenantId);
+        const configData = (sdrConfig.config as Record<string, any>) || {};
+
+        if (persona.triagePolicy === "industrial") {
+          await this.runIndustrialSilenceCycle(tenantId, configData);
+        } else {
+          await this.runLegacyFollowupCycle(tenantId);
         }
-        return `${sender}: ${content}`;
-      })
-      .join("\n");
-
-    const dataEntries = Object.entries(collectedData)
-      .filter(([, v]: any) => v?.value)
-      .map(([k, v]: any) => `${k}: ${v.value}`)
-      .join(", ");
-
-    const stageContext = stage === 1
-      ? "Este È o PRIMEIRO follow-up (6 minutos de silÍncio). Seja breve, calorosa e incentivadora. Pode lembrar rapidamente o que foi perguntado e pedir que o cliente responda."
-      : "Este È o SEGUNDO follow-up (15 minutos de silÍncio). Seja emp·tica mas mais direta. Destaque que a cotaÁ„o est· praticamente pronta e sÛ precisa de uma informaÁ„o r·pida. Mencione que agendamentos de entrega costumam ter prazo.";
-
-    const prompt = `VocÍ È Valentina, consultora SDR da Valem V·lvulas e Embalagens. Um lead parou de responder no WhatsApp durante a triagem.
-
-HIST”RICO DA CONVERSA:
-${historyText}
-
-DADOS J¡ COLETADOS:
-${dataEntries || "Nenhum dado coletado ainda"}
-
-INSTRU«√O: ${stageContext}
-
-Gere UMA mensagem de follow-up natural e humanizada, de no m·ximo 2 frases, como se fosse uma pessoa enviando no WhatsApp. N„o use linguagem robÛtica ou de cobranÁa autom·tica. N„o use emojis em excesso. Responda APENAS com o texto da mensagem, sem aspas, sem prefixo.`;
-
-    const result = await vertexAi.generateText(
-      prompt,
-      "gemini-2.0-flash",
-      undefined,
-      {
-        feature: "sdr_agent",
-        tenantId: TENANT_ID,
-        metadata: { conversationId, followUpStage: stage },
       }
-    );
-
-    return result?.trim() || (stage === 1
-      ? "Oi! Tudo bem? Vi que ficou uma informaÁ„o pendente na nossa conversa ó me responde quando puder! ??"
-      : "Ol·! Nossa cotaÁ„o est· praticamente pronta, sÛ preciso de uma informaÁ„o r·pida sua para fechar os detalhes. Pode me responder?"
-    );
-  } catch (err: any) {
-    console.error(`[FollowupEngine] Erro ao gerar texto Gemini (stage ${stage}):`, err?.message);
-    return stage === 1
-      ? "Oi! Tudo bem? Vi que ficou uma informaÁ„o pendente na nossa conversa ó me responde quando puder! ??"
-      : "Ol·! Nossa cotaÁ„o est· praticamente pronta, sÛ preciso de uma informaÁ„o r·pida sua para fechar os detalhes. Pode me responder?";
+    } catch (err: any) {
+      console.error("[SdrFollowupEngine] Erro geral ao verificar conversas em sil√™ncio:", err?.message);
+    } finally {
+      this.isRunning = false;
+    }
   }
-}
 
-/**
- * Busca credenciais Twilio do agentConfig do banco para o tenant valem
- */
-async function getTwilioCredentials(): Promise<{ accountSid?: string; authToken?: string }> {
-  try {
-    const cfg = await db.query.agentConfigs.findFirst({
-      where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, TENANT_ID), dEq(t.agentType, "sdr")),
-    });
-    const configData = (cfg?.config as Record<string, any>) || {};
-    return {
-      accountSid: configData.twilioAccountSid || configData.twilioSid,
-      authToken: configData.twilioAuthToken || configData.twilioToken,
-    };
-  } catch {
-    return {};
-  }
-}
+  /**
+   * Ciclo de sil√™ncio industrial (Fagner / tenants com triagePolicy === "industrial")
+   */
+  public async runIndustrialSilenceCycle(
+    tenantId: string,
+    configData: Record<string, any> = {},
+    nowOverride?: Date,
+  ): Promise<void> {
+    const silenceCfg = parseIndustrialSilenceConfig(configData);
+    if (!silenceCfg.enabled) return;
 
-/**
- * Executa um ciclo de varredura buscando conversas elegÌveis para follow-up
- */
-async function runFollowupCycle() {
-  try {
-    // Buscar agentFlowStates elegÌveis:
-    // tenant = valem | agentType = sdr | outcome = in_progress
-    const eligibleStates = await db.query.agentFlowStates.findMany({
-      where: (t, { eq: dEq, and: dAnd }) =>
-        dAnd(
-          dEq(t.tenantId, TENANT_ID),
-          dEq(t.agentType, "sdr"),
-          dEq(t.outcome as any, "in_progress")
+    const now = nowOverride || new Date();
+    const scheduleCfg = parseIndustrialScheduleConfig(configData);
+    const withinSchedule = isWithinIndustrialSchedule(now, scheduleCfg);
+    const persona = getAiPersona(tenantId);
+
+    const activeFlows = await db
+      .select()
+      .from(agentFlowStates)
+      .where(
+        and(
+          eq(agentFlowStates.tenantId, tenantId),
+          eq(agentFlowStates.agentType, "sdr"),
+          eq(agentFlowStates.outcome, "in_progress"),
+          isNull(agentFlowStates.completedAt),
         ),
-    });
+      );
 
-    if (!eligibleStates.length) return;
-
-    const now = Date.now();
-
-    for (const flowState of eligibleStates) {
+    for (const flow of activeFlows) {
       try {
-        const conversationId = flowState.conversationId;
-
-        // Verificar se a conversa j· tem operador alocado (Valentina deve silenciar)
-        const conv = await db.query.conversations.findFirst({
-          where: (t, { eq: dEq }) => dEq(t.id, conversationId),
-        });
-
-        if (!conv || conv.operatorId || conv.queueState === "meus" || conv.queueState === "finalizados") {
+        if (SdrDebouncer.getInstance().isBusy(flow.conversationId)) {
           continue;
         }
 
-        // ⁄ltima mensagem da conversa
-        const [lastMsg] = await db
+        const [conv] = await db
           .select()
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.id, flow.conversationId),
+              eq(conversations.tenantId, tenantId),
+            ),
+          );
+
+        const rawCycleMsgs = await db
+          .select({
+            id: messages.id,
+            senderType: messages.senderType,
+            sentAt: messages.sentAt,
+            content: messages.content,
+          })
           .from(messages)
-          .where(eq(messages.conversationId, conversationId))
-          .orderBy(desc(messages.sentAt))
-          .limit(1);
+          .where(
+            and(
+              eq(messages.tenantId, tenantId),
+              eq(messages.conversationId, flow.conversationId),
+              ne(messages.content, "!reset"),
+              ...(flow.startedAt ? [gte(messages.sentAt, flow.startedAt)] : []),
+            ),
+          )
+          .orderBy(desc(messages.sentAt), desc(messages.id))
+          .limit(40);
 
-        if (!lastMsg) continue;
+        const cycleMsgs = selectRecentCycleMessages(rawCycleMsgs, flow.startedAt || null, 40);
+        const collectedData = (flow.collectedData as Record<string, any>) || {};
+        const meta = (flow.metadata as Record<string, any>) || {};
 
-        // Se ˙ltima mensagem foi do cliente, n„o h· silÍncio ó pular
-        if (lastMsg.senderType === "client") continue;
-
-        const silenceMs = now - new Date(lastMsg.sentAt).getTime();
-        const meta = (flowState.metadata as Record<string, any>) || {};
-        const followUpStage: number = meta.followUpStage ?? 0;
-
-        // N„o reprocessar se ligaÁ„o j· foi disparada
-        if (meta.callTriggered && followUpStage >= 3) continue;
-
-        const collectedData = (flowState.collectedData as Record<string, any>) || {};
-
-        // Buscar telefone do cliente
-        const contactRecord = await db.query.contacts.findFirst({
-          where: (t, { eq: dEq }) => dEq(t.id, conv.contactId),
+        const decision = evaluateIndustrialSilence({
+          now,
+          withinSchedule,
+          flow: {
+            id: flow.id,
+            tenantId,
+            conversationId: flow.conversationId,
+            startedAt: flow.startedAt,
+            lastInteractionAt: flow.lastInteractionAt,
+            outcome: flow.outcome,
+            completedAt: flow.completedAt,
+            followUpStage: Number(meta.followUpStage || 0),
+            collectedData,
+            metadata: meta,
+          },
+          conversation: conv
+            ? {
+                id: conv.id,
+                queueState: conv.queueState,
+                operatorId: conv.operatorId,
+                contactId: conv.contactId,
+              }
+            : null,
+          recentMessages: cycleMsgs,
+          config: silenceCfg,
         });
-        const contactPhone = contactRecord?.phone;
-        if (!contactPhone) continue;
 
-        // -- R…GUA DE FOLLOW-UP ----------------------------------------------
-
-        if (followUpStage === 0 && silenceMs >= SILENCE_FU1_MS) {
-          console.log(`[FollowupEngine] ?? Follow-up 1 (6min) ó conversa ${conversationId}`);
-
-          const text = await generateFollowUpText(conversationId, 1, collectedData);
-
-          const { SessionManager, resolveRealJid } = await import("../baileys/session-manager");
-          const sock = SessionManager.getInstance().getSession(TENANT_ID);
-          if (!sock) continue;
-
-          const realJid = await resolveRealJid(sock, contactPhone);
-          await sock.sendMessage(realJid, { text });
-
-          const msgId = `fu1-${Date.now()}`;
-          await db.insert(messages).values({
-            id: msgId,
-            tenantId: TENANT_ID,
-            conversationId,
-            senderType: "bot",
-            senderName: "Valentina (SDR)",
-            content: text,
-            isInternalNote: false,
-            sentAt: new Date(),
-          }).onConflictDoNothing();
-
-          await db.update(conversations)
-            .set({ lastMessageText: text.slice(0, 100), lastMessageTime: new Date() })
-            .where(eq(conversations.id, conversationId));
-
-          SessionManager.getInstance().notifyPublic(TENANT_ID, {
-            type: "message",
-            message: { id: msgId, conversationId, senderType: "bot", senderName: "Valentina (SDR)", content: text, sentAt: new Date(), queue: conv.queueState || "automacao", operatorId: null },
-          });
-
-          await db.update(agentFlowStates)
-            .set({ metadata: { ...meta, followUpStage: 1 }, lastInteractionAt: new Date() })
-            .where(eq(agentFlowStates.id, flowState.id));
-
-          console.log(`[FollowupEngine] ? FU1 enviado para ${contactPhone}: "${text.slice(0, 60)}..."`);
-
-        } else if (followUpStage === 1 && silenceMs >= SILENCE_FU2_MS) {
-          console.log(`[FollowupEngine] ?? Follow-up 2 (15min) ó conversa ${conversationId}`);
-
-          const text = await generateFollowUpText(conversationId, 2, collectedData);
-
-          const { SessionManager, resolveRealJid } = await import("../baileys/session-manager");
-          const sock = SessionManager.getInstance().getSession(TENANT_ID);
-          if (!sock) continue;
-
-          const realJid = await resolveRealJid(sock, contactPhone);
-          await sock.sendMessage(realJid, { text });
-
-          const msgId = `fu2-${Date.now()}`;
-          await db.insert(messages).values({
-            id: msgId,
-            tenantId: TENANT_ID,
-            conversationId,
-            senderType: "bot",
-            senderName: "Valentina (SDR)",
-            content: text,
-            isInternalNote: false,
-            sentAt: new Date(),
-          }).onConflictDoNothing();
-
-          await db.update(conversations)
-            .set({ lastMessageText: text.slice(0, 100), lastMessageTime: new Date() })
-            .where(eq(conversations.id, conversationId));
-
-          SessionManager.getInstance().notifyPublic(TENANT_ID, {
-            type: "message",
-            message: { id: msgId, conversationId, senderType: "bot", senderName: "Valentina (SDR)", content: text, sentAt: new Date(), queue: conv.queueState || "automacao", operatorId: null },
-          });
-
-          await db.update(agentFlowStates)
-            .set({ metadata: { ...meta, followUpStage: 2 }, lastInteractionAt: new Date() })
-            .where(eq(agentFlowStates.id, flowState.id));
-
-          console.log(`[FollowupEngine] ? FU2 enviado para ${contactPhone}: "${text.slice(0, 60)}..."`);
-
-        } else if (followUpStage === 2 && silenceMs >= SILENCE_FU3_MS) {
-          console.log(`[FollowupEngine] ?? Follow-up 3 (20min) ó ·udio + ligaÁ„o para ${conversationId}`);
-
-          const clientName = collectedData["NOME COMPLETO"]?.value || "cliente";
-          const product = collectedData["QUAL O TIPO DE PRODUTO?"]?.value || "embalagens";
-          const announceText = `${clientName}, vi que vocÍ ficou com uma d˙vida sobre ${product}! Para facilitar, vou te ligar agora rapidinho pra gente fechar os detalhes!`;
-
-          // Enviar ·udio din‚mico ElevenLabs via SdrEngine
-          const sdrEngine = SdrEngine.getInstance();
-          await (sdrEngine as any).sendDynamicPttAudio(TENANT_ID, conversationId, contactPhone, announceText, undefined);
-
-          // Aguardar 15s antes de ligar
-          await new Promise((r) => setTimeout(r, 15_000));
-
-          const creds = await getTwilioCredentials();
-          const callRes = await triggerOutboundCallInternal({
-            phone: contactPhone,
-            accountSid: creds.accountSid,
-            authToken: creds.authToken,
-          });
-
-          console.log(`[FollowupEngine] ?? Chamada disparada (FU3)! Sucesso: ${callRes.success} | CallSid: ${callRes.callSid || "N/A"}`);
-
-          await db.update(agentFlowStates)
-            .set({ metadata: { ...meta, followUpStage: 3, callTriggered: true }, lastInteractionAt: new Date() })
-            .where(eq(agentFlowStates.id, flowState.id));
+        if (decision.action === "none") {
+          continue;
         }
 
-      } catch (innerErr: any) {
-        console.error(`[FollowupEngine] Erro ao processar conversa ${flowState.conversationId}:`, innerErr?.message);
+        if (decision.action === "cancel_by_human") {
+          await db
+            .update(agentFlowStates)
+            .set({
+              metadata: { ...meta, followUpStage: 0 },
+              outcome: conv?.queueState === "meus" ? "transferred" : "abandoned",
+              completedAt: now,
+              lastInteractionAt: now,
+            })
+            .where(
+              and(
+                eq(agentFlowStates.id, flow.id),
+                eq(agentFlowStates.tenantId, tenantId),
+                eq(agentFlowStates.outcome, "in_progress"),
+                isNull(agentFlowStates.completedAt),
+              ),
+            );
+          continue;
+        }
+
+        if (decision.action === "reset_followup") {
+          const resetMeta = { ...meta, followUpStage: 0 };
+          await db
+            .update(agentFlowStates)
+            .set({
+              metadata: resetMeta,
+            })
+            .where(
+              and(
+                eq(agentFlowStates.id, flow.id),
+                eq(agentFlowStates.tenantId, tenantId),
+                eq(agentFlowStates.outcome, "in_progress"),
+                isNull(agentFlowStates.completedAt),
+              ),
+            );
+          continue;
+        }
+
+        // Resolver telefone do contato para resgate parcial ou envio WhatsApp
+        let contactPhone = "";
+        if (conv?.contactId) {
+          const [cnt] = await db
+            .select({ phone: contacts.phone })
+            .from(contacts)
+            .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)))
+            .limit(1);
+          contactPhone = cnt?.phone || conv.contactId.replace(/^c-/, "");
+        }
+
+        let partialLeadRescuedAt: string | undefined;
+        if (decision.rescuePartialLead) {
+          try {
+            await ensureLocalCrmDealBeforeTransfer({
+              tenantId,
+              conversationId: flow.conversationId,
+              contactId: conv?.contactId || null,
+              contactPhone,
+              targetFunnel: String(meta.targetFunnel || "M√°quinas"),
+              funnelStage: String(meta.funnelStage || "triagem"),
+              collectedData,
+              allocatedOperator: null,
+            });
+            partialLeadRescuedAt = now.toISOString();
+          } catch (rescueErr: any) {
+            console.warn(
+              `[SdrFollowupEngine] Aviso ao resgatar lead parcial (${flow.conversationId}):`,
+              rescueErr?.message,
+            );
+          }
+        }
+
+        const cycleIso = flow.startedAt ? flow.startedAt.toISOString() : "cycle-0";
+
+        if (decision.action === "send_followup" && (decision.nextStage === 1 || decision.nextStage === 2)) {
+          const prevStage = Number(meta.followUpStage ?? 0);
+          const nextMeta = {
+            ...meta,
+            followUpStage: decision.nextStage,
+            lastFollowUpCycle: cycleIso,
+            lastFollowUpStage: decision.nextStage,
+            lastFollowUpAt: now.toISOString(),
+            ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
+          };
+
+          const claimed = await db
+            .update(agentFlowStates)
+            .set({
+              metadata: nextMeta,
+              lastInteractionAt: now,
+            })
+            .where(
+              and(
+                eq(agentFlowStates.id, flow.id),
+                eq(agentFlowStates.tenantId, tenantId),
+                eq(agentFlowStates.outcome, "in_progress"),
+                isNull(agentFlowStates.completedAt),
+                sql`COALESCE((${agentFlowStates.metadata}->>'followUpStage')::int, 0) = ${prevStage}`,
+              ),
+            )
+            .returning({ id: agentFlowStates.id });
+
+          if (claimed.length === 0) {
+            continue;
+          }
+
+          const followUpText = buildIndustrialFollowUpText({
+            personaName: persona.name,
+            stage: decision.nextStage,
+            collectedData,
+            metadata: meta,
+          });
+          const msgId = deterministicIndustrialFollowUpMessageId(
+            tenantId,
+            flow.id,
+            cycleIso,
+            decision.nextStage,
+          );
+
+          const sendResult = await sendSdrChannelText({
+            tenantId,
+            conversationId: flow.conversationId,
+            phone: contactPhone,
+            text: followUpText,
+            idempotencyMessageId: msgId,
+            expectedOperatorId: null,
+          });
+
+          if (!sendResult.sent) {
+            // Reverter claim caso o envio tenha falhado por indisponibilidade tempor√°ria do canal
+            await db
+              .update(agentFlowStates)
+              .set({
+                metadata: {
+                  ...meta,
+                  followUpStage: prevStage,
+                  ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
+                },
+                lastInteractionAt: flow.lastInteractionAt,
+              })
+              .where(and(eq(agentFlowStates.id, flow.id), eq(agentFlowStates.tenantId, tenantId)));
+          }
+          continue;
+        }
+
+        if (decision.action === "mark_no_response") {
+          const currentFunnelStage =
+            typeof meta.funnelStage === "string" && meta.funnelStage.trim()
+              ? meta.funnelStage.trim()
+              : "triagem";
+          const preSilenceStage =
+            currentFunnelStage !== "sem_resposta"
+              ? currentFunnelStage
+              : typeof meta.preSilenceFunnelStage === "string" && meta.preSilenceFunnelStage.trim()
+                ? meta.preSilenceFunnelStage.trim()
+                : "triagem";
+
+          const abandonedMeta = {
+            ...meta,
+            followUpStage: 3,
+            preSilenceFunnelStage: preSilenceStage,
+            funnelStage: "sem_resposta",
+            noResponseAt: now.toISOString(),
+            noResponseReason: decision.reason,
+            ...(partialLeadRescuedAt ? { partialLeadRescuedAt } : {}),
+          };
+
+          const updatedAbandoned = await db
+            .update(agentFlowStates)
+            .set({
+              currentStep: "Sem Resposta",
+              outcome: "abandoned",
+              metadata: abandonedMeta,
+              lastInteractionAt: now,
+            })
+            .where(
+              and(
+                eq(agentFlowStates.id, flow.id),
+                eq(agentFlowStates.tenantId, tenantId),
+                eq(agentFlowStates.outcome, "in_progress"),
+                isNull(agentFlowStates.completedAt),
+              ),
+            )
+            .returning({ id: agentFlowStates.id });
+
+          if (updatedAbandoned.length > 0) {
+            SessionManager.getInstance().notifyPublic(tenantId, {
+              type: "sdr_flow_updated",
+              conversationId: flow.conversationId,
+              funnelStage: "sem_resposta",
+              targetFunnel: (meta.targetFunnel as string) || null,
+              outcome: "abandoned",
+            });
+          }
+        }
+      } catch (flowErr: any) {
+        console.error(
+          `[SdrFollowupEngine] Erro ao processar sil√™ncio industrial da conversa ${flow.conversationId}:`,
+          flowErr?.message,
+        );
       }
     }
-  } catch (err: any) {
-    console.error("[FollowupEngine] Erro no ciclo de varredura:", err?.message || err);
   }
-}
 
-/**
- * Inicializa o motor de follow-up (chamar no startup da aplicaÁ„o)
- */
-export function startSdrFollowupEngine() {
-  if (engineTimer) {
-    console.log("[FollowupEngine] ?? Engine j· est· rodando. Ignorando segunda inicializaÁ„o.");
-    return;
-  }
-  console.log(`[FollowupEngine] ?? Motor de Follow-ups SDR iniciado. Varredura a cada ${FOLLOWUP_INTERVAL_MS / 1000}s.`);
-  void runFollowupCycle();
-  engineTimer = setInterval(runFollowupCycle, FOLLOWUP_INTERVAL_MS);
-}
+  /**
+   * Ciclo legado de follow-up (Valentina / Valem: 6 min, 15 min, 20 min) ‚Äî preservado sem altera√ß√µes
+   */
+  private async runLegacyFollowupCycle(tenantId: string): Promise<void> {
+    const activeProvider = await resolveTenantActiveProvider(tenantId);
+    const sock = SessionManager.getInstance().getSession(tenantId);
+    if (activeProvider === "baileys" && !sock) return;
 
-/**
- * Para o motor de follow-up (˙til para testes)
- */
-export function stopSdrFollowupEngine() {
-  if (engineTimer) {
-    clearInterval(engineTimer);
-    engineTimer = null;
-    console.log("[FollowupEngine] Motor de Follow-ups SDR parado.");
+    const persona = getAiPersona(tenantId);
+
+    const activeFlows = await db
+      .select()
+      .from(agentFlowStates)
+      .where(
+        and(
+          eq(agentFlowStates.tenantId, tenantId),
+          eq(agentFlowStates.agentType, "sdr"),
+          eq(agentFlowStates.outcome, "in_progress"),
+          isNull(agentFlowStates.completedAt)
+        )
+      );
+
+    for (const flow of activeFlows) {
+      try {
+        const meta = (flow.metadata as Record<string, any>) || {};
+        const currentStage = Number(meta.followUpStage || 0);
+        if (currentStage >= 3) continue;
+
+        const [conv] = await db
+          .select()
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.id, flow.conversationId),
+              eq(conversations.tenantId, tenantId)
+            )
+          );
+
+        if (!conv || conv.operatorId || conv.queueState === "meus" || conv.queueState === "finalizados") {
+          await db
+            .update(agentFlowStates)
+            .set({
+              outcome: conv?.queueState === "meus" ? "transferred" : "abandoned",
+              completedAt: new Date(),
+            })
+            .where(and(eq(agentFlowStates.id, flow.id), eq(agentFlowStates.tenantId, tenantId)));
+          continue;
+        }
+
+        const recentMsgs = await db
+          .select()
+          .from(messages)
+          .where(
+            and(
+              eq(messages.tenantId, tenantId),
+              eq(messages.conversationId, flow.conversationId),
+              ne(messages.content, "!reset"),
+              ...(flow.startedAt ? [gte(messages.sentAt, flow.startedAt)] : [])
+            )
+          )
+          .orderBy(asc(messages.sentAt))
+          .limit(30);
+
+        if (recentMsgs.length === 0) continue;
+
+        const lastMsg = recentMsgs[recentMsgs.length - 1];
+        if (lastMsg.senderType === "client") {
+          if (currentStage > 0) {
+            await db
+              .update(agentFlowStates)
+              .set({ metadata: { ...meta, followUpStage: 0 } })
+              .where(and(eq(agentFlowStates.id, flow.id), eq(agentFlowStates.tenantId, tenantId)));
+          }
+          continue;
+        }
+
+        const silenceMinutes = (Date.now() - new Date(lastMsg.sentAt).getTime()) / 60000;
+
+        let targetStage = 0;
+        if (currentStage === 0 && silenceMinutes >= 6) targetStage = 1;
+        else if (currentStage === 1 && silenceMinutes >= 9) targetStage = 2;
+        else if (currentStage === 2 && silenceMinutes >= 5) targetStage = 3;
+
+        if (targetStage === 0) continue;
+
+        const contactPhone = (conv.contactId || "").replace(/^c-/, "");
+        let recipientUserId: string | undefined;
+        let resolvedPhone = contactPhone;
+        try {
+          if (conv.contactId) {
+            const [cnt] = await db
+              .select({ whatsappUserId: contacts.whatsappUserId, phone: contacts.phone })
+              .from(contacts)
+              .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)))
+              .limit(1);
+            if (cnt?.whatsappUserId) recipientUserId = cnt.whatsappUserId;
+            if (cnt?.phone) resolvedPhone = cnt.phone;
+          }
+        } catch {}
+
+        const realJid = sock ? await resolveRealJid(sock, resolvedPhone) : null;
+        if (activeProvider === "baileys" && !realJid) continue;
+
+        const collectedData = (flow.collectedData as Record<string, any>) || {};
+        const clientName = collectedData["NOME COMPLETO"]?.value || "";
+        const historySnippet = recentMsgs
+          .slice(-8)
+          .map((m) => `[${m.senderType === "client" ? "Cliente" : persona.name}]: ${m.content}`)
+          .join("\n");
+
+        let stageInstruction = "";
+        if (targetStage === 1) {
+          stageInstruction = `EST√ÅGIO 1 (6 minutos de sil√™ncio): Envie um toque super leve, natural e prestativo perguntando se o cliente conseguiu ver a √∫ltima mensagem ou se ficou alguma d√∫vida. Sem cobrar.`;
+        } else if (targetStage === 2) {
+          stageInstruction = `EST√ÅGIO 2 (15 minutos de sil√™ncio): Ofere√ßa ajuda ativa de forma consultiva (ex: se ele estiver sem o CNPJ ou dado em m√£os agora, diga que pode anotar o que ele souber de cabe√ßa para j√° ir adiantando com o especialista).`;
+        } else {
+          stageInstruction = `EST√ÅGIO 3 (20 minutos de sil√™ncio ‚Äî PAUSA ELEGANTE): Diga com muita simpatia que vai deixar o atendimento em aberto para n√£o incomodar, e que assim que ele puder responder √© s√≥ mandar mensagem aqui que voc√™ retoma na hora.`;
+        }
+
+        const prompt = `Voc√™ √© ${persona.gender === "female" ? "a" : "o"} ${persona.name}, consultor(a) de pr√©-vendas da ${persona.company}.
+O cliente est√° em sil√™ncio no WhatsApp h√° alguns minutos ap√≥s a sua √∫ltima pergunta.
+
+NOME DO CLIENTE (se j√° souber): ${clientName || "Ainda n√£o informado"}
+√öLTIMAS MENSAGENS DA CONVERSA:
+${historySnippet}
+
+MISS√ÉO (${stageInstruction}):
+Gere APENAS 1 frase curta, ultra natural de WhatsApp (m√°ximo 160 caracteres), sem aspas, sem emojis repetitivos, sem parecer rob√¥ cobrando resposta.`;
+
+        const followupText = (
+          await vertexAi.generateText(prompt, "gemini-2.5-flash", undefined, {
+            feature: "sdr_agent",
+            tenantId,
+            metadata: { conversationId: flow.conversationId, followupStage: targetStage },
+          })
+        ).trim();
+
+        if (!followupText) continue;
+
+        await sendBotPresence(tenantId, flow.conversationId, resolvedPhone, "composing");
+        await new Promise((r) => setTimeout(r, 2500));
+
+        const botSenderName = `${persona.name} (SDR)`;
+        let botMessageId = `bot-fup-${Date.now()}`;
+        let externalId: string | null = null;
+
+        if (activeProvider === "meta" || !sock || !realJid) {
+          const { metaAdapter } = await import("../whatsapp/adapters/meta");
+          const sendRes = await metaAdapter.send(tenantId, {
+            tenantId,
+            conversationId: flow.conversationId,
+            recipientPhone: resolvedPhone,
+            recipientUserId,
+            text: followupText,
+          });
+          if (sendRes.status === "failed" || !sendRes.externalId) {
+            console.error(`[SdrFollowupEngine] ‚ùå Falha ao enviar follow-up via Meta: ${sendRes.error}`);
+            continue;
+          }
+          externalId = sendRes.externalId;
+        } else {
+          const sentMsg = await sock.sendMessage(realJid, { text: followupText });
+          if (sentMsg?.key?.id) botMessageId = sentMsg.key.id;
+        }
+
+        const now = new Date();
+        await db.insert(messages).values({
+          id: botMessageId,
+          tenantId,
+          conversationId: flow.conversationId,
+          senderType: "bot",
+          senderName: botSenderName,
+          content: followupText,
+          isInternalNote: false,
+          direction: "outbound",
+          provider: activeProvider,
+          externalId,
+          status: "sent",
+          sentAt: now,
+        }).onConflictDoNothing();
+
+        await db
+          .update(conversations)
+          .set({ lastMessageText: followupText, lastMessageTime: now })
+          .where(and(eq(conversations.id, flow.conversationId), eq(conversations.tenantId, tenantId)));
+
+        const updatedMeta = {
+          ...meta,
+          followUpStage: targetStage,
+          lastFollowUpAt: now.toISOString(),
+        };
+
+        await db
+          .update(agentFlowStates)
+          .set({
+            metadata: updatedMeta,
+            lastInteractionAt: now,
+            ...(targetStage === 3 ? { currentStep: "Aguardando Retorno (Follow-up 3)" } : {}),
+          })
+          .where(and(eq(agentFlowStates.id, flow.id), eq(agentFlowStates.tenantId, tenantId)));
+
+        SessionManager.getInstance().notifyPublic(tenantId, {
+          type: "message",
+          message: {
+            id: botMessageId,
+            conversationId: flow.conversationId,
+            senderType: "bot",
+            senderName: botSenderName,
+            content: followupText,
+            sentAt: now,
+            queue: "automacao",
+            operatorId: null,
+          },
+        });
+
+        console.log(
+          `[SdrFollowupEngine] üí¨ Follow-up Est√°gio ${targetStage}/3 enviado para ${resolvedPhone} (conversa ${flow.conversationId})`
+        );
+      } catch (flowErr: any) {
+        console.error(`[SdrFollowupEngine] Erro ao processar conversa ${flow.conversationId}:`, flowErr?.message);
+      }
+    }
   }
 }

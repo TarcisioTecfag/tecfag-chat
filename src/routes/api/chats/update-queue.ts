@@ -1,13 +1,14 @@
 import { syncConversationDeals, DEAL_REQUIRED_MESSAGE } from "../../../lib/crm/deal-associations";
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { conversations, contacts, messages, operators, sectors } from "../../../db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { conversations, contacts, messages, operators, sectors, agentFlowStates } from "../../../db/schema";
+import { eq, and, sql, isNull } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { auditService } from "../../../lib/audit-service";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
 import { recordCommercialTransfer } from "../../../lib/commercial/tma";
+import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 
 export const Route = createFileRoute("/api/chats/update-queue")({
   server: {
@@ -237,6 +238,30 @@ export const Route = createFileRoute("/api/chats/update-queue")({
                 });
               }
 
+              // Se saiu da automação em tenant industrial, encerrar/cancelar ciclo de silêncio da IA
+              if (aiPersona.triagePolicy === "industrial" && queueState !== "automacao") {
+                const now = new Date();
+                await tx
+                  .update(agentFlowStates)
+                  .set({
+                    metadata: sql`${agentFlowStates.metadata} || '{"followUpStage":0}'::jsonb`,
+                    ...(queueState === "meus" || queueState === "finalizados"
+                      ? {
+                          outcome: queueState === "meus" ? "transferred" : "abandoned",
+                          completedAt: now,
+                        }
+                      : {}),
+                    lastInteractionAt: now,
+                  })
+                  .where(
+                    and(
+                      eq(agentFlowStates.tenantId, session.tenantId),
+                      eq(agentFlowStates.conversationId, conversationId),
+                      isNull(agentFlowStates.completedAt),
+                    ),
+                  );
+              }
+
               return convResult;
             });
           } catch (err: any) {
@@ -255,6 +280,10 @@ export const Route = createFileRoute("/api/chats/update-queue")({
               );
             }
             throw err;
+          }
+
+          if (queueState !== "automacao") {
+            SdrDebouncer.getInstance().clearSession(conversationId);
           }
 
           if (conv.operatorId !== targetOpId || conv.queueState !== queueState) {
@@ -284,7 +313,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             queueState === "meus" &&
             finalOperatorId &&
             conv.operatorId !== finalOperatorId &&
-            (isTransfer || session.operator.id !== finalOperatorId)
+            session.operator.id !== finalOperatorId
           ) {
             import("../../../lib/valentina/operator-notifications")
               .then(({ notifyOperatorLeadTransferred }) =>
