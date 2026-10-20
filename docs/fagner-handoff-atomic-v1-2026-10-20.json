@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-10-20T13:06:09.352Z",
+  "scope": "Transferência industrial local, concorrência e recuperação; não homologa o porte completo ou a comunicação real.",
+  "postgres": {
+    "suite": "industrial-handoff-postgres",
+    "passed": 18,
+    "database": "industrial_triage_test",
+    "isolatedSchema": "triage_afd7198f99864f52addc9ad8183ec05a",
+    "version": "18.1",
+    "loopbackOnly": true,
+    "privateSchemaRemoved": true,
+    "temporaryInstanceStopped": true,
+    "command": "bun --no-env-file test/industrial-handoff-postgres.test.ts",
+    "cases": [
+      "12 execuções simultâneas do mesmo ciclo geram 1 atribuição, 1 card e 1 contagem",
+      "10 conversas concorrentes mantêm contagens e distribuição equilibradas; operador de outro tenant é excluído",
+      "falha DEPOIS do card, atribuição e carteira reverte todos os efeitos; retry cria uma vez",
+      "card criado e erro propagado pelo helper externo é revertido com a transação",
+      "checkpoint persiste entre instâncias e é recuperado sem cliente enviar outra mensagem",
+      "tomada humana durante a transação espera pelo lock e não é sobrescrita no replay",
+      "tomada humana ANTES do commit impede card e sorteio",
+      "tenant falso, ciclo antigo e SDR desativado não atribuem",
+      "cancelamento após criação do CRM reverte e mantém checkpoint",
+      "edição de configuração antiga não apaga contagens; alterações concorrentes de saldo são acumuladas",
+      "falta de equipe mantém pendência; recuperação respeita backoff e retoma quando configurada",
+      "informativo encerra com recibo sem card; pedido humano transfere sem card",
+      "sem funil CRM configurado não cria fallback nem transfere",
+      "whitelist impede atribuição fora do telefone autorizado",
+      "dois workers concorrentes recuperam um checkpoint uma única vez",
+      "novo ciclo reutiliza card da mesma pessoa em até 3h; depois de 3h cria outro",
+      "recuperação ignora fluxo antigo quando há ciclo mais recente na conversa",
+      "operador duplicado na configuração não conta duas vezes nem cria card parcial"
+    ]
+  },
+  "validation": {
+    "policyTests": {
+      "passed": 84,
+      "failed": 0
+    },
+    "build": "passed",
+    "focusedLint": "passed",
+    "focusedTypeDiagnostics": 0,
+    "globalTypeCheck": "failed",
+    "globalDiagnosticCountAtSnapshot": 34
+  },
+  "productionDatabaseAccess": false,
+  "deploymentPerformed": false,
+  "sourceHashes": [
+    {
+      "path": "src/lib/triage/industrial-handoff-store.ts",
+      "sha256": "9e5f18f6651a5045956d5cad24239017c7886b4607403be4ec1f3d0c737b464d"
+    },
+    {
+      "path": "src/lib/triage/industrial-rodizio-store.ts",
+      "sha256": "5b77e7ade3a6600236973127bc6436a146bbde0a8ce48f8c09ead723f0818bea"
+    },
+    {
+      "path": "src/lib/triage/industrial-handoff-recovery.ts",
+      "sha256": "f0eadbd2be31d5fd5bf80e2b64fddf632813b1bcf9eea28b03b1ec9a0f341f19"
+    },
+    {
+      "path": "src/lib/valentina/sdr-engine.ts",
+      "sha256": "bbdfba780b55b4be8510858dce9f71d244610c8576145b5ad1f3ae815bbeaf94"
+    },
+    {
+      "path": "src/lib/valentina/sdr-recovery.ts",
+      "sha256": "b589262c33e2d33be2b79a23c0cbbf74d89045c500fa7e8910bd5371ff7228dd"
+    },
+    {
+      "path": "src/lib/valentina/rodizio-engine.ts",
+      "sha256": "8661db42507279c322c5650c5661753b0ac4faddaffc70e642be360377a6af58"
+    },
+    {
+      "path": "src/lib/valentina/sdr-crm-local.ts",
+      "sha256": "707b6d82d63e34a408e229a3a45aaa884505ba0db242835458ecb5e00a535c97"
+    },
+    {
+      "path": "server/plugins/industrial-triage-recovery.ts",
+      "sha256": "6c23579d0a3724ffddaf7c8af057d8eedfa5c4eefede44ee700ece81e35f66f2"
+    },
+    {
+      "path": "test/industrial-handoff-postgres.test.ts",
+      "sha256": "b2bd5609447608e9db69fbb8a559539b18c0571b578ba2bfacf4226d16cbd7eb"
+    },
+    {
+      "path": "test/industrial-triage.test.mjs",
+      "sha256": "6d0cca1e5c3db2b37a6ee6c0fbaa3d17cb85ce65f7af0d91487e4ea32043173c"
+    },
+    {
+      "path": "package.json",
+      "sha256": "b14728bfe262ef6311b6b24040bf52dbcd4b93db621beb3c0ebbb58208945cc3"
+    }
+  ]
+}

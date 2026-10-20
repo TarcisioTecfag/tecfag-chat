@@ -1,0 +1,160 @@
+{
+  "generatedAt": "2026-10-20T13:38:51.291Z",
+  "policyVersion": "industrial-v2",
+  "scope": "Catálogo e Decisor industriais, configuração administrativa e destinos por ID; não homologa o porte completo.",
+  "postgres": {
+    "suite": "industrial-handoff-postgres",
+    "passed": 28,
+    "database": "industrial_triage_test",
+    "isolatedSchema": "triage_370ffae34bb344669b9b962dbf1e08d7",
+    "version": "18.1",
+    "loopbackOnly": true,
+    "privateSchemaRemoved": true,
+    "temporaryInstanceStopped": true,
+    "cases": [
+      "12 execuções simultâneas do mesmo ciclo geram 1 atribuição, 1 card e 1 contagem",
+      "10 conversas concorrentes mantêm contagens e distribuição equilibradas; operador de outro tenant é excluído",
+      "falha DEPOIS do card, atribuição e carteira reverte todos os efeitos; retry cria uma vez",
+      "card criado e erro propagado pelo helper externo é revertido com a transação",
+      "checkpoint persiste entre instâncias e é recuperado sem cliente enviar outra mensagem",
+      "tomada humana durante a transação espera pelo lock e não é sobrescrita no replay",
+      "tomada humana ANTES do commit impede card e sorteio",
+      "tenant falso, ciclo antigo e SDR desativado não atribuem",
+      "cancelamento após criação do CRM reverte e mantém checkpoint",
+      "edição de configuração antiga não apaga contagens; alterações concorrentes de saldo são acumuladas",
+      "falta de equipe mantém pendência; recuperação respeita backoff e retoma quando configurada",
+      "informativo encerra com recibo sem card; pedido humano transfere sem card",
+      "sem funil CRM configurado não cria fallback nem transfere",
+      "whitelist impede atribuição fora do telefone autorizado",
+      "dois workers concorrentes recuperam um checkpoint uma única vez",
+      "novo ciclo reutiliza card da mesma pessoa em até 3h; depois de 3h cria outro",
+      "recuperação ignora fluxo antigo quando há ciclo mais recente na conversa",
+      "operador duplicado na configuração não conta duas vezes nem cria card parcial",
+      "renomear funil e etapa não altera destino vinculado por ID",
+      "destinos de outro tenant e etapa final são rejeitados sem alterar revisão",
+      "duas edições concorrentes da configuração não sobrescrevem uma à outra",
+      "alterar etapa para encerramento durante a pendência bloqueia transferência e mantém checkpoint",
+      "autorização no funil sem participação no setor não permite atribuição",
+      "checkpoint comercial sem Decisor confirmado segue à revisão sem criar negociação",
+      "mudança de catálogo entre decisão e commit invalida a evidência anterior",
+      "troca apenas de destino preserva prova de catálogo e usa o novo setor por ID",
+      "funil estrangeiro e etapa de outro funil não são aceitos na configuração",
+      "família bloqueada chega ao setor de revisão com coleta incompleta e sem card"
+    ]
+  },
+  "validation": {
+    "pureTests": 125,
+    "pureSuites": 8,
+    "build": "passed",
+    "focusedLint": "passed",
+    "focusedTypeDiagnostics": 0,
+    "globalTypeCheck": "failed",
+    "globalDiagnosticCountAtSnapshot": 34
+  },
+  "catalogDraft": {
+    "file": "docs/fagner-catalog-legacy-draft-2026-10-20.json",
+    "sourceKind": "legacy_seed_file_not_live_export",
+    "sourceSha256": "7949fccfa995af72bad1c83b6bf47fa6a5cf040f9675069e16fec501a563cf4c",
+    "total": 1037,
+    "semiIndustrial": 367,
+    "personnalite": 670,
+    "duplicateCodes": [
+      {
+        "field": "sku",
+        "code": "964",
+        "machineIds": [
+          "catalog-734",
+          "catalog-804"
+        ]
+      },
+      {
+        "field": "sku",
+        "code": "1137",
+        "machineIds": [
+          "catalog-948",
+          "catalog-1008"
+        ]
+      }
+    ],
+    "readyToSave": false,
+    "importedIntoDatabase": false,
+    "sha256": "7269cb0bac1167ff14d060dd4b9cfa40f2c707cd12beac0bf973ddbaed77bcf7"
+  },
+  "productionDatabaseAccess": false,
+  "providerCallsPerformed": false,
+  "deploymentPerformed": false,
+  "sourceHashes": [
+    {
+      "path": "src/lib/triage/industrial-settings.ts",
+      "sha256": "de2972ca8be9f0551d06206f6194ee296d95053d82a1c7c4800a26c89d1818e3"
+    },
+    {
+      "path": "src/lib/triage/industrial-settings-store.ts",
+      "sha256": "0a3fdb3955392ad39ee68f7e53be79492bf32f22d28bc4a58c4ac27ce3600dd6"
+    },
+    {
+      "path": "src/lib/triage/industrial-decisor.ts",
+      "sha256": "00bd14005983eac66c6bebf184c19cec020df9ffc7877ccbe103311408037ef0"
+    },
+    {
+      "path": "src/lib/triage/industrial-decisor-runtime.ts",
+      "sha256": "9971a8e10c84a8abeac687f2fe22e44fdd56ff9ccbfe01f523077dd7d11bbfe3"
+    },
+    {
+      "path": "src/lib/triage/industrial-policy.ts",
+      "sha256": "3483bd29131e3fa41a9498d550a80ae7684992e812c6580624ee7c85f57bb712"
+    },
+    {
+      "path": "src/lib/triage/industrial-handoff-store.ts",
+      "sha256": "6f017e9a006d0e35db6ba1c676f5d8853dc8a39e17c023e8af2186fcfcce1f38"
+    },
+    {
+      "path": "src/lib/valentina/sdr-engine.ts",
+      "sha256": "128d9cdad484100aaaee5422a4a6dc68f2ed23b008c1d347fa7ba7714b3727b1"
+    },
+    {
+      "path": "src/lib/valentina/sdr-crm-local.ts",
+      "sha256": "81dcadaea5c4484021ff822c95e73a53ffd10dc8ea8b157082b5a988b3cf7cc0"
+    },
+    {
+      "path": "src/routes/api/valentina/industrial-settings.ts",
+      "sha256": "723ef6d371eed4ff18f628041a686253690ccdd7c528dfcde6b1bcf748abed7b"
+    },
+    {
+      "path": "src/routes/api/valentina/config.ts",
+      "sha256": "aa08870f7a77b6d64d7e60a52cf19160a24c5e7ff89ec27e3c8a6db15065512a"
+    },
+    {
+      "path": "src/components/valentina/IndustrialTriageSettings.tsx",
+      "sha256": "1e00dfa383517721d3fe9706b7f032d4d64ff2bc4bd729f204148488ecaa429c"
+    },
+    {
+      "path": "src/components/valentina/FluxosTab.tsx",
+      "sha256": "09d6e9a5c471332eb4e46e67ada3a6e7a21bcff84f886d1faefa0e8ec4b23be5"
+    },
+    {
+      "path": "server/plugins/industrial-triage-recovery.ts",
+      "sha256": "ca26e4dc13bb6240f329f85ab56acdb40443fdf96689341282426fd3bfbe2c19"
+    },
+    {
+      "path": "test/industrial-handoff-postgres.test.ts",
+      "sha256": "cf7430f385535839c423a3ec8b5caf4ae5b59b128aece3a95593af18aeab746c"
+    },
+    {
+      "path": "test/industrial-catalog.test.mjs",
+      "sha256": "baaa50cda1d556b71c9bf798e127cdb083e40e42aaa72d0146c78cf310591bf2"
+    },
+    {
+      "path": "scripts/prepare-industrial-catalog.mjs",
+      "sha256": "6c61520fc2bdd1e2826dd18a88e8ff33802ff13363c2e9d2aeab997ea8aa2791"
+    },
+    {
+      "path": "package.json",
+      "sha256": "e0bb7f30ada06f0ea2026853fa68ac418a61c792c757b936646fae6b218c2145"
+    },
+    {
+      "path": "src/routeTree.gen.ts",
+      "sha256": "9e70c9c2d8ab8cd06980841fd0274eb77faab47338e7f9e0185b714a157f7243"
+    }
+  ]
+}

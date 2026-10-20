@@ -1,5 +1,6 @@
-import { and, asc, eq, sql } from "drizzle-orm";
-import { agentFlowStates, tenants } from "../../db/schema";
+import { and, asc, eq, gt, notExists, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { agentConfigs, agentFlowStates, tenants } from "../../db/schema";
 import type { IndustrialDatabase } from "./industrial-rodizio-store";
 import type {
   createIndustrialHandoffStore,
@@ -16,8 +17,21 @@ export async function recoverIndustrialHandoffs(params: {
 }) {
   const tenantRows = await params.database.select({ id: tenants.id }).from(tenants);
   let recovered = 0;
+  const newer = alias(agentFlowStates, "newer_industrial_flow");
   for (const tenant of tenantRows) {
     if (!params.isIndustrialTenant(tenant.id)) continue;
+    const [enabled] = await params.database
+      .select({ id: agentConfigs.id })
+      .from(agentConfigs)
+      .where(
+        and(
+          eq(agentConfigs.tenantId, tenant.id),
+          eq(agentConfigs.agentType, "sdr"),
+          eq(agentConfigs.enabled, 1),
+        ),
+      )
+      .limit(1);
+    if (!enabled) continue;
     const flows = await params.database
       .select()
       .from(agentFlowStates)
@@ -28,6 +42,25 @@ export async function recoverIndustrialHandoffs(params: {
           eq(agentFlowStates.outcome, "in_progress"),
           sql`${agentFlowStates.metadata}->'handoffRequest' IS NOT NULL`,
           sql`${agentFlowStates.metadata}->'handoffReceipt' IS NULL`,
+          notExists(
+            params.database
+              .select({ id: newer.id })
+              .from(newer)
+              .where(
+                and(
+                  eq(newer.tenantId, tenant.id),
+                  eq(newer.conversationId, agentFlowStates.conversationId),
+                  eq(newer.agentType, "sdr"),
+                  or(
+                    gt(newer.startedAt, agentFlowStates.startedAt),
+                    and(
+                      eq(newer.startedAt, agentFlowStates.startedAt),
+                      gt(newer.id, agentFlowStates.id),
+                    ),
+                  ),
+                ),
+              ),
+          ),
           // Comparação textual ISO evita cast de JSON antigo/malformado a timestamp.
           sql`coalesce(${agentFlowStates.metadata}->>'handoffNextAttemptAt', '') <= ${new Date().toISOString()}`,
         ),

@@ -4,6 +4,8 @@ Data: 20/10/2026. Entrega: diagnóstico de código, inventário funcional, evid�
 
 Atualização: o [primeiro lote do núcleo industrial](./IMPLEMENTACAO-NUCLEO-TRIAGEM-2026-10-20.md) foi implementado após este diagnóstico. As constatações abaixo registram o estado inicial; o resumo da implementação distingue correções e pendências atuais.
 
+Continuação: [handoff atômico e recuperação](./IMPLEMENTACAO-HANDOFF-ATOMICO-2026-10-20.md) e [catálogo, Decisor e destinos por ID](./IMPLEMENTACAO-CATALOGO-DESTINOS-2026-10-20.md) implementados em seguida. Site, continuidade entre canais e homologação operacional permanecem pendentes.
+
 ## 1. Decisões e alcance
 
 Decisões confirmadas pelo usuário nesta análise:

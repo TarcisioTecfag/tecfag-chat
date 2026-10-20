@@ -2,6 +2,8 @@
 
 Data: 20/10/2026. Referência: [mapa do porte](./MAPA-PORTE-FAGNER-2026-10-20.md).
 
+Atualização posterior: a transação, idempotência e retomada de E2 foram implementadas e testadas em PostgreSQL isolado no [segundo lote](./IMPLEMENTACAO-HANDOFF-ATOMICO-2026-10-20.md). As limitações descritas abaixo registram o estado do primeiro lote.
+
 Este lote inicia E0/E1 e antecipa proteções de encaminhamento de E2. **Não conclui o porte, não conecta o site ao núcleo e não constitui homologação de produção.**
 
 ## Alterações implementadas

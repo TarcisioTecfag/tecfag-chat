@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { agentConfigs } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { getAiPersona } from "../../../lib/ai-persona";
 
 // ── Headers CORS padrão ────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -110,6 +111,13 @@ export const Route = createFileRoute("/api/valentina/config")({
               )
             )
             .limit(1);
+
+          if (getAiPersona(tenantId).triagePolicy === "industrial" &&
+            [agentType, existing[0]?.agentType].some((type) => type === "industrial_triage" || type === "rodizio")) {
+            return new Response(JSON.stringify({ error: "Use a configuração de Fluxos para alterar destinos, catálogo e escala." }), {
+              status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
 
           if (existing.length > 0) {
             // Atualizar config existente

@@ -9,6 +9,8 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
   });
   void (async () => {
     const { db } = await import("../../src/db/index");
+    const { agentFlowStates } = await import("../../src/db/schema");
+    const { and, eq } = await import("drizzle-orm");
     const { getAiPersona } = await import("../../src/lib/ai-persona");
     const { ensureLocalCrmDealBeforeTransfer } =
       await import("../../src/lib/valentina/sdr-crm-local");
@@ -31,6 +33,13 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
           store,
           isIndustrialTenant: (id) => getAiPersona(id).triagePolicy === "industrial",
           onCommitted: async (key, result) => {
+            const [flow] = await db
+              .select({ metadata: agentFlowStates.metadata })
+              .from(agentFlowStates)
+              .where(
+                and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
+              );
+            const metadata = (flow?.metadata || {}) as Record<string, unknown>;
             const manager = SessionManager.getInstance();
             if (result.operator) {
               manager.notifyPublic(key.tenantId, {
@@ -41,6 +50,8 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
                   operatorId: result.operator.id,
                   walletOperatorId: result.operator.id,
                   responsibleName: result.operator.name,
+                  version: result.conversationVersion,
+                  sectorId: result.sectorId,
                 },
               });
               await notifyOperatorLeadTransferred({
@@ -57,6 +68,10 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
             manager.notifyPublic(key.tenantId, {
               type: "sdr_flow_updated",
               conversationId: key.conversationId,
+              funnelStage:
+                typeof metadata.funnelStage === "string" ? metadata.funnelStage : "triagem",
+              targetFunnel:
+                typeof metadata.targetFunnel === "string" ? metadata.targetFunnel : null,
               outcome: result.status === "resolved" ? "completed" : "transferred",
               handoffStatus: result.status,
             });

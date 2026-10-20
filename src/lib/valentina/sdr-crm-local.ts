@@ -57,6 +57,7 @@ export interface EnsureLocalCrmDealParams {
   allocatedOperator?: { id: string; name: string } | null;
   requireConfiguredPipeline?: boolean;
   reuseScope?: "person_and_funnel";
+  destination?: { pipelineId: string; stageId: string };
   targetFunnel: string;
   funnelStage: string;
   collectedData: Record<string, { value: string; status: "filled" | "pending" }>;
@@ -334,9 +335,15 @@ export async function ensureLocalCrmDealBeforeTransfer(
         sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId || conversationId}))`
       );
 
-      const configuredTarget = params.requireConfiguredPipeline
+      let configuredTarget = params.requireConfiguredPipeline && !params.destination
         ? await resolveTargetPipelineAndStage(tx, tenantId, targetFunnel, funnelStage, true)
         : null;
+      if (params.destination) {
+        const [pipeline] = await tx.select().from(crmPipelines).where(and(eq(crmPipelines.tenantId, tenantId), eq(crmPipelines.id, params.destination.pipelineId))).for("share");
+        const [stage] = await tx.select().from(crmStages).where(and(eq(crmStages.tenantId, tenantId), eq(crmStages.id, params.destination.stageId), eq(crmStages.pipelineId, params.destination.pipelineId))).for("share");
+        if (!pipeline || !stage || stage.isWinStage || stage.isLossStage) throw new Error("Destino CRM inválido para este tenant");
+        configuredTarget = { pipelineId: pipeline.id, pipelineName: pipeline.name, stageId: stage.id, stageName: stage.name };
+      }
 
       // 1. Extrair documento (CNPJ/CPF) e empresa coletados na triagem
       const rawDoc = getCollectedValue(

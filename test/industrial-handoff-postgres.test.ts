@@ -1,7 +1,7 @@
 /**
  * Integração real, EXCLUSIVAMENTE em PostgreSQL de teste local explicitamente informado.
- * Não lê .env, não importa motores/provedores e não executa migrations/seeds da operação.
- * TEST_DATABASE_URL=postgres://...@127.0.0.1:<porta>/...test bun test/industrial-handoff-postgres.test.ts
+ * Executar com --no-env-file. Não importa motores/provedores nem executa migrations/seeds da operação.
+ * TEST_DATABASE_URL=postgres://...@127.0.0.1:<porta>/...test bun --no-env-file test/industrial-handoff-postgres.test.ts
  */
 import assert from "node:assert/strict";
 import postgres from "postgres";
@@ -16,6 +16,16 @@ import {
 } from "../src/lib/triage/industrial-rodizio-store";
 import { recoverIndustrialHandoffs } from "../src/lib/triage/industrial-handoff-recovery";
 import { resolveIndustrialRoute } from "../src/lib/triage/industrial-policy";
+import {
+  readIndustrialSettings,
+  saveIndustrialSettings,
+} from "../src/lib/triage/industrial-settings-store";
+import {
+  emptyIndustrialSettings,
+  industrialSettingsSchema,
+} from "../src/lib/triage/industrial-settings";
+import type { MachineDecision } from "../src/lib/triage/industrial-decisor";
+import { applyMachineDecision } from "../src/lib/triage/industrial-decisor";
 
 // Validação antes de importar o helper CRM que possui a conexão padrão do aplicativo.
 const url = process.env.TEST_DATABASE_URL;
@@ -45,6 +55,7 @@ const dialect = new PgDialect();
 const tables = [
   schema.tenants,
   schema.operators,
+  schema.sectors,
   schema.crmAccounts,
   schema.contacts,
   schema.conversations,
@@ -96,40 +107,54 @@ async function fixture(tenant = tenantId, sameContact?: string) {
   const id = `case-${++sequence}`;
   const contactId = sameContact || `contact-${id}`;
   if (!sameContact)
-    await scopedDb
-      .insert(schema.contacts)
-      .values({
-        id: contactId,
-        tenantId: tenant,
-        name: "Teste",
-        phone: `5514999${String(sequence).padStart(6, "0")}`,
-        mainChannel: "whatsapp",
-      });
+    await scopedDb.insert(schema.contacts).values({
+      id: contactId,
+      tenantId: tenant,
+      name: "Teste",
+      phone: `5514999${String(sequence).padStart(6, "0")}`,
+      mainChannel: "whatsapp",
+    });
   await scopedDb
     .insert(schema.conversations)
     .values({ id, tenantId: tenant, contactId, queueState: "automacao" });
   const startedAt = new Date(Date.now() - 10_000);
   const flowId = `flow-${id}`;
-  await scopedDb
-    .insert(schema.agentFlowStates)
-    .values({
-      id: flowId,
-      tenantId: tenant,
-      conversationId: id,
-      agentType: "sdr",
-      currentStep: "Em Qualificação",
-      outcome: "in_progress",
-      startedAt,
-    });
+  await scopedDb.insert(schema.agentFlowStates).values({
+    id: flowId,
+    tenantId: tenant,
+    conversationId: id,
+    agentType: "sdr",
+    currentStep: "Em Qualificação",
+    outcome: "in_progress",
+    startedAt,
+  });
   return { tenantId: tenant, conversationId: id, flowId, cycle: startedAt.toISOString() };
 }
-async function prepare(key: Awaited<ReturnType<typeof fixture>>, chosenRoute = route) {
+async function prepare(
+  key: Awaited<ReturnType<typeof fixture>>,
+  chosenRoute = route,
+  decision?: MachineDecision | null,
+) {
+  const configuration = await readIndustrialSettings(scopedDb, key.tenantId);
   assert.equal(
     await store.prepare(key, {
       route: chosenRoute,
       data,
       clientName: "Pessoa de Teste",
       companyName: "Empresa Teste",
+      machineDecision:
+        decision === null
+          ? undefined
+          : decision || {
+              status: "confirmed",
+              machineId: "fixture-machine",
+              line: "SEMI-INDUSTRIAL",
+              confidence: 1,
+              method: "exact_catalog",
+              reason: "catalog_confirmed",
+              catalogRevision: configuration.revision,
+              catalogFingerprint: configuration.catalogFingerprint,
+            },
     }),
     true,
   );
@@ -251,6 +276,23 @@ try {
   await scopedDb
     .insert(schema.crmStages)
     .values({ id: "stage", tenantId, pipelineId: "pipe", name: "Qualificação" });
+  await scopedDb.insert(schema.sectors).values([
+    { id: "sector-sales", tenantId, name: "Comercial", operatorIds: [opA, opB] },
+    { id: "sector-review", tenantId, name: "Análise", operatorIds: [opA, opB] },
+    { id: "sector-foreign", tenantId: otherTenant, name: "Outro tenant", operatorIds: [outsider] },
+  ]);
+  const initialSettings = industrialSettingsSchema.parse({
+    ...emptyIndustrialSettings(),
+    catalog: [
+      { id: "fixture-machine", name: "Seladora S100", sku: "S100", line: "SEMI-INDUSTRIAL" },
+    ],
+    destinations: {
+      MAQUINAS: { sectorId: "sector-sales", pipelineId: "pipe", stageId: "stage" },
+      REVIEW: { sectorId: "sector-review" },
+      "5A_CLIENTE": { sectorId: "sector-review" },
+    },
+  });
+  await saveIndustrialSettings(scopedDb, tenantId, 0, initialSettings, opA);
 
   await check(
     "12 execuções simultâneas do mesmo ciclo geram 1 atribuição, 1 card e 1 contagem",
@@ -260,6 +302,7 @@ try {
       const results = await Promise.all(Array.from({ length: 12 }, () => store.execute(key)));
       assert.equal(results.filter((r) => r.status === "transferred" && !r.replayed).length, 1);
       assert.equal(results.filter((r) => r.replayed).length, 11);
+      assert.ok(results.every((r) => r.conversationVersion === 2));
       assert.equal(await count(schema.crmDeals), 1);
       assert.equal(await count(schema.crmConversationDeals), 1);
       assert.equal(await count(schema.crmDealActivities), 1);
@@ -268,7 +311,7 @@ try {
         1,
       );
       assert.equal((await flow(key)).outcome, "transferred");
-      assert.ok((await flow(key)).metadata.handoffReceipt);
+      assert.ok(((await flow(key)).metadata as Record<string, unknown>).handoffReceipt);
     },
   );
   await check(
@@ -358,7 +401,7 @@ try {
       assert.equal(conv.version, 1);
       assert.equal(contact.walletOperatorId, null);
       assert.equal((await flow(key)).outcome, "in_progress");
-      assert.equal((await flow(key)).metadata.handoffAttempts, 1);
+      assert.equal(((await flow(key)).metadata as Record<string, unknown>).handoffAttempts, 1);
       assert.equal((await store.execute(key)).status, "transferred");
       assert.equal(await count(schema.crmDeals), beforeDeals + 1);
       assert.equal((await store.execute(key)).replayed, true);
@@ -594,6 +637,381 @@ try {
     assert.equal((await store.execute(key)).status, "handoff_failed");
     assert.equal(await count(schema.crmPipelines), before);
   });
+  await check("whitelist impede atribuição fora do telefone autorizado", async () => {
+    const key = await fixture();
+    await prepare(key);
+    await scopedDb
+      .update(schema.agentConfigs)
+      .set({ config: { whitelistEnabled: true, whitelistPhone: "5514000000000" } })
+      .where(
+        and(eq(schema.agentConfigs.tenantId, tenantId), eq(schema.agentConfigs.id, "cfg-sdr")),
+      );
+    assert.equal((await store.execute(key)).superseded, true);
+    assert.equal((await flow(key)).outcome, "in_progress");
+    await scopedDb
+      .update(schema.agentConfigs)
+      .set({ config: {} })
+      .where(
+        and(eq(schema.agentConfigs.tenantId, tenantId), eq(schema.agentConfigs.id, "cfg-sdr")),
+      );
+    assert.equal((await store.execute(key)).status, "transferred");
+  });
+  await check("dois workers concorrentes recuperam um checkpoint uma única vez", async () => {
+    const key = await fixture();
+    await prepare(key);
+    let notifications = 0;
+    const run = () =>
+      recoverIndustrialHandoffs({
+        database: scopedDb,
+        store,
+        isIndustrialTenant: (id) => id === tenantId,
+        onCommitted: async () => {
+          notifications++;
+        },
+      });
+    const results = await Promise.all([run(), run()]);
+    assert.equal(
+      results.reduce((a, b) => a + b, 0),
+      1,
+    );
+    assert.equal(notifications, 1);
+  });
+  await check(
+    "novo ciclo reutiliza card da mesma pessoa em até 3h; depois de 3h cria outro",
+    async () => {
+      let key = await fixture();
+      await prepare(key);
+      const first = await store.execute(key);
+      assert.equal(first.status, "transferred");
+      const before = await count(schema.crmDeals);
+      async function reopen() {
+        const startedAt = new Date();
+        await scopedDb.transaction(async (tx) => {
+          await tx
+            .update(schema.conversations)
+            .set({ operatorId: null, queueState: "automacao" })
+            .where(
+              and(
+                eq(schema.conversations.tenantId, tenantId),
+                eq(schema.conversations.id, key.conversationId),
+              ),
+            );
+          await tx
+            .update(schema.agentFlowStates)
+            .set({
+              metadata: {},
+              collectedData: {},
+              startedAt,
+              outcome: "in_progress",
+              completedAt: null,
+            })
+            .where(
+              and(
+                eq(schema.agentFlowStates.tenantId, tenantId),
+                eq(schema.agentFlowStates.id, key.flowId),
+              ),
+            );
+        });
+        key = { ...key, cycle: startedAt.toISOString() };
+        await prepare(key);
+      }
+      const oldKey = key;
+      await reopen();
+      assert.equal((await store.execute(oldKey)).superseded, true);
+      const second = await store.execute(key);
+      assert.equal(second.status, "transferred");
+      assert.equal(second.deal?.dealId, first.deal?.dealId);
+      assert.equal(second.deal?.action, "reused_within_3h");
+      assert.equal(await count(schema.crmDeals), before);
+      await scopedDb
+        .update(schema.crmDeals)
+        .set({ createdAt: new Date(Date.now() - 4 * 60 * 60_000) })
+        .where(
+          and(eq(schema.crmDeals.tenantId, tenantId), eq(schema.crmDeals.id, first.deal!.dealId)),
+        );
+      await reopen();
+      const third = await store.execute(key);
+      assert.equal(third.deal?.action, "created_new");
+      assert.notEqual(third.deal?.dealId, first.deal?.dealId);
+      assert.equal(await count(schema.crmDeals), before + 1);
+    },
+  );
+  await check(
+    "recuperação ignora fluxo antigo quando há ciclo mais recente na conversa",
+    async () => {
+      const old = await fixture();
+      await prepare(old);
+      const startedAt = new Date();
+      const key = { ...old, flowId: `${old.flowId}-new`, cycle: startedAt.toISOString() };
+      await scopedDb.insert(schema.agentFlowStates).values({
+        id: key.flowId,
+        tenantId,
+        conversationId: key.conversationId,
+        startedAt,
+        agentType: "sdr",
+        outcome: "in_progress",
+        currentStep: "Em Qualificação",
+      });
+      await prepare(key);
+      assert.equal((await store.execute(old)).superseded, true);
+      assert.equal(
+        await recoverIndustrialHandoffs({
+          database: scopedDb,
+          store,
+          isIndustrialTenant: (id) => id === tenantId,
+        }),
+        1,
+      );
+      assert.equal((await flow(key)).outcome, "transferred");
+      assert.equal(
+        await recoverIndustrialHandoffs({
+          database: scopedDb,
+          store,
+          isIndustrialTenant: (id) => id === tenantId,
+        }),
+        0,
+      );
+    },
+  );
+  await check(
+    "operador duplicado na configuração não conta duas vezes nem cria card parcial",
+    async () => {
+      const key = await fixture();
+      await prepare(key);
+      const before = await count(schema.crmDeals);
+      const previous = (await config()).flowOperators;
+      await mutateIndustrialRodizio(scopedDb, tenantId, () => [...previous, { ...previous[0] }]);
+      assert.equal((await store.execute(key)).status, "handoff_failed");
+      assert.equal(await count(schema.crmDeals), before);
+      await mutateIndustrialRodizio(scopedDb, tenantId, () => previous);
+      assert.equal((await store.execute(key)).status, "transferred");
+    },
+  );
+  await check("renomear funil e etapa não altera destino vinculado por ID", async () => {
+    await scopedDb
+      .update(schema.crmPipelines)
+      .set({ name: "Comercial Industrial Renomeado" })
+      .where(and(eq(schema.crmPipelines.tenantId, tenantId), eq(schema.crmPipelines.id, "pipe")));
+    await scopedDb
+      .update(schema.crmStages)
+      .set({ name: "Recepção Renomeada" })
+      .where(and(eq(schema.crmStages.tenantId, tenantId), eq(schema.crmStages.id, "stage")));
+    const key = await fixture();
+    await prepare(key);
+    const result = await store.execute(key);
+    assert.equal(result.status, "transferred");
+    assert.equal(result.deal?.funnelId, "pipe");
+    assert.equal(result.deal?.stageId, "stage");
+    assert.equal(result.sectorId, "sector-sales");
+  });
+  await check(
+    "destinos de outro tenant e etapa final são rejeitados sem alterar revisão",
+    async () => {
+      const config = await readIndustrialSettings(scopedDb, tenantId);
+      await assert.rejects(
+        saveIndustrialSettings(
+          scopedDb,
+          tenantId,
+          config.revision,
+          { ...config.settings, destinations: { REVIEW: { sectorId: "sector-foreign" } } },
+          opA,
+        ),
+      );
+      await scopedDb
+        .insert(schema.crmStages)
+        .values({ id: "win-stage", tenantId, pipelineId: "pipe", name: "Ganho", isWinStage: true });
+      await assert.rejects(
+        saveIndustrialSettings(
+          scopedDb,
+          tenantId,
+          config.revision,
+          {
+            ...config.settings,
+            destinations: {
+              MAQUINAS: { sectorId: "sector-sales", pipelineId: "pipe", stageId: "win-stage" },
+            },
+          },
+          opA,
+        ),
+      );
+      assert.equal((await readIndustrialSettings(scopedDb, tenantId)).revision, config.revision);
+    },
+  );
+  await check(
+    "duas edições concorrentes da configuração não sobrescrevem uma à outra",
+    async () => {
+      const config = await readIndustrialSettings(scopedDb, tenantId);
+      const results = await Promise.allSettled([
+        saveIndustrialSettings(scopedDb, tenantId, config.revision, config.settings, opA),
+        saveIndustrialSettings(scopedDb, tenantId, config.revision, config.settings, opB),
+      ]);
+      assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+      assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+    },
+  );
+  await check(
+    "alterar etapa para encerramento durante a pendência bloqueia transferência e mantém checkpoint",
+    async () => {
+      const key = await fixture();
+      await prepare(key);
+      const before = await count(schema.crmDeals);
+      await scopedDb
+        .update(schema.crmStages)
+        .set({ isLossStage: true })
+        .where(and(eq(schema.crmStages.tenantId, tenantId), eq(schema.crmStages.id, "stage")));
+      assert.equal((await store.execute(key)).status, "handoff_failed");
+      assert.equal(await count(schema.crmDeals), before);
+      await scopedDb
+        .update(schema.crmStages)
+        .set({ isLossStage: false })
+        .where(and(eq(schema.crmStages.tenantId, tenantId), eq(schema.crmStages.id, "stage")));
+      assert.equal((await store.execute(key)).status, "transferred");
+    },
+  );
+  await check("autorização no funil sem participação no setor não permite atribuição", async () => {
+    const key = await fixture();
+    await prepare(key);
+    await scopedDb
+      .update(schema.sectors)
+      .set({ operatorIds: [] })
+      .where(and(eq(schema.sectors.tenantId, tenantId), eq(schema.sectors.id, "sector-sales")));
+    assert.equal((await store.execute(key)).status, "waiting_for_team");
+    await scopedDb
+      .update(schema.sectors)
+      .set({ operatorIds: [opA, opB] })
+      .where(and(eq(schema.sectors.tenantId, tenantId), eq(schema.sectors.id, "sector-sales")));
+    assert.equal((await store.execute(key)).status, "transferred");
+  });
+  await check(
+    "checkpoint comercial sem Decisor confirmado segue à revisão sem criar negociação",
+    async () => {
+      const key = await fixture();
+      await prepare(key, route, null);
+      const before = await count(schema.crmDeals);
+      const result = await store.execute(key);
+      assert.equal(result.status, "transferred");
+      assert.equal(result.sectorId, "sector-review");
+      assert.equal(result.deal, null);
+      assert.equal(await count(schema.crmDeals), before);
+      assert.equal(((await flow(key)).metadata as Record<string, unknown>).needsReview, true);
+    },
+  );
+  await check(
+    "mudança de catálogo entre decisão e commit invalida a evidência anterior",
+    async () => {
+      const key = await fixture();
+      await prepare(key);
+      const before = await count(schema.crmDeals);
+      const config = await readIndustrialSettings(scopedDb, tenantId);
+      await saveIndustrialSettings(
+        scopedDb,
+        tenantId,
+        config.revision,
+        {
+          ...config.settings,
+          catalog: config.settings.catalog.map((machine) => ({ ...machine, line: "PERSONNALITE" })),
+        },
+        opA,
+      );
+      const result = await store.execute(key);
+      assert.equal(result.sectorId, "sector-review");
+      assert.equal(result.deal, null);
+      assert.equal(await count(schema.crmDeals), before);
+      const next = await readIndustrialSettings(scopedDb, tenantId);
+      await saveIndustrialSettings(scopedDb, tenantId, next.revision, config.settings, opA);
+    },
+  );
+  await check(
+    "troca apenas de destino preserva prova de catálogo e usa o novo setor por ID",
+    async () => {
+      const key = await fixture();
+      await prepare(key);
+      await scopedDb
+        .insert(schema.sectors)
+        .values({ id: "sector-sales-2", tenantId, name: "Novo setor", operatorIds: [opA, opB] });
+      const config = await readIndustrialSettings(scopedDb, tenantId);
+      await saveIndustrialSettings(
+        scopedDb,
+        tenantId,
+        config.revision,
+        {
+          ...config.settings,
+          destinations: {
+            ...config.settings.destinations,
+            MAQUINAS: { sectorId: "sector-sales-2", pipelineId: "pipe", stageId: "stage" },
+          },
+        },
+        opA,
+      );
+      const result = await store.execute(key);
+      assert.equal(result.status, "transferred");
+      assert.equal(result.sectorId, "sector-sales-2");
+      assert.ok(result.deal?.dealId);
+      assert.equal(result.destinationRevision, config.revision + 1);
+    },
+  );
+  await check(
+    "funil estrangeiro e etapa de outro funil não são aceitos na configuração",
+    async () => {
+      await scopedDb.insert(schema.crmPipelines).values([
+        { id: "foreign-pipe", tenantId: otherTenant, name: "Máquinas" },
+        { id: "second-pipe", tenantId, name: "Outro funil" },
+      ]);
+      await scopedDb.insert(schema.crmStages).values([
+        { id: "foreign-stage", tenantId: otherTenant, pipelineId: "foreign-pipe", name: "Entrada" },
+        { id: "second-stage", tenantId, pipelineId: "second-pipe", name: "Entrada" },
+      ]);
+      const config = await readIndustrialSettings(scopedDb, tenantId);
+      for (const [pipelineId, stageId] of [
+        ["foreign-pipe", "foreign-stage"],
+        ["pipe", "second-stage"],
+      ])
+        await assert.rejects(
+          saveIndustrialSettings(
+            scopedDb,
+            tenantId,
+            config.revision,
+            {
+              ...config.settings,
+              destinations: { MAQUINAS: { sectorId: "sector-sales", pipelineId, stageId } },
+            },
+            opA,
+          ),
+        );
+      assert.equal((await readIndustrialSettings(scopedDb, tenantId)).revision, config.revision);
+    },
+  );
+  await check(
+    "família bloqueada chega ao setor de revisão com coleta incompleta e sem card",
+    async () => {
+      const key = await fixture();
+      const decision: MachineDecision = {
+        status: "not_offered",
+        machineId: null,
+        line: null,
+        confidence: 1,
+        method: "rule",
+        reason: "blocked_family:fixture",
+        catalogRevision: 1,
+      };
+      const blocked = applyMachineDecision(route, decision);
+      const before = await count(schema.crmDeals);
+      assert.equal(
+        await store.prepare(key, {
+          route: blocked,
+          data: {},
+          clientName: "Cliente",
+          companyName: "",
+          machineDecision: decision,
+        }),
+        true,
+      );
+      const result = await store.execute(key);
+      assert.equal(result.sectorId, "sector-review");
+      assert.equal(result.deal, null);
+      assert.equal(await count(schema.crmDeals), before);
+    },
+  );
   console.log(
     JSON.stringify({
       suite: "industrial-handoff-postgres",

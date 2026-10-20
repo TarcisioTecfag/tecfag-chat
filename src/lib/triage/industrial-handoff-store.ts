@@ -19,6 +19,9 @@ import type {
   EnsureLocalCrmDealParams,
   EnsureLocalCrmDealResult,
 } from "../valentina/sdr-crm-local";
+import { industrialDestinationKey } from "./industrial-settings";
+import { readIndustrialSettings, validateIndustrialDestination } from "./industrial-settings-store";
+import type { MachineDecision } from "./industrial-decisor";
 
 interface HandoffRequest {
   version: 1;
@@ -28,11 +31,12 @@ interface HandoffRequest {
   clientName: string;
   companyName: string;
   preparedAt: string;
+  machineDecision?: MachineDecision;
 }
 interface HandoffReceipt {
   cycle: string;
   committedAt: string;
-  result: IndustrialHandoffResult;
+  result: IndustrialStoredResult;
 }
 type HandoffMetadata = Record<string, unknown> & {
   handoffRequest?: HandoffRequest;
@@ -41,6 +45,9 @@ type HandoffMetadata = Record<string, unknown> & {
   handoffNextAttemptAt?: string;
 };
 export interface IndustrialStoredResult extends IndustrialHandoffResult {
+  conversationVersion?: number;
+  sectorId?: string;
+  destinationRevision?: number;
   replayed?: boolean;
   superseded?: boolean;
 }
@@ -134,6 +141,7 @@ export function createIndustrialHandoffStore(
         data: CollectedFields;
         clientName: string;
         companyName: string;
+        machineDecision?: MachineDecision;
       },
     ): Promise<boolean> {
       return database.transaction(async (tx) => {
@@ -170,6 +178,7 @@ export function createIndustrialHandoffStore(
               readyForHandoff: true,
               handoffStatus: "handoff_failed",
               handoffRequest: request,
+              ...(input.machineDecision ? { machineDecision: input.machineDecision } : {}),
               handoffAttempts: 0,
               handoffNextAttemptAt: new Date().toISOString(),
             },
@@ -192,6 +201,19 @@ export function createIndustrialHandoffStore(
           if (!state) return { status: "handoff_failed", ...empty, superseded: true };
           const receipt = state.meta.handoffReceipt;
           if (receipt?.cycle === key.cycle) return { ...receipt.result, replayed: true };
+          if (!ownsAutomation(state.conv) && !finished.has(state.flow.outcome || "")) {
+            await tx
+              .update(agentFlowStates)
+              .set({
+                outcome: "escalated",
+                currentStep: "Atendimento assumido",
+                completedAt: new Date(),
+                metadata: { ...state.meta, handoffStatus: "superseded", readyForHandoff: false },
+              })
+              .where(
+                and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
+              );
+          }
           if (!ownsAutomation(state.conv) || finished.has(state.flow.outcome || ""))
             return { status: "handoff_failed", ...empty, superseded: true };
           const request = state.meta.handoffRequest;
@@ -219,14 +241,54 @@ export function createIndustrialHandoffStore(
               !contact.phone ||
               normalizePhone(contact.phone) !==
                 normalizePhone(String(settings.whitelistPhone || ""))
-            )
+            ) {
+              // Não monopoliza o lote do worker enquanto a whitelist estiver restrita.
+              await tx
+                .update(agentFlowStates)
+                .set({
+                  metadata: {
+                    ...state.meta,
+                    handoffNextAttemptAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+                  },
+                })
+                .where(
+                  and(
+                    eq(agentFlowStates.tenantId, key.tenantId),
+                    eq(agentFlowStates.id, key.flowId),
+                  ),
+                );
               return { status: "handoff_failed", ...empty, superseded: true };
+            }
           }
-          const readiness = assessIndustrialReadiness(request.route, request.data);
+          let readiness = assessIndustrialReadiness(request.route, request.data);
           if (!readiness.ready) return { status: "collecting", ...empty, superseded: true };
-          let result: IndustrialHandoffResult;
+          let result: IndustrialStoredResult;
           if (readiness.action === "inform") result = { status: "resolved", ...empty };
           else {
+            const configuration = await readIndustrialSettings(tx, key.tenantId, true);
+            const machine = request.machineDecision;
+            const isCommercial = ["MAQUINAS", "PERSONNALITE"].includes(request.route.subflow || "");
+            const validCatalogDecision =
+              machine?.status === "confirmed" &&
+              machine.line === "SEMI-INDUSTRIAL" &&
+              Number.isFinite(machine.confidence) &&
+              machine.confidence >= 0.95 &&
+              machine.confidence <= 1 &&
+              machine.catalogFingerprint === configuration.catalogFingerprint &&
+              configuration.settings.catalog.some(
+                (entry) =>
+                  entry.active && entry.id === machine.machineId && entry.line === machine.line,
+              );
+            if (isCommercial && !validCatalogDecision)
+              readiness = { ...readiness, action: "review", createsDeal: false };
+            const destinationKey =
+              readiness.action === "review" ? "REVIEW" : industrialDestinationKey(request.route);
+            const destination = destinationKey
+              ? configuration.settings.destinations[destinationKey]
+              : null;
+            if (!destination)
+              throw new Error("Vincule o setor de destino na configuração industrial");
+            const sector = await validateIndustrialDestination(tx, key.tenantId, destination);
             const funnel =
               readiness.action === "review" ? "Atendimento Geral" : request.route.targetFunnel;
             const registered = await tx
@@ -237,8 +299,13 @@ export function createIndustrialHandoffStore(
             const ids = new Set(registered.map((op) => op.id));
             const config = (rodizio?.config || {}) as RodizioConfig;
             const all = Array.isArray(config.flowOperators) ? config.flowOperators : [];
+            if (new Set(all.map((op) => op.id)).size !== all.length)
+              throw new Error("Operador duplicado na escala");
             const eligible = all.filter(
-              (op) => funnel && isEligibleIndustrialOperator(op, funnel, ids),
+              (op) =>
+                funnel &&
+                sector.operatorIds.includes(op.id) &&
+                isEligibleIndustrialOperator(op, funnel, ids),
             );
             eligible.sort(
               (a, b) =>
@@ -282,6 +349,9 @@ export function createIndustrialHandoffStore(
                       ),
                       requireConfiguredPipeline: true,
                       reuseScope: "person_and_funnel",
+                      destination: readiness.createsDeal
+                        ? { pipelineId: destination.pipelineId!, stageId: destination.stageId! }
+                        : undefined,
                     },
                     tx,
                   )
@@ -293,6 +363,7 @@ export function createIndustrialHandoffStore(
                 .update(conversations)
                 .set({
                   operatorId: operator.id,
+                  sectorId: sector.id,
                   queueState: "meus",
                   version: sql`${conversations.version} + 1`,
                   updatedAt: new Date(),
@@ -306,7 +377,7 @@ export function createIndustrialHandoffStore(
                     ne(conversations.queueState, "finalizados"),
                   ),
                 )
-                .returning({ id: conversations.id });
+                .returning({ id: conversations.id, version: conversations.version });
               if (!assigned) throw new Error("Atribuição não confirmada");
               await tx
                 .update(contacts)
@@ -333,12 +404,20 @@ export function createIndustrialHandoffStore(
                 ...config,
                 flowOperators: next,
               });
-              result = { status: "transferred", operator, deal };
+              result = {
+                status: "transferred",
+                operator,
+                deal,
+                conversationVersion: assigned.version,
+                sectorId: sector.id,
+                destinationRevision: configuration.revision,
+              };
             }
           }
           const attempts = (state.meta.handoffAttempts || 0) + 1;
           const meta: HandoffMetadata = {
             ...state.meta,
+            needsReview: readiness.action === "review",
             handoffAttempts: attempts,
             handoffNextAttemptAt: new Date(
               Date.now() + Math.min(15 * 60_000, 30_000 * 2 ** Math.min(attempts - 1, 5)),

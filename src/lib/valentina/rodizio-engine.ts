@@ -259,7 +259,7 @@ export class RodizioEngine {
       return mutateIndustrialRodizio(db, tenantId, (current) => {
         const previous = current.find((op) => op.id === fullOp.id);
         return previous ? current.map((op) => op.id === fullOp.id ? mergeIndustrialOperatorSettings(op, fullOp) : op)
-          : [...current, { ...fullOp, compensation: 0, leadsReceivedCount: 0, recentLeads: [] }];
+          : [...current, { ...fullOp, compensation: Math.max(0, fullOp.compensation || 0), leadsReceivedCount: 0, recentLeads: [] }];
       });
     }
     let updatedList: FlowOperator[];

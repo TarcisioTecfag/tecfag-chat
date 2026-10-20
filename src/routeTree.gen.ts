@@ -50,6 +50,7 @@ import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
 import { Route as ApiValentinaRodizioRouteImport } from './routes/api/valentina/rodizio'
 import { Route as ApiValentinaMessagesRouteImport } from './routes/api/valentina/messages'
 import { Route as ApiValentinaKnowledgeRouteImport } from './routes/api/valentina/knowledge'
+import { Route as ApiValentinaIndustrialSettingsRouteImport } from './routes/api/valentina/industrial-settings'
 import { Route as ApiValentinaConfigRouteImport } from './routes/api/valentina/config'
 import { Route as ApiValentinaCatalogImagesRouteImport } from './routes/api/valentina/catalog-images'
 import { Route as ApiValentinaAssistantRouteImport } from './routes/api/valentina/assistant'
@@ -379,6 +380,12 @@ const ApiValentinaKnowledgeRoute = ApiValentinaKnowledgeRouteImport.update({
   path: '/api/valentina/knowledge',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiValentinaIndustrialSettingsRoute =
+  ApiValentinaIndustrialSettingsRouteImport.update({
+    id: '/api/valentina/industrial-settings',
+    path: '/api/valentina/industrial-settings',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiValentinaConfigRoute = ApiValentinaConfigRouteImport.update({
   id: '/api/valentina/config',
   path: '/api/valentina/config',
@@ -1132,6 +1139,7 @@ export interface FileRoutesByFullPath {
   '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
   '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
   '/api/valentina/config': typeof ApiValentinaConfigRoute
+  '/api/valentina/industrial-settings': typeof ApiValentinaIndustrialSettingsRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
@@ -1296,6 +1304,7 @@ export interface FileRoutesByTo {
   '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
   '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
   '/api/valentina/config': typeof ApiValentinaConfigRoute
+  '/api/valentina/industrial-settings': typeof ApiValentinaIndustrialSettingsRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
@@ -1461,6 +1470,7 @@ export interface FileRoutesById {
   '/api/valentina/assistant': typeof ApiValentinaAssistantRoute
   '/api/valentina/catalog-images': typeof ApiValentinaCatalogImagesRoute
   '/api/valentina/config': typeof ApiValentinaConfigRoute
+  '/api/valentina/industrial-settings': typeof ApiValentinaIndustrialSettingsRoute
   '/api/valentina/knowledge': typeof ApiValentinaKnowledgeRoute
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
@@ -1627,6 +1637,7 @@ export interface FileRouteTypes {
     | '/api/valentina/assistant'
     | '/api/valentina/catalog-images'
     | '/api/valentina/config'
+    | '/api/valentina/industrial-settings'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
@@ -1791,6 +1802,7 @@ export interface FileRouteTypes {
     | '/api/valentina/assistant'
     | '/api/valentina/catalog-images'
     | '/api/valentina/config'
+    | '/api/valentina/industrial-settings'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
@@ -1955,6 +1967,7 @@ export interface FileRouteTypes {
     | '/api/valentina/assistant'
     | '/api/valentina/catalog-images'
     | '/api/valentina/config'
+    | '/api/valentina/industrial-settings'
     | '/api/valentina/knowledge'
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
@@ -2111,6 +2124,7 @@ export interface RootRouteChildren {
   ApiValentinaAssistantRoute: typeof ApiValentinaAssistantRoute
   ApiValentinaCatalogImagesRoute: typeof ApiValentinaCatalogImagesRoute
   ApiValentinaConfigRoute: typeof ApiValentinaConfigRoute
+  ApiValentinaIndustrialSettingsRoute: typeof ApiValentinaIndustrialSettingsRoute
   ApiValentinaKnowledgeRoute: typeof ApiValentinaKnowledgeRoute
   ApiValentinaMessagesRoute: typeof ApiValentinaMessagesRoute
   ApiValentinaRodizioRoute: typeof ApiValentinaRodizioRoute
@@ -2418,6 +2432,13 @@ declare module '@tanstack/react-router' {
       path: '/api/valentina/knowledge'
       fullPath: '/api/valentina/knowledge'
       preLoaderRoute: typeof ApiValentinaKnowledgeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/industrial-settings': {
+      id: '/api/valentina/industrial-settings'
+      path: '/api/valentina/industrial-settings'
+      fullPath: '/api/valentina/industrial-settings'
+      preLoaderRoute: typeof ApiValentinaIndustrialSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina/config': {
@@ -3694,6 +3715,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaAssistantRoute: ApiValentinaAssistantRoute,
   ApiValentinaCatalogImagesRoute: ApiValentinaCatalogImagesRoute,
   ApiValentinaConfigRoute: ApiValentinaConfigRoute,
+  ApiValentinaIndustrialSettingsRoute: ApiValentinaIndustrialSettingsRoute,
   ApiValentinaKnowledgeRoute: ApiValentinaKnowledgeRoute,
   ApiValentinaMessagesRoute: ApiValentinaMessagesRoute,
   ApiValentinaRodizioRoute: ApiValentinaRodizioRoute,

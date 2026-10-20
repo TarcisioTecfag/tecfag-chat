@@ -16,6 +16,9 @@ import { INDUSTRIAL_POLICY_VERSION, resolveIndustrialRoute, assessIndustrialRead
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
 import { industrialHandoffOutcome, industrialClientMessages, type IndustrialHandoffResult } from "../triage/industrial-handoff";
 import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
+import { runIndustrialDecisor, lookupIndustrialBlockedFamily } from "../triage/industrial-decisor-runtime";
+import { applyMachineDecision, parseIndustrialCapital, type MachineDecision } from "../triage/industrial-decisor";
+import { collectedValue } from "../triage/industrial-policy";
 import {
   resolveTenantActiveProvider,
   sendBotPresence,
@@ -230,7 +233,8 @@ export class SdrEngine {
       // 2. Buscar ou Criar Estado do Fluxo (agentFlowStates)
       let flowState = await db.query.agentFlowStates.findFirst({
         where: (t, { eq: dEq, and: dAnd }) =>
-          dAnd(dEq(t.tenantId, tenantId), dEq(t.conversationId, conversationId)),
+          dAnd(dEq(t.tenantId, tenantId), dEq(t.conversationId, conversationId),
+            ...(industrialTriage ? [dEq(t.agentType, "sdr")] : [])),
       });
 
       if (!flowState) {
@@ -278,6 +282,9 @@ export class SdrEngine {
         console.log(`[SdrEngine] 🛑 TRAVA DE OPERADOR ATIVA: Conversa ${conversationId} (Cliente ${contactPhone}) possui operador alocado (${convCheck?.operatorId || 'Sim'}) ou status ${flowState?.outcome}. ${aiPersona.name} SILENCIADO(A).`);
         return false;
       }
+
+      // A conclusão já tem checkpoint durável. O worker transacional retoma sem outra chamada de IA.
+      if (industrialTriage && (flowState?.metadata as Record<string, unknown>)?.handoffRequest) return false;
 
       // 3. Buscar Histórico Recente de Mensagens Reais do Banco (últimas 80 da sessão de triagem atual)
       const historyMsgs = await db
@@ -940,7 +947,31 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         existingFunnel: metaState.targetFunnel || null,
         existingSubflow: metaState.subflow || null,
       };
-      const industrialRoute = industrialTriage ? resolveIndustrialRoute(routeInput) : null;
+      let industrialRoute = industrialTriage ? resolveIndustrialRoute(routeInput) : null;
+      let machineDecision: MachineDecision | undefined;
+      if (industrialRoute && ["MAQUINAS", "PERSONNALITE"].includes(industrialRoute.subflow || "")
+        && !(assessIndustrialReadiness(industrialRoute, updatedCollectedData).ready && aiResult.isCompleted === true && !hasPendingTriageQuestion(aiResult.messagesToSend))) {
+        try {
+          const blocked = await lookupIndustrialBlockedFamily(tenantId, collectedValue(updatedCollectedData, "MÁQUINA / PEÇA / INTERESSE") || combinedBatchText);
+          if (blocked) { machineDecision = blocked; industrialRoute = applyMachineDecision(industrialRoute, blocked); }
+        } catch { /* Indisponibilidade não autoriza encaminhamento automático. */ }
+      }
+      if (industrialRoute && ["MAQUINAS", "PERSONNALITE"].includes(industrialRoute.subflow || "")
+        && assessIndustrialReadiness(industrialRoute, updatedCollectedData).ready && aiResult.isCompleted === true
+        && !hasPendingTriageQuestion(aiResult.messagesToSend) && !signal?.aborted) {
+        try {
+          machineDecision = await runIndustrialDecisor(tenantId, conversationId, {
+            interest: collectedValue(updatedCollectedData, "MÁQUINA / PEÇA / INTERESSE", "PRODUTO DE INTERESSE"),
+            application: collectedValue(updatedCollectedData, "RAMO / O QUE EMBALA"),
+            production: collectedValue(updatedCollectedData, "VOLUME / PRODUÇÃO"),
+            customerContext: [...historyMsgs.filter((message) => message.senderType === "client").map((message) => message.content || ""), combinedBatchText].join("\n"),
+            capitalSocial: parseIndustrialCapital((updatedCollectedData as Record<string, any>)._RECEITA_FEDERAL?.capitalSocial),
+          }, signal);
+        } catch {
+          machineDecision = { status: "review", machineId: null, line: null, confidence: 0, method: "rule", reason: "decisor_unavailable", catalogRevision: 0 };
+        }
+        industrialRoute = applyMachineDecision(industrialRoute, machineDecision);
+      }
       const stageAndFunnel = industrialRoute || resolveLegacySdrStageAndFunnel({ ...routeInput, existingFunnel: metaState.targetFunnel || "Máquinas" });
       const industrialReadiness = industrialRoute ? assessIndustrialReadiness(industrialRoute, updatedCollectedData) : null;
 
@@ -1025,7 +1056,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             if (!flowState) return false;
             const store = createIndustrialHandoffStore(db, ensureLocalCrmDealBeforeTransfer);
             const key = { tenantId, conversationId, flowId: flowState.id, cycle: flowState.startedAt.toISOString() };
-            if (!await store.prepare(key, { route: industrialRoute, data: updatedCollectedData, clientName, companyName: company })) return false;
+            if (!await store.prepare(key, { route: industrialRoute, data: updatedCollectedData, clientName, companyName: company, machineDecision })) return false;
             const committed = await store.execute(key, { signal });
             if (committed.replayed || committed.superseded) return false;
             industrialHandoff = committed;
@@ -1036,7 +1067,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             if (allocatedOp?.id) {
               SessionManager.getInstance().notifyPublic(tenantId, {
                 type: "chat_updated", chat: { id: conversationId, contactId: convCheck?.contactId || null,
-                  queue: "meus", operatorId: allocatedOp.id, walletOperatorId: allocatedOp.id, responsibleName: allocatedOp.name },
+                  queue: "meus", operatorId: allocatedOp.id, walletOperatorId: allocatedOp.id, responsibleName: allocatedOp.name,
+                  version: committed.conversationVersion, sectorId: committed.sectorId },
               });
               const { notifyOperatorLeadTransferred } = await import("./operator-notifications");
               await notifyOperatorLeadTransferred({
@@ -1181,6 +1213,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             missingFields: industrialReadiness?.missing || [],
             handoffStatus: industrialHandoff.status,
             readyForHandoff: Boolean(industrialReadiness?.ready),
+            ...(machineDecision ? { machineDecision } : {}),
           } : {}),
           ...(localCrmResult
             ? {

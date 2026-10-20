@@ -1,5 +1,5 @@
 /** Regras de triagem industrial compartilháveis por Site e WhatsApp. Sem IO. */
-export const INDUSTRIAL_POLICY_VERSION = "industrial-v1";
+export const INDUSTRIAL_POLICY_VERSION = "industrial-v2";
 export type TriageStage =
   | "triagem"
   | "assistencia_tecnica"
@@ -121,6 +121,7 @@ export interface IndustrialRoute {
     | "previous_route"
     | "unknown"
     | "human_requested"
+    | "specialist_review"
     | "classification_pending";
 }
 
@@ -431,7 +432,7 @@ export function assessIndustrialReadiness(
     production: Boolean(collectedValue(data, "VOLUME / PRODUÇÃO")),
   };
   const missing = (policy.fields as readonly RequiredField[]).filter((key) => !available[key]);
-  if (route.reason === "human_requested")
+  if (route.reason === "human_requested" || route.reason === "specialist_review")
     return { ready: true, missing: [], action: "review", createsDeal: false };
   return {
     ready: missing.length === 0,
@@ -449,7 +450,8 @@ export function canFinishIndustrialTriage(params: {
   hasPendingQuestion?: boolean;
 }): boolean {
   const ready = assessIndustrialReadiness(params.route, params.data);
-  if (params.route.reason === "human_requested") return true;
+  if (params.route.reason === "human_requested" || params.route.reason === "specialist_review")
+    return true;
   return ready.ready && params.isCompleted === true && !params.hasPendingQuestion;
 }
 

@@ -1,4 +1,4 @@
-import { isSdrTenant } from "../ai-persona";
+import { isSdrTenant, getAiPersona } from "../ai-persona";
 import { db } from "../../db";
 import { agentFlowStates, conversations, messages, contacts } from "../../db/schema";
 import { eq, and, gte, desc } from "drizzle-orm";
@@ -47,6 +47,8 @@ export async function recoverInterruptedConversations(tenantId: string): Promise
     let recoveredCount = 0;
 
     for (const flow of activeSdrFlows) {
+      // Encaminhamento já pronto tem recuperação transacional própria, inclusive para Meta.
+      if (getAiPersona(tenantId).triagePolicy === "industrial" && (flow.metadata as Record<string, unknown>)?.handoffRequest) continue;
       const conversationId = flow.conversationId;
       try {
         const conv = await db.query.conversations.findFirst({
