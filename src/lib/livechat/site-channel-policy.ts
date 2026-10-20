@@ -37,6 +37,8 @@ export interface SiteChannelSettings {
   enabled: boolean;
   /** Origens autorizadas (scheme + host [+ porta]). Lista vazia = sem restrição de origem. */
   allowedOrigins: string[];
+  /** WhatsApp da empresa para continuar o atendimento do site; vazio = recurso indisponível. */
+  whatsappNumber: string;
 }
 
 function normalizeOrigin(raw: string): string | null {
@@ -64,6 +66,7 @@ export function parseSiteChannelSettings(
     allowedOrigins: Array.from(
       new Set(origins.filter((o): o is string => typeof o === "string").map(normalizeOrigin).filter((o): o is string => Boolean(o))),
     ),
+    whatsappNumber: normalizeWhatsappNumber(raw.siteWhatsappNumber),
   };
 }
 
@@ -92,4 +95,57 @@ export function sanitizeSiteIdentity(name: unknown, doc: unknown) {
 /** Limite defensivo para texto livre do visitante antes de persistir/enviar à IA. */
 export function clampSiteText(raw: unknown, max = 4000): string {
   return typeof raw === "string" ? raw.slice(0, max).trim() : "";
+}
+
+// ── Continuidade site → WhatsApp ──────────────────────────────────────────────
+// O widget recebe um código temporário de uso único; a mensagem enviada do WhatsApp com
+// esse código prova, ao mesmo tempo, posse da sessão do site e do telefone de origem.
+
+/** Sem 0/O/1/I/L para evitar erro de digitação ao copiar o código. */
+const CONTINUITY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+export const CONTINUITY_TTL_MS = 30 * 60 * 1000;
+
+export function generateContinuityCode(randomBytes: (size: number) => Uint8Array): string {
+  const bytes = randomBytes(8);
+  const chars = Array.from(bytes, (b) => CONTINUITY_ALPHABET[b % CONTINUITY_ALPHABET.length]).join("");
+  return `SITE-${chars.slice(0, 4)}-${chars.slice(4, 8)}`;
+}
+
+/** Extrai e normaliza o código de uma mensagem livre (aceita minúsculas e espaços/hífens). */
+export function extractContinuityCode(text: unknown): string | null {
+  if (typeof text !== "string" || text.length > 2000) return null;
+  const match = text
+    .toUpperCase()
+    .match(/\bSITE[\s-]*([A-HJ-KM-NP-Z2-9]{4})[\s-]*([A-HJ-KM-NP-Z2-9]{4})\b/);
+  return match ? `SITE-${match[1]}-${match[2]}` : null;
+}
+
+/** Só o hash fica no banco; o código em texto existe apenas no widget e na mensagem do cliente. */
+export function hashContinuityCode(
+  tenantId: string,
+  code: string,
+  sha256Hex: (value: string) => string,
+): string {
+  return sha256Hex(`site-continuity:${tenantId}:${code.toUpperCase()}`);
+}
+
+/** Número E.164 sem símbolos (10 a 15 dígitos) ou vazio. */
+export function normalizeWhatsappNumber(raw: unknown): string {
+  const digits = typeof raw === "string" ? raw.replace(/\D/g, "") : "";
+  return digits.length >= 10 && digits.length <= 15 ? digits : "";
+}
+
+export function buildContinuationUrl(whatsappNumber: string, code: string, company: string): string {
+  const text = `Olá! Estava sendo atendido(a) no site da ${company} e quero continuar por aqui. Código: ${code}`;
+  return `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(text)}`;
+}
+
+/** Remove do metadado copiado tudo o que é efeito do ciclo anterior (checkpoint, recibo, tentativas). */
+export function stripHandoffState(metadata: Record<string, unknown> | null | undefined) {
+  const copy: Record<string, unknown> = { ...(metadata || {}) };
+  for (const key of Object.keys(copy)) {
+    if (key.startsWith("handoff") || ["readyForHandoff", "localCrmDealId", "localCrmDealTitle", "localCrmDealAction", "allocatedOperatorId", "allocatedOperatorName", "previousTriages"].includes(key))
+      delete copy[key];
+  }
+  return copy;
 }

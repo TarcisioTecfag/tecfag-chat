@@ -8,12 +8,14 @@ interface SiteChannelState {
   sdrEnabled: boolean;
   siteChannelEnabled: boolean;
   siteAllowedOrigins: string[];
+  siteWhatsappNumber?: string;
 }
 
 export function SiteChannelCard({ personaName, backendUrl }: { personaName: string; backendUrl: string }) {
   const [state, setState] = useState<SiteChannelState | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [originsText, setOriginsText] = useState("");
+  const [whatsappNumber, setWhatsappNumber] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -31,6 +33,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
         setState(data);
         setEnabled(Boolean(data.siteChannelEnabled));
         setOriginsText((data.siteAllowedOrigins || []).join("\n"));
+        setWhatsappNumber(data.siteWhatsappNumber || "");
       } catch {
         if (!cancelled) setLoadError("Erro de comunicação com o servidor.");
       }
@@ -50,7 +53,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
       const res = await fetch(`${backendUrl}/api/valentina/site-channel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ siteChannelEnabled: enabled, siteAllowedOrigins }),
+        body: JSON.stringify({ siteChannelEnabled: enabled, siteAllowedOrigins, siteWhatsappNumber: whatsappNumber }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -59,6 +62,7 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
       }
       setState((prev) => (prev ? { ...prev, ...data } : prev));
       setOriginsText((data.siteAllowedOrigins || []).join("\n"));
+      setWhatsappNumber(data.siteWhatsappNumber || "");
       toast.success(enabled ? `Canal do site ativado para o ${personaName}.` : "Canal do site desativado.");
     } catch {
       toast.error("Erro de comunicação com o servidor.");
@@ -120,6 +124,21 @@ export function SiteChannelCard({ personaName, backendUrl }: { personaName: stri
             />
             <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <ShieldCheck className="h-3.5 w-3.5" /> Recomendado durante a homologação: informe apenas o domínio de teste.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-foreground mb-1.5">
+              WhatsApp para continuar o atendimento (DDI + DDD + número)
+            </label>
+            <input
+              type="text"
+              value={whatsappNumber}
+              onChange={(e) => setWhatsappNumber(e.target.value)}
+              placeholder="5514999999999"
+              className="w-full rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              O visitante recebe um código de uso único (30 min). Ao enviá-lo por este WhatsApp, o histórico, os dados coletados e o responsável seguem para a conversa do WhatsApp. Vazio = o widget informa que a continuação ainda não está disponível.
             </p>
           </div>
           <button

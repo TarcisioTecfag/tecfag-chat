@@ -11,7 +11,15 @@ import {
   isSiteOriginAllowed,
   sanitizeSiteIdentity,
   clampSiteText,
+  generateContinuityCode,
+  extractContinuityCode,
+  hashContinuityCode,
+  normalizeWhatsappNumber,
+  buildContinuationUrl,
+  stripHandoffState,
+  CONTINUITY_TTL_MS,
 } from "../src/lib/livechat/site-channel-policy.ts";
+import crypto from "node:crypto";
 
 const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -178,5 +186,102 @@ describe("widget do site por marca", () => {
   it("template não contém mais o nome da persona fixo", () => {
     const template = widget.slice(widget.indexOf("private renderHTML()"), widget.indexOf("private bindEvents()"));
     assert.doesNotMatch(template, /Valentina|Valem/);
+  });
+});
+
+describe("continuidade site → WhatsApp (E4)", () => {
+  const sha = (v) => crypto.createHash("sha256").update(v).digest("hex");
+
+  it("gera código legível, sem caracteres ambíguos, e o reconhece em mensagem livre", () => {
+    for (let i = 0; i < 200; i++) {
+      const code = generateContinuityCode((n) => crypto.randomBytes(n));
+      assert.match(code, /^SITE-[A-HJ-KM-NP-Z2-9]{4}-[A-HJ-KM-NP-Z2-9]{4}$/);
+      assert.equal(extractContinuityCode(`Olá! quero continuar. Código: ${code}`), code);
+      assert.equal(extractContinuityCode(code.toLowerCase().replace(/-/g, " ")), code);
+    }
+  });
+
+  it("não confunde texto comum com código", () => {
+    for (const text of ["visitei o site ontem", "SITE-ABCD", "SITE-ABCD-EF0I", "", null, 42, "x".repeat(3000) + "SITE-ABCD-EFGH"])
+      assert.equal(extractContinuityCode(text), null, String(text).slice(0, 30));
+  });
+
+  it("hash depende do tenant: código de uma empresa não vale na outra", () => {
+    const code = "SITE-ABCD-EFGH";
+    assert.notEqual(hashContinuityCode("tecfag", code, sha), hashContinuityCode("valem", code, sha));
+    assert.equal(hashContinuityCode("tecfag", code, sha), hashContinuityCode("tecfag", code.toLowerCase(), sha));
+    assert.equal(CONTINUITY_TTL_MS, 30 * 60 * 1000);
+  });
+
+  it("normaliza o WhatsApp da empresa e monta link wa.me com o código", () => {
+    assert.equal(normalizeWhatsappNumber("+55 (14) 99999-8888"), "5514999998888");
+    assert.equal(normalizeWhatsappNumber("123"), "");
+    assert.equal(normalizeWhatsappNumber(undefined), "");
+    const url = buildContinuationUrl("5514999998888", "SITE-ABCD-EFGH", "Grupo Tecfag");
+    assert.match(url, /^https:\/\/wa\.me\/5514999998888\?text=/);
+    assert.ok(decodeURIComponent(url).includes("SITE-ABCD-EFGH"));
+    assert.ok(decodeURIComponent(url).includes("Grupo Tecfag"));
+  });
+
+  it("dados copiados não carregam checkpoint, recibo ou responsável do ciclo anterior", () => {
+    const meta = stripHandoffState({
+      subflow: "MAQUINAS",
+      funnelStage: "maquinas",
+      handoffRequest: { a: 1 },
+      handoffReceipt: { b: 2 },
+      handoffAttempts: 3,
+      readyForHandoff: true,
+      allocatedOperatorId: "op-1",
+      localCrmDealId: "deal-1",
+      previousTriages: [1],
+    });
+    assert.deepEqual(meta, { subflow: "MAQUINAS", funnelStage: "maquinas" });
+  });
+
+  it("configuração lê o número de WhatsApp do canal", () => {
+    assert.equal(parseSiteChannelSettings(true, { siteWhatsappNumber: "5514999998888" }).whatsappNumber, "5514999998888");
+    assert.equal(parseSiteChannelSettings(true, {}).whatsappNumber, "");
+  });
+
+  const continuity = read("src/lib/livechat/site-continuity.ts");
+  const inbound = read("src/lib/whatsapp/inbound.ts");
+  const baileys = read("src/lib/baileys/session-manager.ts");
+  const ws = read("src/lib/livechat/livechatWs.ts");
+  const widget = read("valem-widget/src/widget.ts");
+
+  it("vínculo é transacional, por tenant, de uso único e com prazo", () => {
+    assert.match(continuity, /db\.transaction\(/);
+    assert.match(continuity, /pg_advisory_xact_lock/);
+    assert.match(continuity, /eq\(contacts\.tenantId, tenantId\)/);
+    assert.match(continuity, /continuity\.usedAt \|\| Date\.parse\(continuity\.expiresAt/);
+    assert.match(continuity, /usedAt: now\.toISOString\(\)/);
+    assert.doesNotMatch(continuity, /"valem"|"tecfag"/);
+  });
+
+  it("com responsável no site, WhatsApp vai ao mesmo operador sem rodízio e herda o card", () => {
+    assert.match(continuity, /siteOwner && !waHasOwner/);
+    assert.match(continuity, /isNull\(conversations\.operatorId\)/);
+    assert.match(continuity, /insert\(crmConversationDeals\)/);
+    assert.doesNotMatch(continuity, /allocateNextOperator|RodizioEngine/);
+  });
+
+  it("sem responsável, a IA continua a mesma triagem com os dados coletados e sem nova saudação", () => {
+    assert.match(continuity, /collectedData: \(siteFlow\?\.collectedData/);
+    assert.match(continuity, /stripHandoffState\(siteMeta\)/);
+    assert.match(continuity, /lcx-\$\{sha256Hex/);
+  });
+
+  it("entradas do WhatsApp (Meta e Baileys) só vinculam no perfil industrial", () => {
+    assert.match(inbound, /triagePolicy === "industrial"\) \{\s*const \{ linkSiteContinuity \}/);
+    assert.match(inbound, /link\?\.linked && link\.mode === "operator"\) return;/);
+    assert.match(baileys, /getAiPersona\(tenantId\)\.triagePolicy === "industrial"/);
+    assert.match(baileys, /setTimeout\(\(\) => \{\s*import\("\.\.\/livechat\/site-continuity"\)/);
+  });
+
+  it("widget pede o código só no perfil com continuidade; Valem mantém link estático", () => {
+    assert.match(ws, /type === "request_whatsapp_continuation" && conn\.industrial/);
+    assert.match(widget, /serverContinuity: false,\s*\},\s*tecfag/);
+    assert.match(widget, /serverContinuity: true,/);
+    assert.match(widget, /\^https:\\\/\\\/wa\\\.me\\\/\\d\{10,15\}\\\?text=/);
   });
 });

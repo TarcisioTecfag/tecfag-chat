@@ -37,7 +37,7 @@ export async function loadSiteChannelSettings(tenantId: string): Promise<SiteCha
 }
 
 /** Contato e conversa do visitante. Criados somente quando ele envia a primeira mensagem. */
-async function ensureSiteConversation(tenantId: string, visitor: LcVisitor) {
+export async function ensureSiteConversation(tenantId: string, visitor: LcVisitor) {
   const { contactId, conversationId } = siteIdentityIds(visitor.id);
   const identity = sanitizeSiteIdentity(visitor.name, visitor.cnpj || (visitor as { cpf?: string }).cpf);
   return db.transaction(async (tx) => {

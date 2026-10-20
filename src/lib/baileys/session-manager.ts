@@ -1575,6 +1575,23 @@ export class SessionManager {
         }).catch((impErr) => console.warn("[SessionManager] Import status-auto-reply falhou:", impErr?.message));
       }
 
+      // ── Continuidade site → WhatsApp (somente perfil industrial) ──
+      // Roda fora desta transação: o vínculo bloqueia a conversa e aguardaria o commit atual.
+      if (
+        !rawMsg.__historical &&
+        finalSenderType === "client" &&
+        typeof text === "string" &&
+        /SITE/i.test(text) &&
+        getAiPersona(tenantId).triagePolicy === "industrial"
+      ) {
+        const continuityText = text;
+        setTimeout(() => {
+          import("../livechat/site-continuity")
+            .then(({ linkSiteContinuity }) => linkSiteContinuity(tenantId, convId, continuityText))
+            .catch((err: any) => console.error("[Baileys/Continuidade] Falha ao vincular atendimento do site:", err?.message));
+        }, 0);
+      }
+
       // ── Processar mensagem no SdrDebouncer (Valentina SDR / 15s Debounce & Multimodal) ─────
       // 🛑 TRAVA DE OPERADOR: Valentina só atende clientes não captados por operadores humanos
       const currentFlow = await db.query.agentFlowStates.findFirst({

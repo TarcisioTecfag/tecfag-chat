@@ -294,6 +294,26 @@ async function handleVisitorMessage(
     return;
   }
 
+  if (type === "request_whatsapp_continuation" && conn.industrial) {
+    try {
+      const { createSiteContinuation } = await import("./site-continuity");
+      const result = await createSiteContinuation(tenantId, visitor);
+      send(
+        conn.ws,
+        result.ok
+          ? { type: "whatsapp_continuation", url: result.url, code: result.code, expiresAt: result.expiresAt }
+          : { type: "whatsapp_continuation_unavailable", message: result.message },
+      );
+    } catch (e: any) {
+      console.error("[LC WS] Erro ao gerar código de continuidade:", e?.message);
+      send(conn.ws, {
+        type: "whatsapp_continuation_unavailable",
+        message: "Não foi possível gerar o link agora. Tente novamente em instantes.",
+      });
+    }
+    return;
+  }
+
   // Identificação do visitante (Onboarding Pré-Chat com Nome + CPF/CNPJ)
   if (type === "visitor_identify") {
     const { name, doc } = payload;

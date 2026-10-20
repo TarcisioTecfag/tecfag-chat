@@ -288,6 +288,16 @@ export class InboundProcessor {
       });
     }
 
+    // 2b. Continuidade site → WhatsApp (perfil industrial): código de uso único enviado pelo cliente.
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      const { linkSiteContinuity } = await import("../livechat/site-continuity");
+      const link = await linkSiteContinuity(tenantId, convId, cleanText).catch((err: any) => {
+        console.error("[Meta/Continuidade] Falha ao vincular atendimento do site:", err?.message);
+        return null;
+      });
+      if (link?.linked && link.mode === "operator") return;
+    }
+
     // 3. Verificar se o SDR está habilitado no tenant
     const sdrConfig = await db.query.agentConfigs.findFirst({
       where: (t, { eq: dEq, and: dAnd }) =>
