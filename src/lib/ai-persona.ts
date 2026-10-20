@@ -81,9 +81,9 @@ export function isSdrTenant(tenantId: string) {
 /**
  * Retorna se o ambiente atual está no modo escuro.
  */
-function resolveIsDark(themeOrIsDark?: boolean | "light" | "dark"): boolean {
+function resolveIsDark(themeOrIsDark?: boolean | "light" | "dark" | "voice"): boolean {
   if (typeof themeOrIsDark === "boolean") return themeOrIsDark;
-  if (themeOrIsDark === "dark") return true;
+  if (themeOrIsDark === "dark" || themeOrIsDark === "voice") return true;
   if (themeOrIsDark === "light") return false;
   if (typeof window !== "undefined") {
     try {
@@ -94,7 +94,7 @@ function resolveIsDark(themeOrIsDark?: boolean | "light" | "dark"): boolean {
         return true;
       const saved =
         typeof localStorage !== "undefined" ? localStorage.getItem("chat_theme_mode") : null;
-      if (saved === "dark") return true;
+      if (saved === "dark" || saved === "voice") return true;
       if (saved === "light") return false;
       if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
         return true;
@@ -109,7 +109,7 @@ function resolveIsDark(themeOrIsDark?: boolean | "light" | "dark"): boolean {
  */
 export function getAiPersona(
   tenantId: string = "valem",
-  themeOrIsDark?: boolean | "light" | "dark",
+  themeOrIsDark?: boolean | "light" | "dark" | "voice",
 ): AiPersona {
   const base = PERSONAS[tenantId];
   if (!base) {

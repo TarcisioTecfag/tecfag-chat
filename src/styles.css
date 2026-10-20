@@ -497,4 +497,368 @@ body,
   contain: strict;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   🎙️ 3º TEMA GLOBAL: "DARK" (IDENTIDADE VISUAL & GEOMETRIA VOICE SCORE)
+   Ativado exclusivamente quando <html class="dark theme-voice" data-theme="voice">.
+   Preserva 100% os temas "Claro" (:root) e "Azul" (html.dark sem .theme-voice).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+html.dark.theme-voice {
+  color-scheme: dark;
+
+  /* ── 1. Tokens Oficiais Nativos do Sistema Voice Score (--vp-*) ── */
+  --vp-bg: #151517;
+  --vp-rail: #19191c;
+  --vp-panel: #1e1e22;
+  --vp-raised: #26262c;
+  --vp-text: #f1f0f3;
+  --vp-sub: #b8b7c3;
+  --vp-line: #303036;
+  --vp-brand: #df3d3d;
+  --vp-accent: #ee6666;
+  --vp-soft: #342326;
+  --vp-green: #8bd2aa;
+  --vp-green-soft: #25372d;
+  --vp-amber: #dec18c;
+  --vp-amber-soft: #342f25;
+  --vp-shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+  --vp-radius: 12px;
+
+  /* ── 2. Raio Base Mais Quadrado (7px base em vez de 16px) ── */
+  --radius: 0.4375rem;
+
+  /* ── 3. Mapeamento Semântico Global para a Paleta Grafite Voice Score ── */
+  --background: #151517;
+  --surface: #19191c;
+  --foreground: #f1f0f3;
+  --card: #1e1e22;
+  --card-foreground: #f1f0f3;
+  --muted: #26262c;
+  --muted-foreground: #b8b7c3;
+  --border: #303036;
+  --line: #303036;
+
+  --primary-soft: #342326;
+
+  --chat-panel: #151517;
+  --bubble-in: #26262c;
+  --bubble-out: var(--primary);
+  --bubble-mention: #26262c;
+
+  --icon-docs: #b8b7c3;
+  --icon-docs-bg: #26262c;
+  --icon-photos: #dec18c;
+  --icon-photos-bg: #342f25;
+  --icon-movies: #8bd2aa;
+  --icon-movies-bg: #25372d;
+  --icon-other: #ee6666;
+  --icon-other-bg: #342326;
+
+  --shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.26);
+  --shadow-card: 0 14px 36px rgba(0, 0, 0, 0.34);
+
+  --positive: #8bd2aa;
+  --positive-foreground: #151517;
+  --warning: #dec18c;
+  --warning-foreground: #151517;
+  --critical: #ee6666;
+  --critical-foreground: #151517;
+  --info: #b8b7c3;
+  --info-foreground: #151517;
+  --secondary: #26262c;
+  --secondary-foreground: #b8b7c3;
+  --popover: #1e1e22;
+  --popover-foreground: #f1f0f3;
+
+  --gradient-aurora: radial-gradient(
+      110% 80% at 8% -10%,
+      rgba(223, 61, 61, 0.06) 0%,
+      transparent 55%
+    ),
+    radial-gradient(90% 70% at 95% 0%, rgba(255, 255, 255, 0.025) 0%, transparent 60%);
+  --gradient-surface: linear-gradient(
+    180deg,
+    rgba(34, 34, 40, 0.96),
+    rgba(30, 30, 34, 0.98)
+  );
+  --shadow-panel: 0 1px 2px 0 rgba(0, 0, 0, 0.32), 0 12px 30px -18px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 0 0 1px rgba(238, 102, 102, 0.28), 0 10px 26px -14px rgba(223, 61, 61, 0.3);
+}
+
+/* Preserva isolamento visual multi-tenant para --primary-soft inline */
+html.dark.theme-voice [style*="#df3d3d"] {
+  --primary-soft: #342326 !important;
+}
+html.dark.theme-voice [style*="#2dc4a0"] {
+  --primary-soft: #25372d !important;
+}
+
+/* Ficha de negociação CRM com a paleta grafite do Voice Score */
+html.dark.theme-voice .crm-deal-route {
+  --card: #1e1e22;
+  --muted: #26262c;
+  --border: #303036;
+  --line: #303036;
+}
+
+/* ── 4. Geometria de Bordas Mais Quadradas (Padrão Técnico Voice Score) ── */
+html.dark.theme-voice .rounded-3xl {
+  border-radius: 12px !important;
+}
+html.dark.theme-voice .rounded-t-3xl {
+  border-top-left-radius: 12px !important;
+  border-top-right-radius: 12px !important;
+}
+html.dark.theme-voice .rounded-2xl {
+  border-radius: 9px !important;
+}
+html.dark.theme-voice .rounded-t-2xl {
+  border-top-left-radius: 9px !important;
+  border-top-right-radius: 9px !important;
+}
+html.dark.theme-voice .rounded-xl {
+  border-radius: 7px !important;
+}
+html.dark.theme-voice .rounded-l-xl {
+  border-top-left-radius: 7px !important;
+  border-bottom-left-radius: 7px !important;
+}
+html.dark.theme-voice .rounded-lg {
+  border-radius: 6px !important;
+}
+html.dark.theme-voice .rounded-l-lg {
+  border-top-left-radius: 6px !important;
+  border-bottom-left-radius: 6px !important;
+}
+html.dark.theme-voice .rounded-r-lg {
+  border-top-right-radius: 6px !important;
+  border-bottom-right-radius: 6px !important;
+}
+html.dark.theme-voice .rounded-md,
+html.dark.theme-voice .rounded {
+  border-radius: 5px !important;
+}
+html.dark.theme-voice .rounded-sm {
+  border-radius: 4px !important;
+}
+html.dark.theme-voice input.rounded-full {
+  border-radius: 7px !important;
+}
+html.dark.theme-voice button:focus-visible,
+html.dark.theme-voice a:focus-visible,
+html.dark.theme-voice [role="button"]:focus-visible {
+  border-radius: 7px;
+}
+
+/* ── 5. Estilização da Rail Lateral (Sidebar) fiel ao Voice Score (.vp-rail) ── */
+html.dark.theme-voice .vp-sidebar-rail {
+  background-color: var(--vp-rail);
+  border: 1px solid var(--vp-line);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+}
+
+html.dark.theme-voice .vp-sidebar-rail nav button {
+  border-radius: 8px !important;
+  border: 1px solid transparent;
+}
+
+html.dark.theme-voice .vp-sidebar-rail nav button:hover:not(:disabled) {
+  background-color: var(--vp-raised);
+  border-color: var(--vp-line);
+  color: var(--vp-text);
+}
+
+html.dark.theme-voice .vp-sidebar-rail nav button.bg-primary-soft {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 22%, transparent),
+    color-mix(in srgb, var(--primary) 8%, transparent)
+  ) !important;
+  border-color: color-mix(in srgb, var(--primary) 38%, transparent) !important;
+  color: var(--vp-text) !important;
+}
+
+/* ── 6. Sombras e Contornos Técnicos dos Painéis e Balões no Tema Voice ── */
+html.dark.theme-voice .shadow-soft {
+  box-shadow: var(--shadow-soft);
+}
+html.dark.theme-voice .shadow-card {
+  box-shadow: var(--shadow-card);
+}
+html.dark.theme-voice .bg-bubble-in {
+  border: 1px solid var(--vp-line);
+}
+
+/* ── 7. Neutralização Global de Classes Hardcoded Navy/Slate/Zinc (94 arquivos) ── */
+/* Fundos profundos -> --vp-bg (#151517) */
+html.dark.theme-voice .dark\:bg-slate-950,
+html.dark.theme-voice .dark\:bg-zinc-950,
+html.dark.theme-voice .dark\:bg-\[\#09090b\],
+html.dark.theme-voice .dark\:bg-\[\#0c0d12\],
+html.dark.theme-voice .dark\:bg-\[\#0e0f14\],
+html.dark.theme-voice .dark\:bg-\[\#0f172a\],
+html.dark.theme-voice .dark\:bg-\[\#111113\],
+html.dark.theme-voice .dark\:bg-\[\#121215\] {
+  background-color: #151517 !important;
+}
+
+html.dark.theme-voice .dark\:bg-zinc-950\/95,
+html.dark.theme-voice .dark\:bg-zinc-950\/90,
+html.dark.theme-voice .dark\:bg-zinc-950\/80,
+html.dark.theme-voice .dark\:bg-zinc-950\/70,
+html.dark.theme-voice .dark\:bg-zinc-950\/60,
+html.dark.theme-voice .dark\:bg-zinc-950\/50,
+html.dark.theme-voice .dark\:bg-zinc-950\/40,
+html.dark.theme-voice .dark\:bg-zinc-950\/30,
+html.dark.theme-voice .dark\:bg-\[\#121215\]\/80 {
+  background-color: rgba(25, 25, 28, 0.94) !important;
+}
+
+/* Painéis e Cards -> --vp-panel (#1e1e22) */
+html.dark.theme-voice .dark\:bg-slate-900,
+html.dark.theme-voice .dark\:bg-zinc-900,
+html.dark.theme-voice .dark\:bg-\[\#18181b\] {
+  background-color: #1e1e22 !important;
+}
+
+html.dark.theme-voice .dark\:bg-slate-900\/60,
+html.dark.theme-voice .dark\:bg-slate-900\/40,
+html.dark.theme-voice .dark\:bg-zinc-900\/95,
+html.dark.theme-voice .dark\:bg-zinc-900\/90,
+html.dark.theme-voice .dark\:bg-zinc-900\/80,
+html.dark.theme-voice .dark\:bg-zinc-900\/70,
+html.dark.theme-voice .dark\:bg-zinc-900\/60,
+html.dark.theme-voice .dark\:bg-zinc-900\/50,
+html.dark.theme-voice .dark\:bg-zinc-900\/40,
+html.dark.theme-voice .dark\:bg-zinc-900\/30,
+html.dark.theme-voice .dark\:bg-zinc-900\/20 {
+  background-color: rgba(30, 30, 34, 0.9) !important;
+}
+
+/* Superfícies Elevadas, Inputs e Hovers -> --vp-raised (#26262c) */
+html.dark.theme-voice .dark\:bg-slate-800,
+html.dark.theme-voice .dark\:bg-slate-800\/60,
+html.dark.theme-voice .dark\:bg-slate-700,
+html.dark.theme-voice .dark\:bg-zinc-800,
+html.dark.theme-voice .dark\:bg-zinc-800\/90,
+html.dark.theme-voice .dark\:bg-zinc-800\/80,
+html.dark.theme-voice .dark\:bg-zinc-700,
+html.dark.theme-voice .dark\:hover\:bg-zinc-800:hover,
+html.dark.theme-voice .dark\:hover\:bg-slate-800:hover,
+html.dark.theme-voice .dark\:hover\:bg-zinc-900:hover {
+  background-color: #26262c !important;
+}
+
+/* Fundos Semânticos Suaves do Voice Score (--vp-green-soft, --vp-amber-soft, --vp-soft) */
+html.dark.theme-voice .dark\:bg-emerald-950,
+html.dark.theme-voice .dark\:bg-emerald-950\/80,
+html.dark.theme-voice .dark\:bg-emerald-950\/60,
+html.dark.theme-voice .dark\:bg-emerald-950\/50,
+html.dark.theme-voice .dark\:bg-emerald-950\/40,
+html.dark.theme-voice .dark\:bg-emerald-950\/30,
+html.dark.theme-voice .dark\:bg-emerald-950\/25,
+html.dark.theme-voice .dark\:bg-emerald-950\/20,
+html.dark.theme-voice .dark\:bg-emerald-950\/15,
+html.dark.theme-voice .dark\:bg-emerald-900\/50,
+html.dark.theme-voice .dark\:bg-emerald-900\/40,
+html.dark.theme-voice .dark\:bg-\[\#0c1c16\],
+html.dark.theme-voice .dark\:bg-\[\#0d1714\] {
+  background-color: #25372d !important;
+}
+
+html.dark.theme-voice .dark\:bg-amber-950,
+html.dark.theme-voice .dark\:bg-amber-950\/70,
+html.dark.theme-voice .dark\:bg-amber-950\/60,
+html.dark.theme-voice .dark\:bg-amber-950\/50,
+html.dark.theme-voice .dark\:bg-amber-950\/40,
+html.dark.theme-voice .dark\:bg-amber-950\/30,
+html.dark.theme-voice .dark\:bg-amber-950\/25,
+html.dark.theme-voice .dark\:bg-amber-950\/20,
+html.dark.theme-voice .dark\:bg-amber-900\/40 {
+  background-color: #342f25 !important;
+}
+
+html.dark.theme-voice .dark\:bg-red-950,
+html.dark.theme-voice .dark\:bg-red-950\/80,
+html.dark.theme-voice .dark\:bg-red-950\/40,
+html.dark.theme-voice .dark\:bg-red-950\/30,
+html.dark.theme-voice .dark\:bg-red-950\/20,
+html.dark.theme-voice .dark\:bg-red-900\/40,
+html.dark.theme-voice .dark\:bg-rose-950\/60,
+html.dark.theme-voice .dark\:bg-rose-950\/40,
+html.dark.theme-voice .dark\:bg-rose-950\/30,
+html.dark.theme-voice .dark\:bg-\[\#1f1013\],
+html.dark.theme-voice .dark\:bg-\[\#8b1d1d\]\/20 {
+  background-color: #342326 !important;
+}
+
+/* Bordas e Divisórias Técnicas -> --vp-line (#303036) */
+html.dark.theme-voice .dark\:border-slate-800,
+html.dark.theme-voice .dark\:border-slate-700,
+html.dark.theme-voice .dark\:border-slate-700\/80,
+html.dark.theme-voice .dark\:border-zinc-800,
+html.dark.theme-voice .dark\:border-zinc-800\/90,
+html.dark.theme-voice .dark\:border-zinc-800\/80,
+html.dark.theme-voice .dark\:border-zinc-800\/70,
+html.dark.theme-voice .dark\:border-zinc-800\/60,
+html.dark.theme-voice .dark\:border-zinc-800\/40,
+html.dark.theme-voice .dark\:border-zinc-700,
+html.dark.theme-voice .dark\:border-zinc-700\/80,
+html.dark.theme-voice .dark\:border-zinc-700\/60,
+html.dark.theme-voice .dark\:border-zinc-700\/50,
+html.dark.theme-voice .dark\:border-zinc-700\/40 {
+  border-color: #303036 !important;
+}
+
+html.dark.theme-voice .dark\:divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+html.dark.theme-voice .dark\:divide-zinc-800 > :not([hidden]) ~ :not([hidden]),
+html.dark.theme-voice .dark\:divide-zinc-800\/60 > :not([hidden]) ~ :not([hidden]),
+html.dark.theme-voice .dark\:divide-zinc-800\/50 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #303036 !important;
+}
+
+html.dark.theme-voice .dark\:ring-slate-800,
+html.dark.theme-voice .dark\:ring-zinc-950 {
+  --tw-ring-color: #303036 !important;
+}
+
+/* Tipografia e Cores Semânticas de Texto -> Paleta Voice Score */
+html.dark.theme-voice .dark\:text-white,
+html.dark.theme-voice .dark\:text-slate-100,
+html.dark.theme-voice .dark\:text-slate-200,
+html.dark.theme-voice .dark\:text-zinc-50,
+html.dark.theme-voice .dark\:text-zinc-100,
+html.dark.theme-voice .dark\:text-zinc-200 {
+  color: #f1f0f3 !important;
+}
+
+html.dark.theme-voice .dark\:text-slate-300,
+html.dark.theme-voice .dark\:text-slate-400,
+html.dark.theme-voice .dark\:text-zinc-300,
+html.dark.theme-voice .dark\:text-zinc-400,
+html.dark.theme-voice .dark\:text-zinc-500 {
+  color: #b8b7c3 !important;
+}
+
+html.dark.theme-voice .dark\:text-emerald-400,
+html.dark.theme-voice .dark\:text-emerald-300,
+html.dark.theme-voice .dark\:text-emerald-200 {
+  color: #8bd2aa !important;
+}
+
+html.dark.theme-voice .dark\:text-amber-400,
+html.dark.theme-voice .dark\:text-amber-300,
+html.dark.theme-voice .dark\:text-amber-200 {
+  color: #dec18c !important;
+}
+
+html.dark.theme-voice .dark\:text-red-400,
+html.dark.theme-voice .dark\:text-red-300,
+html.dark.theme-voice .dark\:text-rose-400,
+html.dark.theme-voice .dark\:text-rose-300 {
+  color: #ee6666 !important;
+}
+
+
 

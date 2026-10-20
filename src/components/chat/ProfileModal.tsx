@@ -532,49 +532,71 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                   Tema / Aparência
                 </label>
                 <span className="text-[10px] text-muted-foreground capitalize">
-                  {theme === "light" ? "Modo Claro" : theme === "dark" ? "Modo Escuro" : "Automático"}
+                  {theme === "light"
+                    ? "Modo Claro"
+                    : theme === "dark"
+                    ? "Escuro (Azul)"
+                    : theme === "voice"
+                    ? "Modo Dark (Voice)"
+                    : "Automático"}
                 </span>
               </div>
-              <div className="grid grid-cols-3 gap-1 bg-muted/40 p-1 rounded-xl border border-border/40">
+              <div className="grid grid-cols-4 gap-1 bg-muted/40 p-1 rounded-xl border border-border/40">
                 <button
                   type="button"
                   onClick={() => setTheme("light")}
-                  className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                  className={`flex h-8 items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
                     theme === "light"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
                   }`}
+                  title="Tema Claro (Branco)"
                 >
-                  <Sun className="h-3.5 w-3.5" />
+                  <Sun className="h-3.5 w-3.5 shrink-0" />
                   <span>Claro</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setTheme("dark")}
-                  className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                  className={`flex h-8 items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
                     theme === "dark"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
                   }`}
+                  title="Tema Escuro Padrão (Azul)"
                 >
-                  <Moon className="h-3.5 w-3.5" />
-                  <span>Escuro</span>
+                  <Moon className="h-3.5 w-3.5 shrink-0" />
+                  <span>Azul</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme("voice")}
+                  className={`flex h-8 items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                    theme === "voice"
+                      ? "bg-background text-foreground shadow-xs border border-primary/40 font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                  }`}
+                  title="Tema Dark (Identidade Visual Voice Score)"
+                >
+                  <Palette className="h-3.5 w-3.5 shrink-0" />
+                  <span>Dark</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setTheme("system")}
-                  className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                  className={`flex h-8 items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
                     theme === "system"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
                   }`}
+                  title="Sincronizar com o sistema operacional"
                 >
-                  <Monitor className="h-3.5 w-3.5" />
+                  <Monitor className="h-3.5 w-3.5 shrink-0" />
                   <span>Auto</span>
                 </button>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Sincroniza automaticamente com o seu sistema operacional ou fixa o contraste preferido.
+                Escolha entre Claro, Azul, Dark (visual técnico Voice Score) ou Automático.
               </p>
             </div>
 

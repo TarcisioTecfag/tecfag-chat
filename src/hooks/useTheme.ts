@@ -1,21 +1,30 @@
 import { useState, useEffect, useCallback } from "react";
 
-export type ThemeMode = "light" | "dark" | "system";
+export type ThemeMode = "light" | "dark" | "voice" | "system";
 
 const STORAGE_KEY = "chat_theme_mode";
 
-/** Aplica a classe .dark ao elemento raiz do documento */
+/** Aplica a classe .dark (e .theme-voice quando no 3º tema Dark/Voice Score) ao elemento raiz do documento */
 export function applyTheme(mode: ThemeMode) {
   if (typeof window === "undefined") return;
 
   const root = document.documentElement;
   const isSystemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const isDark = mode === "dark" || (mode === "system" && isSystemDark);
+  const isVoice = mode === "voice";
+  const isDark = mode === "dark" || isVoice || (mode === "system" && isSystemDark);
 
   if (isDark) {
     root.classList.add("dark");
   } else {
     root.classList.remove("dark");
+  }
+
+  if (isVoice) {
+    root.classList.add("theme-voice");
+    root.setAttribute("data-theme", "voice");
+  } else {
+    root.classList.remove("theme-voice");
+    root.removeAttribute("data-theme");
   }
 }
 
@@ -23,7 +32,7 @@ export function applyTheme(mode: ThemeMode) {
 export function getInitialTheme(): ThemeMode {
   if (typeof window === "undefined") return "system";
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved === "light" || saved === "dark" || saved === "system") {
+  if (saved === "light" || saved === "dark" || saved === "voice" || saved === "system") {
     return saved;
   }
   return "system";
@@ -40,9 +49,12 @@ export function useTheme() {
 
   const isDark =
     theme === "dark" ||
+    theme === "voice" ||
     (theme === "system" &&
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+  const isVoiceTheme = theme === "voice";
 
   const setTheme = useCallback((newTheme: ThemeMode) => {
     setThemeState(newTheme);
@@ -86,5 +98,5 @@ export function useTheme() {
     };
   }, [theme]);
 
-  return { theme, setTheme, isDark };
+  return { theme, setTheme, isDark, isVoiceTheme };
 }

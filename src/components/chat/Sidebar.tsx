@@ -74,7 +74,7 @@ export function Sidebar() {
 
 
   return (
-    <aside className="flex h-full w-14 md:w-[72px] shrink-0 flex-col items-center justify-between py-2.5 md:py-4.5 relative z-50 select-none overflow-hidden">
+    <aside className="vp-sidebar-rail flex h-full w-14 md:w-[72px] shrink-0 flex-col items-center justify-between py-2.5 md:py-4.5 relative z-50 select-none overflow-hidden">
       <div className="flex flex-col items-center w-full flex-1 min-h-0 overflow-hidden">
         {/* Tenant Switcher Logo */}
         <div className="relative shrink-0 mb-2 md:mb-4">

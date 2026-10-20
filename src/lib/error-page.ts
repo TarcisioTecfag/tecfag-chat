@@ -61,7 +61,7 @@ export function renderErrorPage(tenant?: string): string {
             root.style.setProperty("--brand-border", "rgba(223, 61, 61, 0.4)");
             root.style.setProperty("--brand-soft", "rgba(223, 61, 61, 0.15)");
             var tMode = localStorage.getItem("chat_theme_mode");
-            var isDark = tMode === "dark" || ((!tMode || tMode === "system") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+            var isDark = tMode === "dark" || tMode === "voice" || ((!tMode || tMode === "system") && window.matchMedia("(prefers-color-scheme: dark)").matches);
             var img = document.getElementById("ai-avatar");
             if (img) { img.src = isDark ? "/fagner-dark.png" : "/fagner-light.png"; img.alt = "Fagner IA"; }
             var b = document.getElementById("ai-badge");
