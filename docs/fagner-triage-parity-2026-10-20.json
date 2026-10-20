@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T12:01:23.537Z",
+  "scope": "Classificação determinística offline; não executa IA, banco, rede ou orquestração.",
+  "limitation": "O legado recebe texto bruto; a v2 recebe um campo que pode ser resumido pelo LLM. Igualdade de coluna não comprova paridade de subfluxo, coleta, CRM ou transferência. O legado também contém regras conflitantes e não é um oráculo automático.",
+  "evidence": [
+    {
+      "project": "legacy",
+      "path": "server/fagner/routingConfig.ts",
+      "sha256": "6eef6e3266047883e36207b7607dbc894ec024773e93734dfe383ea5e06caa30"
+    },
+    {
+      "project": "legacy",
+      "path": "server/fagner/flowEngine.ts",
+      "sha256": "0a2b320c639538d023f765eec7185a975ed99fb91096a60a4cc279e517dab51c"
+    },
+    {
+      "project": "v2",
+      "path": "src/lib/valentina/sdr-tecfag-prompt.ts",
+      "sha256": "9d2056025424dacab979627cf55f1bf4a1a9a97779b83c3964a4f63f965646bb"
+    }
+  ],
+  "summary": {
+    "scenarios": 20,
+    "sameStage": 9,
+    "differentStage": 11,
+    "metadataCases": 4
+  },
+  "scenarios": [
+    {
+      "id": "comercial-maquina",
+      "input": "Quero comprar uma seladora",
+      "legacy": {
+        "flow": 1,
+        "subflow": "MAQUINAS",
+        "stage": "maquinas"
+      },
+      "v2": {
+        "funnelStage": "maquinas",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": true
+    },
+    {
+      "id": "comercial-envasadora",
+      "input": "Preciso de uma envasadora",
+      "legacy": {
+        "flow": 1,
+        "subflow": "MAQUINAS",
+        "stage": "maquinas"
+      },
+      "v2": {
+        "funnelStage": "maquinas",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": true
+    },
+    {
+      "id": "comercial-personnalite-campanha",
+      "input": "Quero ver soluções Personnalité",
+      "legacy": {
+        "flow": 1,
+        "subflow": "MAQUINAS",
+        "stage": "maquinas"
+      },
+      "v2": {
+        "funnelStage": "personalite",
+        "targetFunnel": "Personnalité"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "pecas-teflon",
+      "input": "Preciso de fita de teflon para reposição",
+      "legacy": {
+        "flow": 1,
+        "subflow": "PECAS",
+        "stage": "pecas"
+      },
+      "v2": {
+        "funnelStage": "pecas",
+        "targetFunnel": "Peças"
+      },
+      "sameStage": true
+    },
+    {
+      "id": "pecas-ribbon",
+      "input": "Quero cotar ribbon",
+      "legacy": {
+        "flow": 1,
+        "subflow": "PECAS",
+        "stage": "pecas"
+      },
+      "v2": {
+        "funnelStage": "triagem",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "pecas-inkroll",
+      "input": "Preciso de ink roll",
+      "legacy": {
+        "flow": 1,
+        "subflow": "PECAS",
+        "stage": "pecas"
+      },
+      "v2": {
+        "funnelStage": "triagem",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "financeiro-boleto-maquina",
+      "input": "Preciso da segunda via do boleto da seladora",
+      "legacy": {
+        "flow": 2,
+        "subflow": "2A_BOLETO",
+        "stage": "financeiro"
+      },
+      "v2": {
+        "funnelStage": "financeiro",
+        "targetFunnel": "Fin. Boleto"
+      },
+      "sameStage": true
+    },
+    {
+      "id": "financeiro-nf",
+      "input": "Preciso da segunda via da nota fiscal",
+      "legacy": {
+        "flow": 2,
+        "subflow": "2B_NF",
+        "stage": "financeiro"
+      },
+      "v2": {
+        "funnelStage": "triagem",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "financeiro-estorno",
+      "input": "Quero saber do estorno da máquina que devolvi",
+      "legacy": {
+        "flow": 2,
+        "subflow": "2C_OUTROS",
+        "stage": "financeiro"
+      },
+      "v2": {
+        "funnelStage": "maquinas",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "financeiro-reembolso",
+      "input": "Preciso de reembolso",
+      "legacy": {
+        "flow": 2,
+        "subflow": "2C_OUTROS",
+        "stage": "financeiro"
+      },
+      "v2": {
+        "funnelStage": "triagem",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "tecnica-defeito",
+      "input": "Minha seladora está com defeito",
+      "legacy": {
+        "flow": 3,
+        "subflow": "3_AT",
+        "stage": "assistencia_tecnica"
+      },
+      "v2": {
+        "funnelStage": "assistencia_tecnica",
+        "targetFunnel": "Assistência Técnica"
+      },
+      "sameStage": true
+    },
+    {
+      "id": "tecnica-manual",
+      "input": "Preciso do manual da seladora",
+      "legacy": {
+        "flow": 3,
+        "subflow": "3_AT",
+        "stage": "assistencia_tecnica"
+      },
+      "v2": {
+        "funnelStage": "maquinas",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "tecnica-esquema",
+      "input": "Pode enviar o esquema elétrico da máquina?",
+      "legacy": {
+        "flow": 3,
+        "subflow": "3_AT",
+        "stage": "assistencia_tecnica"
+      },
+      "v2": {
+        "funnelStage": "maquinas",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "tecnica-manutencao-personnalite",
+      "input": "Preciso de manutenção na máquina Personnalité",
+      "legacy": {
+        "flow": 3,
+        "subflow": "3_AT",
+        "stage": "assistencia_tecnica"
+      },
+      "v2": {
+        "funnelStage": "personalite",
+        "targetFunnel": "Personnalité"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "posvenda-rastreio",
+      "input": "Preciso do rastreio da entrega",
+      "legacy": {
+        "flow": 4,
+        "subflow": "4A_RASTREAR",
+        "stage": "pos_venda"
+      },
+      "v2": {
+        "funnelStage": "pos_venda",
+        "targetFunnel": "Pós-Venda Rastreio"
+      },
+      "sameStage": true
+    },
+    {
+      "id": "posvenda-nf-pedido",
+      "input": "Preciso da nota fiscal do pedido",
+      "legacy": {
+        "flow": 4,
+        "subflow": "4B_NF",
+        "stage": "pos_venda"
+      },
+      "v2": {
+        "funnelStage": "triagem",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "posvenda-devolucao",
+      "input": "Quero devolver a máquina",
+      "legacy": {
+        "flow": 4,
+        "subflow": "POS_VENDA",
+        "stage": "pos_venda"
+      },
+      "v2": {
+        "funnelStage": "maquinas",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": false
+    },
+    {
+      "id": "outros-curriculo",
+      "input": "Quero enviar meu currículo",
+      "legacy": {
+        "flow": 5,
+        "subflow": "5B_CURRICULO",
+        "stage": "outros"
+      },
+      "v2": {
+        "funnelStage": "outros",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": true
+    },
+    {
+      "id": "outros-fornecedor",
+      "input": "Sou fornecedor e quero oferecer produtos para compras",
+      "legacy": {
+        "flow": 5,
+        "subflow": "5C_COMPRAS",
+        "stage": "outros"
+      },
+      "v2": {
+        "funnelStage": "outros",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": true
+    },
+    {
+      "id": "saudacao",
+      "input": "Olá, bom dia",
+      "legacy": {
+        "flow": null,
+        "subflow": null,
+        "stage": "triagem"
+      },
+      "v2": {
+        "funnelStage": "triagem",
+        "targetFunnel": "Máquinas"
+      },
+      "sameStage": true
+    }
+  ],
+  "metadataCases": [
+    {
+      "id": "other-target-is-sales",
+      "input": {
+        "aiFunnelStage": "outros",
+        "collectedData": {}
+      },
+      "v2": {
+        "funnelStage": "outros",
+        "targetFunnel": "Máquinas"
+      }
+    },
+    {
+      "id": "no-response-target-is-sales",
+      "input": {
+        "aiFunnelStage": "sem_resposta",
+        "collectedData": {}
+      },
+      "v2": {
+        "funnelStage": "sem_resposta",
+        "targetFunnel": "Máquinas"
+      }
+    },
+    {
+      "id": "unknown-stage-is-not-validated",
+      "input": {
+        "existingStage": "valor_invalido",
+        "collectedData": {}
+      },
+      "v2": {
+        "funnelStage": "valor_invalido",
+        "targetFunnel": "Máquinas"
+      }
+    },
+    {
+      "id": "specific-parts-target-vs-prior-product",
+      "input": {
+        "aiTargetFunnel": "Peças",
+        "collectedData": {
+          "MÁQUINA / PEÇA / INTERESSE": {
+            "value": "Máquina Personnalité"
+          }
+        }
+      },
+      "v2": {
+        "funnelStage": "personalite",
+        "targetFunnel": "Personnalité"
+      }
+    }
+  ]
+}

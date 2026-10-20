@@ -2,7 +2,7 @@ import { runtimeSingleton } from "../runtime-singleton";
 
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts } from "../../db/schema";
-import { eq, asc, and, gte, ne } from "drizzle-orm";
+import { eq, asc, and, gte, ne, sql, isNull } from "drizzle-orm";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
@@ -10,7 +10,12 @@ import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
 import { getKnowledgeBaseContext, getRealMediaFiles, KNOWLEDGE_MEDIA_DIR } from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
-import { buildTecfagFagnerPrompt, resolveTecfagStageAndFunnel } from "./sdr-tecfag-prompt";
+import { buildTecfagFagnerPrompt } from "./sdr-tecfag-prompt";
+import { resolveLegacySdrStageAndFunnel } from "./legacy-sdr-routing";
+import { INDUSTRIAL_POLICY_VERSION, resolveIndustrialRoute, assessIndustrialReadiness, canFinishIndustrialTriage, hasPendingTriageQuestion, requestsHuman } from "../triage/industrial-policy";
+import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
+import { industrialHandoffOutcome, industrialClientMessages, type IndustrialHandoffResult } from "../triage/industrial-handoff";
+import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
 import {
   resolveTenantActiveProvider,
   sendBotPresence,
@@ -30,6 +35,7 @@ export interface SdrAiResult {
   extractedData?: Record<string, any>;
   funnelStage?: string | null;
   targetFunnel?: string | null;
+  subflow?: string | null;
   messagesToSend: string[];
   audioMessage?: {
     text: string;
@@ -179,6 +185,7 @@ export class SdrEngine {
       }
 
       const aiPersona = getAiPersona(tenantId);
+      const industrialTriage = aiPersona.triagePolicy === "industrial";
 
       // 1. Carregar Configuração do Agente SDR no Banco — OBRIGATÓRIO filtrar por tenant.
       //    NUNCA usar fallback sem tenant: isso causa uso de config/prompt do tenant errado.
@@ -187,7 +194,7 @@ export class SdrEngine {
           dAnd(dEq(table.tenantId, tenantId), dEq(table.agentType, "sdr")),
       });
 
-      if (!dbConfig) {
+      if (!dbConfig && !industrialTriage) {
         // Inicializa automaticamente a configuração padrão do SDR para o tenant habilitado
         const defaultCfgId = `cfg-sdr-${tenantId}`;
         await db
@@ -212,7 +219,7 @@ export class SdrEngine {
         });
       }
 
-      const isEnabled = dbConfig ? dbConfig.enabled === 1 : true;
+      const isEnabled = dbConfig ? dbConfig.enabled === 1 : !industrialTriage;
       const configData = (dbConfig?.config as Record<string, any>) || {};
 
       if (!isEnabled) {
@@ -227,7 +234,7 @@ export class SdrEngine {
       });
 
       if (!flowState) {
-        const newFlowId = `fs-sdr-${Date.now()}`;
+        const newFlowId = industrialTriage ? `fs-sdr-${tenantId}-${conversationId}` : `fs-sdr-${Date.now()}`;
         const initialStartTs = batchItems[0]?.receivedAt
           ? new Date(new Date(batchItems[0].receivedAt).getTime() - 5000)
           : new Date(Date.now() - 60000);
@@ -243,12 +250,12 @@ export class SdrEngine {
             totalSteps: 7,
             followUpStage: 0,
             funnelStage: "triagem",
-            targetFunnel: "Máquinas",
+            targetFunnel: industrialTriage ? null : "Máquinas",
           },
           startedAt: initialStartTs,
           lastInteractionAt: new Date(),
           outcome: "in_progress",
-        });
+        }).onConflictDoNothing();
 
         flowState = await db.query.agentFlowStates.findFirst({
           where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, newFlowId), dEq(t.tenantId, tenantId)),
@@ -350,8 +357,9 @@ export class SdrEngine {
       // (evita que lotes paralelos também passem pela lógica de saudação)
       if (isFirstMessage && flowState) {
         await db.update(agentFlowStates)
-          .set({ metadata: { ...metaState, greetingDone: true } })
-          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)));
+          .set({ metadata: industrialTriage ? sql`${agentFlowStates.metadata} || '{"greetingDone":true}'::jsonb` : { ...metaState, greetingDone: true } })
+          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId),
+            ...(industrialTriage ? [eq(agentFlowStates.outcome, "in_progress"), isNull(agentFlowStates.completedAt)] : [])));
       }
 
       const companyPrep = /^grupo\b/i.test(aiPersona.company) ? "do" : "da";
@@ -703,7 +711,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 }`;
 
       const promptText =
-        tenantId === "tecfag"
+        industrialTriage
           ? buildTecfagFagnerPrompt({
               aiPersona,
               knowledgeContext,
@@ -714,6 +722,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               firstMessageRule,
               hasPreviousEmoji,
               hasPreviousAudio,
+              policyInstructions: typeof configData.industrialInstructions === "string" ? configData.industrialInstructions : undefined,
             })
           : valemPromptText;
 
@@ -735,7 +744,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // 6. Consultar o Gemini 2.5 Pro via Vertex AI
       let aiResult: SdrAiResult | null = null;
-      if (vertexAi.isReady()) {
+      if (industrialTriage && requestsHuman(combinedBatchText)) {
+        aiResult = { subflow: "5A_CLIENTE", messagesToSend: ["Vou acionar a equipe responsável pelo seu atendimento."], isCompleted: true };
+      } else if (vertexAi.isReady()) {
         aiResult = await vertexAi.generateStructuredJson<SdrAiResult>(
           multimodalParts,
           "gemini-2.5-pro",
@@ -749,6 +760,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       if (signal?.aborted) return false;
+
+      if (industrialTriage) {
+        aiResult = parseIndustrialAiResult(aiResult);
+      }
 
       // Se a IA não retornar resultado válido (timeout, erro de parse, etc.), silencia sem enviar
       // nada ao cliente — o SDR não deve ter fallback de mensagem pública.
@@ -831,9 +846,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           delete aiResult.extractedData["CNPJ OU CPF"];
           delete aiResult.extractedData["CNPJ"];
           delete aiResult.extractedData["EMPRESA"];
-          delete updatedCollectedData["CNPJ OU CPF"];
-          delete updatedCollectedData["CNPJ"];
-          delete updatedCollectedData["EMPRESA"];
+          if (!industrialTriage) {
+            delete updatedCollectedData["CNPJ OU CPF"];
+            delete updatedCollectedData["CNPJ"];
+            delete updatedCollectedData["EMPRESA"];
+          }
         }
       }
 
@@ -913,15 +930,21 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       ).length || [hasName, hasCompany || hasCnpj, hasProduct].filter(Boolean).length;
 
       // Resolver estágio do Kanban SDR (9 colunas) e Sub-Funil de Fluxos (9 sub-funis)
-      const stageAndFunnel = resolveTecfagStageAndFunnel({
+      const routeInput = {
+        text: combinedBatchText,
+        aiSubflow: aiResult.subflow,
         aiFunnelStage: aiResult.funnelStage,
         aiTargetFunnel: aiResult.targetFunnel,
         collectedData: updatedCollectedData,
         existingStage: metaState.funnelStage || "triagem",
-        existingFunnel: metaState.targetFunnel || "Máquinas",
-      });
+        existingFunnel: metaState.targetFunnel || null,
+        existingSubflow: metaState.subflow || null,
+      };
+      const industrialRoute = industrialTriage ? resolveIndustrialRoute(routeInput) : null;
+      const stageAndFunnel = industrialRoute || resolveLegacySdrStageAndFunnel({ ...routeInput, existingFunnel: metaState.targetFunnel || "Máquinas" });
+      const industrialReadiness = industrialRoute ? assessIndustrialReadiness(industrialRoute, updatedCollectedData) : null;
 
-      if (tenantId === "tecfag" && stageAndFunnel.targetFunnel && !updatedCollectedData["SETOR / FUNIL DE DESTINO"]?.value) {
+      if (industrialTriage && stageAndFunnel.targetFunnel) {
         updatedCollectedData["SETOR / FUNIL DE DESTINO"] = {
           value: stageAndFunnel.targetFunnel,
           status: "filled",
@@ -965,7 +988,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // ║  A IA jamais pode encerrar a triagem sem dados vitais coletados.   ║
       // ╚══════════════════════════════════════════════════════════════════════╝
       let isCompleted = false;
-      if (hasVitalInformation) {
+      if (industrialRoute) {
+        isCompleted = canFinishIndustrialTriage({ route: industrialRoute, data: updatedCollectedData, isCompleted: aiResult.isCompleted, hasPendingQuestion: hasPendingTriageQuestion(aiResult.messagesToSend) });
+      } else if (hasVitalInformation) {
         // Com dados vitais coletados: aceita conclusão da IA (sem pergunta real pendente) OU transferência explícita
         if ((aiResult.isCompleted && !botIsAskingQuestion) || messagesMentionTransfer) {
           isCompleted = true;
@@ -977,6 +1002,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
+      let industrialHandoff: IndustrialHandoffResult = { status: "collecting", operator: null, deal: null };
+      let industrialHandoffPersisted = false;
 
       // 9. Alocar responsável no Rodízio e vincular/criar negociação SE a qualificação acabou de ser concluída
       let allocatedOp: any = null;
@@ -994,94 +1021,37 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           const company = updatedCollectedData["EMPRESA"]?.value || "Empresa não informada";
           const { RodizioEngine } = await import("./rodizio-engine");
 
-          if (tenantId === "tecfag") {
-            // ══════════════════════════════════════════════════════════════════
-            // 🏢 FLUXO FAGNER SDR (TECFAG):
-            // 1) Zero RD Station CRM — apenas CRM Local.
-            // 2) ANTES de transferir a conversa para a fila "meus" do operador,
-            //    executa ensureLocalCrmDealBeforeTransfer com a regra de 3 horas:
-            //    - Se existir negociação criada nas últimas 3h para o cliente → vincula a ela.
-            //    - Se passou de 3h ou não existir → cria nova negociação e vincula antes de transferir.
-            // ══════════════════════════════════════════════════════════════════
-            const targetFunnelForRodizio =
-              stageAndFunnel.targetFunnel ||
-              updatedCollectedData["SETOR / FUNIL DE DESTINO"]?.value ||
-              "Máquinas";
-
-            let crmExecutedBeforeTransfer = false;
-
-            allocatedOp = await RodizioEngine.allocateNextOperator(
-              tenantId,
-              conversationId,
-              clientName,
-              targetFunnelForRodizio,
-              {
-                beforeTransfer: async (chosenOp) => {
-                  localCrmResult = await ensureLocalCrmDealBeforeTransfer({
-                    tenantId,
-                    conversationId,
-                    contactId: convCheck?.contactId || null,
-                    contactPhone,
-                    clientName,
-                    companyName: company,
-                    collectedData: updatedCollectedData,
-                    targetFunnel: targetFunnelForRodizio,
-                    funnelStage: stageAndFunnel.funnelStage,
-                    targetOperatorId: chosenOp.id,
-                    targetOperatorName: chosenOp.name,
-                    allocatedOperator: { id: chosenOp.id, name: chosenOp.name },
-                  });
-                  crmExecutedBeforeTransfer = true;
-                  console.log(
-                    `[SdrEngine][Fagner] 🤝 CRM Local vinculado ANTES da transferência (${localCrmResult.action}): Deal ${localCrmResult.dealId} ("${localCrmResult.dealTitle}") -> Operador ${chosenOp.name}`,
-                  );
-                },
-              },
-            );
-
-            // Caso não haja nenhum operador elegível na escala no momento, ainda assim garante
-            // o vínculo/criação da negociação no CRM Local (janela de 3h) antes de disponibilizar na fila
-            if (!crmExecutedBeforeTransfer) {
-              localCrmResult = await ensureLocalCrmDealBeforeTransfer({
-                tenantId,
-                conversationId,
-                contactId: convCheck?.contactId || null,
-                contactPhone,
-                clientName,
-                companyName: company,
-                collectedData: updatedCollectedData,
-                targetFunnel: targetFunnelForRodizio,
-                funnelStage: stageAndFunnel.funnelStage,
-                targetOperatorId: allocatedOp?.id || null,
-                targetOperatorName: allocatedOp?.name || null,
-                allocatedOperator: allocatedOp ? { id: allocatedOp.id, name: allocatedOp.name } : null,
-              });
-              console.log(
-                `[SdrEngine][Fagner] 🤝 CRM Local vinculado sem operador de rodízio (${localCrmResult.action}): Deal ${localCrmResult.dealId}`,
-              );
-            }
+          if (industrialTriage && industrialRoute) {
+            if (!flowState) return false;
+            const store = createIndustrialHandoffStore(db, ensureLocalCrmDealBeforeTransfer);
+            const key = { tenantId, conversationId, flowId: flowState.id, cycle: flowState.startedAt.toISOString() };
+            if (!await store.prepare(key, { route: industrialRoute, data: updatedCollectedData, clientName, companyName: company })) return false;
+            const committed = await store.execute(key, { signal });
+            if (committed.replayed || committed.superseded) return false;
+            industrialHandoff = committed;
+            industrialHandoffPersisted = true;
+            allocatedOp = industrialHandoff.operator;
+            localCrmResult = industrialHandoff.deal;
 
             if (allocatedOp?.id) {
-              const supervisorNotifId = `notif-${Date.now()}`;
-              const dealLabel = localCrmResult
-                ? ` | Card CRM: *${localCrmResult.dealTitle}* (${localCrmResult.action === "reused_within_3h" ? "vinculado < 3h" : "criado novo"})`
-                : "";
-              await db.insert(internalMessages).values({
-                id: supervisorNotifId,
+              SessionManager.getInstance().notifyPublic(tenantId, {
+                type: "chat_updated", chat: { id: conversationId, contactId: convCheck?.contactId || null,
+                  queue: "meus", operatorId: allocatedOp.id, walletOperatorId: allocatedOp.id, responsibleName: allocatedOp.name },
+              });
+              const { notifyOperatorLeadTransferred } = await import("./operator-notifications");
+              await notifyOperatorLeadTransferred({
                 tenantId,
                 operatorId: allocatedOp.id,
-                direction: "from_agent",
-                agentType: "supervisor",
-                content: `🎯 Lead triado por ${aiPersona.name}: *${clientName}* (${company}) — Funil: *${targetFunnelForRodizio}*${dealLabel}. Atendimento alocado automaticamente para *${allocatedOp.name}* no rodízio!`,
-                metadata: {
-                  type: "lead_transfer",
-                  conversationId,
-                  dealId: localCrmResult?.dealId || null,
-                  dealAction: localCrmResult?.action || null,
-                  targetFunnel: targetFunnelForRodizio,
-                },
-                read: 0,
-                createdAt: new Date(),
+                operatorName: allocatedOp.name,
+                conversationId,
+                clientName,
+                company,
+                interest: productVal || industrialRoute.targetFunnel || "",
+                targetFunnel: industrialRoute.targetFunnel || null,
+                dealId: localCrmResult?.dealId || null,
+                dealTitle: localCrmResult?.dealTitle || null,
+                temperature: "quente",
+                transferSource: "sdr_auto",
               });
             }
           } else {
@@ -1100,21 +1070,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               targetProduct,
             );
 
-            const supervisorNotifId = `notif-${Date.now()}`;
             const targetOpId = allocatedOp?.id;
 
             if (targetOpId) {
-              const personaObj = aiPersona || getAiPersona(tenantId);
-              await db.insert(internalMessages).values({
-                id: supervisorNotifId,
+              const { notifyOperatorLeadTransferred } = await import("./operator-notifications");
+              await notifyOperatorLeadTransferred({
                 tenantId,
                 operatorId: targetOpId,
-                direction: "from_agent",
-                agentType: "supervisor",
-                content: `🎯 Lead qualificado por ${personaObj.name}: *${clientName}* (${company}). Atendimento alocado automaticamente para *${allocatedOp.name}* no rodízio!`,
-                metadata: { type: "lead_transfer", conversationId },
-                read: 0,
-                createdAt: new Date(),
+                operatorName: allocatedOp.name,
+                conversationId,
+                clientName,
+                company,
+                interest: targetProduct,
+                temperature: "quente",
+                transferSource: "sdr_auto",
               });
             }
 
@@ -1141,7 +1110,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       // 10. Se a qualificação foi concluída agora, ANUNCIAR A TRANSFERÊNCIA PERSONALIZADA COM O NOME REAL DO VENDEDOR!
-      if (isCompleted && !wasAlreadyCompleted) {
+      if (!industrialTriage && isCompleted && !wasAlreadyCompleted) {
         const sellerFirstName = allocatedOp?.name ? allocatedOp.name.split(" ")[0] : null;
 
         if (sellerFirstName) {
@@ -1183,6 +1152,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
+      if (industrialTriage) {
+        const currentOwner = await db.query.conversations.findFirst({
+          where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
+        });
+        if (!currentOwner || currentOwner.queueState === "finalizados" || (currentOwner.operatorId && currentOwner.operatorId !== allocatedOp?.id)) return false;
+      }
+      const flowOutcome = industrialTriage
+        ? industrialHandoffOutcome(industrialHandoff.status)
+        : isCompleted ? (wasAlreadyCompleted ? flowState?.outcome : "transferred") : "in_progress";
+      const flowIsFinished = flowOutcome === "transferred" || flowOutcome === "completed";
+      if (industrialTriage && industrialRoute) {
+        aiResult.messagesToSend = industrialClientMessages({ result: industrialHandoff, route: industrialRoute, data: updatedCollectedData, messages: aiResult.messagesToSend });
+      }
+
       if (flowState) {
         const updatedMetadata = {
           ...metaState,
@@ -1190,6 +1173,15 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           totalSteps: 7,
           funnelStage: stageAndFunnel.funnelStage,
           targetFunnel: stageAndFunnel.targetFunnel,
+          ...(industrialRoute ? {
+            triagePolicyVersion: INDUSTRIAL_POLICY_VERSION,
+            subflow: industrialRoute.subflow,
+            needsReview: industrialRoute.needsReview,
+            routeReason: industrialRoute.reason,
+            missingFields: industrialReadiness?.missing || [],
+            handoffStatus: industrialHandoff.status,
+            readyForHandoff: Boolean(industrialReadiness?.ready),
+          } : {}),
           ...(localCrmResult
             ? {
                 localCrmDealId: localCrmResult.dealId,
@@ -1201,17 +1193,28 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           ...(allocatedOp?.name ? { allocatedOperatorName: allocatedOp.name } : {}),
         };
 
-        await db
+        if (!industrialHandoffPersisted) {
+        const persisted = await db
           .update(agentFlowStates)
           .set({
-            currentStep: isCompleted ? "Concluído" : "Em Qualificação",
+            currentStep: industrialTriage
+              ? industrialHandoff.status === "waiting_for_team" ? "Aguardando equipe"
+                : industrialHandoff.status === "handoff_failed" ? "Encaminhamento pendente"
+                : flowIsFinished ? "Concluído" : industrialRoute?.needsReview ? "Aguardando análise" : "Em Qualificação"
+              : isCompleted ? "Concluído" : "Em Qualificação",
             collectedData: updatedCollectedData,
-            metadata: updatedMetadata,
+            metadata: industrialTriage ? sql`${agentFlowStates.metadata} || ${JSON.stringify(updatedMetadata)}::jsonb` : updatedMetadata,
             lastInteractionAt: now,
-            completedAt: isCompleted ? (flowState.completedAt || now) : null,
-            outcome: isCompleted ? (wasAlreadyCompleted ? flowState.outcome : "transferred") : "in_progress",
+            completedAt: flowIsFinished ? (flowState.completedAt || now) : null,
+            outcome: flowOutcome,
           })
-          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)));
+          .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId),
+            ...(industrialTriage ? [eq(agentFlowStates.outcome, "in_progress"), isNull(agentFlowStates.completedAt),
+              sql`date_trunc('milliseconds', ${agentFlowStates.lastInteractionAt}) = ${flowState.lastInteractionAt.toISOString()}::timestamp`,
+              sql`${agentFlowStates.metadata}->'handoffRequest' IS NULL`] : [])))
+          .returning({ id: agentFlowStates.id });
+        if (industrialTriage && persisted.length === 0) return false;
+        }
 
         // Sincronizar o Contato no DB local (Nome, CNPJ, CPF, Receita Federal) e notificar a interface
         if (convCheck?.contactId) {
@@ -1224,7 +1227,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           conversationId,
           funnelStage: stageAndFunnel.funnelStage,
           targetFunnel: stageAndFunnel.targetFunnel,
-          outcome: isCompleted ? "transferred" : "in_progress",
+          outcome: flowOutcome,
+          ...(industrialTriage ? { handoffStatus: industrialHandoff.status, subflow: industrialRoute?.subflow } : {}),
           localCrmDeal: localCrmResult,
         });
       }
@@ -1396,7 +1400,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           `Eu sou ${aiPersonaForGreeting.gender === "female" ? "a" : "o"} ${aiPersonaForGreeting.name}, ${greetingPrep} ${aiPersonaForGreeting.company} 😊`,
         ];
         console.log(`[SdrEngine] 👋 Injetando greeting via código (isFirstMessage=true): ${JSON.stringify(greetingMessages)}`);
-        await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal);
+        await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal, null, null, allocatedOp?.id || null);
       }
 
       if ((!dynamicAudio || dynamicAudio.position !== "only_audio") && aiResult.messagesToSend.length > 0 && !signal?.aborted) {
@@ -1455,7 +1459,6 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 mimeType,
                 fileName,
                 caption: "",
-                botSenderName: `${aiPersona.name} (SDR)`,
               });
               console.log(`[SdrEngine] ✅ Imagem enviada e registrada para ${contactPhone}`);
               await new Promise(r => setTimeout(r, 600));
@@ -1475,7 +1478,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           aiResult.messagesToSend,
           signal,
           targetQuoteItem,
-          aiResult.quoteMessageId
+          aiResult.quoteMessageId,
+          allocatedOp?.id || null
         );
       }
 
@@ -1708,7 +1712,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     messagesArray: string[],
     signal?: AbortSignal,
     quoteItem?: QueuedMessageItem | null,
-    targetQuoteMessageId?: string | null
+    targetQuoteMessageId?: string | null,
+    expectedOperatorId?: string | null
   ): Promise<void> {
     const activeProvider = await resolveTenantActiveProvider(tenantId);
     const sock = SessionManager.getInstance().getSession(tenantId);
@@ -1812,6 +1817,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (signal?.aborted) return;
 
       // 3. Determinar se este balão deve conter a CITAÇÃO (Quoted Reply):
+      if (persona.triagePolicy === "industrial") {
+        const owner = await db.query.conversations.findFirst({
+          where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
+        });
+        if (!owner || owner.queueState === "finalizados" || (owner.operatorId || null) !== (expectedOperatorId || null) || (owner.queueState === "meus" && !expectedOperatorId)) return;
+      }
       const isRequoteFragment = /só me responde/i.test(fragmentText) || /me responde isso/i.test(fragmentText);
       const hasRequoteInArray = messagesArray.some((m) => /só me responde/i.test(m) || /me responde isso/i.test(m));
 

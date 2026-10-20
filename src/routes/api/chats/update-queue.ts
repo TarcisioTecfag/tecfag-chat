@@ -279,6 +279,28 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             version: updatedConv.version,
           });
 
+          // 7b. Se foi uma transferência para outro operador em "Meus Atendimentos", avisa no chat do Fagner/Valentina do operador!
+          if (
+            queueState === "meus" &&
+            finalOperatorId &&
+            conv.operatorId !== finalOperatorId &&
+            (isTransfer || session.operator.id !== finalOperatorId)
+          ) {
+            import("../../../lib/valentina/operator-notifications")
+              .then(({ notifyOperatorLeadTransferred }) =>
+                notifyOperatorLeadTransferred({
+                  tenantId: session.tenantId,
+                  operatorId: finalOperatorId,
+                  operatorName: respName,
+                  conversationId,
+                  temperature: "quente",
+                  transferSource: "manual_transfer",
+                  transferredBy: session.operator.name || "Colega",
+                }),
+              )
+              .catch((err) => console.warn("[update-queue] Falha ao enviar aviso IA de transferência:", err));
+          }
+
           // 8. Se a conversa foi finalizada, enfileira auditoria de IA (apenas Valem no MVP)
           if (queueState === "finalizados" && session.tenantId === "valem") {
             auditService.enqueueAudit({

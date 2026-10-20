@@ -50,7 +50,7 @@ describe("Fagner SDR (Tecfag) — Persona, Fluxos, Kanban SDR e Regra de 3 Horas
     expect(isDealWithinThreeHoursWindow(null, now)).toBe(false);
   });
 
-  it("mapeia corretamente as 9 colunas do Kanban SDR e os 9 sub-funis da aba Fluxos", () => {
+  it("projeta subfluxos industriais nas 9 colunas do Kanban sem promoção lexical de Personnalité", () => {
     // 1. Máquinas
     expect(
       resolveTecfagStageAndFunnel({
@@ -63,7 +63,7 @@ describe("Fagner SDR (Tecfag) — Persona, Fluxos, Kanban SDR e Regra de 3 Horas
       targetFunnel: "Máquinas",
     });
 
-    // 2. Personnalité (Regra Soberana)
+    // 2. Menção de campanha/linha não substitui a classificação por catálogo.
     expect(
       resolveTecfagStageAndFunnel({
         collectedData: {
@@ -71,8 +71,8 @@ describe("Fagner SDR (Tecfag) — Persona, Fluxos, Kanban SDR e Regra de 3 Horas
         },
       }),
     ).toEqual({
-      funnelStage: "personalite",
-      targetFunnel: "Personnalité",
+      funnelStage: "maquinas",
+      targetFunnel: "Máquinas",
     });
 
     // 3. Peças

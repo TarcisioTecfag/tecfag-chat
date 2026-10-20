@@ -1343,6 +1343,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
 
           const aiPersona = getAiPersona(tenant);
+          const welcomeMsg: Message = {
+            id: "val_welcome",
+            author: aiPersona.name,
+            text: (() => {
+              const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+                hour: "numeric",
+                hour12: false,
+              }).format(new Date());
+              const hour = parseInt(brtHourStr, 10);
+              const greeting = hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
+              const name = operatorProfile?.name || "consultor";
+              return `Olá! ${greeting} ${name}, sou seu copiloto comercial. Acompanho suas metas, tarefas, ligações agendadas, negociações paradas e te aviso sempre que um cliente for transferido ou passar do SLA. Como posso te ajudar agora?`;
+            })(),
+            time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            side: "in",
+            isInternalNote: false,
+          };
+
+          const existingValHistory = valentinaHistoryRef.current.filter((m) => m.id !== "val_welcome");
+          const initialValMessages = [welcomeMsg, ...existingValHistory];
+          const lastValMsg = initialValMessages[initialValMessages.length - 1];
+
           const valentinaDefault: Conversation = {
             id: "valentina",
             name: aiPersona.name,
@@ -1356,27 +1379,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             tags: ["IA", aiPersona.company],
             channel: "whatsapp",
             queue: "meus",
-            messages: [
-              {
-                id: "val_welcome",
-                author: aiPersona.name,
-                text: (() => {
-                  const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
-                    timeZone: "America/Sao_Paulo",
-                    hour: "numeric",
-                    hour12: false,
-                  }).format(new Date());
-                  const hour = parseInt(brtHourStr, 10);
-                  const greeting = hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
-                  const name = operatorProfile?.name || "operador";
-                  return `Olá! ${greeting} ${name}, como posso te ajudar hoje no seu atendimento?`;
-                })(),
-                time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-                side: "in",
-                isInternalNote: false,
-              }
-            ],
-            lastMessageTime: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            messages: initialValMessages,
+            lastMessageTime: lastValMsg?.time || new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
             unreadCount: 0,
             operatorId: currentOperatorId,
             walletOperatorId: currentOperatorId,
@@ -1407,7 +1411,53 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .finally(() => setChatListReady(true));
   }, [tenant, currentOperatorId, isAuthenticated]);
 
-  // Carrega histórico do chat individual do operador com Valentina (scope=operator)
+  const valentinaHistoryRef = useRef<Message[]>([]);
+
+  const mapInternalRowToMessage = useCallback(
+    (r: any): Message => {
+      const personaName = getAiPersona(tenant || "valem").name;
+      const meta = r.metadata || {};
+      const isLeadTransfer = meta.type === "lead_transfer" || meta.warningType === "new_lead";
+      const isSlaDelay =
+        meta.type === "sla_alert" || meta.type === "no_response" || meta.warningType === "delay";
+      const isWarning = Boolean(meta.isWarning || isLeadTransfer || isSlaDelay);
+      const warningType: "delay" | "new_lead" | undefined = isLeadTransfer
+        ? "new_lead"
+        : isSlaDelay
+        ? "delay"
+        : undefined;
+      const targetClientId = meta.conversationId || meta.clientId || "";
+      const warningMetadata =
+        warningType && targetClientId
+          ? {
+              clientId: targetClientId,
+              clientName: meta.clientName || "Cliente",
+              lastMessage: meta.lastMessage || undefined,
+              interest: meta.interest || undefined,
+              temperature: meta.temperature || undefined,
+            }
+          : undefined;
+
+      return {
+        id: r.id,
+        author: r.direction === "to_agent" ? "Você" : personaName,
+        text: r.content,
+        time: new Date(r.createdAt || Date.now()).toLocaleTimeString("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        sentAtISO: r.createdAt ? new Date(r.createdAt).toISOString() : undefined,
+        side: r.direction === "to_agent" ? "out" : "in",
+        isInternalNote: false,
+        ...(isWarning ? { isWarning: true } : {}),
+        ...(warningType ? { warningType } : {}),
+        ...(warningMetadata ? { warningMetadata } : {}),
+      };
+    },
+    [tenant]
+  );
+
+  // Carrega histórico do chat individual do operador com Valentina/Fagner (scope=operator + alertas proativos)
   useEffect(() => {
     if (!currentOperatorId) return;
     (async () => {
@@ -1415,25 +1465,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const res = await fetch(`/api/valentina/messages?tenantId=${tenant}&operatorId=${currentOperatorId}&scope=operator`);
         if (!res.ok) return;
         const rows: any[] = await res.json();
-        if (rows.length > 0) {
-          const mappedMessages: Message[] = rows.map((r) => ({
-            id: r.id,
-            author: r.direction === "to_agent" ? "Você" : getAiPersona(tenant || "valem").name,
-            text: r.content,
-            time: new Date(r.createdAt || Date.now()).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-            side: r.direction === "to_agent" ? "out" : "in",
-            isInternalNote: false,
-          }));
+        if (Array.isArray(rows) && rows.length > 0) {
+          const mappedMessages: Message[] = rows.map((r) => mapInternalRowToMessage(r));
+          valentinaHistoryRef.current = mappedMessages;
 
           setConversations((prev) =>
-            prev.map((c) => (c.id === "valentina" ? { ...c, messages: mappedMessages } : c))
+            prev.map((c) => {
+              if (c.id !== "valentina") return c;
+              const welcome = c.messages.find((m) => m.id === "val_welcome");
+              const merged = welcome
+                ? [welcome, ...mappedMessages.filter((m) => m.id !== "val_welcome")]
+                : mappedMessages;
+              const lastMsg = merged[merged.length - 1];
+              return {
+                ...c,
+                messages: merged,
+                lastMessageTime: lastMsg?.time || c.lastMessageTime,
+              };
+            })
           );
+        } else {
+          valentinaHistoryRef.current = [];
         }
       } catch (e) {
         console.error("Erro ao carregar histórico do chat do operador:", e);
       }
     })();
-  }, [tenant, currentOperatorId]);
+  }, [tenant, currentOperatorId, mapInternalRowToMessage]);
 
   const rawConversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
   const conversations = useMemo(() => rawConversations.filter((c) =>
@@ -1482,10 +1540,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (targetChatId === "valentina") {
       const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const firstAttachment = attachments && attachments.length > 0 ? attachments[0] : null;
+      const displayUserText =
+        text.trim() || (firstAttachment ? `[Arquivo anexado: ${firstAttachment.name}]` : "");
+
       const userMsg: Message = {
         id: `msg-${Date.now()}`,
         author: "Você",
-        text,
+        text: displayUserText,
         time: now,
         side: "out",
         isInternalNote,
@@ -1493,6 +1555,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         quotedMessageSender: quotedMessage?.sender || null,
         quotedMessageContent: quotedMessage?.content || null,
       };
+
+      valentinaHistoryRef.current = [...valentinaHistoryRef.current, userMsg];
 
       // Adicionar mensagem do operador imediatamente
       setConversations((prev) =>
@@ -1509,8 +1573,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
 
       // ── Valentina: cancela a chamada anterior antes de iniciar nova ──────────
-      // Aborta o fetch em andamento (AbortController) e incrementa a "geração"
-      // para que fragmentos de respostas antigas sejam descartados.
       if (valentinaPendingRef.current) {
         valentinaPendingRef.current.controller.abort();
       }
@@ -1523,6 +1585,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsValentinaTyping(true);
         const currentPersona = getAiPersona(tenant || "valem");
         try {
+          let attachmentPayload: { name: string; mimeType: string; base64: string } | undefined;
+          let imageBase64Payload: string | undefined;
+
+          if (firstAttachment) {
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result || ""));
+              reader.onerror = () => reject(reader.error);
+              reader.readAsDataURL(firstAttachment);
+            });
+            if (firstAttachment.type.startsWith("image/")) {
+              imageBase64Payload = dataUrl;
+            } else {
+              const base64Part = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+              attachmentPayload = {
+                name: firstAttachment.name,
+                mimeType: firstAttachment.type || "application/octet-stream",
+                base64: base64Part,
+              };
+            }
+          }
+
           const res = await fetch("/api/valentina/messages", {
             method: "POST",
             signal: controller.signal,
@@ -1532,6 +1616,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               operatorId: currentOperatorId,
               content: text,
               scope: "operator",
+              ...(attachmentPayload ? { attachment: attachmentPayload } : {}),
+              ...(imageBase64Payload ? { imageBase64: imageBase64Payload } : {}),
             }),
           });
 
@@ -1573,6 +1659,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               side: "in",
               isInternalNote: false,
             };
+
+            valentinaHistoryRef.current = [...valentinaHistoryRef.current, valentinaMsg];
 
             setConversations((prev) =>
               prev.map((c) => {
@@ -3151,6 +3239,67 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           // Quem estava lendo a conversa continua vendo o histórico. O composer
           // muda para somente leitura quando o operador responsável muda.
+        } else if (data.type === "operator_ai_notification" && data.message) {
+          if (!data.operatorId || data.operatorId !== currentOperatorIdRef.current) return;
+
+          const aiMsg = mapInternalRowToMessage(data.message);
+          const existingIdx = valentinaHistoryRef.current.findIndex((m) => m.id === aiMsg.id);
+          if (existingIdx !== -1) {
+            valentinaHistoryRef.current = valentinaHistoryRef.current.map((m, i) =>
+              i === existingIdx ? aiMsg : m
+            );
+          } else {
+            valentinaHistoryRef.current = [...valentinaHistoryRef.current, aiMsg];
+          }
+
+          const isViewingVal = isCurrentlyViewingConversation("valentina");
+          playNotificationSound();
+
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== "valentina") return c;
+              const matchIdx = c.messages.findIndex((m) => m.id === aiMsg.id);
+              const nextMessages =
+                matchIdx !== -1
+                  ? c.messages.map((m, i) => (i === matchIdx ? aiMsg : m))
+                  : [...c.messages, aiMsg];
+              return {
+                ...c,
+                lastMessageTime: aiMsg.time,
+                unreadCount: isViewingVal ? 0 : (c.unreadCount || 0) + 1,
+                messages: nextMessages,
+              };
+            })
+          );
+
+          const meta = data.message.metadata || {};
+          const persona = getAiPersona(tenantRef.current || "valem");
+          const isLead = meta.type === "lead_transfer" || meta.warningType === "new_lead";
+          const title = isLead
+            ? `${persona.name}: Novo Cliente Transferido`
+            : `${persona.name}: Alerta de SLA (${meta.clientName || "Cliente"})`;
+
+          toast.info(title, {
+            description: String(data.message.content || "").replace(/\*\*/g, "").slice(0, 140),
+            duration: 9000,
+            action: meta.conversationId
+              ? {
+                  label: isLead ? "Abrir Atendimento" : "Abrir Conversa",
+                  onClick: () => {
+                    setSelectedChatId(meta.conversationId);
+                    setActiveView("chat");
+                    markAsRead(meta.conversationId);
+                  },
+                }
+              : {
+                  label: `Ver no ${persona.name}`,
+                  onClick: () => {
+                    setSelectedChatId("valentina");
+                    setActiveView("chat");
+                    markAsRead("valentina");
+                  },
+                },
+          });
         }
       } catch (err) {
         console.error("Erro ao processar dados recebidos do SSE:", err);
@@ -3159,6 +3308,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [
       activeProvider,
       isCurrentlyViewingConversation,
+      mapInternalRowToMessage,
       markAsRead,
       setActiveView,
       setConversations,

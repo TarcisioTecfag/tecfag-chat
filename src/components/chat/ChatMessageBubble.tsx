@@ -658,18 +658,12 @@ function ChatMessageBubbleComponent({
           {/* Sugestões dinâmicas para mensagem de boas-vindas da IA */}
           {m.id === "val_welcome" && (
             <div className="mt-2.5 flex flex-col gap-1.5 max-w-sm">
-              {(aiPersona.name === "Fagner"
-                ? [
-                    "Quantos atendimentos tenho pendentes?",
-                    "Como estão os prazos de SLA da minha fila?",
-                    "Quais são meus chamados abertos hoje?",
-                  ]
-                : [
-                    "Quantos leads tenho sem resposta?",
-                    "Quais são meus leads quentes?",
-                    "Como está a pontuação atual dos meus atendimentos?",
-                  ]
-              ).map((q, idx) => (
+              {[
+                "Como está minha meta do mês e meu ritmo hoje?",
+                "Quais são minhas tarefas e ligações agendadas para hoje?",
+                "Quais negociações minhas estão paradas ou esfriando?",
+                "Quais clientes estão aguardando minha resposta agora?",
+              ].map((q, idx) => (
                 <button
                   key={idx}
                   type="button"

@@ -90,6 +90,7 @@ export class SupervisorEngine {
         id: conversations.id,
         tenantId: conversations.tenantId,
         operatorId: conversations.operatorId,
+        queueState: conversations.queueState,
         contactName: contacts.name,
       })
       .from(conversations)
@@ -99,7 +100,7 @@ export class SupervisorEngine {
       )
       .where(
         and(
-          ne(conversations.queueState, "finalizados"),
+          eq(conversations.queueState, "meus"),
           eq(conversations.tenantId, tenantId),
           // Bug fix (AGENTS.md): Excluir contatos do Live Chat do site se houver.
           // O Supervisor monitora apenas conversas WhatsApp — o Live Chat
@@ -122,7 +123,14 @@ export class SupervisorEngine {
       const lastMsgs = await db
         .select()
         .from(messages)
-        .where(and(eq(messages.tenantId, conv.tenantId), eq(messages.conversationId, conv.id)))
+        .where(
+          and(
+            eq(messages.tenantId, conv.tenantId),
+            eq(messages.conversationId, conv.id),
+            eq(messages.isInternalNote, false),
+            ne(messages.senderType, "system"),
+          ),
+        )
         .orderBy(desc(messages.sentAt))
         .limit(1);
 
@@ -133,19 +141,23 @@ export class SupervisorEngine {
       if (lastMsg.senderType === "client") {
         const diffMs = Date.now() - lastMsg.sentAt.getTime();
         const waitMinutes = Math.floor(diffMs / 60000);
+        const lastMessagePreview = (lastMsg.content || lastMsg.mediaInterpretation || "")
+          .replace(/^\[(LOCAL_MEDIA|MEDIA):[^\]]+\]\s*/i, "[Mídia recebida] ")
+          .trim()
+          .slice(0, 180);
 
         if (waitMinutes > 24 * 60) {
-          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, "high", true);
-        } else if (waitMinutes > 15) {
-          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, "high", false);
-        } else if (waitMinutes > 8) {
-          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, "medium", false);
+          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, lastMessagePreview, "high", true);
+        } else if (waitMinutes >= 15) {
+          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, lastMessagePreview, "high", false);
+        } else if (waitMinutes >= 8) {
+          await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, lastMessagePreview, "medium", false);
         }
       }
     }
 
     for (const [operatorId, count] of operatorLoads.entries()) {
-      if (count > 5) {
+      if (count > 8) {
         const opTenantId = operatorTenantMap.get(operatorId);
         if (opTenantId) {
           await this.notifyOperatorLoad(opTenantId, operatorId, count);
@@ -160,39 +172,52 @@ export class SupervisorEngine {
   private async notifySlaRisk(
     conv: { id: string; tenantId: string; operatorId: string | null; contactName: string | null },
     waitMinutes: number,
-    lastClientMessage: Date,
+    lastClientMessageAt: Date,
+    lastMessageText: string,
     priority: "medium" | "high",
     is24h: boolean,
   ) {
     const now = Date.now();
-    const lastTime = this.lastNotified.get(conv.id) || 0;
+    const tierKey = is24h ? `${conv.id}:24h` : priority === "high" ? `${conv.id}:15m` : `${conv.id}:8m`;
+    const lastTime = this.lastNotified.get(tierKey) || 0;
 
     // Cache rápido em memória para evitar queries desnecessárias no banco
     if (now - lastTime < 20 * 60_000) return;
-    this.lastNotified.set(conv.id, now);
+    this.lastNotified.set(tierKey, now);
 
-    let alertMessage = `⚠️ Atenção! O cliente ${conv.contactName || "Desconhecido"} está aguardando resposta há ${waitMinutes} minutos.`;
+    const clientName = conv.contactName || "Cliente";
+    const hours = Math.floor(waitMinutes / 60);
+    const mins = waitMinutes % 60;
+    const waitFormatted = hours > 0 ? `${hours}h${mins > 0 ? ` ${mins}min` : ""}` : `${waitMinutes} minutos`;
+
+    let alertMessage = `⚠️ *Atenção ao SLA:* O cliente *${clientName}* está aguardando sua resposta há *${waitFormatted}*.`;
 
     if (is24h) {
-      alertMessage = `🚨 ALERTA DE ABANDONO! O cliente ${conv.contactName || "Desconhecido"} não recebe resposta há mais de 24 horas!`;
+      alertMessage = `🚨 *SLA Estourado (+24h sem resposta):* O cliente *${clientName}* está aguardando retorno há *${waitFormatted}*! Priorize este atendimento agora.`;
     } else if (priority === "high") {
-      alertMessage = `🚨 TEMPO CRÍTICO! O cliente ${conv.contactName || "Desconhecido"} está aguardando resposta há mais de 15 minutos!`;
+      alertMessage = `🚨 *SLA Estourado:* O cliente *${clientName}* já passou do limite de SLA e aguarda resposta há *${waitFormatted}*!`;
     }
 
     if (!conv.operatorId) return;
 
     await this.dispatchInternalNotification(conv.tenantId, conv.operatorId, alertMessage, {
       type: is24h ? "no_response" : "sla_alert",
+      scope: "operator",
+      isWarning: true,
+      warningType: "delay",
       title: is24h
-        ? `Cliente sem resposta há 24h+ — ${conv.contactName || "Desconhecido"}`
+        ? `Cliente sem resposta há 24h+ — ${clientName}`
         : priority === "high"
-          ? `🚨 SLA estourado — ${conv.contactName || "Desconhecido"}`
-          : `⚠️ SLA em risco — ${conv.contactName || "Desconhecido"}`,
+          ? `🚨 SLA estourado — ${clientName}`
+          : `⚠️ SLA em risco — ${clientName}`,
       priority,
       conversationId: conv.id,
-      contactName: conv.contactName,
+      clientId: conv.id,
+      contactName: clientName,
+      clientName,
       waitMinutes,
-      lastClientMessage: lastClientMessage.toISOString(),
+      lastMessage: lastMessageText || "Aguardando retorno no WhatsApp",
+      lastClientMessage: lastClientMessageAt.toISOString(),
     });
   }
 
@@ -204,7 +229,7 @@ export class SupervisorEngine {
     const key = `op-load-${operatorId}`;
     const lastTime = this.lastNotified.get(key) || 0;
 
-    if (now - lastTime < 20 * 60_000) return;
+    if (now - lastTime < 60 * 60_000) return;
     this.lastNotified.set(key, now);
 
     const opRows = await db
@@ -216,10 +241,12 @@ export class SupervisorEngine {
     if (opRows.length === 0) return;
     const op = opRows[0];
 
-    const alertMessage = `⚠️ Atenção ${op.name.split(" ")[0]}! Você possui ${count} conversas ativas neste momento. Tente focar em fechar os atendimentos atuais para manter a qualidade.`;
+    const alertMessage = `⚠️ Atenção ${op.name.split(" ")[0]}! Você possui ${count} conversas ativas em Meus Atendimentos neste momento.`;
 
     await this.dispatchInternalNotification(op.tenantId, operatorId, alertMessage, {
       type: "operator_overload",
+      scope: "operator",
+      isWarning: true,
       title: `Operador ${op.name.split(" ")[0]} com ${count} atendimentos ativos`,
       priority: "medium",
       activeCount: count,
@@ -259,9 +286,16 @@ export class SupervisorEngine {
       const windowStart = new Date(Date.now() - DEDUP_WINDOW_MS);
       const alertType = metadata?.type ?? "unknown";
       const convId = metadata?.conversationId ?? null;
+      const now = new Date();
+      let notificationId = "";
+      let shouldBroadcastNew = false;
 
       const existing = await db
-        .select({ id: internalMessages.id, repeatCount: internalMessages.repeatCount })
+        .select({
+          id: internalMessages.id,
+          repeatCount: internalMessages.repeatCount,
+          metadata: internalMessages.metadata,
+        })
         .from(internalMessages)
         .where(
           and(
@@ -278,43 +312,69 @@ export class SupervisorEngine {
         .limit(1);
 
       if (existing.length > 0) {
-        // ── Agrupa no registro existente ──────────────────────────────────────
+        notificationId = existing[0].id;
+        const prevPriority = (existing[0].metadata as any)?.priority;
         const newCount = (existing[0].repeatCount ?? 1) + 1;
         await db
           .update(internalMessages)
-          .set({ repeatCount: newCount, lastFiredAt: new Date(), content })
+          .set({
+            repeatCount: newCount,
+            lastFiredAt: now,
+            content,
+            metadata,
+          })
           .where(
             and(eq(internalMessages.id, existing[0].id), eq(internalMessages.tenantId, tenantId)),
           );
 
-        console.log(
-          `[SupervisorEngine] Alerta agrupado (${alertType} ×${newCount}) conv=${convId ?? "N/A"}`,
-        );
+        // Se escalou de medium (8m) para high (15m+), reenvia o alerta em tempo real
+        if (prevPriority === "medium" && metadata?.priority === "high") {
+          shouldBroadcastNew = true;
+        }
       } else {
-        // ── Novo evento — insere nova linha ───────────────────────────────────
+        notificationId = crypto.randomUUID();
+        shouldBroadcastNew = true;
         await db.insert(internalMessages).values({
-          id: crypto.randomUUID(),
+          id: notificationId,
           tenantId,
           operatorId,
           direction: "from_agent",
           agentType: "supervisor",
           content,
           metadata,
-          createdAt: new Date(),
+          createdAt: now,
           repeatCount: 1,
-          lastFiredAt: new Date(),
+          lastFiredAt: now,
         });
-
-        console.log(`[SupervisorEngine] Novo alerta (${alertType}) conv=${convId ?? "N/A"}`);
       }
 
-      // SSE para atualizar a timeline em tempo real
+      // SSE para atualizar o chat do Fagner/Valentina do operador em tempo real
       try {
         const { SessionManager } = await import("../baileys/session-manager");
-        SessionManager.getInstance().notifyPublic(tenantId, {
-          type: "chat_updated",
-          chat: { id: metadata.conversationId || operatorId },
-        });
+        const { getAiPersona } = await import("../ai-persona");
+        const persona = getAiPersona(tenantId);
+
+        if (shouldBroadcastNew) {
+          SessionManager.getInstance().notifyPublic(tenantId, {
+            type: "operator_ai_notification",
+            operatorId,
+            notification: {
+              id: notificationId,
+              author: persona.name,
+              content,
+              createdAt: now.toISOString(),
+              isWarning: true,
+              warningType: metadata?.warningType || (alertType === "lead_transfer" ? "new_lead" : "delay"),
+              warningMetadata: convId
+                ? {
+                    clientId: convId,
+                    clientName: metadata?.clientName || metadata?.contactName || "Cliente",
+                    lastMessage: metadata?.lastMessage || "",
+                  }
+                : undefined,
+            },
+          });
+        }
       } catch (sseErr) {
         console.warn("[SupervisorEngine] Failsafe SSE:", sseErr);
       }

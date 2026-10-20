@@ -4,6 +4,9 @@
 // SEM puxar o banco de dados PostgreSQL ou Baileys para o bundle do navegador.
 // ══════════════════════════════════════════════════════════════════════════════
 
+import { getAiPersona } from "../ai-persona.ts";
+import { INDUSTRIAL_FUNNELS } from "../triage/industrial-policy.ts";
+
 export interface RodizioOperatorConfig {
   operatorId: string;
   isParticipating: boolean; // default: true
@@ -103,6 +106,42 @@ export const ALL_FLOW_FUNNELS = [
   "Pós-Venda - NF do Pedido",
   "Pós-Venda Geral",
 ] as const;
+
+type FlowAreaDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  defaultFunnels: readonly string[];
+  icon: string;
+  color: string;
+};
+
+/** A escala usa o mesmo vocabulário da política, sem alterar os perfis existentes. */
+export function getFlowConfiguration(tenantId: string): {
+  areas: readonly FlowAreaDefinition[];
+  funnels: readonly string[];
+} {
+  if (!tenantId || getAiPersona(tenantId).triagePolicy !== "industrial")
+    return { areas: FLOW_AREAS, funnels: ALL_FLOW_FUNNELS };
+  return {
+    areas: [
+      ...FLOW_AREAS.map((area) =>
+        area.id === "financeiro"
+          ? { ...area, defaultFunnels: [...area.defaultFunnels, "Fin. Outros"] }
+          : area,
+      ),
+      {
+        id: "outros",
+        name: "Outros e Análise",
+        description: "Atendimento humano, revisão e solicitações administrativas",
+        defaultFunnels: ["Atendimento Geral", "Currículos", "Compras / Fornecedores"],
+        icon: "Folder",
+        color: "#64748b",
+      },
+    ],
+    funnels: INDUSTRIAL_FUNNELS,
+  };
+}
 
 export const DEFAULT_TECFAG_FLOW_OPERATORS: FlowOperator[] = [
   {

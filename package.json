@@ -21,6 +21,7 @@
     "db:migrate:platform": "node scripts/apply-platform-access-migration.mjs",
     "db:push": "tsx src/db/cleanup.ts && drizzle-kit push",
     "lint": "eslint .",
+    "test:triage": "node --experimental-strip-types --test test/industrial-triage.test.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

@@ -43,8 +43,7 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import {
   FlowOperator,
-  FLOW_AREAS,
-  ALL_FLOW_FUNNELS,
+  getFlowConfiguration,
 } from "@/lib/valentina/rodizio-types";
 
 // ─── Ícone por Área ─────────────────────────────────────────────────────────
@@ -122,6 +121,7 @@ function OperatorAvatar({
 export function FluxosTab() {
   const { tenant, operators: globalOperators, setActiveView, setSelectedChatId } = useChat();
   const persona = getAiPersona(tenant || "tecfag");
+  const { areas: FLOW_AREAS, funnels: ALL_FLOW_FUNNELS } = useMemo(() => getFlowConfiguration(tenant || ""), [tenant]);
 
   const [operators, setOperators] = useState<FlowOperator[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -1135,6 +1135,7 @@ function AddOperatorModal({
   onClose,
   onSuccess,
 }: AddOperatorModalProps) {
+  const { areas: FLOW_AREAS, funnels: ALL_FLOW_FUNNELS } = useMemo(() => getFlowConfiguration(tenantId), [tenantId]);
   const [searchUser, setSearchUser] = useState("");
   const [selectedOpId, setSelectedOpId] = useState<string>("");
   const [selectedArea, setSelectedArea] = useState<string>(initialArea || "maquinas");
@@ -1150,7 +1151,7 @@ function AddOperatorModal({
     if (areaDef) {
       setSelectedFunnels([...areaDef.defaultFunnels]);
     }
-  }, [selectedArea]);
+  }, [selectedArea, FLOW_AREAS]);
 
   // Filtrar operadores do sistema disponíveis
   const candidateOperators = useMemo(() => {

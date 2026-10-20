@@ -35,6 +35,8 @@ export interface AiPersona {
   avatarDarkUrl?: string;
   /** Feature key usada no painel de Custos (ai_usage_logs.feature) */
   chatFeatureKey: string;
+  /** Seleciona regras de negócio; não habilita o recurso nem define o canal. */
+  triagePolicy?: "industrial";
 }
 
 const PERSONAS: Record<string, AiPersona> = {
@@ -67,6 +69,7 @@ const PERSONAS: Record<string, AiPersona> = {
     avatarLightUrl: "/fagner-light.png",
     avatarDarkUrl: "/fagner-dark.png",
     chatFeatureKey: "fagner_chat",
+    triagePolicy: "industrial",
   },
 };
 

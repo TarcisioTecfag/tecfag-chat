@@ -55,6 +55,8 @@ export interface EnsureLocalCrmDealParams {
   targetOperatorId?: string | null;
   targetOperatorName?: string | null;
   allocatedOperator?: { id: string; name: string } | null;
+  requireConfiguredPipeline?: boolean;
+  reuseScope?: "person_and_funnel";
   targetFunnel: string;
   funnelStage: string;
   collectedData: Record<string, { value: string; status: "filled" | "pending" }>;
@@ -164,7 +166,8 @@ async function resolveTargetPipelineAndStage(
   tx: any,
   tenantId: string,
   targetFunnel: string,
-  funnelStage: string
+  funnelStage: string,
+  requireConfiguredPipeline = false
 ): Promise<{
   pipelineId: string;
   pipelineName: string;
@@ -178,6 +181,7 @@ async function resolveTargetPipelineAndStage(
     .orderBy(asc(crmPipelines.orderIndex), asc(crmPipelines.createdAt));
 
   if (pipelines.length === 0) {
+    if (requireConfiguredPipeline) throw new Error("Nenhum funil configurado para este tenant");
     const now = new Date();
     const pipeId = `pipe-${tenantId}-${Date.now()}`;
     const [createdPipe] = await tx
@@ -231,10 +235,13 @@ async function resolveTargetPipelineAndStage(
 
   const normTargetFunnel = norm(targetFunnel);
   const normStageKey = norm(funnelStage);
+  if (requireConfiguredPipeline && !pipelines.some((pipeline: any) => norm(pipeline.name) === normTargetFunnel)) {
+    throw new Error("Funil de destino não configurado para este atendimento");
+  }
 
   // Tenta encontrar funil específico com nome correspondente ao fluxo (ex: "Máquinas", "Peças", "Personnalité", etc.)
   let chosenPipeline =
-    pipelines.find((p: any) => {
+    (requireConfiguredPipeline ? pipelines.find((p: any) => norm(p.name) === normTargetFunnel) : undefined) || pipelines.find((p: any) => {
       const pName = norm(p.name);
       return (
         (normTargetFunnel && (pName === normTargetFunnel || pName.includes(normTargetFunnel) || normTargetFunnel.includes(pName))) ||
@@ -251,6 +258,7 @@ async function resolveTargetPipelineAndStage(
     .orderBy(asc(crmStages.orderIndex), asc(crmStages.createdAt));
 
   if (stages.length === 0) {
+    if (requireConfiguredPipeline) throw new Error("Funil sem etapa de atendimento configurada");
     const now = new Date();
     const [createdStage] = await tx
       .insert(crmStages)
@@ -287,7 +295,8 @@ async function resolveTargetPipelineAndStage(
  * a regra da janela de 3 horas (<= 3h vincula ao card existente; > 3h cria novo card).
  */
 export async function ensureLocalCrmDealBeforeTransfer(
-  params: EnsureLocalCrmDealParams
+  params: EnsureLocalCrmDealParams,
+  transaction?: Parameters<Parameters<typeof db.transaction>[0]>[0],
 ): Promise<EnsureLocalCrmDealResult> {
   const {
     tenantId,
@@ -319,11 +328,15 @@ export async function ensureLocalCrmDealBeforeTransfer(
   const threeHoursAgo = new Date(now.getTime() - SDR_DEAL_REUSE_WINDOW_MS);
 
   try {
-    return await db.transaction(async (tx) => {
+    const operation = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<EnsureLocalCrmDealResult> => {
       // Lock consultivo por contato + tenant para evitar race conditions em mensagens simultâneas
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId || conversationId}))`
       );
+
+      const configuredTarget = params.requireConfiguredPipeline
+        ? await resolveTargetPipelineAndStage(tx, tenantId, targetFunnel, funnelStage, true)
+        : null;
 
       // 1. Extrair documento (CNPJ/CPF) e empresa coletados na triagem
       const rawDoc = getCollectedValue(
@@ -368,7 +381,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
       const matchingContactIds = new Set<string>();
       if (contactId) matchingContactIds.add(contactId);
 
-      if (cleanPhone.length >= 8) {
+      if (cleanPhone.length >= 8 && params.reuseScope !== "person_and_funnel") {
         const phoneSuffix = cleanPhone.slice(-8);
         const samePhoneContacts = await tx
           .select({ id: contacts.id })
@@ -432,7 +445,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
       if (candidateDealIds.size > 0) {
         matchConditions.push(inArray(crmDeals.id, Array.from(candidateDealIds)));
       }
-      if (resolvedAccountId) {
+      if (resolvedAccountId && params.reuseScope !== "person_and_funnel") {
         matchConditions.push(eq(crmDeals.accountId, resolvedAccountId));
       }
 
@@ -445,6 +458,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
             and(
               eq(crmDeals.tenantId, tenantId),
               gte(crmDeals.createdAt, threeHoursAgo),
+              ...(params.reuseScope === "person_and_funnel" && configuredTarget ? [eq(crmDeals.pipelineId, configuredTarget.pipelineId), eq(crmDeals.status, "open")] : []),
               or(...matchConditions)
             )
           )
@@ -538,7 +552,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
         await tx
           .update(crmDeals)
           .set({
-            operatorId: recentDealWithin3h.operatorId || targetOperatorId || null,
+            operatorId: params.reuseScope === "person_and_funnel" ? (targetOperatorId || recentDealWithin3h.operatorId || null) : (recentDealWithin3h.operatorId || targetOperatorId || null),
             accountId: recentDealWithin3h.accountId || resolvedAccountId || null,
             customFields: mergedCustom,
             lastActivityAt: now,
@@ -638,7 +652,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
 
       // B2. Resolver Funil e Etapa Inicial no CRM Local
       const { pipelineId, pipelineName, stageId, stageName } =
-        await resolveTargetPipelineAndStage(tx, tenantId, targetFunnel, funnelStage);
+        configuredTarget || await resolveTargetPipelineAndStage(tx, tenantId, targetFunnel, funnelStage, params.requireConfiguredPipeline);
 
       // B3. Montar título rico e informativo da nova negociação
       const machineOrProduct = getCollectedValue(
@@ -799,8 +813,11 @@ export async function ensureLocalCrmDealBeforeTransfer(
         reusedWithin3Hours: false,
         createdNew: true,
       };
-    });
+    };
+    // O handoff industrial compartilha a mesma transação do card, carteira e rodízio.
+    return transaction ? await operation(transaction) : await db.transaction(operation);
   } catch (err: any) {
+    if (transaction) throw err; // O chamador precisa reverter a transação inteira.
     console.error(`[SdrCrmLocal] ❌ Erro ao criar/vincular card no CRM Local para conversa ${conversationId}:`, err);
     return {
       success: false,

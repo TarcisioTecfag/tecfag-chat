@@ -17,8 +17,10 @@ import {
   crmAccounts,
   aiUsageLogs,
 } from "../../db/schema";
-import { eq, and, asc, desc, inArray, gte } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, gte, isNull, ne } from "drizzle-orm";
 import { getAiPersona } from "../ai-persona";
+import { isEligibleIndustrialOperator } from "../triage/industrial-policy";
+import { mutateIndustrialRodizio, mergeIndustrialOperatorSettings } from "../triage/industrial-rodizio-store";
 import {
   RodizioOperatorConfig,
   FlowOperator,
@@ -123,22 +125,8 @@ export class RodizioEngine {
         });
       }
 
-      // Se for a primeira vez e o tenant for tecfag, inicializa com o time padrão da escala de referência
-      if (tenantId === "tecfag") {
-        const seededList = DEFAULT_TECFAG_FLOW_OPERATORS.map((defOp) => {
-          const matchedDb = matchDbOp(defOp);
-          return {
-            ...defOp,
-            id: matchedDb?.id || defOp.id,
-            name: matchedDb?.name || defOp.name,
-            email: matchedDb?.email || defOp.email,
-            avatar: matchedDb?.avatar || undefined,
-          };
-        });
-
-        await this.saveFlowOperators(tenantId, seededList);
-        return seededList;
-      }
+      // Consulta não cadastra equipe nem habilita uma operação em implantação.
+      if (getAiPersona(tenantId).triagePolicy === "industrial") return [];
 
       // Para outros tenants (como valem), se não há lista explícita, inicializa com os operadores já participantes
       if (tenantId === "valem") {
@@ -177,6 +165,13 @@ export class RodizioEngine {
    */
   static async saveFlowOperators(tenantId: string, flowOps: FlowOperator[]): Promise<boolean> {
     try {
+      if (getAiPersona(tenantId).triagePolicy === "industrial") {
+        await mutateIndustrialRodizio(db, tenantId, (current) => flowOps.map((op) => {
+          const previous = current.find((item) => item.id === op.id);
+          return previous ? mergeIndustrialOperatorSettings(previous, op) : { ...op, leadsReceivedCount: 0, compensation: 0, recentLeads: [] };
+        }));
+        return true;
+      }
       const existingConfig = await db.query.agentConfigs.findFirst({
         where: (t, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
@@ -210,7 +205,7 @@ export class RodizioEngine {
             config: updatedJson,
             updatedAt: new Date(),
           })
-          .where(eq(agentConfigs.id, existingConfig.id));
+          .where(and(eq(agentConfigs.id, existingConfig.id), eq(agentConfigs.tenantId, tenantId)));
       } else {
         await db.insert(agentConfigs).values({
           id: `cfg-rodizio-${Date.now()}`,
@@ -260,6 +255,13 @@ export class RodizioEngine {
       addedAt: new Date().toISOString(),
     };
 
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      return mutateIndustrialRodizio(db, tenantId, (current) => {
+        const previous = current.find((op) => op.id === fullOp.id);
+        return previous ? current.map((op) => op.id === fullOp.id ? mergeIndustrialOperatorSettings(op, fullOp) : op)
+          : [...current, { ...fullOp, compensation: 0, leadsReceivedCount: 0, recentLeads: [] }];
+      });
+    }
     let updatedList: FlowOperator[];
     if (existingIndex >= 0) {
       updatedList = [...currentOps];
@@ -280,6 +282,9 @@ export class RodizioEngine {
     operatorId: string,
     patch: Partial<FlowOperator>
   ): Promise<FlowOperator[]> {
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      return mutateIndustrialRodizio(db, tenantId, (ops) => ops.map((op) => op.id === operatorId ? mergeIndustrialOperatorSettings(op, patch) : op));
+    }
     const currentOps = await this.getRodizioState(tenantId);
     const updatedList = currentOps.map((op) => {
       if (op.id !== operatorId) return op;
@@ -294,6 +299,8 @@ export class RodizioEngine {
    * Remove um operador da escala do fluxo
    */
   static async removeOperatorFromFlow(tenantId: string, operatorId: string): Promise<FlowOperator[]> {
+    if (getAiPersona(tenantId).triagePolicy === "industrial")
+      return mutateIndustrialRodizio(db, tenantId, (ops) => ops.filter((op) => op.id !== operatorId));
     const currentOps = await this.getRodizioState(tenantId);
     const updatedList = currentOps.filter((op) => op.id !== operatorId);
     await this.saveFlowOperators(tenantId, updatedList);
@@ -304,6 +311,10 @@ export class RodizioEngine {
    * Alterna a participação em um funil específico
    */
   static async toggleFunnel(tenantId: string, operatorId: string, funnel: string): Promise<FlowOperator[]> {
+    if (getAiPersona(tenantId).triagePolicy === "industrial")
+      return mutateIndustrialRodizio(db, tenantId, (ops) => ops.map((op) => op.id !== operatorId ? op : {
+        ...op, funnels: (op.funnels || []).includes(funnel) ? op.funnels.filter((item) => item !== funnel) : [...(op.funnels || []), funnel],
+      }));
     const currentOps = await this.getRodizioState(tenantId);
     const updatedList = currentOps.map((op) => {
       if (op.id !== operatorId) return op;
@@ -325,6 +336,8 @@ export class RodizioEngine {
    * Alterna folga do operador
    */
   static async toggleLeave(tenantId: string, operatorId: string): Promise<FlowOperator[]> {
+    if (getAiPersona(tenantId).triagePolicy === "industrial")
+      return mutateIndustrialRodizio(db, tenantId, (ops) => ops.map((op) => op.id !== operatorId ? op : { ...op, isOnLeave: !op.isOnLeave }));
     const currentOps = await this.getRodizioState(tenantId);
     const updatedList = currentOps.map((op) => {
       if (op.id !== operatorId) return op;
@@ -344,6 +357,10 @@ export class RodizioEngine {
     valueOrDelta: number,
     isAbsolute: boolean = false
   ): Promise<FlowOperator[]> {
+    if (getAiPersona(tenantId).triagePolicy === "industrial")
+      return mutateIndustrialRodizio(db, tenantId, (ops) => ops.map((op) => op.id !== operatorId ? op : {
+        ...op, compensation: Math.max(0, isAbsolute ? valueOrDelta : (op.compensation || 0) + valueOrDelta),
+      }));
     const currentOps = await this.getRodizioState(tenantId);
     const updatedList = currentOps.map((op) => {
       if (op.id !== operatorId) return op;
@@ -378,6 +395,13 @@ export class RodizioEngine {
     }>
   ) {
     try {
+      if (getAiPersona(tenantId).triagePolicy === "industrial") {
+        await mutateIndustrialRodizio(db, tenantId, (ops) => ops.map((op) => {
+          const patch = updatedOps.find((item) => item.id === op.id);
+          return patch ? mergeIndustrialOperatorSettings(op, patch) : op;
+        }));
+        return true;
+      }
       const currentFlowOps = await this.getRodizioState(tenantId);
       const updatedMap = new Map<string, any>();
       for (const op of updatedOps) {
@@ -415,6 +439,8 @@ export class RodizioEngine {
    * Zera todos os contadores de leads do rodízio
    */
   static async resetRodizioCounters(tenantId: string = "valem"): Promise<FlowOperator[]> {
+    if (getAiPersona(tenantId).triagePolicy === "industrial")
+      return mutateIndustrialRodizio(db, tenantId, (ops) => ops.map((op) => ({ ...op, leadsReceivedCount: 0, recentLeads: [] })));
     const currentOps = await this.getRodizioState(tenantId);
     const resetOps = currentOps.map((op) => ({
       ...op,
@@ -537,6 +563,16 @@ export class RodizioEngine {
       }
 
       // 2. Atualizar compensações no agentConfigs do rodízio e na escala flowOperators
+      if (getAiPersona(tenantId).triagePolicy === "industrial") {
+        await mutateIndustrialRodizio(db, tenantId, (ops, config) => {
+          const compensations = { ...((config.compensations || {}) as Record<string, number>) };
+          compensations[toOperatorId] = (compensations[toOperatorId] || 0) + 1;
+          config.compensations = compensations;
+          config.reassignments = [{ cardId, toOperatorId, toOperatorName, at: now.toISOString() },
+            ...((config.reassignments || []) as unknown[])].slice(0, 100);
+          return ops.map((op) => op.id !== toOperatorId ? op : { ...op, compensation: (op.compensation || 0) + 1 });
+        });
+      } else {
       await this.updateCompensation(tenantId, toOperatorId, 1, false);
 
       const existingConfig = await db.query.agentConfigs.findFirst({
@@ -568,7 +604,20 @@ export class RodizioEngine {
             },
             updatedAt: now,
           })
-          .where(eq(agentConfigs.id, existingConfig.id));
+          .where(and(eq(agentConfigs.id, existingConfig.id), eq(agentConfigs.tenantId, tenantId)));
+      }
+      }
+
+      if (conv?.id) {
+        const { notifyOperatorLeadTransferred } = await import("./operator-notifications");
+        await notifyOperatorLeadTransferred({
+          tenantId,
+          operatorId: toOperatorId,
+          operatorName: toOperatorName,
+          conversationId: conv.id,
+          temperature: "quente",
+          transferSource: "rodizio_reassignment",
+        });
       }
 
       return { success: true };
@@ -583,6 +632,13 @@ export class RodizioEngine {
    */
   static async removeLeadCard(tenantId: string, cardId: string) {
     try {
+      if (getAiPersona(tenantId).triagePolicy === "industrial") {
+        await mutateIndustrialRodizio(db, tenantId, (ops, config) => {
+          config.removedCards = Array.from(new Set([...((config.removedCards || []) as string[]), cardId]));
+          return ops;
+        });
+        return { success: true };
+      }
       const existingConfig = await db.query.agentConfigs.findFirst({
         where: (t, { eq: dEq, and: dAnd }) =>
           dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
@@ -605,7 +661,7 @@ export class RodizioEngine {
           },
           updatedAt: new Date(),
         })
-        .where(eq(agentConfigs.id, existingConfig.id));
+        .where(and(eq(agentConfigs.id, existingConfig.id), eq(agentConfigs.tenantId, tenantId)));
 
       return { success: true };
     } catch (err: any) {
@@ -1268,13 +1324,22 @@ export class RodizioEngine {
     targetAreaOrFunnel?: string,
     options?: {
       beforeTransfer?: (chosenOperator: FlowOperator) => Promise<void>;
+      strictFunnel?: boolean;
+      signal?: AbortSignal;
     }
   ): Promise<FlowOperator | null> {
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      throw new Error("Triagem industrial exige o handoff transacional com chave do ciclo.");
+    }
     try {
       const allOps = await this.getRodizioState(tenantId);
+      if (options?.signal?.aborted) return null;
+      const validOperatorIds = options?.strictFunnel
+        ? new Set((await db.select({ id: operators.id }).from(operators).where(eq(operators.tenantId, tenantId))).map((operator) => operator.id))
+        : null;
 
       // Filtra elegíveis: Participando = true, Folga = false, Penalizado = false
-      const available = allOps.filter((o) => o.isParticipating && !o.isOnLeave && !o.isPenalized);
+      const available = allOps.filter((o) => o.isParticipating && !o.isOnLeave && !o.isPenalized && (!validOperatorIds || validOperatorIds.has(o.id)));
 
       if (available.length === 0) {
         console.warn(`[RodizioEngine] Nenhum operador elegível no rodízio para tenant ${tenantId}. Mantendo na fila geral.`);
@@ -1287,6 +1352,9 @@ export class RodizioEngine {
       if (targetAreaOrFunnel && targetAreaOrFunnel.trim() !== "") {
         const normTarget = targetAreaOrFunnel.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
         const areaMatches = available.filter((o) => {
+          if (options?.strictFunnel) {
+            return isEligibleIndustrialOperator(o, targetAreaOrFunnel, validOperatorIds!);
+          }
           const normArea = (o.area || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
           if (normArea === normTarget || normArea.includes(normTarget) || normTarget.includes(normArea)) return true;
           return (o.funnels || []).some((f) => {
@@ -1298,6 +1366,7 @@ export class RodizioEngine {
         if (areaMatches.length > 0) {
           eligible = areaMatches;
         } else {
+          if (options?.strictFunnel) return null;
           console.warn(`[RodizioEngine] Nenhum operador específico ativo para área/funil "${targetAreaOrFunnel}". Usando operadores gerais.`);
         }
       }
@@ -1312,22 +1381,29 @@ export class RodizioEngine {
       });
 
       const chosenOperator = eligible[0];
+      if (options?.strictFunnel && !targetAreaOrFunnel?.trim()) return null;
       const timeNow = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
       // 0. Hook opcional ANTES da transferência (ex: criar ou vincular card no CRM Local com janela de 3h)
       if (options?.beforeTransfer) {
         await options.beforeTransfer(chosenOperator);
       }
+      if (options?.signal?.aborted) return null;
 
       // 1. Atualiza conversa para o operador alocado e coloca na aba "Meus Atendimentos"
-      await db
+      const assignedRows = await db
         .update(conversations)
         .set({
           operatorId: chosenOperator.id,
           queueState: "meus",
           updatedAt: new Date(),
         })
-        .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
+        .where(and(
+          eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId),
+          ...(options?.strictFunnel ? [isNull(conversations.operatorId), ne(conversations.queueState, "meus"), ne(conversations.queueState, "finalizados")] : []),
+        ))
+        .returning({ id: conversations.id });
+      if (options?.strictFunnel && assignedRows.length === 0) return null;
 
       // 2. Buscar o contato da conversa e atualizar carteira e responsável
       const conv = await db.query.conversations.findFirst({
