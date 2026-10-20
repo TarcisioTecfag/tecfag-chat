@@ -17,6 +17,34 @@ export type CommercialCalendarDay = {
   affectsGoal: boolean;
 };
 
+export function roundPercent(value: number, fractionDigits = 1): number {
+  if (!Number.isFinite(value)) return 0;
+  const factor = 10 ** fractionDigits;
+  return Math.round(value * factor) / factor;
+}
+
+export function isCommercialWinStage(
+  stage?: { id?: string | null; name?: string | null; isWinStage?: boolean | null } | null,
+): boolean {
+  if (!stage) return false;
+  if (stage.isWinStage) return true;
+  const normalized = (stage.name || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return (
+    normalized === "fechamento" ||
+    normalized.startsWith("fechamento ") ||
+    normalized === "ganho" ||
+    normalized === "ganha" ||
+    normalized === "venda ganha" ||
+    normalized === "fechado" ||
+    normalized === "vendido" ||
+    normalized === "vendida"
+  );
+}
+
 export function calculateBusinessPacing(
   month: string,
   today: string,
@@ -51,8 +79,8 @@ export function calculateBusinessPacing(
     businessDays,
     elapsedDays,
     remainingDays,
-    expectedPercent: businessDays > 0 ? (elapsedDays / businessDays) * 100 : 0,
-    coveragePercent: targetValue > 0 ? (realizedValue / targetValue) * 100 : 0,
+    expectedPercent: roundPercent(businessDays > 0 ? (elapsedDays / businessDays) * 100 : 0, 1),
+    coveragePercent: roundPercent(targetValue > 0 ? (realizedValue / targetValue) * 100 : 0, 1),
     dailyRequired: remainingDays > 0 ? Math.max(0, targetValue - realizedValue) / remainingDays : 0,
   };
 }

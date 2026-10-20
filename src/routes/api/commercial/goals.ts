@@ -1,15 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, eq, gte, isNotNull, lt, ne } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
   commercialCalendarDays,
   commercialConsultantProfiles,
   commercialGoals,
   crmDeals,
+  crmStages,
   operators,
 } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
-import { saoPauloDay } from "../../../lib/commercial/metrics";
+import { isCommercialWinStage, roundPercent, saoPauloDay } from "../../../lib/commercial/metrics";
+import { buildConsultantOperatorAliasMap } from "../../../lib/commercial/avatar-matcher";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
@@ -32,83 +34,133 @@ export const Route = createFileRoute("/api/commercial/goals")({
           const monthStart = `${month}-01`;
           const nextMonthStart = `${monthNumber === 12 ? year + 1 : year}-${String(monthNumber === 12 ? 1 : monthNumber + 1).padStart(2, "0")}-01`;
 
-          // 1. Consultores comerciais cadastrados na aba Consultores (com equipe/divisão atribuída)
-          const operatorRows = await db
-            .select({
-              operatorId: operators.id,
-              name: operators.name,
-              email: operators.email,
-              avatar: operators.avatar,
-              division: commercialConsultantProfiles.division,
-              activeOnTv: commercialConsultantProfiles.activeOnTv,
-            })
-            .from(commercialConsultantProfiles)
-            .innerJoin(
-              operators,
-              and(
-                eq(operators.id, commercialConsultantProfiles.operatorId),
-                eq(operators.tenantId, tenantId),
-              ),
-            )
-            .where(
-              and(
-                eq(commercialConsultantProfiles.tenantId, tenantId),
-                isNotNull(commercialConsultantProfiles.division),
-                ne(commercialConsultantProfiles.division, ""),
-              ),
-            )
-            .orderBy(operators.name);
+          const [operatorRows, allTenantOperators, stageRows, goalRows, calendarRows] =
+            await Promise.all([
+              // 1. Consultores comerciais cadastrados na aba Consultores (com equipe/divisão atribuída)
+              db
+                .select({
+                  operatorId: operators.id,
+                  name: operators.name,
+                  email: operators.email,
+                  avatar: operators.avatar,
+                  division: commercialConsultantProfiles.division,
+                  activeOnTv: commercialConsultantProfiles.activeOnTv,
+                })
+                .from(commercialConsultantProfiles)
+                .innerJoin(
+                  operators,
+                  and(
+                    eq(operators.id, commercialConsultantProfiles.operatorId),
+                    eq(operators.tenantId, tenantId),
+                  ),
+                )
+                .where(
+                  and(
+                    eq(commercialConsultantProfiles.tenantId, tenantId),
+                    isNotNull(commercialConsultantProfiles.division),
+                    ne(commercialConsultantProfiles.division, ""),
+                  ),
+                )
+                .orderBy(operators.name),
+              db
+                .select({ id: operators.id, name: operators.name })
+                .from(operators)
+                .where(eq(operators.tenantId, tenantId)),
+              db
+                .select({
+                  id: crmStages.id,
+                  name: crmStages.name,
+                  isWinStage: crmStages.isWinStage,
+                })
+                .from(crmStages)
+                .where(eq(crmStages.tenantId, tenantId)),
+              // 2. Metas cadastradas no mês
+              db
+                .select({
+                  id: commercialGoals.id,
+                  operatorId: commercialGoals.operatorId,
+                  targetValue: commercialGoals.targetValue,
+                  conversionRate: commercialGoals.conversionRate,
+                })
+                .from(commercialGoals)
+                .where(
+                  and(eq(commercialGoals.tenantId, tenantId), eq(commercialGoals.month, month)),
+                ),
+              // 3. Feriados e ajustes de expediente no mês
+              db
+                .select({
+                  date: commercialCalendarDays.date,
+                  type: commercialCalendarDays.type,
+                  affectsGoal: commercialCalendarDays.affectsGoal,
+                })
+                .from(commercialCalendarDays)
+                .where(
+                  and(
+                    eq(commercialCalendarDays.tenantId, tenantId),
+                    gte(commercialCalendarDays.date, monthStart),
+                    lt(commercialCalendarDays.date, nextMonthStart),
+                  ),
+                ),
+            ]);
 
-          // 2. Metas cadastradas no mês
-          const goalRows = await db
-            .select({
-              id: commercialGoals.id,
-              operatorId: commercialGoals.operatorId,
-              targetValue: commercialGoals.targetValue,
-              conversionRate: commercialGoals.conversionRate,
-            })
-            .from(commercialGoals)
-            .where(and(eq(commercialGoals.tenantId, tenantId), eq(commercialGoals.month, month)));
+          const aliasResolution = buildConsultantOperatorAliasMap(
+            operatorRows.map((o) => ({ operatorId: o.operatorId, name: o.name })),
+            allTenantOperators,
+          );
+          const winStageIdsArray = stageRows
+            .filter((s) => isCommercialWinStage(s))
+            .map((s) => s.id);
+          const windowStartDate = new Date(`${monthStart}T00:00:00Z`);
+          const windowEndDate = new Date(`${nextMonthStart}T03:00:00Z`);
 
-          const goalMap = new Map(goalRows.map((g) => [g.operatorId, g]));
+          const goalMap = new Map<string, (typeof goalRows)[number]>();
+          for (const g of goalRows) {
+            const canonicalId = aliasResolution.resolve(g.operatorId) || g.operatorId;
+            if (!goalMap.has(canonicalId) || g.operatorId === canonicalId) {
+              goalMap.set(canonicalId, g);
+            }
+          }
 
-          // 3. Feriados e ajustes de expediente no mês
-          const calendarRows = await db
-            .select({
-              date: commercialCalendarDays.date,
-              type: commercialCalendarDays.type,
-              affectsGoal: commercialCalendarDays.affectsGoal,
-            })
-            .from(commercialCalendarDays)
-            .where(
-              and(
-                eq(commercialCalendarDays.tenantId, tenantId),
-                gte(commercialCalendarDays.date, monthStart),
-                lt(commercialCalendarDays.date, nextMonthStart),
-              ),
-            );
-
-          // 4. Negociações ganhas no mês para apurar realizado por consultor
+          // 4. Negociações ganhas / em fechamento no mês para apurar realizado por consultor
           const wonDeals = await db
             .select({
               operatorId: crmDeals.operatorId,
               value: crmDeals.value,
+              closedAt: crmDeals.closedAt,
+              createdAt: crmDeals.createdAt,
             })
             .from(crmDeals)
             .where(
               and(
                 eq(crmDeals.tenantId, tenantId),
-                eq(crmDeals.status, "won"),
-                gte(crmDeals.closedAt, new Date(`${monthStart}T00:00:00Z`)),
-                lt(crmDeals.closedAt, new Date(`${nextMonthStart}T00:00:00Z`)),
+                or(
+                  eq(crmDeals.status, "won"),
+                  winStageIdsArray.length
+                    ? and(eq(crmDeals.status, "open"), inArray(crmDeals.stageId, winStageIdsArray))
+                    : undefined,
+                ),
+                or(
+                  and(
+                    gte(crmDeals.closedAt, windowStartDate),
+                    lt(crmDeals.closedAt, windowEndDate),
+                  ),
+                  and(
+                    sql`${crmDeals.closedAt} IS NULL`,
+                    gte(crmDeals.createdAt, windowStartDate),
+                    lt(crmDeals.createdAt, windowEndDate),
+                  ),
+                ),
               ),
             );
 
           const realizedMap = new Map<string, number>();
           for (const deal of wonDeals) {
-            if (!deal.operatorId) continue;
-            const current = realizedMap.get(deal.operatorId) || 0;
-            realizedMap.set(deal.operatorId, current + Number(deal.value || 0));
+            const canonicalOpId = aliasResolution.resolve(deal.operatorId) || deal.operatorId;
+            const effectiveClosedAt = deal.closedAt ?? deal.createdAt;
+            if (!canonicalOpId || !effectiveClosedAt) continue;
+            if (saoPauloDay(effectiveClosedAt).slice(0, 7) !== month) continue;
+            const current = realizedMap.get(canonicalOpId) || 0;
+            realizedMap.set(canonicalOpId, current + Number(deal.value || 0));
           }
 
           // 5. Cálculo dos dias úteis
@@ -145,7 +197,10 @@ export const Route = createFileRoute("/api/commercial/goals")({
             const conversionRate = Number(goal?.conversionRate ?? 10);
             const realizedValue = realizedMap.get(op.operatorId) || 0;
             const dailyTarget = businessDays > 0 ? targetValue / businessDays : 0;
-            const attainment = targetValue > 0 ? (realizedValue / targetValue) * 100 : 0;
+            const attainment = roundPercent(
+              targetValue > 0 ? (realizedValue / targetValue) * 100 : 0,
+              1,
+            );
             const gap = Math.max(0, targetValue - realizedValue);
 
             return {
@@ -169,7 +224,10 @@ export const Route = createFileRoute("/api/commercial/goals")({
           const totalTarget = consultants.reduce((acc, c) => acc + c.targetValue, 0);
           const totalRealized = consultants.reduce((acc, c) => acc + c.realizedValue, 0);
           const totalGap = Math.max(0, totalTarget - totalRealized);
-          const totalAttainment = totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0;
+          const totalAttainment = roundPercent(
+            totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0,
+            1,
+          );
           const consultantsWithGoal = consultants.filter((c) => c.targetValue > 0).length;
           const dailyRequired = remainingDays > 0 ? totalGap / remainingDays : 0;
           const totalDailyTarget = businessDays > 0 ? totalTarget / businessDays : 0;

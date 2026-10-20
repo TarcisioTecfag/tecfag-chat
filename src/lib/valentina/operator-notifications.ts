@@ -175,6 +175,22 @@ export async function notifyOperatorLeadTransferred(
     SessionManager.getInstance().notifyPublic(tenantId, {
       type: "operator_ai_notification",
       operatorId,
+      message: {
+        id: notifId,
+        direction: "from_agent",
+        author: persona.name,
+        content,
+        createdAt: now.toISOString(),
+        isWarning: true,
+        warningType: "new_lead",
+        warningMetadata: {
+          clientId: conversationId,
+          clientName: displayClient,
+          interest: interestDisplay,
+          temperature,
+        },
+        metadata,
+      },
       notification: {
         id: notifId,
         author: persona.name,

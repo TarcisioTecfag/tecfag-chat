@@ -40,7 +40,97 @@ export function matchConsultantNames(a?: string | null, b?: string | null): bool
     if (ca.startsWith(cb) || cb.startsWith(ca)) return true;
   }
 
+  // Se um dos lados tem apenas o primeiro nome (ex: "Beatriz - 27" -> "beatriz" vs "Beatriz Ribeiro - 96" -> "beatriz ribeiro")
+  if (
+    (tokensA.length === 1 || tokensB.length === 1) &&
+    tokensA[0] &&
+    tokensA[0] === tokensB[0] &&
+    tokensA[0].length >= 4
+  ) {
+    return true;
+  }
+
   return false;
+}
+
+export interface ConsultantAliasResolution {
+  toCanonicalId: Map<string, string>;
+  byCanonicalId: Map<string, string[]>;
+  allOperatorIds: string[];
+  resolve: (operatorId?: string | null) => string | null;
+}
+
+export function buildConsultantOperatorAliasMap(
+  consultants: Array<{ operatorId: string; name: string }>,
+  allTenantOperators: Array<{ id: string; name: string }> = [],
+): ConsultantAliasResolution {
+  const toCanonicalId = new Map<string, string>();
+  const byCanonicalId = new Map<string, string[]>();
+  const firstTokenCounts = new Map<string, number>();
+
+  for (const c of consultants) {
+    if (!c.operatorId) continue;
+    toCanonicalId.set(c.operatorId, c.operatorId);
+    byCanonicalId.set(c.operatorId, [c.operatorId]);
+    const firstToken = cleanConsultantName(c.name).split(" ").filter(Boolean)[0];
+    if (firstToken) {
+      firstTokenCounts.set(firstToken, (firstTokenCounts.get(firstToken) || 0) + 1);
+    }
+  }
+
+  for (const op of allTenantOperators) {
+    if (!op.id || toCanonicalId.has(op.id)) continue;
+    const tokensOp = cleanConsultantName(op.name).split(" ").filter(Boolean);
+    if (!tokensOp.length) continue;
+
+    // 1. Tentar match forte (2+ tokens ou nome limpo idêntico)
+    const strongMatches = consultants.filter((c) => {
+      const ca = cleanConsultantName(op.name);
+      const cb = cleanConsultantName(c.name);
+      if (!ca || !cb) return false;
+      if (ca === cb) return true;
+      const tA = ca.split(" ").filter(Boolean);
+      const tB = cb.split(" ").filter(Boolean);
+      if (tA.length >= 2 && tB.length >= 2) {
+        const setA = new Set(tA);
+        const setB = new Set(tB);
+        if (tA.every((t) => setB.has(t)) || tB.every((t) => setA.has(t))) return true;
+        if (ca.startsWith(cb) || cb.startsWith(ca)) return true;
+      }
+      return false;
+    });
+
+    let matchedConsultant = strongMatches.length === 1 ? strongMatches[0] : null;
+
+    // 2. Fallback: se um dos lados tem apenas o primeiro nome e esse primeiro nome é único entre os consultores
+    if (!matchedConsultant && firstTokenCounts.get(tokensOp[0]) === 1 && tokensOp[0].length >= 4) {
+      const singleTokenMatches = consultants.filter((c) => {
+        const tokensC = cleanConsultantName(c.name).split(" ").filter(Boolean);
+        return (
+          (tokensOp.length === 1 || tokensC.length === 1) &&
+          tokensC[0] === tokensOp[0]
+        );
+      });
+      if (singleTokenMatches.length === 1) {
+        matchedConsultant = singleTokenMatches[0];
+      }
+    }
+
+    if (matchedConsultant) {
+      toCanonicalId.set(op.id, matchedConsultant.operatorId);
+      const list = byCanonicalId.get(matchedConsultant.operatorId) || [matchedConsultant.operatorId];
+      if (!list.includes(op.id)) list.push(op.id);
+      byCanonicalId.set(matchedConsultant.operatorId, list);
+    }
+  }
+
+  return {
+    toCanonicalId,
+    byCanonicalId,
+    allOperatorIds: [...toCanonicalId.keys()],
+    resolve: (operatorId?: string | null) =>
+      operatorId ? (toCanonicalId.get(operatorId) ?? null) : null,
+  };
 }
 
 export interface ConsultantAvatarSource {

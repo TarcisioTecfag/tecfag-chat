@@ -1,15 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, eq, gte, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
   commercialCalendarDays,
   commercialConsultantProfiles,
   commercialGoals,
   crmDeals,
+  crmStages,
   operators,
 } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
-import { saoPauloDay } from "../../../lib/commercial/metrics";
+import { isCommercialWinStage, roundPercent, saoPauloDay } from "../../../lib/commercial/metrics";
+import { buildConsultantOperatorAliasMap } from "../../../lib/commercial/avatar-matcher";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
@@ -34,7 +36,7 @@ export const Route = createFileRoute("/api/commercial/calendar")({
         const [year, monthNumber] = month.split("-").map(Number);
         const nextMonth = `${monthNumber === 12 ? year + 1 : year}-${String(monthNumber === 12 ? 1 : monthNumber + 1).padStart(2, "0")}-01`;
         try {
-          const [days, wonDeals, goalRows, operatorRows] = await Promise.all([
+          const [days, stageRows, goalRows, operatorRows] = await Promise.all([
             db
               .select()
               .from(commercialCalendarDays)
@@ -48,37 +50,12 @@ export const Route = createFileRoute("/api/commercial/calendar")({
               .orderBy(commercialCalendarDays.date),
             db
               .select({
-                id: crmDeals.id,
-                title: crmDeals.title,
-                value: crmDeals.value,
-                closedAt: crmDeals.closedAt,
-                operatorId: crmDeals.operatorId,
-                operatorName: operators.name,
-                operatorAvatar: operators.avatar,
-                division: commercialConsultantProfiles.division,
-                rdDealId: crmDeals.rdDealId,
-                rdDealUrl: crmDeals.rdDealUrl,
+                id: crmStages.id,
+                name: crmStages.name,
+                isWinStage: crmStages.isWinStage,
               })
-              .from(crmDeals)
-              .leftJoin(
-                commercialConsultantProfiles,
-                and(
-                  eq(commercialConsultantProfiles.operatorId, crmDeals.operatorId),
-                  eq(commercialConsultantProfiles.tenantId, tenantId),
-                ),
-              )
-              .leftJoin(
-                operators,
-                and(eq(operators.id, crmDeals.operatorId), eq(operators.tenantId, tenantId)),
-              )
-              .where(
-                and(
-                  eq(crmDeals.tenantId, tenantId),
-                  eq(crmDeals.status, "won"),
-                  gte(crmDeals.closedAt, new Date(`${month}-01T00:00:00Z`)),
-                  lt(crmDeals.closedAt, new Date(`${nextMonth}T03:00:00Z`)),
-                ),
-              ),
+              .from(crmStages)
+              .where(eq(crmStages.tenantId, tenantId)),
             db
               .select()
               .from(commercialGoals)
@@ -109,6 +86,68 @@ export const Route = createFileRoute("/api/commercial/calendar")({
               .orderBy(operators.name),
           ]);
 
+          const winStageIdsArray = stageRows
+            .filter((s) => isCommercialWinStage(s))
+            .map((s) => s.id);
+          const windowStartDate = new Date(`${month}-01T00:00:00Z`);
+          const windowEndDate = new Date(`${nextMonth}T03:00:00Z`);
+
+          const profiledConsultants = operatorRows.filter((o) => Boolean(o.division));
+          const aliasResolution = buildConsultantOperatorAliasMap(
+            profiledConsultants.map((o) => ({ operatorId: o.operatorId, name: o.name })),
+            operatorRows.map((o) => ({ id: o.operatorId, name: o.name })),
+          );
+          const operatorById = new Map(operatorRows.map((o) => [o.operatorId, o]));
+
+          const wonDeals = await db
+            .select({
+              id: crmDeals.id,
+              title: crmDeals.title,
+              value: crmDeals.value,
+              closedAt: crmDeals.closedAt,
+              createdAt: crmDeals.createdAt,
+              operatorId: crmDeals.operatorId,
+              operatorName: operators.name,
+              operatorAvatar: operators.avatar,
+              division: commercialConsultantProfiles.division,
+              rdDealId: crmDeals.rdDealId,
+              rdDealUrl: crmDeals.rdDealUrl,
+            })
+            .from(crmDeals)
+            .leftJoin(
+              commercialConsultantProfiles,
+              and(
+                eq(commercialConsultantProfiles.operatorId, crmDeals.operatorId),
+                eq(commercialConsultantProfiles.tenantId, tenantId),
+              ),
+            )
+            .leftJoin(
+              operators,
+              and(eq(operators.id, crmDeals.operatorId), eq(operators.tenantId, tenantId)),
+            )
+            .where(
+              and(
+                eq(crmDeals.tenantId, tenantId),
+                or(
+                  eq(crmDeals.status, "won"),
+                  winStageIdsArray.length
+                    ? and(eq(crmDeals.status, "open"), inArray(crmDeals.stageId, winStageIdsArray))
+                    : undefined,
+                ),
+                or(
+                  and(
+                    gte(crmDeals.closedAt, windowStartDate),
+                    lt(crmDeals.closedAt, windowEndDate),
+                  ),
+                  and(
+                    sql`${crmDeals.closedAt} IS NULL`,
+                    gte(crmDeals.createdAt, windowStartDate),
+                    lt(crmDeals.createdAt, windowEndDate),
+                  ),
+                ),
+              ),
+            );
+
           const closingMap = new Map<
             string,
             Array<{
@@ -124,20 +163,25 @@ export const Route = createFileRoute("/api/commercial/calendar")({
             }>
           >();
 
+          const validWonDeals: Array<{ value: number }> = [];
           for (const deal of wonDeals) {
-            if (!deal.closedAt) continue;
-            const date = saoPauloDay(deal.closedAt);
+            const effectiveClosedAt = deal.closedAt ?? deal.createdAt;
+            if (!effectiveClosedAt) continue;
+            const date = saoPauloDay(effectiveClosedAt);
             if (date.slice(0, 7) !== month) continue;
+            const canonicalId = aliasResolution.resolve(deal.operatorId) || deal.operatorId;
+            const canonicalOp = canonicalId ? operatorById.get(canonicalId) : null;
+            validWonDeals.push({ value: Number(deal.value || 0) });
             closingMap.set(date, [
               ...(closingMap.get(date) || []),
               {
                 id: deal.id,
                 title: deal.title,
                 value: Number(deal.value || 0),
-                operatorId: deal.operatorId,
-                operatorName: deal.operatorName || "Consultor",
-                operatorAvatar: deal.operatorAvatar || null,
-                division: deal.division || null,
+                operatorId: canonicalId,
+                operatorName: canonicalOp?.name || deal.operatorName || "Consultor",
+                operatorAvatar: canonicalOp?.avatar || deal.operatorAvatar || null,
+                division: canonicalOp?.division || deal.division || null,
                 rdDealId: deal.rdDealId || null,
                 rdDealUrl: deal.rdDealUrl || null,
               },
@@ -178,9 +222,12 @@ export const Route = createFileRoute("/api/commercial/calendar")({
           const remainingDays = Math.max(0, businessDays - elapsedDays);
 
           const totalTarget = goalRows.reduce((acc, g) => acc + Number(g.targetValue || 0), 0);
-          const totalRealized = wonDeals.reduce((acc, d) => acc + Number(d.value || 0), 0);
+          const totalRealized = validWonDeals.reduce((acc, d) => acc + d.value, 0);
           const gap = Math.max(0, totalTarget - totalRealized);
-          const attainment = totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0;
+          const attainment = roundPercent(
+            totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0,
+            1,
+          );
           const dailyRequired = remainingDays > 0 ? gap / remainingDays : 0;
           const linearDailyTarget = businessDays > 0 ? totalTarget / businessDays : 0;
           const runRate = elapsedDays > 0 ? (totalRealized / elapsedDays) * businessDays : 0;

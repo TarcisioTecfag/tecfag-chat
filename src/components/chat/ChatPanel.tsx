@@ -874,6 +874,9 @@ export function QuotedMessagePreview({
 export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const {
     activeChat,
+    conversations,
+    activeQueue,
+    setActiveQueue,
     activeProvider,
     sendMessage,
     captureChat,
@@ -892,6 +895,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     currentGroup,
     setSelectedChatId,
     setActiveView,
+    markAsRead,
+    refreshConversations,
     clientTypingStatus,
     messageStatusOverrides,
     operatorTypingStatus,
@@ -1191,10 +1196,30 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const handleOpenWarningChat = useCallback(
     (clientId: string) => {
+      if (!clientId) return;
+      const target = conversations.find((c) => c.id === clientId);
+      if (target && target.queue && target.queue !== activeQueue && activeQueue !== "todos") {
+        setActiveQueue(target.queue);
+      }
       setSelectedChatId(clientId);
+      markAsRead(clientId);
       if (!embedded) setActiveView("chat");
+      if (!target) {
+        refreshConversations(clientId).then(() => {
+          setSelectedChatId(clientId);
+        });
+      }
     },
-    [embedded, setSelectedChatId, setActiveView]
+    [
+      embedded,
+      conversations,
+      activeQueue,
+      setActiveQueue,
+      setSelectedChatId,
+      markAsRead,
+      setActiveView,
+      refreshConversations,
+    ]
   );
 
   const handleSendWelcomeSuggestion = useCallback(
@@ -2639,6 +2664,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             a.side === b.side &&
             a.author === b.author &&
             a.author !== "Sistema" &&
+            a.id !== "val_welcome" &&
+            b.id !== "val_welcome" &&
+            !a.isWarning &&
+            !b.isWarning &&
             !a.isInternalNote &&
             !b.isInternalNote &&
             !b.quotedMessageContent &&

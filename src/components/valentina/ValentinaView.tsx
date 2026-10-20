@@ -52,6 +52,11 @@ export function ValentinaView() {
   const [sdrFilterState, setSdrFilterState] = useState<SdrFilterState>(DEFAULT_SDR_FILTER_STATE);
   const [sdrRefreshKey, setSdrRefreshKey] = useState(0);
   const [isSdrLoading, setIsSdrLoading] = useState(false);
+  const [sdrTargetConversation, setSdrTargetConversation] = useState<{
+    conversationId: string;
+    leadName?: string;
+    ts: number;
+  } | null>(null);
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   useEffect(() => {
@@ -245,9 +250,22 @@ export function ValentinaView() {
                 filterState={sdrFilterState}
                 refreshKey={sdrRefreshKey}
                 onLoadingChange={setIsSdrLoading}
+                targetConversation={sdrTargetConversation}
+                onTargetConversationHandled={() => setSdrTargetConversation(null)}
               />
             )}
-            {activeTab === "rodizio" && <RodizioTab />}
+            {activeTab === "rodizio" && (
+              <RodizioTab
+                onOpenTriage={(conversationId, leadName) => {
+                  setSdrTargetConversation({
+                    conversationId,
+                    leadName,
+                    ts: Date.now(),
+                  });
+                  setActiveTab("sdr");
+                }}
+              />
+            )}
             {activeTab === "fluxos" && <FluxosTab />}
             {activeTab === "supervisor" && <SupervisorTab />}
             {activeTab === "vendedor" && <VendedorTab />}

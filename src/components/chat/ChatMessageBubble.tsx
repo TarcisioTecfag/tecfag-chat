@@ -539,7 +539,7 @@ function ChatMessageBubbleComponent({
                         "{m.warningMetadata.lastMessage}"
                       </div>
                     )}
-                    {onOpenWarningChat && (
+                    {onOpenWarningChat && m.warningMetadata.clientId && (
                       <button
                         type="button"
                         onClick={() => onOpenWarningChat(m.warningMetadata!.clientId)}
@@ -587,7 +587,7 @@ function ChatMessageBubbleComponent({
                         <span>{m.warningMetadata.interest}</span>
                       </div>
                     )}
-                    {onOpenWarningChat && (
+                    {onOpenWarningChat && m.warningMetadata.clientId && (
                       <button
                         type="button"
                         onClick={() => onOpenWarningChat(m.warningMetadata!.clientId)}
@@ -599,6 +599,83 @@ function ChatMessageBubbleComponent({
                     )}
                   </div>
                 )}
+
+                {/* Card interativo: Lista de Conversas Citadas (Sobrecarga / Respostas da IA) */}
+                {(() => {
+                  const list =
+                    m.warningType === "overload" && m.warningMetadata?.conversations?.length
+                      ? m.warningMetadata.conversations
+                      : m.relatedConversations?.length
+                        ? m.relatedConversations
+                        : null;
+                  if (!list || list.length === 0) return null;
+
+                  return (
+                    <div
+                      className="mt-2.5 p-2.5 rounded-xl bg-card/95 border border-border/80 shadow-sm flex flex-col gap-2 cursor-default text-xs"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                        <span>
+                          {m.warningType === "overload"
+                            ? `Atendimentos Ativos (${list.length})`
+                            : `Conversas Citadas (${list.length})`}
+                        </span>
+                        <span className="text-[9px] font-semibold text-primary">
+                          Clique para abrir
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto pr-0.5">
+                        {list.map((conv) => (
+                          <div
+                            key={conv.clientId}
+                            className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2.5 transition"
+                          >
+                            <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[11px] font-bold text-foreground truncate">
+                                  {conv.clientName}
+                                </span>
+                                {conv.company && (
+                                  <span className="text-[9px] text-muted-foreground truncate">
+                                    • {conv.company}
+                                  </span>
+                                )}
+                                {conv.isWaiting && (
+                                  <span className="px-1.5 py-0.2 rounded-full text-[8px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                                    {conv.waitMinutes && conv.waitMinutes > 0
+                                      ? `Aguardando há ${conv.waitMinutes}min`
+                                      : "Aguardando resposta"}
+                                  </span>
+                                )}
+                              </div>
+                              {(conv.dealTitle || conv.funnelName) && (
+                                <div className="text-[9px] font-semibold text-primary/90 truncate">
+                                  {[conv.funnelName, conv.dealTitle].filter(Boolean).join(" • ")}
+                                </div>
+                              )}
+                              {conv.lastMessage && (
+                                <div className="text-[10px] text-muted-foreground truncate italic">
+                                  "{conv.lastMessage}"
+                                </div>
+                              )}
+                            </div>
+                            {onOpenWarningChat && conv.clientId && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenWarningChat(conv.clientId)}
+                                className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                              >
+                                <span>Abrir</span>
+                                <ArrowRight className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

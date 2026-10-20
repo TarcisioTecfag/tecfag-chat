@@ -680,7 +680,7 @@ export class RodizioEngine {
     options: { days?: number; opDays?: number; dateFrom?: string; dateTo?: string } = {}
   ) {
     try {
-      const { getEmptyRodizioData, getOperatorSector } = await import(
+      const { getEmptyRodizioData, getOperatorSector, getPosVendaSubTeam } = await import(
         "../../components/valentina/rodizio-dashboard-data"
       );
       const persona = getAiPersona(tenantId);
@@ -777,6 +777,7 @@ export class RodizioEngine {
           email: string;
           avatar?: string | null;
           sector?: string | null;
+          rawArea?: string | null;
           allowed_subflows?: string[] | null;
           compensation: number;
           isParticipating: boolean;
@@ -795,6 +796,7 @@ export class RodizioEngine {
           email: dbOp.email,
           avatar: dbOp.avatar,
           sector: dbSectorByOpId.get(dbOp.id) || null,
+          rawArea: null,
           allowed_subflows: null,
           compensation: compensations[dbOp.id] ?? 0,
           isParticipating: saved?.isParticipating ?? true,
@@ -830,6 +832,7 @@ export class RodizioEngine {
           email: matchedDb?.email || fOp.email || existing?.email || "",
           avatar: matchedDb?.avatar || fOp.avatar || existing?.avatar || null,
           sector: fOp.area || existing?.sector || null,
+          rawArea: fOp.area || existing?.rawArea || null,
           allowed_subflows: Array.isArray(fOp.funnels) && fOp.funnels.length > 0 ? fOp.funnels : existing?.allowed_subflows || null,
           compensation: comp,
           isParticipating: fOp.isParticipating ?? saved?.isParticipating ?? existing?.isParticipating ?? true,
@@ -1138,13 +1141,19 @@ export class RodizioEngine {
             "";
           const effectiveOpId = resolveOpId(rawOpId);
 
+          const dealIdFromMeta =
+            meta.localCrmDealId ||
+            meta.handoffReceipt?.result?.deal?.dealId ||
+            meta.dealId ||
+            undefined;
+
           const cardObj = {
             id: fs.conversationId,
             name: clientName !== "Aguardando..." ? clientName : fs.contactName || "Cliente em Triagem",
             company: companyName && companyName !== "Aguardando..." ? companyName : null,
             created_at: refDateIso,
             chatId: fs.conversationId,
-            rdDealId: meta.localCrmDealId || undefined,
+            rdDealId: dealIdFromMeta,
             phone: fs.contactPhone || null,
             subject: meta.targetFunnel || null,
           };
@@ -1186,6 +1195,7 @@ export class RodizioEngine {
           count: activeAiTriageCards.length,
           compensation: 0,
           sector: "sdr",
+          rawArea: "sdr",
           is_sdr: true,
           isParticipating: true,
           isOnLeave: false,
@@ -1194,10 +1204,25 @@ export class RodizioEngine {
         });
       }
 
+      const hasConfiguredFlowScale = flowOps.length > 0;
+
       for (const op of canonicalOpsMap.values()) {
         const opCards = realCardsByOpId.get(op.id) || [];
-        // Incluir operadores cadastrados na escala (Fluxos), vinculados a um setor ou que possuam cards reais atribuídos
-        if (!op.isInFlow && !op.sector && opCards.length === 0) {
+        const normOpSector = (op.sector || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const normOpNameStr = normalizeOpName(op.name);
+        const isSdrAnalyst =
+          normOpSector === "sdr" ||
+          normOpSector.includes("sdr") ||
+          normOpSector.includes("triagem") ||
+          normOpNameStr.includes("rafaela lima");
+
+        if (hasConfiguredFlowScale) {
+          // Quando a escala em Fluxos está configurada, exibir apenas os operadores da escala (+ analista SDR)
+          // evitando que operadores de setores gerais do chat (ex: Leticia Cardoso em "Comercial") caiam no fallback de Máquinas
+          if (!op.isInFlow && !isSdrAnalyst) {
+            continue;
+          }
+        } else if (!op.isInFlow && !op.sector && opCards.length === 0) {
           continue;
         }
 
@@ -1206,9 +1231,20 @@ export class RodizioEngine {
         const resolvedSector = getOperatorSector({
           name: op.name,
           sector: op.sector || dominantCardSector,
+          rawArea: op.rawArea,
           allowed_subflows: op.allowed_subflows,
-          is_sdr: op.sector === "sdr",
+          is_sdr: op.sector === "sdr" || isSdrAnalyst,
         });
+
+        const subTeam =
+          resolvedSector === "pos venda"
+            ? getPosVendaSubTeam({
+                name: op.name,
+                sector: op.sector,
+                rawArea: op.rawArea,
+                allowed_subflows: op.allowed_subflows,
+              })
+            : undefined;
 
         operatorRows.push({
           id: op.id,
@@ -1216,6 +1252,8 @@ export class RodizioEngine {
           email: op.email,
           avatar: op.avatar,
           sector: resolvedSector,
+          rawArea: op.rawArea || op.sector || null,
+          subTeam,
           allowed_subflows: op.allowed_subflows || undefined,
           is_sdr: resolvedSector === "sdr",
           compensation: op.compensation,

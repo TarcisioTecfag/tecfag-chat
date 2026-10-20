@@ -127,14 +127,16 @@ export const FUNNEL_COLORS: Record<string, string> = {
 export function getOperatorSector(op: {
   name: string;
   sector?: string | null;
+  rawArea?: string | null;
   allowed_subflows?: string[] | null;
   is_sdr?: boolean;
 }): string {
   if (op.is_sdr) return "sdr";
 
-  if (op.sector) {
-    const s = op.sector.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-    if (s === "sdr" || s.includes("sdr") || s.includes("triagem") || s.includes("analise")) return "sdr";
+  const sectorSource = op.rawArea || op.sector;
+  if (sectorSource) {
+    const s = sectorSource.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    if (s === "sdr" || s.includes("sdr") || s.includes("triagem") || s.includes("analise") || s === "outros") return "sdr";
     if (s.includes("personalite") || s.includes("personnalite")) return "personalite";
     if (s.includes("maquina")) return "maquinas";
     if (
@@ -186,7 +188,7 @@ export function getOperatorSector(op: {
   if (normName.includes("denise") || normName.includes("beatriz") || normName.includes("victor") || normName.includes("andreia") || normName.includes("melissa")) {
     return "maquinas";
   }
-  if (normName.includes("deborah") || normName.includes("raiane") || normName.includes("maria vitoria") || normName.includes("lucimara")) {
+  if (normName.includes("deborah") || normName.includes("raiane") || normName.includes("maria vitoria") || normName.includes("lucimara") || normName.includes("thais")) {
     return "pos venda";
   }
   if (normName.includes("jessica")) {
@@ -197,6 +199,91 @@ export function getOperatorSector(op: {
   }
 
   return "maquinas";
+}
+
+/**
+ * Classifica o sub-time dentro do container "Pós Venda":
+ * - "pos_venda" -> Equipe de Pós Venda (Rastreio, NF de Pedido, Pós-Venda Geral)
+ * - "suporte_tecnico" -> Equipe de Suporte Técnico / Assistência Técnica (3_AT, Manutenção, Garantia)
+ */
+export function getPosVendaSubTeam(op: {
+  name: string;
+  sector?: string | null;
+  rawArea?: string | null;
+  subTeam?: "pos_venda" | "suporte_tecnico";
+  allowed_subflows?: string[] | null;
+}): "pos_venda" | "suporte_tecnico" {
+  if (op.subTeam === "suporte_tecnico" || op.subTeam === "pos_venda") {
+    return op.subTeam;
+  }
+
+  const normArea = (op.rawArea || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+  if (
+    normArea === "tecnica" ||
+    normArea.includes("assistencia") ||
+    normArea.includes("suporte") ||
+    normArea.includes("manutencao")
+  ) {
+    return "suporte_tecnico";
+  }
+
+  const normSector = (op.sector || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+  if (
+    normSector === "tecnica" ||
+    normSector.includes("assistencia") ||
+    normSector.includes("suporte") ||
+    normSector.includes("manutencao")
+  ) {
+    return "suporte_tecnico";
+  }
+
+  if (op.allowed_subflows && Array.isArray(op.allowed_subflows) && op.allowed_subflows.length > 0) {
+    const subflows = op.allowed_subflows.map((s) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()
+    );
+    const hasSupportSubflow = subflows.some(
+      (s) =>
+        s.includes("assistencia") ||
+        s.includes("suporte") ||
+        s.includes("tecnic") ||
+        s.includes("3_at") ||
+        s === "at"
+    );
+    const hasPosVendaSubflow = subflows.some(
+      (s) =>
+        s.includes("rastreio") ||
+        s.includes("4a_rastrear") ||
+        s.includes("4b_nf") ||
+        s.includes("nf do pedido") ||
+        s.includes("pos-venda") ||
+        s.includes("pos venda") ||
+        s.includes("pos_venda")
+    );
+
+    if (hasSupportSubflow && !hasPosVendaSubflow) {
+      return "suporte_tecnico";
+    }
+    if (hasPosVendaSubflow && !hasSupportSubflow) {
+      return "pos_venda";
+    }
+  }
+
+  const normName = op.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (normName.includes("raiane") || normName.includes("maria vitoria")) {
+    return "suporte_tecnico";
+  }
+
+  return "pos_venda";
 }
 
 // ─── Estado Inicial Vazio (100% Sem Mock Data) ───────────────────────────────

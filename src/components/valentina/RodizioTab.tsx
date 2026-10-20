@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
@@ -36,6 +37,9 @@ import {
   Loader2,
   SlidersHorizontal,
   ChevronDown,
+  ChevronRight,
+  Bot,
+  Briefcase,
   Gem,
   Wrench,
   Package,
@@ -60,6 +64,7 @@ import {
   FUNNEL_LABELS,
   FUNNEL_COLORS,
   getOperatorSector,
+  getPosVendaSubTeam,
   downloadDealsCSV,
   downloadOperatorsCSV,
 } from "./rodizio-dashboard-data";
@@ -533,32 +538,251 @@ function ReassignDropdown({
   );
 }
 
+// ─── Mini Pop-up do Botão "Abrir" (3 Opções: Ver Triagem, Ver Conversa, Ver Negociação) ──
+
+function LeadOpenActionPopup({
+  card,
+  triggerRef,
+  onClose,
+  onViewTriage,
+  onViewChat,
+  onViewNegotiation,
+}: {
+  card: OperatorCard;
+  triggerRef: React.RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  onViewTriage: (card: OperatorCard) => void;
+  onViewChat: (card: OperatorCard) => void;
+  onViewNegotiation: (card: OperatorCard) => void;
+}) {
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const width = 248;
+
+    let left = rect.right - width;
+    if (left < 8) left = 8;
+    if (left + width > viewportWidth - 8) left = viewportWidth - width - 8;
+
+    const spaceBelow = viewportHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    const estimatedHeight = 215;
+
+    if (spaceBelow < estimatedHeight && spaceAbove > spaceBelow) {
+      setPos({
+        bottom: viewportHeight - rect.top + 6,
+        left,
+        width,
+      });
+    } else {
+      setPos({
+        top: rect.bottom + 6,
+        left,
+        width,
+      });
+    }
+  }, [triggerRef]);
+
+  useEffect(() => {
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [updatePosition]);
+
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (
+        popupRef.current &&
+        !popupRef.current.contains(e.target as Node) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, triggerRef]);
+
+  if (!pos) return null;
+
+  return createPortal(
+    <motion.div
+      ref={popupRef}
+      initial={{ opacity: 0, y: 4, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 4, scale: 0.96 }}
+      transition={{ duration: 0.14, ease: [0.4, 0, 0.2, 1] }}
+      style={{
+        position: "fixed",
+        top: pos.top !== undefined ? pos.top : "auto",
+        bottom: pos.bottom !== undefined ? pos.bottom : "auto",
+        left: pos.left,
+        width: pos.width,
+        zIndex: 9999,
+      }}
+      className="rounded-2xl bg-card border border-border shadow-2xl p-2 select-none"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between px-2 py-1.5 border-b border-border/70 mb-1">
+        <span className="text-[10px] font-extrabold text-foreground truncate max-w-[190px]">
+          Abrir — {card.name}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-0.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+          aria-label="Fechar opções"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+
+      <div className="space-y-1">
+        {/* Opção 1: Ver Triagem */}
+        <motion.button
+          type="button"
+          whileHover={{ x: 2 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => {
+            onClose();
+            onViewTriage(card);
+          }}
+          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group"
+        >
+          <div className="h-7 w-7 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-600 dark:text-violet-400 grid place-items-center shrink-0 group-hover:bg-violet-600 group-hover:text-white transition">
+            <Bot className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[11px] font-extrabold text-foreground group-hover:text-primary transition">
+                Ver Triagem
+              </span>
+              <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+            </div>
+            <p className="text-[9px] text-muted-foreground leading-snug mt-0.5">
+              Abre o chat de atendimento da aba SDR
+            </p>
+          </div>
+        </motion.button>
+
+        {/* Opção 2: Ver Conversa */}
+        <motion.button
+          type="button"
+          whileHover={{ x: 2 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => {
+            onClose();
+            onViewChat(card);
+          }}
+          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group"
+        >
+          <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 text-primary grid place-items-center shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition">
+            <MessageCircle className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[11px] font-extrabold text-foreground group-hover:text-primary transition">
+                Ver Conversa
+              </span>
+              <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+            </div>
+            <p className="text-[9px] text-muted-foreground leading-snug mt-0.5">
+              Abre o chat de atendimento padrão
+            </p>
+          </div>
+        </motion.button>
+
+        {/* Opção 3: Ver Negociação */}
+        <motion.button
+          type="button"
+          whileHover={{ x: 2 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => {
+            onClose();
+            onViewNegotiation(card);
+          }}
+          className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left hover:bg-primary-soft/60 border border-transparent hover:border-primary/20 transition cursor-pointer group"
+        >
+          <div className="h-7 w-7 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition">
+            <Briefcase className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[11px] font-extrabold text-foreground group-hover:text-primary transition">
+                Ver Negociação
+              </span>
+              <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:text-primary transition shrink-0" />
+            </div>
+            <p className="text-[9px] text-muted-foreground leading-snug mt-0.5">
+              Abre o card no CRM local
+            </p>
+          </div>
+        </motion.button>
+      </div>
+    </motion.div>,
+    document.body
+  );
+}
+
 // ─── Card Individual do Lead na Coluna do Operador ────────────────────────────
 
 function LeadCardItem({
   card,
   opName,
   isOpen,
+  isOpenActionPopup,
   isReassigning,
   operators,
   onToggleDropdown,
+  onToggleOpenActionPopup,
   onReassign,
   onClose,
-  onOpenLead,
+  onCloseOpenActionPopup,
+  onViewTriage,
+  onViewChat,
+  onViewNegotiation,
   onDeleteCard,
 }: {
   card: OperatorCard;
   opName: string;
   isOpen: boolean;
+  isOpenActionPopup: boolean;
   isReassigning: boolean;
   operators: OperatorOption[];
   onToggleDropdown: () => void;
+  onToggleOpenActionPopup: () => void;
   onReassign: (cardId: string, op: OperatorOption) => Promise<void>;
   onClose: () => void;
-  onOpenLead?: (card: OperatorCard) => void;
+  onCloseOpenActionPopup: () => void;
+  onViewTriage: (card: OperatorCard) => void;
+  onViewChat: (card: OperatorCard) => void;
+  onViewNegotiation: (card: OperatorCard) => void;
   onDeleteCard?: (cardId: string, leadName: string) => void;
 }) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
+  const openBtnRef = useRef<HTMLButtonElement | null>(null);
 
   return (
     <div className="group/card relative flex items-center justify-between gap-2 bg-card hover:bg-muted/50 border border-border/80 rounded-xl p-2 transition-all duration-150 shadow-xs">
@@ -616,16 +840,36 @@ function LeadCardItem({
           </button>
         )}
 
-        {/* Botão Abrir */}
-        {onOpenLead && (
-          <button
-            onClick={() => onOpenLead(card)}
-            title="Abrir conversa no chat ou deal no CRM"
-            className="text-[9px] font-bold text-muted-foreground hover:text-primary hover:bg-primary-soft/60 px-1.5 py-0.5 rounded border border-border/60 hover:border-primary/30 transition-all shrink-0 inline-flex items-center gap-0.5 cursor-pointer"
-          >
-            Abrir
-            <ExternalLink size={8} className="opacity-70" />
-          </button>
+        {/* Botão Abrir com Mini Pop-up de 3 Opções */}
+        <button
+          ref={openBtnRef}
+          type="button"
+          onClick={onToggleOpenActionPopup}
+          title="Escolher o que abrir (Triagem SDR, Conversa ou Negociação CRM)"
+          className={`text-[9px] font-bold px-1.5 py-0.5 rounded border transition-all shrink-0 inline-flex items-center gap-0.5 cursor-pointer ${
+            isOpenActionPopup
+              ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+              : "text-muted-foreground hover:text-primary hover:bg-primary-soft/60 border-border/60 hover:border-primary/30"
+          }`}
+        >
+          Abrir
+          <ChevronDown
+            size={8}
+            className={`opacity-80 transition-transform duration-150 ${
+              isOpenActionPopup ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+
+        {isOpenActionPopup && (
+          <LeadOpenActionPopup
+            card={card}
+            triggerRef={openBtnRef}
+            onClose={onCloseOpenActionPopup}
+            onViewTriage={onViewTriage}
+            onViewChat={onViewChat}
+            onViewNegotiation={onViewNegotiation}
+          />
         )}
       </div>
     </div>
@@ -996,8 +1240,13 @@ function OperatorStatusModal({
 
 // ─── Componente Principal do Rodízio (Dashboard Executivo) ───────────────────
 
-export function RodizioTab() {
+export interface RodizioTabProps {
+  onOpenTriage?: (conversationId: string, leadName?: string) => void;
+}
+
+export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
   const { tenant, setActiveView, setSelectedChatId } = useChat();
+  const navigate = useNavigate();
   const persona = getAiPersona(tenant || "valem");
 
   // Filtros de tempo da Visão Geral
@@ -1015,8 +1264,9 @@ export function RodizioTab() {
   const [showInstrutiva, setShowInstrutiva] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
 
-  // Reatribuição ativa
+  // Reatribuição ativa e mini pop-up do botão Abrir
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [openActionPopupCardId, setOpenActionPopupCardId] = useState<string | null>(null);
   const [reassigning, setReassigning] = useState<Set<string>>(new Set());
 
   // Estados dos dados
@@ -1075,7 +1325,7 @@ export function RodizioTab() {
 
   // Lista simples para opções de reatribuição (excluindo fila virtual de triagem IA)
   const operatorOptions: OperatorOption[] = operators
-    .filter((o) => !o.id.startsWith("ai-triage-"))
+    .filter((o) => !o.id.startsWith("ai-triage-") && !o.id.startsWith("ai-sdr-"))
     .map((o) => ({
       id: o.id,
       name: o.name,
@@ -1173,29 +1423,66 @@ export function RodizioTab() {
     }
   };
 
-  // Redirecionamento amigável (CRM Local ou Conversa)
-  const handleOpenLead = (card: OperatorCard) => {
-    if (card.chatId) {
-      setSelectedChatId(card.chatId);
-      setActiveView("chat");
-      toast.info(`Abrindo conversa de ${card.name}...`);
-    } else if (card.rdDealId && card.rdDealId.startsWith("deal-")) {
-      setActiveView("crm" as any);
-      toast.info(`Abrindo negociação "${card.name}" no CRM Local...`);
-    } else if (card.rdDealId && tenant === "valem") {
-      window.open(`https://crm.rdstation.com/app/deals/${card.rdDealId}`, "_blank");
-    } else {
-      setActiveView("crm" as any);
-      toast.info(`Atendimento: ${card.name}`);
+  // 1. Ver Triagem (Abre o chat de atendimento da aba SDR)
+  const handleViewTriage = (card: OperatorCard) => {
+    const convId = card.chatId || card.id;
+    if (onOpenTriage) {
+      toast.info(`Abrindo triagem de "${card.name}" na aba SDR...`);
+      onOpenTriage(convId, card.name);
+      return;
     }
+    setSelectedChatId(convId);
+    setActiveView("valentina");
+  };
+
+  // 2. Ver Conversa (Abre o chat de atendimento padrão)
+  const handleViewChat = (card: OperatorCard) => {
+    const convId = card.chatId || card.id;
+    setSelectedChatId(convId);
+    setActiveView("chat");
+    toast.info(`Abrindo conversa de "${card.name}" no Chat...`);
+  };
+
+  // 3. Ver Negociação (Abre o card no CRM local)
+  const handleViewNegotiation = (card: OperatorCard) => {
+    const matchedDeal = deals.find(
+      (d) =>
+        d.id === card.rdDealId ||
+        d.rd_deal_id === card.rdDealId ||
+        d.id === card.id ||
+        d.name.trim().toLowerCase() === card.name.trim().toLowerCase() ||
+        (card.phone && d.phone && d.phone === card.phone)
+    );
+
+    const targetDealId =
+      card.rdDealId ||
+      matchedDeal?.rd_deal_id ||
+      matchedDeal?.id ||
+      (card.id.startsWith("deal-") ? card.id : undefined);
+
+    if (targetDealId) {
+      toast.info(`Abrindo negociação de "${card.name}" no CRM Local...`);
+      navigate({
+        to: "/crm/deals/$dealId",
+        params: { dealId: targetDealId },
+        search: { from: "valentina" },
+      });
+      return;
+    }
+
+    setActiveView("crm" as any);
+    toast.info(`Abrindo CRM Local para "${card.name}"...`);
   };
 
   const handleOpenDeal = (deal: CrmDeal) => {
-    if (deal.rd_deal_id && deal.rd_deal_id.startsWith("deal-")) {
-      setActiveView("crm" as any);
+    const targetDealId = deal.rd_deal_id || deal.id;
+    if (targetDealId) {
       toast.info(`Abrindo negociação "${deal.name}" no CRM Local...`);
-    } else if (deal.rd_deal_id && tenant === "valem") {
-      window.open(`https://crm.rdstation.com/app/deals/${deal.rd_deal_id}`, "_blank");
+      navigate({
+        to: "/crm/deals/$dealId",
+        params: { dealId: targetDealId },
+        search: { from: "valentina" },
+      });
     } else {
       setActiveView("crm" as any);
       toast.info(`Negociação: ${deal.name}`);
@@ -1288,6 +1575,101 @@ export function RodizioTab() {
 
   const maxOperatorLeads = Math.max(...operators.map((o) => o.count), 1);
   const sectorOrder = ["sdr", "personalite", "maquinas", "pos venda", "financeiro", "pecas"];
+
+  const renderOperatorRowItem = (
+    op: OperatorRow,
+    accentColor: string,
+    gradientColor: string,
+    keyIndex: string | number
+  ) => {
+    const effective = op.count;
+
+    return (
+      <div key={op.id || keyIndex} className="flex flex-col gap-1.5">
+        {/* Linha do Operador */}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <OperatorAvatar
+              name={op.name}
+              avatar={op.avatar}
+              accent={accentColor}
+            />
+            <span className="text-xs font-semibold text-foreground truncate">
+              {op.name}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-xs font-bold text-foreground font-mono">
+              {effective}
+            </span>
+            {op.compensation !== 0 && (
+              <span
+                title={`Compensação manual: ${op.compensation > 0 ? "+" : ""}${op.compensation}`}
+                className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold ${
+                  op.compensation > 0
+                    ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
+                    : "text-red-500 bg-red-500/10"
+                }`}
+              >
+                {op.compensation > 0 ? `+${op.compensation}` : op.compensation}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Barra de Progresso Proporcional */}
+        <div className="w-full bg-muted/60 rounded-full h-1.5 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-300 bg-gradient-to-r ${gradientColor}`}
+            style={{
+              width: `${Math.min(
+                100,
+                Math.round((effective / maxOperatorLeads) * 100)
+              )}%`,
+            }}
+          />
+        </div>
+
+        {/* Cards de Leads Ativos do Operador */}
+        {op.cards && op.cards.length > 0 && (
+          <div className="space-y-1.5 mt-1 pt-1 border-t border-border/40">
+            {op.cards.map((card) => {
+              const uniquePopupKey = `${op.id}:${card.id}`;
+              return (
+                <LeadCardItem
+                  key={card.id}
+                  card={card}
+                  opName={op.name}
+                  isOpen={openDropdown === card.id}
+                  isOpenActionPopup={openActionPopupCardId === uniquePopupKey}
+                  isReassigning={reassigning.has(card.id)}
+                  operators={operatorOptions}
+                  onToggleDropdown={() => {
+                    setOpenActionPopupCardId(null);
+                    setOpenDropdown((prev) => (prev === card.id ? null : card.id));
+                  }}
+                  onToggleOpenActionPopup={() => {
+                    setOpenDropdown(null);
+                    setOpenActionPopupCardId((prev) =>
+                      prev === uniquePopupKey ? null : uniquePopupKey
+                    );
+                  }}
+                  onReassign={handleReassign}
+                  onClose={() => setOpenDropdown(null)}
+                  onCloseOpenActionPopup={() => setOpenActionPopupCardId(null)}
+                  onViewTriage={handleViewTriage}
+                  onViewChat={handleViewChat}
+                  onViewNegotiation={handleViewNegotiation}
+                  onDeleteCard={handleDeleteCard}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="h-full overflow-y-auto pr-1 pb-6 space-y-5 scrollbar-thin">
@@ -1438,6 +1820,113 @@ export function RodizioTab() {
             const ops = groups[key] || [];
             const totalSectorLeads = ops.reduce((sum, o) => sum + o.count, 0);
 
+            // Container especial de Pós Venda com separação interna dos dois times:
+            // 1) Pós Venda (Rastreio, NF, Pós-Venda Geral)
+            // 2) Suporte Técnico (Assistência Técnica / Suporte)
+            if (key === "pos venda") {
+              const posVendaOps = ops.filter((op) => getPosVendaSubTeam(op) === "pos_venda");
+              const suporteTecnicoOps = ops.filter(
+                (op) => getPosVendaSubTeam(op) === "suporte_tecnico"
+              );
+              const posVendaLeadsCount = posVendaOps.reduce((sum, o) => sum + o.count, 0);
+              const suporteLeadsCount = suporteTecnicoOps.reduce((sum, o) => sum + o.count, 0);
+
+              return (
+                <div
+                  key={key}
+                  className={`rounded-2xl border transition-all duration-200 p-3.5 flex flex-col justify-between ${config.bgLight} ${config.bgDark} ${config.borderLight} ${config.borderDark} hover:shadow-md`}
+                >
+                  <div>
+                    {/* Cabeçalho Principal do Container Pós Venda */}
+                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-border/60">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Package
+                          size={14}
+                          className={`shrink-0 ${config.badgeText.split(" ")[0]}`}
+                        />
+                        <span className="text-xs font-extrabold text-foreground truncate">
+                          {config.label}
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${config.badgeBg} ${config.badgeText}`}
+                      >
+                        {totalSectorLeads} lead{totalSectorLeads !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+
+                    {/* Área com os 2 Times Separados dentro do mesmo Container */}
+                    <div className="space-y-3 overflow-y-auto max-h-[460px] pr-0.5 scrollbar-thin">
+                      {/* ── SUB-TIME 1: PÓS VENDA ── */}
+                      <div className="rounded-xl bg-card/70 dark:bg-card/40 border border-amber-200/80 dark:border-amber-800/40 p-2.5 space-y-2.5 shadow-2xs">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/50 dark:border-amber-800/30">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Package
+                              size={12}
+                              className="text-amber-600 dark:text-amber-400 shrink-0"
+                            />
+                            <span className="text-[11px] font-extrabold text-foreground truncate">
+                              Pós Venda
+                            </span>
+                          </div>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 shrink-0">
+                            {posVendaLeadsCount} lead{posVendaLeadsCount !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+
+                        {posVendaOps.length > 0 ? (
+                          <div className="space-y-3">
+                            {posVendaOps.map((op, i) =>
+                              renderOperatorRowItem(op, config.accent, config.color, `pv-${i}`)
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-center py-3 text-muted-foreground text-[11px] italic">
+                            Sem operadores em Pós Venda
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── SUB-TIME 2: SUPORTE TÉCNICO ── */}
+                      <div className="rounded-xl bg-card/70 dark:bg-card/40 border border-sky-200/80 dark:border-sky-800/40 p-2.5 space-y-2.5 shadow-2xs">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-sky-200/50 dark:border-sky-800/30">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Wrench
+                              size={12}
+                              className="text-sky-600 dark:text-sky-400 shrink-0"
+                            />
+                            <span className="text-[11px] font-extrabold text-foreground truncate">
+                              Suporte Técnico
+                            </span>
+                          </div>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 shrink-0">
+                            {suporteLeadsCount} lead{suporteLeadsCount !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+
+                        {suporteTecnicoOps.length > 0 ? (
+                          <div className="space-y-3">
+                            {suporteTecnicoOps.map((op, i) =>
+                              renderOperatorRowItem(
+                                op,
+                                "#0284c7",
+                                "from-sky-500 to-blue-600",
+                                `st-${i}`
+                              )
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-center py-3 text-muted-foreground text-[11px] italic">
+                            Sem operadores em Suporte Técnico
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={key}
@@ -1472,81 +1961,9 @@ export function RodizioTab() {
                   {/* Lista de Operadores do Setor */}
                   <div className="space-y-3.5 overflow-y-auto max-h-[460px] pr-0.5 scrollbar-thin">
                     {ops.length > 0 ? (
-                      ops.map((op, i) => {
-                        const effective = op.count;
-
-                        return (
-                          <div key={i} className="flex flex-col gap-1.5">
-                            {/* Linha do Operador */}
-                            <div className="flex items-center justify-between gap-1.5">
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <OperatorAvatar
-                                  name={op.name}
-                                  avatar={op.avatar}
-                                  accent={config.accent}
-                                />
-                                <span className="text-xs font-semibold text-foreground truncate">
-                                  {op.name}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1 shrink-0">
-                                <span className="text-xs font-bold text-foreground font-mono">
-                                  {effective}
-                                </span>
-                                {op.compensation !== 0 && (
-                                  <span
-                                    title={`Compensação manual: ${op.compensation > 0 ? "+" : ""}${op.compensation}`}
-                                    className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold ${
-                                      op.compensation > 0
-                                        ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
-                                        : "text-red-500 bg-red-500/10"
-                                    }`}
-                                  >
-                                    {op.compensation > 0 ? `+${op.compensation}` : op.compensation}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Barra de Progresso Proporcional */}
-                            <div className="w-full bg-muted/60 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 bg-gradient-to-r ${config.color}`}
-                                style={{
-                                  width: `${Math.min(
-                                    100,
-                                    Math.round((effective / maxOperatorLeads) * 100)
-                                  )}%`,
-                                }}
-                              />
-                            </div>
-
-                            {/* Cards de Leads Ativos do Operador */}
-                            {op.cards && op.cards.length > 0 && (
-                              <div className="space-y-1.5 mt-1 pt-1 border-t border-border/40">
-                                {op.cards.map((card) => (
-                                  <LeadCardItem
-                                    key={card.id}
-                                    card={card}
-                                    opName={op.name}
-                                    isOpen={openDropdown === card.id}
-                                    isReassigning={reassigning.has(card.id)}
-                                    operators={operatorOptions}
-                                    onToggleDropdown={() =>
-                                      setOpenDropdown((prev) => (prev === card.id ? null : card.id))
-                                    }
-                                    onReassign={handleReassign}
-                                    onClose={() => setOpenDropdown(null)}
-                                    onOpenLead={handleOpenLead}
-                                    onDeleteCard={handleDeleteCard}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
+                      ops.map((op, i) =>
+                        renderOperatorRowItem(op, config.accent, config.color, i)
+                      )
                     ) : (
                       <div className="text-center py-6 text-muted-foreground text-xs italic">
                         Sem operadores

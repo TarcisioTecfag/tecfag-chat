@@ -43,6 +43,8 @@ export interface OperatorRow {
   count: number;
   compensation: number;
   sector?: string | null;
+  rawArea?: string | null;
+  subTeam?: "pos_venda" | "suporte_tecnico";
   allowed_subflows?: string[] | null;
   is_sdr?: boolean;
   isParticipating?: boolean;

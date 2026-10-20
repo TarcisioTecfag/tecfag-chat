@@ -109,15 +109,21 @@ export class SupervisorEngine {
         ),
       );
 
-    const operatorLoads = new Map<string, number>();
+    const operatorConvsMap = new Map<
+      string,
+      Array<{
+        clientId: string;
+        clientName: string;
+        lastMessage: string;
+        waitMinutes: number;
+        isWaiting: boolean;
+      }>
+    >();
     const operatorTenantMap = new Map<string, string>();
 
     for (const conv of activeConvs) {
-      if (conv.operatorId) {
-        operatorLoads.set(conv.operatorId, (operatorLoads.get(conv.operatorId) || 0) + 1);
-        if (conv.tenantId) {
-          operatorTenantMap.set(conv.operatorId, conv.tenantId);
-        }
+      if (conv.operatorId && conv.tenantId) {
+        operatorTenantMap.set(conv.operatorId, conv.tenantId);
       }
 
       const lastMsgs = await db
@@ -134,18 +140,30 @@ export class SupervisorEngine {
         .orderBy(desc(messages.sentAt))
         .limit(1);
 
-      if (lastMsgs.length === 0) continue;
-
       const lastMsg = lastMsgs[0];
+      const isClientWaiting = lastMsg?.senderType === "client";
+      const diffMs = lastMsg ? Date.now() - lastMsg.sentAt.getTime() : 0;
+      const waitMinutes = lastMsg ? Math.max(0, Math.floor(diffMs / 60000)) : 0;
+      const lastMessagePreview = (lastMsg?.content || lastMsg?.mediaInterpretation || "")
+        .replace(/^\[(LOCAL_MEDIA|MEDIA):[^\]]+\]\s*/i, "[Mídia recebida] ")
+        .trim()
+        .slice(0, 180);
 
-      if (lastMsg.senderType === "client") {
-        const diffMs = Date.now() - lastMsg.sentAt.getTime();
-        const waitMinutes = Math.floor(diffMs / 60000);
-        const lastMessagePreview = (lastMsg.content || lastMsg.mediaInterpretation || "")
-          .replace(/^\[(LOCAL_MEDIA|MEDIA):[^\]]+\]\s*/i, "[Mídia recebida] ")
-          .trim()
-          .slice(0, 180);
+      if (conv.operatorId) {
+        const list = operatorConvsMap.get(conv.operatorId) || [];
+        list.push({
+          clientId: conv.id,
+          clientName: conv.contactName || "Cliente",
+          lastMessage: lastMessagePreview || "Conversa ativa em Meus Atendimentos",
+          waitMinutes,
+          isWaiting: isClientWaiting,
+        });
+        operatorConvsMap.set(conv.operatorId, list);
+      }
 
+      if (!lastMsg) continue;
+
+      if (isClientWaiting) {
         if (waitMinutes > 24 * 60) {
           await this.notifySlaRisk(conv, waitMinutes, lastMsg.sentAt, lastMessagePreview, "high", true);
         } else if (waitMinutes >= 15) {
@@ -156,11 +174,12 @@ export class SupervisorEngine {
       }
     }
 
-    for (const [operatorId, count] of operatorLoads.entries()) {
-      if (count > 8) {
+    for (const [operatorId, convList] of operatorConvsMap.entries()) {
+      const waitingCount = convList.filter((c) => c.isWaiting).length;
+      if (convList.length > 8 && waitingCount > 0) {
         const opTenantId = operatorTenantMap.get(operatorId);
         if (opTenantId) {
-          await this.notifyOperatorLoad(opTenantId, operatorId, count);
+          await this.notifyOperatorLoad(opTenantId, operatorId, convList);
         }
       }
     }
@@ -222,14 +241,24 @@ export class SupervisorEngine {
   }
 
   /**
-   * Gera notificação para sobrecarga de operador
+   * Gera notificação consolidada para sobrecarga de operador com lista interativa das conversas
    */
-  private async notifyOperatorLoad(tenantId: string, operatorId: string, count: number) {
+  private async notifyOperatorLoad(
+    tenantId: string,
+    operatorId: string,
+    convList: Array<{
+      clientId: string;
+      clientName: string;
+      lastMessage: string;
+      waitMinutes: number;
+      isWaiting: boolean;
+    }>,
+  ) {
     const now = Date.now();
     const key = `op-load-${operatorId}`;
     const lastTime = this.lastNotified.get(key) || 0;
 
-    if (now - lastTime < 60 * 60_000) return;
+    if (now - lastTime < 4 * 60 * 60_000) return;
     this.lastNotified.set(key, now);
 
     const opRows = await db
@@ -241,26 +270,39 @@ export class SupervisorEngine {
     if (opRows.length === 0) return;
     const op = opRows[0];
 
-    const alertMessage = `⚠️ Atenção ${op.name.split(" ")[0]}! Você possui ${count} conversas ativas em Meus Atendimentos neste momento.`;
+    const sortedConvs = [...convList].sort(
+      (a, b) => Number(b.isWaiting) - Number(a.isWaiting) || b.waitMinutes - a.waitMinutes,
+    );
+    const waitingCount = sortedConvs.filter((c) => c.isWaiting).length;
+    const firstName = op.name.split(" ")[0];
+
+    const alertMessage =
+      waitingCount > 0
+        ? `⚠️ ${firstName}, você está com *${convList.length} conversas ativas* em Meus Atendimentos agora (*${waitingCount} aguardando sua resposta*). Confira abaixo e clique para abrir diretamente:`
+        : `⚠️ ${firstName}, você possui *${convList.length} conversas ativas* em Meus Atendimentos neste momento. Veja abaixo os atendimentos abertos:`;
 
     await this.dispatchInternalNotification(op.tenantId, operatorId, alertMessage, {
       type: "operator_overload",
       scope: "operator",
       isWarning: true,
-      title: `Operador ${op.name.split(" ")[0]} com ${count} atendimentos ativos`,
+      warningType: "overload",
+      title: `Operador ${firstName} com ${convList.length} atendimentos ativos`,
       priority: "medium",
-      activeCount: count,
+      activeCount: convList.length,
+      waitingCount,
+      conversationId: sortedConvs[0]?.clientId || null,
+      clientId: sortedConvs[0]?.clientId || null,
+      clientName: sortedConvs[0]?.clientName || "Cliente",
+      conversations: sortedConvs.slice(0, 8),
     });
   }
 
   /**
    * Persiste a notificação no banco com lógica de UPSERT inteligente.
    *
-   * Regra de deduplicação (janela de 4h):
-   *  - Busca um registro existente com mesmo tenantId + operatorId + alertType + conversationId
-   *    criado nas últimas 4 horas.
-   *  - Se EXISTE  → incrementa repeatCount e atualiza lastFiredAt (sem nova linha)
-   *  - Se NÃO EXISTE → insere nova linha (novo evento)
+   * Regra de deduplicação:
+   *  - Para operator_overload: mantém APENAS 1 registro único por operador (atualiza in-place e remove duplicados antigos).
+   *  - Para sla_alert / no_response: agrupa por conversationId dentro de 24h para nunca gerar spam repetido do mesmo cliente.
    */
   private async dispatchInternalNotification(
     tenantId: string,
@@ -282,13 +324,15 @@ export class SupervisorEngine {
         return;
       }
 
-      // ── Janela de deduplicação ─────────────────────────────────────────────
-      const windowStart = new Date(Date.now() - DEDUP_WINDOW_MS);
       const alertType = metadata?.type ?? "unknown";
       const convId = metadata?.conversationId ?? null;
       const now = new Date();
       let notificationId = "";
       let shouldBroadcastNew = false;
+
+      const isOverload = alertType === "operator_overload";
+      const isSlaType = alertType === "sla_alert" || alertType === "no_response";
+      const windowStart = new Date(Date.now() - (isSlaType ? 24 * 60 * 60 * 1000 : DEDUP_WINDOW_MS));
 
       const existing = await db
         .select({
@@ -298,18 +342,26 @@ export class SupervisorEngine {
         })
         .from(internalMessages)
         .where(
-          and(
-            eq(internalMessages.tenantId, tenantId),
-            eq(internalMessages.operatorId, operatorId),
-            sql`${internalMessages.metadata}->>'type' = ${alertType}`,
-            convId
-              ? sql`${internalMessages.metadata}->>'conversationId' = ${convId}`
-              : sql`${internalMessages.metadata}->>'conversationId' IS NULL`,
-            gte(internalMessages.createdAt, windowStart),
-          ),
+          isOverload
+            ? and(
+                eq(internalMessages.tenantId, tenantId),
+                eq(internalMessages.operatorId, operatorId),
+                sql`${internalMessages.metadata}->>'type' = 'operator_overload'`,
+              )
+            : and(
+                eq(internalMessages.tenantId, tenantId),
+                eq(internalMessages.operatorId, operatorId),
+                isSlaType
+                  ? sql`${internalMessages.metadata}->>'type' IN ('sla_alert', 'no_response')`
+                  : sql`${internalMessages.metadata}->>'type' = ${alertType}`,
+                convId
+                  ? sql`${internalMessages.metadata}->>'conversationId' = ${convId}`
+                  : sql`${internalMessages.metadata}->>'conversationId' IS NULL`,
+                gte(internalMessages.createdAt, windowStart),
+              ),
         )
         .orderBy(desc(internalMessages.createdAt))
-        .limit(1);
+        .limit(10);
 
       if (existing.length > 0) {
         notificationId = existing[0].id;
@@ -326,6 +378,19 @@ export class SupervisorEngine {
           .where(
             and(eq(internalMessages.id, existing[0].id), eq(internalMessages.tenantId, tenantId)),
           );
+
+        // Remove duplicatas excedentes caso existam no banco
+        if (existing.length > 1) {
+          const duplicateIds = existing.slice(1).map((r) => r.id);
+          await db
+            .delete(internalMessages)
+            .where(
+              and(
+                eq(internalMessages.tenantId, tenantId),
+                inArray(internalMessages.id, duplicateIds),
+              ),
+            );
+        }
 
         // Se escalou de medium (8m) para high (15m+), reenvia o alerta em tempo real
         if (prevPriority === "medium" && metadata?.priority === "high") {
@@ -355,23 +420,45 @@ export class SupervisorEngine {
         const persona = getAiPersona(tenantId);
 
         if (shouldBroadcastNew) {
+          const resolvedWarningType =
+            metadata?.warningType ||
+            (alertType === "lead_transfer"
+              ? "new_lead"
+              : alertType === "operator_overload"
+                ? "overload"
+                : "delay");
+          const warningMetaPayload =
+            convId || Array.isArray(metadata?.conversations)
+              ? {
+                  clientId: convId || metadata?.conversations?.[0]?.clientId || "",
+                  clientName: metadata?.clientName || metadata?.contactName || "Cliente",
+                  lastMessage: metadata?.lastMessage || "",
+                  conversations: metadata?.conversations || undefined,
+                }
+              : undefined;
+
           SessionManager.getInstance().notifyPublic(tenantId, {
             type: "operator_ai_notification",
             operatorId,
+            message: {
+              id: notificationId,
+              direction: "from_agent",
+              author: persona.name,
+              content,
+              createdAt: now.toISOString(),
+              isWarning: true,
+              warningType: resolvedWarningType,
+              warningMetadata: warningMetaPayload,
+              metadata,
+            },
             notification: {
               id: notificationId,
               author: persona.name,
               content,
               createdAt: now.toISOString(),
               isWarning: true,
-              warningType: metadata?.warningType || (alertType === "lead_transfer" ? "new_lead" : "delay"),
-              warningMetadata: convId
-                ? {
-                    clientId: convId,
-                    clientName: metadata?.clientName || metadata?.contactName || "Cliente",
-                    lastMessage: metadata?.lastMessage || "",
-                  }
-                : undefined,
+              warningType: resolvedWarningType,
+              warningMetadata: warningMetaPayload,
             },
           });
         }

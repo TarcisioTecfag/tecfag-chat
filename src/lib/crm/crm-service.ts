@@ -62,6 +62,7 @@ import { validateCatalogChoice } from "./catalogs";
 import { validateAccountDocument } from "./account-validation";
 import { syncAccountDealContacts, lockContactDeals, DealRequiredError, assertDealsCanBeRemoved } from "./deal-associations";
 import { enqueueRdCommercial } from "../rd-marketing/commercial-outbox";
+import { isCommercialWinStage } from "../commercial/metrics";
 
 /**
  * Garante que nenhum campo de negócio com `isUnique: true` tenha valor duplicado
@@ -3717,6 +3718,17 @@ export class CrmService {
           } else if (current.status === "won" || current.status === "lost") {
             effectiveNewStatus = "open";
           }
+        }
+
+        // Em etapas de Fechamento (mesmo que mantenham status="open" para visibilidade no Kanban),
+        // garantimos o registro da data de fechamento para contabilização de metas mensais/diárias.
+        if (isCommercialWinStage(stage)) {
+          setPayload.closedAt = current.closedAt ?? now;
+        } else if (
+          (effectiveNewStatus ?? current.status) === "open" &&
+          current.closedAt !== null
+        ) {
+          setPayload.closedAt = null;
         }
       }
 

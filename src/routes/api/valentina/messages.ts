@@ -16,6 +16,7 @@ import {
   crmAccounts,
   crmStageSettings,
   crmDealActivities,
+  crmConversationDeals,
   tasks,
 } from "../../../db/schema";
 import { eq, and, desc, asc, sql, gte, isNull, ne, count, or, inArray, ilike } from "drizzle-orm";
@@ -25,6 +26,7 @@ import { requireSession } from "../../../lib/auth-session";
 import { getCommercialHome } from "../../../lib/commercial/home-service";
 import { getKnowledgeBaseContext } from "../../../lib/valentina/knowledge-service";
 import type { MultimodalPart } from "../../../lib/vertex-ai";
+import type { RelatedConversationItem } from "../../../lib/mockData";
 
 // ── Headers CORS padrão ──────────────────────────────────────────────────────
 const corsHeaders = {
@@ -128,15 +130,25 @@ function extractSearchCandidateTerms(userQuery?: string): string[] {
 // Usado em: Módulo de Chat (fixado na lista), scope = "operator"
 // RBAC ESTRITO: Filtra 100% por tenantId + operatorId. Bloqueia dados de terceiros/diretoria.
 // ═══════════════════════════════════════════════════════════════════════════════
+export interface OperatorContextResult {
+  contextText: string;
+  knownConversations: RelatedConversationItem[];
+  waitingConversations: RelatedConversationItem[];
+  todayLeadsConversations: RelatedConversationItem[];
+}
+
 async function getOperatorContext(
   tenantId: string,
   operatorId: string,
   operatorEmail?: string | null,
   userQuery?: string
-): Promise<string> {
-  try {
-    const sections: string[] = [];
+): Promise<OperatorContextResult> {
+  const sections: string[] = [];
+  const knownConvMap = new Map<string, RelatedConversationItem>();
+  const waitingConversations: RelatedConversationItem[] = [];
+  const todayLeadsConversations: RelatedConversationItem[] = [];
 
+  try {
     // ── 1. META DO MÊS, RITMO (PACING) E DIRETRIZES DO GESTOR ────────────────
     try {
       const home = await getCommercialHome(tenantId, operatorId);
@@ -404,90 +416,255 @@ async function getOperatorContext(
       console.warn("[getOperatorContext] Aviso ao carregar negociações do operador:", dealErr?.message);
     }
 
-    // ── 4. CONVERSAS ATIVAS E CLIENTES AGUARDANDO RESPOSTA (SLA) ─────────────
-    const activeConvs = await db
-      .select({
-        id: conversations.id,
-        contactId: conversations.contactId,
-        contactName: contacts.name,
-        contactPhone: contacts.phone,
-        contactCompany: contacts.company,
-        contactInterest: contacts.interest,
-        contactTemperature: contacts.temperature,
-        lastMessage: conversations.lastMessageText,
-        lastTime: conversations.lastMessageTime,
-        queueState: conversations.queueState,
-        unread: conversations.unreadCount,
-        value: conversations.value,
-      })
-      .from(conversations)
-      .innerJoin(contacts, eq(contacts.id, conversations.contactId))
-      .where(
-        and(
-          eq(conversations.tenantId, tenantId),
-          eq(conversations.operatorId, operatorId),
-          ne(conversations.queueState, "finalizados")
+    // ── 4. CONVERSAS ATIVAS, CLIENTES AGUARDANDO RESPOSTA (SLA) E LEADS DE HOJE ──
+    let activeConvs: Array<{
+      id: string;
+      contactId: string;
+      contactName: string;
+      contactPhone: string | null;
+      contactCompany: string | null;
+      lastMessage: string | null;
+      lastTime: Date;
+      createdAt: Date;
+      queueState: string;
+      unread: number;
+      dealTitle?: string | null;
+      funnelName?: string | null;
+    }> = [];
+
+    try {
+      const rawConvs = await db
+        .select({
+          id: conversations.id,
+          contactId: conversations.contactId,
+          contactName: contacts.name,
+          contactPhone: contacts.phone,
+          contactCompany: crmAccounts.name,
+          lastMessage: conversations.lastMessageText,
+          lastTime: conversations.lastMessageTime,
+          createdAt: conversations.createdAt,
+          queueState: conversations.queueState,
+          unread: conversations.unreadCount,
+        })
+        .from(conversations)
+        .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, tenantId)))
+        .leftJoin(crmAccounts, and(eq(crmAccounts.id, contacts.accountId), eq(crmAccounts.tenantId, tenantId)))
+        .where(
+          and(
+            eq(conversations.tenantId, tenantId),
+            eq(conversations.operatorId, operatorId),
+            ne(conversations.queueState, "finalizados")
+          )
         )
-      )
-      .orderBy(desc(conversations.lastMessageTime))
-      .limit(25);
+        .orderBy(desc(conversations.lastMessageTime))
+        .limit(25);
 
-    if (activeConvs.length > 0) {
-      // Verifica em cada conversa de "meus" quem mandou a última mensagem
-      const waitingClients: string[] = [];
-      const convLines: string[] = [];
-
-      for (const c of activeConvs) {
-        const agoMin = Math.max(0, Math.floor((Date.now() - new Date(c.lastTime).getTime()) / 60_000));
-        const companyInfo = c.contactCompany ? ` [${c.contactCompany}]` : "";
-        const interestInfo = c.contactInterest ? ` | Interesse: ${c.contactInterest}` : "";
-        const tempInfo = c.contactTemperature ? ` | Temp: ${c.contactTemperature}` : "";
-
-        const [lastMsg] = await db
+      // Enriquecer conversas com negociação ativa vinculada (se houver)
+      const convIds = rawConvs.map((c) => c.id);
+      const convDealMap = new Map<string, { dealTitle: string; funnelName: string | null }>();
+      if (convIds.length > 0) {
+        const linkedDeals = await db
           .select({
-            sender: messages.sender,
-            content: messages.content,
-            timestamp: messages.timestamp,
+            conversationId: crmConversationDeals.conversationId,
+            dealTitle: crmDeals.title,
+            funnelName: crmPipelines.name,
           })
-          .from(messages)
-          .where(and(eq(messages.conversationId, c.id), eq(messages.tenantId, tenantId)))
-          .orderBy(desc(messages.timestamp))
-          .limit(1);
+          .from(crmConversationDeals)
+          .innerJoin(crmDeals, and(eq(crmDeals.id, crmConversationDeals.dealId), eq(crmDeals.tenantId, tenantId)))
+          .leftJoin(crmPipelines, and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId)))
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              inArray(crmConversationDeals.conversationId, convIds),
+              eq(crmConversationDeals.isActive, true)
+            )
+          );
+        for (const ld of linkedDeals) {
+          if (!convDealMap.has(ld.conversationId)) {
+            convDealMap.set(ld.conversationId, {
+              dealTitle: ld.dealTitle,
+              funnelName: ld.funnelName || null,
+            });
+          }
+        }
+      }
 
-        const isClientWaiting = lastMsg?.sender === "client" && c.queueState === "meus";
-        const waitMinutes =
-          isClientWaiting && lastMsg?.timestamp
-            ? Math.max(0, Math.floor((Date.now() - new Date(lastMsg.timestamp).getTime()) / 60_000))
-            : agoMin;
+      activeConvs = rawConvs.map((c) => ({
+        ...c,
+        dealTitle: convDealMap.get(c.id)?.dealTitle || null,
+        funnelName: convDealMap.get(c.id)?.funnelName || null,
+      }));
 
-        if (isClientWaiting) {
-          const slaTag =
-            waitMinutes >= 15
-              ? "🚨 SLA ESTOURADO (>15min)"
-              : waitMinutes >= 8
-              ? "⚠️ ATENÇÃO SLA (8-14min)"
-              : "⏳ Aguardando resposta";
-          waitingClients.push(
-            `  • ${c.contactName}${companyInfo} — esperando há ${waitMinutes}min (${slaTag})${interestInfo}: "${(lastMsg?.content || c.lastMessage || "").slice(0, 100)}"`
+      // Início de hoje no fuso de Brasília
+      const brtNowStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+      const startOfToday = new Date(`${brtNowStr}T00:00:00-03:00`);
+
+      // Leads transferidos hoje registrados em internal_messages
+      const todayTransfers = await db
+        .select({
+          content: internalMessages.content,
+          metadata: internalMessages.metadata,
+          createdAt: internalMessages.createdAt,
+        })
+        .from(internalMessages)
+        .where(
+          and(
+            eq(internalMessages.tenantId, tenantId),
+            eq(internalMessages.operatorId, operatorId),
+            sql`${internalMessages.metadata}->>'type' = 'lead_transfer'`,
+            gte(internalMessages.createdAt, startOfToday)
+          )
+        )
+        .orderBy(desc(internalMessages.createdAt))
+        .limit(20);
+
+      const todayTransferLines: string[] = [];
+      const seenTodayConvIds = new Set<string>();
+
+      for (const tr of todayTransfers) {
+        const meta = (tr.metadata || {}) as any;
+        const cId = meta.conversationId || meta.clientId || "";
+        const cName = meta.clientName || meta.contactName || "Cliente";
+        if (cId && seenTodayConvIds.has(cId)) continue;
+        if (cId) seenTodayConvIds.add(cId);
+
+        const hora = tr.createdAt
+          ? new Date(tr.createdAt).toLocaleTimeString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "";
+        todayTransferLines.push(
+          `  • [Transferido hoje às ${hora}] ${cName}${meta.company ? ` (${meta.company})` : ""}${meta.targetFunnel ? ` | Funil: ${meta.targetFunnel}` : ""}${meta.dealTitle ? ` | Card: "${meta.dealTitle}"` : ""} (convId: ${cId})`
+        );
+        if (cId) {
+          const item: RelatedConversationItem = {
+            clientId: cId,
+            clientName: cName,
+            company: meta.company || null,
+            lastMessage: meta.interest || null,
+            dealTitle: meta.dealTitle || null,
+            funnelName: meta.targetFunnel || null,
+            temperature: meta.temperature || null,
+          };
+          todayLeadsConversations.push(item);
+          knownConvMap.set(cId, item);
+        }
+      }
+
+      if (activeConvs.length > 0) {
+        const waitingClients: string[] = [];
+        const convLines: string[] = [];
+
+        for (const c of activeConvs) {
+          const agoMin = Math.max(0, Math.floor((Date.now() - new Date(c.lastTime).getTime()) / 60_000));
+          const companyInfo = c.contactCompany ? ` [${c.contactCompany}]` : "";
+          const dealInfo = c.dealTitle ? ` | Card: "${c.dealTitle}"${c.funnelName ? ` (${c.funnelName})` : ""}` : "";
+
+          const [lastMsg] = await db
+            .select({
+              senderType: messages.senderType,
+              content: messages.content,
+              mediaInterpretation: messages.mediaInterpretation,
+              sentAt: messages.sentAt,
+            })
+            .from(messages)
+            .where(
+              and(
+                eq(messages.conversationId, c.id),
+                eq(messages.tenantId, tenantId),
+                eq(messages.isInternalNote, false),
+                ne(messages.senderType, "system")
+              )
+            )
+            .orderBy(desc(messages.sentAt))
+            .limit(1);
+
+          const isClientWaiting = lastMsg?.senderType === "client" && c.queueState === "meus";
+          const waitMinutes =
+            isClientWaiting && lastMsg?.sentAt
+              ? Math.max(0, Math.floor((Date.now() - new Date(lastMsg.sentAt).getTime()) / 60_000))
+              : agoMin;
+          const cleanPreview = (lastMsg?.content || lastMsg?.mediaInterpretation || c.lastMessage || "")
+            .replace(/^\[(LOCAL_MEDIA|MEDIA):[^\]]+\]\s*/i, "[Mídia] ")
+            .trim()
+            .slice(0, 110);
+
+          const convItem: RelatedConversationItem = {
+            clientId: c.id,
+            clientName: c.contactName,
+            company: c.contactCompany || null,
+            lastMessage: cleanPreview || null,
+            waitMinutes: isClientWaiting ? waitMinutes : null,
+            isWaiting: isClientWaiting,
+            dealTitle: c.dealTitle || null,
+            funnelName: c.funnelName || null,
+          };
+          knownConvMap.set(c.id, convItem);
+
+          if (c.createdAt && new Date(c.createdAt) >= startOfToday && !seenTodayConvIds.has(c.id)) {
+            seenTodayConvIds.add(c.id);
+            todayLeadsConversations.push(convItem);
+            const hora = new Date(c.createdAt).toLocaleTimeString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            todayTransferLines.push(
+              `  • [Iniciado hoje às ${hora}] ${c.contactName}${companyInfo}${dealInfo} (convId: ${c.id}): "${cleanPreview}"`
+            );
+          }
+
+          if (isClientWaiting) {
+            waitingConversations.push(convItem);
+            const slaTag =
+              waitMinutes >= 15
+                ? "🚨 SLA ESTOURADO (>15min)"
+                : waitMinutes >= 8
+                ? "⚠️ ATENÇÃO SLA (8-14min)"
+                : "⏳ Aguardando resposta";
+            waitingClients.push(
+              `  • ${c.contactName}${companyInfo} (convId: ${c.id}) — esperando há ${waitMinutes}min (${slaTag})${dealInfo}: "${cleanPreview}"`
+            );
+          }
+
+          convLines.push(
+            `  • ${c.contactName}${companyInfo} (convId: ${c.id} | Fila: ${c.queueState}${isClientWaiting ? ` | ⏳ Cliente aguarda há ${waitMinutes}min` : " | ✅ Respondido"}) — última msg há ${agoMin}min${c.unread > 0 ? ` [${c.unread} não lida(s)]` : ""}${dealInfo}: "${cleanPreview}"`
           );
         }
 
-        convLines.push(
-          `  • ${c.contactName}${companyInfo} (Fila: ${c.queueState}${isClientWaiting ? ` | ⏳ Cliente aguarda há ${waitMinutes}min` : " | ✅ Respondido"}) — última msg há ${agoMin}min${c.unread > 0 ? ` [${c.unread} não lida(s)]` : ""}${interestInfo}${tempInfo}: "${(c.lastMessage || "").slice(0, 90)}"`
-        );
-      }
+        if (todayTransferLines.length > 0) {
+          sections.push(
+            `📥 LEADS E NOVOS ATENDIMENTOS QUE CHEGARAM PARA VOCÊ HOJE (${todayTransferLines.length}):\n${todayTransferLines.join("\n")}`
+          );
+        } else {
+          sections.push(
+            `📥 LEADS E NOVOS ATENDIMENTOS QUE CHEGARAM PARA VOCÊ HOJE: 0 leads novos transferidos hoje até o momento (você possui ${activeConvs.length} conversa(s) ativa(s) em andamento na fila).`
+          );
+        }
 
-      if (waitingClients.length > 0) {
-        sections.push(
-          `⏱️ CLIENTES AGUARDANDO SUA RESPOSTA AGORA (${waitingClients.length}):\n${waitingClients.join("\n")}`
-        );
+        if (waitingClients.length > 0) {
+          sections.push(
+            `⏱️ CLIENTES AGUARDANDO SUA RESPOSTA AGORA (${waitingClients.length}):\n${waitingClients.join("\n")}`
+          );
+        } else {
+          sections.push(`⏱️ CLIENTES AGUARDANDO RESPOSTA (SLA): Nenhum cliente esperando resposta na sua fila agora!`);
+        }
+
+        sections.push(`💬 SUAS CONVERSAS ATIVAS (${activeConvs.length}):\n${convLines.join("\n")}`);
       } else {
-        sections.push(`⏱️ CLIENTES AGUARDANDO RESPOSTA (SLA): Nenhum cliente esperando resposta na sua fila agora!`);
+        if (todayTransferLines.length > 0) {
+          sections.push(
+            `📥 LEADS E NOVOS ATENDIMENTOS QUE CHEGARAM PARA VOCÊ HOJE (${todayTransferLines.length}):\n${todayTransferLines.join("\n")}`
+          );
+        } else {
+          sections.push(`📥 LEADS QUE CHEGARAM HOJE: Nenhum lead novo recebido hoje até o momento.`);
+        }
+        sections.push("💬 Você não tem conversas ativas em andamento no momento.");
       }
-
-      sections.push(`💬 SUAS CONVERSAS ATIVAS (${activeConvs.length}):\n${convLines.join("\n")}`);
-    } else {
-      sections.push("💬 Você não tem conversas ativas em andamento no momento.");
+    } catch (convErr: any) {
+      console.warn("[getOperatorContext] Aviso ao carregar conversas ativas:", convErr?.message);
     }
 
     // ── 5. BUSCA PROFUNDA SOB DEMANDA (CLIENTE / CONVERSA / NEGOCIAÇÃO) + GUARDA DE SIGILO ──
@@ -496,7 +673,7 @@ async function getOperatorContext(
       try {
         // 5.1 Verifica nas conversas e deals do PRÓPRIO operador se algum termo bate com nome de cliente/empresa/negociação
         const matchedConvs = activeConvs.filter((c) => {
-          const hay = `${c.contactName || ""} ${c.contactCompany || ""} ${c.contactInterest || ""}`
+          const hay = `${c.contactName || ""} ${c.contactCompany || ""} ${c.dealTitle || ""}`
             .normalize("NFD")
             .replace(/[\u0300-\u036f]/g, "")
             .toLowerCase();
@@ -507,23 +684,22 @@ async function getOperatorContext(
         let extraOwnConvs: typeof activeConvs = [];
         if (matchedConvs.length === 0) {
           const likeFilters = searchTerms.map((t) => ilike(contacts.name, `%${t}%`));
-          extraOwnConvs = await db
+          const rawExtra = await db
             .select({
               id: conversations.id,
               contactId: conversations.contactId,
               contactName: contacts.name,
               contactPhone: contacts.phone,
-              contactCompany: contacts.company,
-              contactInterest: contacts.interest,
-              contactTemperature: contacts.temperature,
+              contactCompany: crmAccounts.name,
               lastMessage: conversations.lastMessageText,
               lastTime: conversations.lastMessageTime,
+              createdAt: conversations.createdAt,
               queueState: conversations.queueState,
               unread: conversations.unreadCount,
-              value: conversations.value,
             })
             .from(conversations)
-            .innerJoin(contacts, eq(contacts.id, conversations.contactId))
+            .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, tenantId)))
+            .leftJoin(crmAccounts, and(eq(crmAccounts.id, contacts.accountId), eq(crmAccounts.tenantId, tenantId)))
             .where(
               and(
                 eq(conversations.tenantId, tenantId),
@@ -533,29 +709,48 @@ async function getOperatorContext(
             )
             .orderBy(desc(conversations.lastMessageTime))
             .limit(3);
+
+          extraOwnConvs = rawExtra.map((c) => ({ ...c, dealTitle: null, funnelName: null }));
         }
 
         const targetConvs = [...matchedConvs, ...extraOwnConvs].slice(0, 2);
         if (targetConvs.length > 0) {
           const deepDetails: string[] = [];
           for (const tc of targetConvs) {
+            if (!knownConvMap.has(tc.id)) {
+              knownConvMap.set(tc.id, {
+                clientId: tc.id,
+                clientName: tc.contactName,
+                company: tc.contactCompany || null,
+                lastMessage: tc.lastMessage || null,
+                dealTitle: tc.dealTitle || null,
+                funnelName: tc.funnelName || null,
+              });
+            }
+
             const recentMsgs = await db
               .select({
-                sender: messages.sender,
+                senderType: messages.senderType,
                 content: messages.content,
                 mediaInterpretation: messages.mediaInterpretation,
-                timestamp: messages.timestamp,
+                sentAt: messages.sentAt,
               })
               .from(messages)
-              .where(and(eq(messages.conversationId, tc.id), eq(messages.tenantId, tenantId)))
-              .orderBy(desc(messages.timestamp))
+              .where(
+                and(
+                  eq(messages.conversationId, tc.id),
+                  eq(messages.tenantId, tenantId),
+                  eq(messages.isInternalNote, false)
+                )
+              )
+              .orderBy(desc(messages.sentAt))
               .limit(12);
 
             const orderedMsgs = recentMsgs.reverse();
             const transcript = orderedMsgs
               .map((m) => {
-                const hora = m.timestamp
-                  ? new Date(m.timestamp).toLocaleString("pt-BR", {
+                const hora = m.sentAt
+                  ? new Date(m.sentAt).toLocaleString("pt-BR", {
                       timeZone: "America/Sao_Paulo",
                       day: "2-digit",
                       month: "2-digit",
@@ -563,14 +758,14 @@ async function getOperatorContext(
                       minute: "2-digit",
                     })
                   : "";
-                const who = m.sender === "client" ? "Cliente" : m.sender === "bot" ? "IA Triagem" : "Você";
+                const who = m.senderType === "client" ? "Cliente" : m.senderType === "bot" ? "IA Triagem" : "Você";
                 const txt = (m.content || m.mediaInterpretation || "[Mídia]").slice(0, 180);
                 return `    [${hora}] ${who}: ${txt}`;
               })
               .join("\n");
 
             deepDetails.push(
-              `  📌 Cliente: ${tc.contactName}${tc.contactCompany ? ` (${tc.contactCompany})` : ""} | Fila: ${tc.queueState} | Interesse: ${tc.contactInterest || "N/A"}\n  Últimas mensagens da conversa:\n${transcript}`
+              `  📌 Cliente: ${tc.contactName}${tc.contactCompany ? ` (${tc.contactCompany})` : ""} (convId: ${tc.id}) | Fila: ${tc.queueState}${tc.dealTitle ? ` | Negociação: ${tc.dealTitle}` : ""}\n  Últimas mensagens da conversa:\n${transcript}`
             );
           }
           sections.push(`🔍 HISTÓRICO DETALHADO DO(S) CLIENTE(S) CONSULTADO(S):\n${deepDetails.join("\n\n")}`);
@@ -601,7 +796,7 @@ async function getOperatorContext(
               otherOperatorId: conversations.operatorId,
             })
             .from(conversations)
-            .innerJoin(contacts, eq(contacts.id, conversations.contactId))
+            .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, tenantId)))
             .where(
               and(
                 eq(conversations.tenantId, tenantId),
@@ -629,27 +824,31 @@ async function getOperatorContext(
     }
 
     // ── 6. MÉTRICAS DE ATENDIMENTO DO DIA ────────────────────────────────────
-    const today = new Date().toISOString().split("T")[0];
-    const dailyMetrics = await db
-      .select()
-      .from(operatorDailyMetrics)
-      .where(
-        and(
-          eq(operatorDailyMetrics.tenantId, tenantId),
-          eq(operatorDailyMetrics.operatorId, operatorId),
-          eq(operatorDailyMetrics.date, today)
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const dailyMetrics = await db
+        .select()
+        .from(operatorDailyMetrics)
+        .where(
+          and(
+            eq(operatorDailyMetrics.tenantId, tenantId),
+            eq(operatorDailyMetrics.operatorId, operatorId),
+            eq(operatorDailyMetrics.date, today)
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
 
-    if (dailyMetrics.length > 0) {
-      const m = dailyMetrics[0];
-      const tma = m.avgResponseTimeSeconds
-        ? `${Math.floor(m.avgResponseTimeSeconds / 60)}min ${m.avgResponseTimeSeconds % 60}s`
-        : "N/A";
-      sections.push(
-        `📊 SUAS MÉTRICAS DE ATENDIMENTO DE HOJE:\n  • Total conversas: ${m.totalConversations}\n  • TMA (Tempo Médio de Resposta): ${tma}\n  • SLA estourados hoje: ${m.overdueCount}\n  • Score médio IA: ${m.avgPerformanceScore || "N/A"}/100`
-      );
+      if (dailyMetrics.length > 0) {
+        const m = dailyMetrics[0];
+        const tma = m.avgResponseTimeSeconds
+          ? `${Math.floor(m.avgResponseTimeSeconds / 60)}min ${m.avgResponseTimeSeconds % 60}s`
+          : "N/A";
+        sections.push(
+          `📊 SUAS MÉTRICAS DE ATENDIMENTO DE HOJE:\n  • Total conversas: ${m.totalConversations}\n  • TMA (Tempo Médio de Resposta): ${tma}\n  • SLA estourados hoje: ${m.overdueCount}\n  • Score médio IA: ${m.avgPerformanceScore || "N/A"}/100`
+        );
+      }
+    } catch (metricsErr: any) {
+      console.warn("[getOperatorContext] Aviso ao carregar métricas do dia:", metricsErr?.message);
     }
 
     // ── 7. BASE DE CONHECIMENTO / CATÁLOGO DE MÁQUINAS E PRODUTOS ────────────
@@ -662,10 +861,20 @@ async function getOperatorContext(
       // fallback silencioso se base de conhecimento falhar
     }
 
-    return sections.join("\n\n");
+    return {
+      contextText: sections.join("\n\n"),
+      knownConversations: Array.from(knownConvMap.values()),
+      waitingConversations,
+      todayLeadsConversations,
+    };
   } catch (err: any) {
     console.error("[getOperatorContext] Erro:", err);
-    return "⚠️ Não foi possível carregar dados operacionais neste momento.";
+    return {
+      contextText: sections.length > 0 ? sections.join("\n\n") : "Sem dados adicionais no momento.",
+      knownConversations: Array.from(knownConvMap.values()),
+      waitingConversations,
+      todayLeadsConversations,
+    };
   }
 }
 
@@ -905,27 +1114,50 @@ function buildColeaguePrompt(
   operatorContext: string,
   fileContext: string,
   chatHistoryText: string,
-  userMessage: string
+  userMessage: string,
+  alreadyTalkingToday: boolean
 ): string {
   const isMale = persona.gender === "male";
-  const partnerRole = isMale ? "parceiro e copiloto comercial" : "parceira e copiloto comercial";
+  const colleagueRole = isMale ? "colega de equipe e copiloto comercial" : "colega de equipe e copiloto comercial";
+  const firstName = operatorName.split(" ")[0] || operatorName;
 
-  return `Você é ${persona.name}, ${partnerRole} de vendas e atendimento da ${persona.company}.
-Você acompanha ${operatorName} (consultor(a)/vendedor(a)) durante todo o dia a dia comercial.
+  return `Você é ${persona.name}, ${colleagueRole} de vendas e atendimento da ${persona.company}.
+Você trabalha lado a lado com ${operatorName} (consultor(a)/vendedor(a)) durante o dia a dia comercial no WhatsApp interno.
 
 ## SEU PAPEL NO DIA A DIA DO VENDEDOR:
-Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets"). Você é um copiloto comercial afiado, prestativo e parceiro que ajuda ${operatorName} com:
-1. **Metas e Ritmo Comercial**: Quanto falta para bater a meta do mês, quanto já vendeu, qual a meta diária necessária e quantos dias úteis restam.
-2. **Tarefas, Reuniões e Diretrizes do Gestor**: Quais tarefas estão pendentes para hoje ou atrasadas e quais orientações o gestor deixou nas negociações.
-3. **Ligações Agendadas**: Quais ligações e follow-ups ${operatorName} precisa fazer hoje.
-4. **Negociações (CRM) Abertas e Negociações Paradas/Esfriando**: Quais orçamentos/deals estão em aberto, quais estão parados há 3+ dias sem interação (esfriando) e precisam de retomada urgente.
-5. **Clientes e Conversas Ativas / SLA**: Quais clientes foram transferidos recentemente, quais estão aguardando resposta no WhatsApp (e há quantos minutos), resumo do que o cliente falou e sugestões de mensagens de abordagem, contorno de objeções ou follow-up.
-6. **Dúvidas Técnicas de Produtos/Máquinas**: Especificações técnicas do catálogo da ${persona.company} para ajudar ${operatorName} a responder rápido ao cliente.
+Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets"). Você é um colega de trabalho afiado, direto e prestativo que ajuda ${firstName} com:
+1. **Leads e Atendimentos de Hoje / Conversas Ativas / SLA**: Quantos leads chegaram hoje, quais clientes estão aguardando resposta no WhatsApp (e há quantos minutos), quais foram transferidos recentemente, resumo do que o cliente falou e sugestões de mensagens de abordagem, contorno de objeções ou follow-up.
+2. **Metas e Ritmo Comercial**: Quanto falta para bater a meta do mês, quanto já vendeu, qual a meta diária necessária e quantos dias úteis restam.
+3. **Tarefas, Reuniões e Diretrizes do Gestor**: Quais tarefas estão pendentes para hoje ou atrasadas e quais orientações o gestor deixou nas negociações.
+4. **Ligações Agendadas**: Quais ligações e follow-ups ${firstName} precisa fazer hoje.
+5. **Negociações (CRM) Abertas e Negociações Paradas/Esfriando**: Quais orçamentos/deals estão em aberto e quais estão parados há 3+ dias sem interação.
+6. **Dúvidas Técnicas de Produtos/Máquinas**: Especificações técnicas do catálogo da ${persona.company} para ajudar ${firstName} a responder rápido ao cliente.
+
+## 💬 ESTILO DE CONVERSA NATURAL (COMO UM COLEGA NO WHATSAPP):
+1. **DIVIDA EM BALÕES CURTOS (2 A 4 FRAGMENTOS)**:
+   - No WhatsApp, ninguém manda um textão único gigante. Quebre sua resposta em **2 a 4 balões curtos** dentro do array \`"fragments"\`!
+   - Cada balão deve ter **1 a 3 frases curtas** ou uma lista enxuta.
+   - Exemplo:
+     - Balão 1 (\`delay: 0\`): Resposta direta à pergunta (sem enrolação).
+     - Balão 2 (\`delay: 650\`): Dados objetivos (ex: os clientes/leads, ou os números da meta/tarefas).
+     - Balão 3 (\`delay: 1300\`, opcional): Uma dica prática ou pergunta curta sobre qual cliente/item atacar primeiro.
+2. **PROIBIDO CUMPRIMENTAR TODA HORA**:
+   - ${
+     alreadyTalkingToday
+       ? `🚨 **VOCÊS JÁ ESTÃO CONVERSANDO HOJE!** Veja o histórico abaixo. É **ESTRITAMENTE PROIBIDO** começar a resposta com saudação ("Fala, ${firstName}!", "E aí, ${firstName}!", "Bom dia", "Boa tarde", "Olá", "Tudo certo?", "Opa"). Responda DIRETO ao ponto como em uma conversa contínua de WhatsApp!`
+       : `Como é a primeira troca de mensagens de hoje, se ${firstName} mandou um cumprimento ("Oi", "Olá", "Bom dia"), responda de forma curta e natural apenas no primeiro balão e já traga um panorama rápido e útil do dia.`
+   }
+3. **PROIBIDO REPETIR PALAVRAS, NOMES OU BORDÕES**:
+   - **NUNCA** use as palavras **"parceiro"**, **"parceira"**, **"campeão"**, **"fera"**, **"chefe"**, **"meu caro"** ou **"amigo"**.
+   - **NÃO** fique repetindo o nome "${firstName}" em toda mensagem ou em todo balão.
+   - **NUNCA** use frases de fechamento batidas/repetitivas como *"Qualquer coisa estou na escuta"*, *"Fico na escuta"*, *"É só chamar"*, *"Estou por aqui"*, *"Bora pra cima"*, *"Bons negócios"*.
+   - Olhe o **HISTÓRICO RECENTE DA CONVERSA** abaixo e garanta que você **NÃO vai repetir** nenhuma frase, abertura ou estrutura que já usou nas mensagens anteriores.
+4. **CITAÇÃO INTERATIVA DE CONVERSAS (\`mentionedConversationIds\`)**:
+   - Sempre que você citar, listar ou responder sobre clientes/conversas/leads (ex: leads que chegaram hoje, clientes aguardando resposta ou conversas ativas), coloque os respectivos IDs das conversas (que aparecem no contexto como \`[ID: ...]\`) dentro do array \`"mentionedConversationIds"\` do JSON. O sistema criará automaticamente os botões clicáveis **"Abrir →"** para ${firstName} abrir cada conversa direto pelo chat!
 
 ## 🔒 REGRAS INVIOLÁVEIS DE SIGILO E SEGURANÇA (RBAC):
 - Você tem acesso EXCLUSIVO à carteira, metas, tarefas, clientes e negociações de **${operatorName}**.
 - **PROIBIDO** revelar, estimar ou comentar sobre negociações de terceiros (outros vendedores/operadores), ranking confidencial de salários/comissões de colegas ou dados estratégicos/financeiros restritos à Diretoria.
-- Se ${operatorName} perguntar sobre um cliente/negociação de outro vendedor ou sobre dados exclusivos da diretoria, recuse com educação e naturalidade explicando que, por política de sigilo comercial da ${persona.company}, você acompanha exclusivamente a carteira e os atendimentos de ${operatorName}.
 - Use SEMPRE os dados reais fornecidos abaixo. Nunca invente valores, nomes de clientes ou tarefas que não estejam listados no contexto.
 
 ## DADOS COMERCIAIS E OPERACIONAIS DE ${operatorName.toUpperCase()} AGORA:
@@ -937,15 +1169,256 @@ ${chatHistoryText ? `## HISTÓRICO RECENTE DA CONVERSA COM ${operatorName.toUppe
 "${userMessage}"
 
 ## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
-Responda diretamente à mensagem atual de ${operatorName} de forma natural, organizada (use tópicos/bullet points quando listar negociações, tarefas ou clientes) e prática:
 {
   "fragments": [
     {
-      "text": "sua resposta completa, direta e útil para o vendedor",
+      "text": "Primeiro balão curto e direto (sem saudação repetida e sem palavras-muleta)",
       "delay": 0
+    },
+    {
+      "text": "Segundo balão com os detalhes ou pontos principais de forma limpa",
+      "delay": 650
     }
-  ]
+  ],
+  "mentionedConversationIds": ["id-da-conversa-1", "id-da-conversa-2"]
 }`;
+}
+
+// ── Helpers para Pós-Processamento de Balões Naturais e Conversas Citadas ───
+function cleanColleagueText(
+  text: string,
+  operatorName: string,
+  alreadyTalkingToday: boolean,
+  isFirstBubble: boolean
+): string {
+  let out = (text || "").trim();
+  const firstName = (operatorName.split(" ")[0] || operatorName).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Remove bordões/muletas proibidas ("parceiro", "parceira", "campeão", "fera")
+  out = out
+    .replace(/,\s*\b(meu\s+)?(parceir[oa]|campe[aã]o|fera|chefe)\b([!.,?])/gi, "$3")
+    .replace(/\b(meu\s+)?(parceir[oa]|campe[aã]o|fera)\b[,!]?\s*/gi, "");
+
+  // Remove saudações repetidas quando já estão conversando hoje
+  if (alreadyTalkingToday && isFirstBubble) {
+    const greetingRegex = new RegExp(
+      `^(?:fala|e\\s+a[íi]|opa|ol[áa]|oi|bom\\s+dia|boa\\s+tarde|boa\\s+noite|tudo\\s+certo|beleza)(?:\\s*,?\\s*${firstName})?[!,.:?]*\\s*(?:(?:bom\\s+dia|boa\\s+tarde|boa\\s+noite|tudo\\s+certo|tudo\\s+bem|como\\s+vai)[!,.:?]*\\s*)*`,
+      "i"
+    );
+    const stripped = out.replace(greetingRegex, "").trim();
+    if (stripped.length > 10) {
+      out = stripped.charAt(0).toUpperCase() + stripped.slice(1);
+    }
+  }
+
+  // Remove fechamentos robóticos repetitivos no final
+  out = out
+    .replace(/\s*(?:qualquer\s+coisa\s+)?(?:estou|fico|tô)\s+(?:por\s+aqui|na\s+escuta|à\s+disposição)[^.!?\n]*[.!?]?\s*$/i, "")
+    .trim();
+
+  // Remove vazamento acidental de "[ID: ...]" no texto visível (já que terá botão interativo)
+  out = out.replace(/\s*\[ID:\s*[^\]]+\]/gi, "").trim();
+
+  return out || text.trim();
+}
+
+function splitIntoNaturalFragments(
+  rawFragments: { text: string; delay?: number; blocks?: any[] }[],
+  operatorName: string,
+  alreadyTalkingToday: boolean
+): { text: string; delay: number; blocks?: any[] }[] {
+  const cleanedInput = rawFragments
+    .map((f, idx) => ({
+      ...f,
+      text: cleanColleagueText(f.text, operatorName, alreadyTalkingToday, idx === 0),
+    }))
+    .filter((f) => f.text.length > 0 || (f.blocks && f.blocks.length > 0));
+
+  if (cleanedInput.length === 0) return [];
+
+  // Se a IA já retornou 2 a 4 balões bem divididos, apenas garante que nenhum balão único seja gigante
+  const finalBubbles: { text: string; delay: number; blocks?: any[] }[] = [];
+
+  for (const frag of cleanedInput) {
+    // Se tiver blocks (modo supervisor), preserva como está
+    if (frag.blocks && frag.blocks.length > 0) {
+      finalBubbles.push({
+        text: frag.text,
+        delay: finalBubbles.length * 650,
+        blocks: frag.blocks,
+      });
+      continue;
+    }
+
+    // Divide por quebras de parágrafo duplas se o balão for longo (> 180 chars) ou se só veio 1 balão com vários parágrafos
+    const paragraphs = frag.text
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    if (paragraphs.length > 1 && (cleanedInput.length === 1 || frag.text.length > 180)) {
+      for (const p of paragraphs) {
+        finalBubbles.push({
+          text: p,
+          delay: finalBubbles.length * 650,
+        });
+      }
+    } else if (cleanedInput.length === 1 && frag.text.length > 220) {
+      // Se veio 1 bloco só sem \n\n mas com várias frases longas, divide em 2 ou 3 balões por frases
+      const sentences = frag.text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [frag.text];
+      if (sentences.length >= 2) {
+        const mid = Math.ceil(sentences.length / 2);
+        const part1 = sentences.slice(0, mid).join(" ").trim();
+        const part2 = sentences.slice(mid).join(" ").trim();
+        if (part1) finalBubbles.push({ text: part1, delay: finalBubbles.length * 650 });
+        if (part2) finalBubbles.push({ text: part2, delay: finalBubbles.length * 650 });
+      } else {
+        finalBubbles.push({ text: frag.text, delay: finalBubbles.length * 650 });
+      }
+    } else {
+      finalBubbles.push({
+        text: frag.text,
+        delay: finalBubbles.length * 650,
+      });
+    }
+  }
+
+  // Limita a no máximo 4 balões agrupando o excedente no último balão para não virar metralhadora
+  if (finalBubbles.length > 4) {
+    const firstThree = finalBubbles.slice(0, 3);
+    const restText = finalBubbles
+      .slice(3)
+      .map((b) => b.text)
+      .join("\n\n");
+    return [
+      ...firstThree,
+      {
+        text: restText,
+        delay: 3 * 650,
+        blocks: finalBubbles[finalBubbles.length - 1].blocks,
+      },
+    ];
+  }
+
+  return finalBubbles;
+}
+
+function resolveRelatedConversations(
+  mentionedIds: string[],
+  fullReplyText: string,
+  userText: string,
+  ctx: OperatorContextResult | null
+): RelatedConversationItem[] {
+  if (!ctx || ctx.knownConversations.length === 0) return [];
+
+  const selectedMap = new Map<string, RelatedConversationItem>();
+  const byId = new Map(ctx.knownConversations.map((c) => [c.clientId, c]));
+
+  // 1. IDs explicitamente retornados pela IA em mentionedConversationIds
+  for (const id of mentionedIds) {
+    const found = byId.get(id);
+    if (found) selectedMap.set(found.clientId, found);
+  }
+
+  // 2. Nomes de clientes citados no texto da resposta da IA ou na pergunta do usuário
+  const normReply = fullReplyText.toLowerCase();
+  const normUser = userText.toLowerCase();
+  for (const conv of ctx.knownConversations) {
+    const nameClean = (conv.clientName || "").trim().toLowerCase();
+    if (nameClean.length >= 3 && !nameClean.startsWith("cliente ")) {
+      // Verifica nome completo ou primeiro nome (se >= 4 letras)
+      const firstToken = nameClean.split(/\s+/)[0];
+      if (
+        normReply.includes(nameClean) ||
+        normUser.includes(nameClean) ||
+        (firstToken.length >= 4 && (normReply.includes(firstToken) || normUser.includes(firstToken)))
+      ) {
+        selectedMap.set(conv.clientId, conv);
+      }
+    }
+  }
+
+  // 3. Se o operador perguntou sobre leads de hoje e temos leads de hoje, anexa
+  const asksTodayLeads =
+    /(?:lead|leads|chegaram|chegou|recebi|entraram|entrou|novos)\b.*\b(?:hoje|dia)\b|\b(?:hoje)\b.*\b(?:lead|leads|chegaram|chegou|atendimento)/i.test(
+      normUser
+    );
+  if (asksTodayLeads && ctx.todayLeadsConversations.length > 0) {
+    for (const c of ctx.todayLeadsConversations.slice(0, 6)) {
+      selectedMap.set(c.clientId, c);
+    }
+  }
+
+  // 4. Se o operador perguntou sobre conversas/clientes aguardando ou ativos e ainda não selecionamos nenhuma
+  const asksConversations =
+    /\b(?:conversa|conversas|atendimento|atendimentos|cliente|clientes|aguardando|esperando|pendente|pendentes|fila|responder|sobrecarga)\b/i.test(
+      normUser
+    ) ||
+    /\b(?:aguardando\s+sua\s+resposta|conversas\s+ativas|atendimentos\s+ativos)\b/i.test(normReply);
+
+  if (asksConversations && selectedMap.size === 0) {
+    const pool =
+      ctx.waitingConversations.length > 0 ? ctx.waitingConversations : ctx.knownConversations;
+    for (const c of pool.slice(0, 6)) {
+      selectedMap.set(c.clientId, c);
+    }
+  }
+
+  return Array.from(selectedMap.values()).slice(0, 8);
+}
+
+// Helper para buscar as conversas ativas atuais do operador (para enriquecer cards de sobrecarga/alerta no GET)
+async function fetchActiveConversationsForOperatorCard(
+  tenantId: string,
+  operatorId: string
+): Promise<RelatedConversationItem[]> {
+  try {
+    const activeRows = await db
+      .select({
+        convId: conversations.id,
+        contactName: contacts.name,
+        contactPhone: contacts.phone,
+        accountName: crmAccounts.name,
+        lastMessageText: conversations.lastMessageText,
+        lastClientMsg: conversations.lastClientMessageAt,
+        lastOpMsg: conversations.lastOperatorMessageAt,
+      })
+      .from(conversations)
+      .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+      .leftJoin(crmAccounts, eq(contacts.accountId, crmAccounts.id))
+      .where(
+        and(
+          eq(conversations.tenantId, tenantId),
+          eq(conversations.operatorId, operatorId),
+          eq(conversations.queueState, "meus")
+        )
+      )
+      .orderBy(desc(conversations.updatedAt))
+      .limit(12);
+
+    const nowMs = Date.now();
+    const items: RelatedConversationItem[] = activeRows.map((c) => {
+      const clientMsgMs = c.lastClientMsg ? new Date(c.lastClientMsg).getTime() : 0;
+      const opMsgMs = c.lastOpMsg ? new Date(c.lastOpMsg).getTime() : 0;
+      const isWaiting = clientMsgMs > 0 && (opMsgMs === 0 || clientMsgMs > opMsgMs);
+      const waitMinutes = isWaiting ? Math.max(1, Math.floor((nowMs - clientMsgMs) / 60_000)) : 0;
+
+      return {
+        clientId: c.convId,
+        clientName: c.contactName || c.contactPhone || "Cliente",
+        clientPhone: c.contactPhone || undefined,
+        company: c.accountName || undefined,
+        waitMinutes: isWaiting ? waitMinutes : undefined,
+        lastMessage: c.lastMessageText ? c.lastMessageText.slice(0, 90) : undefined,
+        statusLabel: isWaiting ? `Aguardando há ${waitMinutes} min` : "Em atendimento",
+      };
+    });
+
+    items.sort((a, b) => (b.waitMinutes || 0) - (a.waitMinutes || 0));
+    return items.slice(0, 8);
+  } catch {
+    return [];
+  }
 }
 
 export const Route = createFileRoute("/api/valentina/messages")({
@@ -953,7 +1426,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
-      // ── GET: Carrega histórico de mensagens + alertas proativos (transferência e SLA) ──
+      // ── GET: Carrega histórico de mensagens + alertas proativos (deduplicados e interativos) ──
       GET: async ({ request }) => {
         const auth = await requireSession(request);
         if ("response" in auth) return auth.response;
@@ -999,6 +1472,90 @@ export const Route = createFileRoute("/api/valentina/messages")({
             .orderBy(desc(internalMessages.createdAt))
             .limit(100);
 
+          // Se for o escopo do operador, deduplica spam de notificações (operator_overload e sla_alert repetidos)
+          // e enriquece o card de sobrecarga com a lista interativa de conversas + botão de abrir
+          if (scope !== "admin") {
+            let seenOverload = false;
+            const seenSlaByConv = new Set<string>();
+            const duplicateIdsToDelete: string[] = [];
+            const deduplicatedDesc: typeof msgs = [];
+
+            const activeConvsForCard = await fetchActiveConversationsForOperatorCard(tenantId, operatorId);
+
+            // msgs está ordenado do mais recente para o mais antigo (desc)
+            for (const row of msgs) {
+              const meta: any =
+                typeof row.metadata === "string"
+                  ? (() => {
+                      try {
+                        return JSON.parse(row.metadata);
+                      } catch {
+                        return {};
+                      }
+                    })()
+                  : row.metadata || {};
+
+              const isOverload =
+                meta?.type === "operator_overload" ||
+                meta?.warningType === "overload" ||
+                (typeof row.content === "string" &&
+                  row.content.includes("conversas ativas neste momento"));
+
+              if (isOverload) {
+                if (seenOverload) {
+                  // Duplicata antiga de sobrecarga -> remove do histórico e agenda limpeza no banco
+                  duplicateIdsToDelete.push(row.id);
+                  continue;
+                }
+                seenOverload = true;
+                // Enriquece o único card de sobrecarga mantido com as conversas interativas
+                const existingConvs = Array.isArray(meta?.conversations) ? meta.conversations : [];
+                const enrichedMeta = {
+                  ...meta,
+                  type: "operator_overload",
+                  warningType: "overload",
+                  conversations: existingConvs.length > 0 ? existingConvs : activeConvsForCard,
+                };
+                row.metadata = enrichedMeta;
+                deduplicatedDesc.push(row);
+                continue;
+              }
+
+              const isSlaOrDelay = meta?.type === "sla_alert" || meta?.type === "no_response";
+              if (isSlaOrDelay) {
+                const convKey = meta?.conversationId || meta?.clientId || meta?.clientName || "";
+                if (convKey) {
+                  if (seenSlaByConv.has(convKey)) {
+                    duplicateIdsToDelete.push(row.id);
+                    continue;
+                  }
+                  seenSlaByConv.add(convKey);
+                }
+              }
+
+              deduplicatedDesc.push(row);
+            }
+
+            // Limpa do banco em background os alertas duplicados antigos para nunca mais voltarem
+            if (duplicateIdsToDelete.length > 0) {
+              db.delete(internalMessages)
+                .where(
+                  and(
+                    eq(internalMessages.tenantId, tenantId),
+                    inArray(internalMessages.id, duplicateIdsToDelete)
+                  )
+                )
+                .catch((err) =>
+                  console.warn("[valentina/messages] Falha ao limpar duplicatas antigas:", err?.message)
+                );
+            }
+
+            const sorted = deduplicatedDesc.reverse();
+            return new Response(JSON.stringify(sorted), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
           const sorted = msgs.reverse();
 
           return new Response(JSON.stringify(sorted), {
@@ -1039,6 +1596,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const useManagerContext = isSupervisor && isActuallyAdmin;
 
           const now = new Date();
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
           const persona = getAiPersona(tenantId);
           const operatorName = session.operator.name || await getOperatorName(operatorId);
           const operatorEmail = (session.operator as any).email || null;
@@ -1062,7 +1620,15 @@ export const Route = createFileRoute("/api/valentina/messages")({
               )
             )
             .orderBy(desc(internalMessages.createdAt))
-            .limit(12);
+            .limit(14);
+
+          // Verifica se o operador já conversou com a IA hoje (para não cumprimentar toda hora!)
+          const alreadyTalkingToday = recentChatRows.some((r) => {
+            const meta: any = r.metadata || {};
+            const isChatMsg = r.direction === "to_agent" || meta?.isChat === true;
+            const createdMs = r.createdAt ? new Date(r.createdAt).getTime() : 0;
+            return isChatMsg && createdMs >= todayStart.getTime();
+          });
 
           const chatHistoryText = recentChatRows
             .reverse()
@@ -1099,20 +1665,46 @@ export const Route = createFileRoute("/api/valentina/messages")({
             fileContext = `\n\n📎 ARQUIVO ANEXADO PELO USUÁRIO: "${attachment.name}"\n${extracted}`;
           }
 
-          const operationalContext = useManagerContext
-            ? await getManagerContext(contextTenantId)
-            : await getOperatorContext(contextTenantId, operatorId, operatorEmail, userText);
+          let managerContextText = "";
+          let operatorContextResult: OperatorContextResult | null = null;
+
+          if (useManagerContext) {
+            managerContextText = await getManagerContext(contextTenantId);
+          } else {
+            operatorContextResult = await getOperatorContext(
+              contextTenantId,
+              operatorId,
+              operatorEmail,
+              userText
+            );
+          }
 
           // ── Seleciona o prompt correto (incluindo histórico + pergunta atual!) ──
           const systemPrompt = useManagerContext
-            ? buildSupervisorPrompt(persona, operatorName, operationalContext, fileContext, chatHistoryText, userText)
-            : buildColeaguePrompt(persona, operatorName, operationalContext, fileContext, chatHistoryText, userText);
+            ? buildSupervisorPrompt(
+                persona,
+                operatorName,
+                managerContextText,
+                fileContext,
+                chatHistoryText,
+                userText
+              )
+            : buildColeaguePrompt(
+                persona,
+                operatorName,
+                operatorContextResult?.contextText || "",
+                fileContext,
+                chatHistoryText,
+                userText,
+                alreadyTalkingToday
+              );
 
           // ── Feature key para rastreamento de custos ─────────────────────────
           const featureKey = useManagerContext ? "supervisor_chat" : persona.chatFeatureKey;
 
           // ── Chama o Vertex AI (suportando imagem anexada quando houver) ─────
           let fragments: { text: string; delay?: number; blocks?: any[] }[] = [];
+          let mentionedConversationIds: string[] = [];
           let alerts: any[] = [];
 
           try {
@@ -1132,6 +1724,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
               const aiRes = await vertexAi.generateStructuredJson<{
                 fragments: { text: string; delay?: number; blocks?: any[] }[];
+                mentionedConversationIds?: string[];
                 alerts?: any[];
               }>(promptInput, "gemini-2.5-pro", undefined, {
                 tenantId,
@@ -1141,6 +1734,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
               if (aiRes?.fragments && aiRes.fragments.length > 0) {
                 fragments = aiRes.fragments;
+                mentionedConversationIds = Array.isArray(aiRes.mentionedConversationIds)
+                  ? aiRes.mentionedConversationIds
+                  : [];
                 alerts = aiRes.alerts || [];
               }
             }
@@ -1154,17 +1750,35 @@ export const Route = createFileRoute("/api/valentina/messages")({
               {
                 text: useManagerContext
                   ? `Estou com dificuldade para processar sua solicitação agora. Por favor, tente novamente em instantes. Se o problema persistir, verifique se o serviço de IA está configurado corretamente.`
-                  : `Tive uma oscilação rápida aqui para consultar seus dados 😅 Pode mandar de novo?`,
+                  : `Deu uma oscilada rápida aqui na consulta 😅 Pode me mandar de novo?`,
               },
             ];
           }
+
+          // ── Pós-processamento: fragmentação natural em balões curtos + conversas citadas ──
+          if (!useManagerContext) {
+            fragments = splitIntoNaturalFragments(fragments, operatorName, alreadyTalkingToday);
+          }
+
+          const fullReplyText = fragments.map((f) => f.text).join("\n");
+          const relatedConversations = !useManagerContext
+            ? resolveRelatedConversations(
+                mentionedConversationIds,
+                fullReplyText,
+                userText,
+                operatorContextResult
+              )
+            : [];
 
           // ── Salva fragmentos no banco ───────────────────────────────────────
           const savedFragments: any[] = [];
           for (let i = 0; i < fragments.length; i++) {
             const frag = fragments[i];
+            const isLastFrag = i === fragments.length - 1;
+            const fragRelated =
+              isLastFrag && relatedConversations.length > 0 ? relatedConversations : undefined;
             const fragId = `val-ai-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-            const fragTimestamp = new Date(now.getTime() + 600 + i * 500);
+            const fragTimestamp = new Date(now.getTime() + 500 + i * 650);
 
             await db.insert(internalMessages).values({
               id: fragId,
@@ -1179,6 +1793,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 fragmentIndex: i,
                 totalFragments: fragments.length,
                 blocks: frag.blocks || undefined,
+                relatedConversations: fragRelated,
                 isManager: useManagerContext,
               },
               read: 0,
@@ -1189,6 +1804,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               id: fragId,
               content: frag.text,
               blocks: frag.blocks || undefined,
+              relatedConversations: fragRelated,
               direction: "from_agent",
               createdAt: fragTimestamp,
             });
@@ -1200,7 +1816,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               userMessage: { id: userMsgId, content: userText, direction: "to_agent", createdAt: now },
               fragments: savedFragments.map((f, i) => ({
                 ...f,
-                delay: fragments[i]?.delay || i * 600,
+                delay: fragments[i]?.delay ?? i * 650,
               })),
               alerts,
             }),

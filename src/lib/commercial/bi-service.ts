@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, isNotNull, lt, ne, or } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   commercialCalendarDays,
@@ -18,10 +18,13 @@ import {
   calculateBusinessPacing,
   classifyMaturity,
   DEFAULT_MATURITY_RULES,
+  isCommercialWinStage,
+  roundPercent,
   saoPauloDay,
   type CommercialCalendarDay,
   type MaturityRule,
 } from "./metrics";
+import { buildConsultantOperatorAliasMap } from "./avatar-matcher";
 
 type Division = "personnalite" | "maquinas" | null;
 type OperatorRow = {
@@ -42,6 +45,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
 
   const [
     operatorsRows,
+    allTenantOperators,
     stageRows,
     deals,
     goalRows,
@@ -74,7 +78,16 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
         ),
       ),
     db
-      .select({ id: crmStages.id, name: crmStages.name, orderIndex: crmStages.orderIndex })
+      .select({ id: operators.id, name: operators.name })
+      .from(operators)
+      .where(eq(operators.tenantId, tenantId)),
+    db
+      .select({
+        id: crmStages.id,
+        name: crmStages.name,
+        orderIndex: crmStages.orderIndex,
+        isWinStage: crmStages.isWinStage,
+      })
       .from(crmStages)
       .where(eq(crmStages.tenantId, tenantId))
       .orderBy(crmStages.orderIndex),
@@ -104,7 +117,13 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
             eq(crmDeals.status, "open"),
             and(
               inArray(crmDeals.status, ["won", "lost"]),
-              gte(crmDeals.closedAt, new Date(`${previousMonth}-01T00:00:00Z`)),
+              or(
+                gte(crmDeals.closedAt, new Date(`${previousMonth}-01T00:00:00Z`)),
+                and(
+                  sql`${crmDeals.closedAt} IS NULL`,
+                  gte(crmDeals.createdAt, new Date(`${previousMonth}-01T00:00:00Z`)),
+                ),
+              ),
             ),
           ),
         ),
@@ -166,11 +185,21 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
       ),
   ]);
 
-  const scopedOperators = (operatorsRows as OperatorRow[]).filter(
-    (item) => item.activeOnTv && Boolean(item.division) && (!division || item.division === division),
+  const allActiveOperators = (operatorsRows as OperatorRow[]).filter(
+    (item) => item.activeOnTv && Boolean(item.division),
+  );
+  const aliasResolution = buildConsultantOperatorAliasMap(
+    allActiveOperators.map((item) => ({ operatorId: item.id, name: item.name })),
+    allTenantOperators,
+  );
+  const scopedOperators = allActiveOperators.filter(
+    (item) => !division || item.division === division,
   );
   const operatorMap = new Map(scopedOperators.map((item) => [item.id, item]));
-  const taskRows = scopedOperators.length
+  const expandedOperatorIds = scopedOperators.flatMap(
+    (item) => aliasResolution.byCanonicalId.get(item.id) || [item.id],
+  );
+  const rawTaskRows = expandedOperatorIds.length
     ? await db
         .select({ operatorId: crmDealActivities.assignedToOperatorId, count: count() })
         .from(crmDealActivities)
@@ -179,29 +208,54 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
             eq(crmDealActivities.tenantId, tenantId),
             eq(crmDealActivities.type, "task"),
             eq(crmDealActivities.status, "pending"),
-            inArray(
-              crmDealActivities.assignedToOperatorId,
-              scopedOperators.map((item) => item.id),
-            ),
+            inArray(crmDealActivities.assignedToOperatorId, expandedOperatorIds),
           ),
         )
         .groupBy(crmDealActivities.assignedToOperatorId)
     : [];
-  const goals = new Map(goalRows.map((goal) => [goal.operatorId, goal]));
+  const taskCountByCanonical = new Map<string, number>();
+  for (const row of rawTaskRows) {
+    const canonicalId = aliasResolution.resolve(row.operatorId) || row.operatorId;
+    if (!canonicalId) continue;
+    taskCountByCanonical.set(canonicalId, (taskCountByCanonical.get(canonicalId) || 0) + Number(row.count || 0));
+  }
+  const taskRows = [...taskCountByCanonical.entries()].map(([operatorId, cnt]) => ({
+    operatorId,
+    count: cnt,
+  }));
+  const goals = new Map<string, (typeof goalRows)[number]>();
+  for (const goal of goalRows) {
+    const canonicalId = aliasResolution.resolve(goal.operatorId) || goal.operatorId;
+    if (!goals.has(canonicalId) || goal.operatorId === canonicalId) {
+      goals.set(canonicalId, goal);
+    }
+  }
   const stageMap = new Map(stageRows.map((stage) => [stage.id, stage]));
+  const winStageIds = new Set(
+    stageRows.filter((stage) => isCommercialWinStage(stage)).map((stage) => stage.id),
+  );
   const settings = settingsRows[0];
   const excludedStageIds = new Set(settings?.excludedStageIds || []);
   const rules: MaturityRule[] =
     settings?.maturityRules?.length === 5 ? settings.maturityRules : DEFAULT_MATURITY_RULES;
   const slaLimitMinutes = settings?.slaLimitMinutes || 15;
-  const scopedDeals = deals.filter((deal) => deal.operatorId && operatorMap.has(deal.operatorId));
+  const normalizedDeals = deals.map((deal) => ({
+    ...deal,
+    operatorId: aliasResolution.resolve(deal.operatorId) || deal.operatorId,
+  }));
+  const scopedDeals = normalizedDeals.filter(
+    (deal) => deal.operatorId && operatorMap.has(deal.operatorId),
+  );
   const openDeals = scopedDeals.filter(
     (deal) => deal.status === "open" && !excludedStageIds.has(deal.stageId),
   );
-  const wonDeals = scopedDeals.filter(
-    (deal) =>
-      deal.status === "won" && deal.closedAt && saoPauloDay(deal.closedAt).slice(0, 7) === month,
-  );
+  const isDealWon = (deal: (typeof scopedDeals)[number]) =>
+    deal.status === "won" || (deal.status === "open" && winStageIds.has(deal.stageId));
+  const wonDeals = scopedDeals.filter((deal) => {
+    if (!isDealWon(deal)) return false;
+    const effectiveClosedAt = deal.closedAt ?? deal.createdAt;
+    return Boolean(effectiveClosedAt && saoPauloDay(effectiveClosedAt).slice(0, 7) === month);
+  });
   const lostDeals = scopedDeals.filter((deal) => deal.status === "lost" && deal.closedAt);
   const sum = (items: typeof scopedDeals) =>
     items.reduce((total, item) => total + Number(item.value || 0), 0);
@@ -400,7 +454,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
       wonCount: wonDeals.length,
       faturado: totalRealized,
       targetValue: totalTarget,
-      coveragePercent: totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0,
+      coveragePercent: roundPercent(totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0, 1),
     },
     pipeline,
     maturity: { tiers: matureTiers, cohorts },
@@ -420,7 +474,7 @@ export async function getCommercialBi(tenantId: string, division: Division, now 
       answeredCount: answered.length,
       pendingCount: pending.length,
       averageSeconds,
-      slaPercent: answered.length ? (withinSla / answered.length) * 100 : null,
+      slaPercent: answered.length ? roundPercent((withinSla / answered.length) * 100, 1) : null,
       byOperator: tmaByOperator,
     },
   };

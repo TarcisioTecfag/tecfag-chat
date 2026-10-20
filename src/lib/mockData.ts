@@ -1,6 +1,18 @@
 export type Channel = "whatsapp" | "instagram" | "messenger";
 export type QueueType = "meus" | "todos" | "fila" | "automacao" | "finalizados";
 
+export type RelatedConversationItem = {
+  clientId: string;
+  clientName: string;
+  company?: string | null;
+  lastMessage?: string | null;
+  waitMinutes?: number | null;
+  isWaiting?: boolean;
+  dealTitle?: string | null;
+  funnelName?: string | null;
+  temperature?: "quente" | "morno" | "frio" | null;
+};
+
 export type Message = {
   id: string;
   clientMessageId?: string;
@@ -24,14 +36,16 @@ export type Message = {
   provider?: string | null;
   errorMessage?: string | null;
   isWarning?: boolean;
-  warningType?: "delay" | "new_lead";
+  warningType?: "delay" | "new_lead" | "overload";
   warningMetadata?: {
     clientId: string;
     clientName: string;
     lastMessage?: string;
     temperature?: "quente" | "morno" | "frio";
     interest?: string;
+    conversations?: RelatedConversationItem[];
   };
+  relatedConversations?: RelatedConversationItem[];
 };
 
 export type Conversation = {

@@ -161,10 +161,10 @@ export const CommercialPrevistasTableView = React.memo(function CommercialPrevis
                           </span>
                         </div>
                         <div className={`font-mono ${density.metaSubText} text-slate-500 dark:text-zinc-400 truncate mt-0.5`}>
-                          <span>{seller.conversionPercent}%</span>
+                          <span>{Math.round(seller.conversionPercent)}%</span>
                           <span className="mx-1 text-slate-300 dark:text-zinc-600">·</span>
                           <span className="text-emerald-700 dark:text-emerald-400 font-bold">
-                            {formatDeparaMeta(seller.realizedValue)} ({seller.realizedPercent}%)
+                            {formatDeparaMeta(seller.realizedValue)} ({Math.round(seller.realizedPercent)}%)
                           </span>
                         </div>
                       </div>
@@ -204,7 +204,7 @@ export const CommercialPrevistasTableView = React.memo(function CommercialPrevis
                     </div>
                     <div className="mt-0.5">
                       <span className={`inline-block rounded-[2px] border border-cyan-300 dark:border-cyan-500/40 bg-cyan-100 dark:bg-cyan-950/60 font-mono font-bold text-cyan-800 dark:text-cyan-300 ${density.totalBadge}`}>
-                        {seller.totalAFaturarPercent}%
+                        {Math.round(seller.totalAFaturarPercent)}%
                       </span>
                     </div>
                   </td>

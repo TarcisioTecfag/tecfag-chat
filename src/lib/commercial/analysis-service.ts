@@ -30,6 +30,8 @@ import {
 import {
   classifyMaturity,
   DEFAULT_MATURITY_RULES,
+  isCommercialWinStage,
+  roundPercent,
   saoPauloDay,
   type CommercialCalendarDay,
 } from "./metrics";
@@ -42,6 +44,10 @@ import {
   categorizeLossReason,
   normalizeLossReason,
 } from "./perdas-data";
+import {
+  buildConsultantOperatorAliasMap,
+  type ConsultantAliasResolution,
+} from "./avatar-matcher";
 
 type AnalysisOptions = {
   tenantId: string;
@@ -51,13 +57,14 @@ type AnalysisOptions = {
 };
 
 async function getScope({ tenantId, division, includeHidden }: AnalysisOptions) {
-  const [consultants, settingsRows, stages] = await Promise.all([
+  const [allConsultants, allTenantOperators, settingsRows, stages] = await Promise.all([
     db
       .select({
         operatorId: operators.id,
         name: operators.name,
         avatar: operators.avatar,
         division: commercialConsultantProfiles.division,
+        activeOnTv: commercialConsultantProfiles.activeOnTv,
       })
       .from(commercialConsultantProfiles)
       .innerJoin(
@@ -71,15 +78,19 @@ async function getScope({ tenantId, division, includeHidden }: AnalysisOptions) 
         and(
           eq(commercialConsultantProfiles.tenantId, tenantId),
           includeHidden ? undefined : eq(commercialConsultantProfiles.activeOnTv, true),
-          division ? eq(commercialConsultantProfiles.division, division) : undefined,
         ),
       ),
+    db
+      .select({ id: operators.id, name: operators.name })
+      .from(operators)
+      .where(eq(operators.tenantId, tenantId)),
     db.select().from(commercialSettings).where(eq(commercialSettings.tenantId, tenantId)).limit(1),
     db
       .select({
         id: crmStages.id,
         name: crmStages.name,
         orderIndex: crmStages.orderIndex,
+        isWinStage: crmStages.isWinStage,
         pipelineId: crmStages.pipelineId,
         pipelineName: crmPipelines.name,
         pipelineOrder: crmPipelines.orderIndex,
@@ -92,11 +103,23 @@ async function getScope({ tenantId, division, includeHidden }: AnalysisOptions) 
       .where(eq(crmStages.tenantId, tenantId))
       .orderBy(crmPipelines.orderIndex, crmStages.orderIndex),
   ]);
+  const aliasResolution = buildConsultantOperatorAliasMap(
+    allConsultants.map((c) => ({ operatorId: c.operatorId, name: c.name })),
+    allTenantOperators,
+  );
+  const consultants = allConsultants
+    .filter((c) => !division || c.division === division)
+    .map(({ activeOnTv: _activeOnTv, ...rest }) => rest);
   const settings = settingsRows[0];
+  const winStageIds = new Set(
+    stages.filter((stage) => isCommercialWinStage(stage)).map((stage) => stage.id),
+  );
   return {
     consultants,
+    aliasResolution,
     stages,
     stageMap: new Map(stages.map((stage) => [stage.id, stage])),
+    winStageIds,
     excludedStageIds: new Set(settings?.excludedStageIds || []),
     pipelineByDivision: (settings?.pipelineByDivision || {}) as PipelineByDivision,
     rules: settings?.maturityRules?.length === 5 ? settings.maturityRules : DEFAULT_MATURITY_RULES,
@@ -106,9 +129,16 @@ async function getScope({ tenantId, division, includeHidden }: AnalysisOptions) 
   };
 }
 
-async function getOpenDeals(tenantId: string, operatorIds: string[]) {
+async function getOpenDeals(
+  tenantId: string,
+  operatorIds: string[],
+  aliasResolution?: ConsultantAliasResolution,
+) {
   if (!operatorIds.length) return [];
-  return db
+  const expandedIds = aliasResolution
+    ? [...new Set(operatorIds.flatMap((id) => aliasResolution.byCanonicalId.get(id) || [id]))]
+    : operatorIds;
+  const rows = await db
     .select({
       id: crmDeals.id,
       title: crmDeals.title,
@@ -125,9 +155,14 @@ async function getOpenDeals(tenantId: string, operatorIds: string[]) {
       and(
         eq(crmDeals.tenantId, tenantId),
         eq(crmDeals.status, "open"),
-        inArray(crmDeals.operatorId, operatorIds),
+        inArray(crmDeals.operatorId, expandedIds),
       ),
     );
+  if (!aliasResolution) return rows;
+  return rows.map((row) => ({
+    ...row,
+    operatorId: aliasResolution.resolve(row.operatorId) || row.operatorId,
+  }));
 }
 
 export async function getPipelineAnalysis(options: AnalysisOptions) {
@@ -136,6 +171,7 @@ export async function getPipelineAnalysis(options: AnalysisOptions) {
     getOpenDeals(
       options.tenantId,
       scope.consultants.map((item) => item.operatorId),
+      scope.aliasResolution,
     ),
     db
       .select({ id: crmPipelines.id, name: crmPipelines.name })
@@ -559,6 +595,7 @@ export async function getMaturityAnalysis(options: AnalysisOptions) {
   const deals = await getOpenDeals(
     options.tenantId,
     scope.consultants.map((item) => item.operatorId),
+    scope.aliasResolution,
   );
   const goals = await db
     .select({
@@ -573,7 +610,13 @@ export async function getMaturityAnalysis(options: AnalysisOptions) {
         eq(commercialGoals.month, saoPauloDay(now).slice(0, 7)),
       ),
     );
-  const goalMap = new Map(goals.map((goal) => [goal.operatorId, goal]));
+  const goalMap = new Map<string, (typeof goals)[number]>();
+  for (const goal of goals) {
+    const canonicalId = scope.aliasResolution.resolve(goal.operatorId) || goal.operatorId;
+    if (!goalMap.has(canonicalId) || goal.operatorId === canonicalId) {
+      goalMap.set(canonicalId, goal);
+    }
+  }
   const rows = scope.consultants.map((consultant) => {
     const own = deals.filter(
       (deal) =>
@@ -633,8 +676,10 @@ export async function getMaturityAnalysis(options: AnalysisOptions) {
       forecastValue,
       maturePromisedValue: (matureValue * conversionRate) / 100,
       forecastPromisedValue: (forecastValue * conversionRate) / 100,
-      maturityCoveragePercent: targetValue > 0 ? (matureValue / targetValue) * 100 : null,
-      forecastCoveragePercent: targetValue > 0 ? (forecastValue / targetValue) * 100 : null,
+      maturityCoveragePercent:
+        targetValue > 0 ? roundPercent((matureValue / targetValue) * 100, 1) : null,
+      forecastCoveragePercent:
+        targetValue > 0 ? roundPercent((forecastValue / targetValue) * 100, 1) : null,
     };
   });
   return { rules: scope.rules, rows, asOf: now.toISOString() };
@@ -1143,6 +1188,12 @@ export async function getGoalAnalysis(options: AnalysisOptions & { month: string
   const { start, nextStart } = monthWindow(options.month);
   const scope = await getScope(options);
   const ids = scope.consultants.map((item) => item.operatorId);
+  const expandedIds = [
+    ...new Set(ids.flatMap((id) => scope.aliasResolution.byCanonicalId.get(id) || [id])),
+  ];
+  const winStageIdsArray = [...scope.winStageIds];
+  const windowStartDate = new Date(`${start}T00:00:00Z`);
+  const windowEndDate = new Date(`${nextStart}T03:00:00Z`);
   const [goals, days, won] = await Promise.all([
     db
       .select({
@@ -1171,38 +1222,61 @@ export async function getGoalAnalysis(options: AnalysisOptions & { month: string
           lt(commercialCalendarDays.date, nextStart),
         ),
       ),
-    ids.length
+    expandedIds.length
       ? db
           .select({
             id: crmDeals.id,
             value: crmDeals.value,
             closedAt: crmDeals.closedAt,
+            createdAt: crmDeals.createdAt,
             operatorId: crmDeals.operatorId,
           })
           .from(crmDeals)
           .where(
             and(
               eq(crmDeals.tenantId, options.tenantId),
-              eq(crmDeals.status, "won"),
-              inArray(crmDeals.operatorId, ids),
-              gte(crmDeals.closedAt, new Date(`${start}T00:00:00Z`)),
-              lt(crmDeals.closedAt, new Date(`${nextStart}T03:00:00Z`)),
+              inArray(crmDeals.operatorId, expandedIds),
+              or(
+                eq(crmDeals.status, "won"),
+                winStageIdsArray.length
+                  ? and(eq(crmDeals.status, "open"), inArray(crmDeals.stageId, winStageIdsArray))
+                  : undefined,
+              ),
+              or(
+                and(
+                  gte(crmDeals.closedAt, windowStartDate),
+                  lt(crmDeals.closedAt, windowEndDate),
+                ),
+                and(
+                  sql`${crmDeals.closedAt} IS NULL`,
+                  gte(crmDeals.createdAt, windowStartDate),
+                  lt(crmDeals.createdAt, windowEndDate),
+                ),
+              ),
             ),
           )
       : Promise.resolve([]),
   ]);
-  const goalMap = new Map(goals.map((item) => [item.operatorId, item]));
+  const goalMap = new Map<string, (typeof goals)[number]>();
+  for (const goal of goals) {
+    const canonicalId = scope.aliasResolution.resolve(goal.operatorId) || goal.operatorId;
+    if (!goalMap.has(canonicalId) || goal.operatorId === canonicalId) {
+      goalMap.set(canonicalId, goal);
+    }
+  }
   const byOperator = new Map<string, Map<string, { count: number; value: number }>>();
   const allDays = new Map<string, { count: number; value: number }>();
   for (const deal of won) {
-    if (!deal.operatorId || !deal.closedAt) continue;
-    const date = saoPauloDay(deal.closedAt);
+    const canonicalOpId = scope.aliasResolution.resolve(deal.operatorId) || deal.operatorId;
+    const effectiveClosedAt = deal.closedAt ?? deal.createdAt;
+    if (!canonicalOpId || !effectiveClosedAt) continue;
+    const date = saoPauloDay(effectiveClosedAt);
     if (!date.startsWith(options.month)) continue;
-    const own = byOperator.get(deal.operatorId) || new Map();
+    const own = byOperator.get(canonicalOpId) || new Map();
     const value = Number(deal.value || 0);
     const current = own.get(date) || { count: 0, value: 0 };
     own.set(date, { count: current.count + 1, value: current.value + value });
-    byOperator.set(deal.operatorId, own);
+    byOperator.set(canonicalOpId, own);
     const total = allDays.get(date) || { count: 0, value: 0 };
     allDays.set(date, { count: total.count + 1, value: total.value + value });
   }
@@ -1254,6 +1328,7 @@ export async function getDealDrilldown(
   const deals = await getOpenDeals(
     options.tenantId,
     options.operatorId ? [options.operatorId] : ids,
+    scope.aliasResolution,
   );
   const accountIds = [
     ...new Set(deals.map((deal) => deal.accountId).filter((id): id is string => !!id)),

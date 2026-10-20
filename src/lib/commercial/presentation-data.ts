@@ -41,6 +41,7 @@ import type {
 } from "./analysis-service";
 import { teamStages, type PipelineDivision } from "./pipeline-scope";
 import { buildConsultantAvatarResolver, getDeterministicConsultantAvatar } from "./avatar-matcher";
+import { roundPercent } from "./metrics";
 
 type ResponsibilityAnalysis = Awaited<ReturnType<typeof getResponsibilityAnalysis>>;
 type TmaAnalysis = Awaited<ReturnType<typeof getTmaAnalysis>>;
@@ -173,9 +174,9 @@ export function toMaturityPresentation(
       avatarUrl: finalAvatar,
       division: goal.division as Division,
       metaValue: goal.targetValue,
-      conversionPercent: goal.conversionRate,
+      conversionPercent: Math.round(Number(goal.conversionRate || 0)),
       realizedValue: goal.realizedValue,
-      realizedPercent: goal.targetValue ? (goal.realizedValue / goal.targetValue) * 100 : 0,
+      realizedPercent: Math.round(goal.targetValue ? (goal.realizedValue / goal.targetValue) * 100 : 0),
     };
     deparaRows.push({
       ...common,
@@ -191,7 +192,7 @@ export function toMaturityPresentation(
         snapshot.pendingTasksByOperator.find((row) => row.operatorId === goal.operatorId)?.count ||
         0,
       totalMaduroValue: matureValue,
-      totalMaduroPercent: goal.targetValue ? (matureValue / goal.targetValue) * 100 : 0,
+      totalMaduroPercent: Math.round(goal.targetValue ? (matureValue / goal.targetValue) * 100 : 0),
     });
     previstasRows.push({
       ...common,
@@ -204,7 +205,7 @@ export function toMaturityPresentation(
         }),
       ) as SellerPrevistasRow["tiers"],
       totalAFaturarValue: forecastValue,
-      totalAFaturarPercent: goal.targetValue ? (forecastValue / goal.targetValue) * 100 : 0,
+      totalAFaturarPercent: Math.round(goal.targetValue ? (forecastValue / goal.targetValue) * 100 : 0),
     });
   }
   const deparaGroup = (division: Division): TeamDeparaData => {
@@ -269,10 +270,13 @@ export function toPacingPresentation(
         consultant.division === "personnalite" || consultant.division === "maquinas",
     )
     .map((consultant) => {
-      const realizedMonthly = consultant.points.reduce((sum, point) => sum + point.wonValue, 0);
-      const realizedPercent = consultant.targetValue
-        ? (realizedMonthly / consultant.targetValue) * 100
-        : 0;
+      const pointsSum = consultant.points.reduce((sum, point) => sum + point.wonValue, 0);
+      const snapshotGoal = snapshot.goals.find((g) => g.operatorId === consultant.operatorId);
+      const realizedMonthly = Math.max(pointsSum, snapshotGoal?.realizedValue || 0);
+      const realizedPercent = roundPercent(
+        consultant.targetValue ? (realizedMonthly / consultant.targetValue) * 100 : 0,
+        1,
+      );
       const pacingStatus =
         realizedPercent + 5 < consultant.pacing.expectedPercent
           ? "recuperar"
@@ -301,14 +305,18 @@ export function toPacingPresentation(
         remainingMonthly: Math.max(0, consultant.targetValue - realizedMonthly),
         dailyGoal: consultant.todayTargetValue,
         dailyRealized: consultant.todayWon.value,
-        dailyRealizedPercent: consultant.todayTargetValue
-          ? (consultant.todayWon.value / consultant.todayTargetValue) * 100
-          : 0,
+        dailyRealizedPercent: Math.round(
+          consultant.todayTargetValue
+            ? (consultant.todayWon.value / consultant.todayTargetValue) * 100
+            : 0,
+        ),
         weeklyGoal: consultant.weekTargetValue,
         weeklyRealized: consultant.weekWon.value,
-        weeklyRealizedPercent: consultant.weekTargetValue
-          ? (consultant.weekWon.value / consultant.weekTargetValue) * 100
-          : 0,
+        weeklyRealizedPercent: Math.round(
+          consultant.weekTargetValue
+            ? (consultant.weekWon.value / consultant.weekTargetValue) * 100
+            : 0,
+        ),
         habeisCount: mature.get(consultant.operatorId)?.count || 0,
         habeisValue: mature.get(consultant.operatorId)?.value || 0,
       };
@@ -322,20 +330,26 @@ export function toPacingPresentation(
       division,
       metaTotal,
       fechadoTotal,
-      fechadoPercent: metaTotal ? (fechadoTotal / metaTotal) * 100 : 0,
+      fechadoPercent: roundPercent(metaTotal ? (fechadoTotal / metaTotal) * 100 : 0, 1),
       ritmoDiarioTotal: sellers.reduce((sum, row) => sum + row.dailyGoal, 0),
       sellers,
     };
   };
   const total = data.total;
+  const totalRealizedPoints = total.points.reduce((sum, point) => sum + point.wonValue, 0);
+  const totalRealizedSnapshot = rows.reduce((sum, row) => sum + row.realizedMonthly, 0);
+  const realizedGlobal = Math.max(totalRealizedPoints, totalRealizedSnapshot);
   const globalKpis: PacingGlobalKpis = {
     businessDaysRemaining: total.pacing.remainingDays,
     businessDaysTotal: total.pacing.businessDays,
     businessDaysElapsed: total.pacing.elapsedDays,
-    elapsedPercent: total.pacing.expectedPercent,
+    elapsedPercent: roundPercent(total.pacing.expectedPercent, 1),
     metaGlobal: total.targetValue,
-    realizedGlobal: total.points.reduce((sum, point) => sum + point.wonValue, 0),
-    globalPercent: total.pacing.coveragePercent,
+    realizedGlobal,
+    globalPercent: roundPercent(
+      total.targetValue ? (realizedGlobal / total.targetValue) * 100 : total.pacing.coveragePercent,
+      1,
+    ),
     companyPacingDaily: total.todayTargetValue,
     companyRealizedToday: total.todayWon.value,
   };
@@ -392,7 +406,7 @@ export function toLossPresentation(data: LossAnalysis): Record<PerdasPeriodKey, 
         colorClass: meta.colorClass,
         badgeBg: meta.badgeBg,
         count: category.count,
-        percent: category.percent,
+        percent: roundPercent(category.percent, 1),
         subReasons: category.subreasons.map((item) => ({ label: item.reason, count: item.count })),
       };
     });
@@ -517,7 +531,7 @@ export function toPipelinePresentation(
               {
                 count: cell?.count || 0,
                 value: cell?.value || 0,
-                percent: cell?.shareOfConsultantPercent || 0,
+                percent: Math.round(cell?.shareOfConsultantPercent || 0),
               },
             ];
           }),
@@ -548,7 +562,7 @@ export function toPipelinePresentation(
           const value = sellers.reduce((sum, seller) => sum + seller.stages[stage.key].value, 0);
           return [
             stage.key,
-            { count, value, percent: totalValue ? (value / totalValue) * 100 : 0 },
+            { count, value, percent: Math.round(totalValue ? (value / totalValue) * 100 : 0) },
           ];
         }),
       ),
@@ -612,7 +626,9 @@ export function toDiretrizesPresentation(
         concluidas: consultant.completedCount,
         pendenteHoje: consultant.pendingTodayCount,
         atrasadas: consultant.overdueCount,
-        taxaExecucaoPercent: consultant.totalCount ? consultant.executionRatePercent : null,
+        taxaExecucaoPercent: consultant.totalCount
+          ? Math.round(consultant.executionRatePercent)
+          : null,
         totalValue: consultant.totalValue,
         formattedValue: money.format(consultant.totalValue),
         deals,
@@ -628,7 +644,7 @@ export function toDiretrizesPresentation(
     totalDeals: data.summary.totalCount,
     totalValue: data.summary.totalValue,
     formattedTotalValue: money.format(data.summary.totalValue),
-    taxaExecucaoPercent: data.summary.executionRatePercent,
+    taxaExecucaoPercent: Math.round(data.summary.executionRatePercent),
     concluidasCount: data.summary.completedCount,
     totalCount: data.summary.totalCount,
     atrasoCount: data.summary.overdueCount,
@@ -687,7 +703,7 @@ export function toTmaPresentation(
     averageMinutes:
       data.todaySummary.averageSeconds === null ? 0 : data.todaySummary.averageSeconds / 60,
     targetMinutes: data.slaLimitMinutes,
-    slaPercent: data.todaySummary.withinSlaPercent ?? 0,
+    slaPercent: Math.round(data.todaySummary.withinSlaPercent ?? 0),
     totalTransfers: data.summary.answeredCount + data.summary.pendingCount,
     firstContactCount: data.todaySummary.answeredCount,
     waitingResponseCount: data.summary.pendingCount,
@@ -716,7 +732,7 @@ export function toTmaPresentation(
       getDeterministicConsultantAvatar(consultant.name),
     division: consultant.division === "maquinas" ? "Máquinas" : "Personnalité",
     averageTime: formatSeconds(consultant.averageSeconds),
-    slaPercent: consultant.withinSlaPercent ?? 0,
+    slaPercent: Math.round(consultant.withinSlaPercent ?? 0),
     bestTime: formatSeconds(consultant.bestSeconds),
     bestClient: consultant.bestContactName || "—",
     worstTime: formatSeconds(consultant.worstSeconds),

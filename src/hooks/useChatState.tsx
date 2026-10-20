@@ -1420,22 +1420,46 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isLeadTransfer = meta.type === "lead_transfer" || meta.warningType === "new_lead";
       const isSlaDelay =
         meta.type === "sla_alert" || meta.type === "no_response" || meta.warningType === "delay";
-      const isWarning = Boolean(meta.isWarning || isLeadTransfer || isSlaDelay);
-      const warningType: "delay" | "new_lead" | undefined = isLeadTransfer
+      const isOverload =
+        meta.type === "operator_overload" || meta.warningType === "overload";
+      const isWarning = Boolean(r.isWarning || meta.isWarning || isLeadTransfer || isSlaDelay || isOverload);
+      const warningType: "delay" | "new_lead" | "overload" | undefined = isLeadTransfer
         ? "new_lead"
         : isSlaDelay
         ? "delay"
+        : isOverload
+        ? "overload"
+        : r.warningType;
+      const targetClientId =
+        meta.conversationId || meta.clientId || r.warningMetadata?.clientId || "";
+      const conversationsList = Array.isArray(meta.conversations)
+        ? meta.conversations
+        : Array.isArray(meta.relatedConversations)
+        ? meta.relatedConversations
+        : Array.isArray(r.warningMetadata?.conversations)
+        ? r.warningMetadata.conversations
+        : Array.isArray(r.relatedConversations)
+        ? r.relatedConversations
         : undefined;
-      const targetClientId = meta.conversationId || meta.clientId || "";
       const warningMetadata =
-        warningType && targetClientId
+        warningType && (targetClientId || (conversationsList && conversationsList.length > 0))
           ? {
-              clientId: targetClientId,
-              clientName: meta.clientName || "Cliente",
-              lastMessage: meta.lastMessage || undefined,
-              interest: meta.interest || undefined,
-              temperature: meta.temperature || undefined,
+              clientId: targetClientId || conversationsList?.[0]?.clientId || "",
+              clientName:
+                meta.clientName ||
+                meta.contactName ||
+                r.warningMetadata?.clientName ||
+                conversationsList?.[0]?.clientName ||
+                "Cliente",
+              lastMessage: meta.lastMessage || r.warningMetadata?.lastMessage || undefined,
+              interest: meta.interest || r.warningMetadata?.interest || undefined,
+              temperature: meta.temperature || r.warningMetadata?.temperature || undefined,
+              conversations: conversationsList,
             }
+          : undefined;
+      const relatedConversations =
+        !isWarning && conversationsList && conversationsList.length > 0
+          ? conversationsList
           : undefined;
 
       return {
@@ -1452,6 +1476,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(isWarning ? { isWarning: true } : {}),
         ...(warningType ? { warningType } : {}),
         ...(warningMetadata ? { warningMetadata } : {}),
+        ...(relatedConversations ? { relatedConversations } : {}),
       };
     },
     [tenant]
@@ -1636,11 +1661,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (valentinaGenerationRef.current !== myGeneration) return;
 
             const frag = fragments[i];
-            const delay = frag.delay || i * 800;
+            const stepDelay =
+              i === 0 ? 150 : Math.min(Math.max(Number(frag.delay) || 680, 480), 1100);
 
             // Aguardar delay cancelável — rejeita se o sinal foi abortado
             await new Promise<void>((resolve, reject) => {
-              const timer = setTimeout(resolve, Math.max(delay, 400));
+              const timer = setTimeout(resolve, stepDelay);
               controller.signal.addEventListener("abort", () => {
                 clearTimeout(timer);
                 reject(new DOMException("Aborted", "AbortError"));
@@ -1656,8 +1682,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               author: currentPersona.name,
               text: frag.content || frag.text || "",
               time: respTime,
+              sentAtISO: frag.createdAt ? new Date(frag.createdAt).toISOString() : new Date().toISOString(),
               side: "in",
               isInternalNote: false,
+              ...(Array.isArray(frag.relatedConversations) && frag.relatedConversations.length > 0
+                ? { relatedConversations: frag.relatedConversations }
+                : {}),
             };
 
             valentinaHistoryRef.current = [...valentinaHistoryRef.current, valentinaMsg];
@@ -3239,11 +3269,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           // Quem estava lendo a conversa continua vendo o histórico. O composer
           // muda para somente leitura quando o operador responsável muda.
-        } else if (data.type === "operator_ai_notification" && data.message) {
+        } else if (data.type === "operator_ai_notification" && (data.message || data.notification)) {
           if (!data.operatorId || data.operatorId !== currentOperatorIdRef.current) return;
 
-          const aiMsg = mapInternalRowToMessage(data.message);
-          const existingIdx = valentinaHistoryRef.current.findIndex((m) => m.id === aiMsg.id);
+          const rawNotif = data.message || data.notification;
+          const aiMsg = mapInternalRowToMessage(rawNotif);
+          const isSameLogicalAlert = (m: Message) => {
+            if (m.id === aiMsg.id) return true;
+            if (aiMsg.warningType === "overload" && m.warningType === "overload") return true;
+            if (
+              aiMsg.warningType === "delay" &&
+              m.warningType === "delay" &&
+              aiMsg.warningMetadata?.clientId &&
+              m.warningMetadata?.clientId === aiMsg.warningMetadata.clientId
+            ) {
+              return true;
+            }
+            return false;
+          };
+
+          const existingIdx = valentinaHistoryRef.current.findIndex(isSameLogicalAlert);
           if (existingIdx !== -1) {
             valentinaHistoryRef.current = valentinaHistoryRef.current.map((m, i) =>
               i === existingIdx ? aiMsg : m
@@ -3258,7 +3303,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setConversations((prev) =>
             prev.map((c) => {
               if (c.id !== "valentina") return c;
-              const matchIdx = c.messages.findIndex((m) => m.id === aiMsg.id);
+              const matchIdx = c.messages.findIndex(isSameLogicalAlert);
               const nextMessages =
                 matchIdx !== -1
                   ? c.messages.map((m, i) => (i === matchIdx ? aiMsg : m))
@@ -3272,23 +3317,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             })
           );
 
-          const meta = data.message.metadata || {};
+          const meta = rawNotif.metadata || rawNotif.warningMetadata || {};
+          const targetConvId = meta.conversationId || meta.clientId || aiMsg.warningMetadata?.clientId;
           const persona = getAiPersona(tenantRef.current || "valem");
-          const isLead = meta.type === "lead_transfer" || meta.warningType === "new_lead";
+          const isLead = meta.type === "lead_transfer" || rawNotif.warningType === "new_lead" || aiMsg.warningType === "new_lead";
           const title = isLead
             ? `${persona.name}: Novo Cliente Transferido`
-            : `${persona.name}: Alerta de SLA (${meta.clientName || "Cliente"})`;
+            : aiMsg.warningType === "overload"
+            ? `${persona.name}: Atendimentos Ativos`
+            : `${persona.name}: Alerta de SLA (${meta.clientName || aiMsg.warningMetadata?.clientName || "Cliente"})`;
 
           toast.info(title, {
-            description: String(data.message.content || "").replace(/\*\*/g, "").slice(0, 140),
+            description: String(rawNotif.content || "").replace(/\*\*/g, "").slice(0, 140),
             duration: 9000,
-            action: meta.conversationId
+            action: targetConvId
               ? {
                   label: isLead ? "Abrir Atendimento" : "Abrir Conversa",
                   onClick: () => {
-                    setSelectedChatId(meta.conversationId);
+                    setSelectedChatId(targetConvId);
                     setActiveView("chat");
-                    markAsRead(meta.conversationId);
+                    markAsRead(targetConvId);
                   },
                 }
               : {

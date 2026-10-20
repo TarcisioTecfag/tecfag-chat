@@ -507,6 +507,8 @@ export interface SdrTabProps {
   filterState?: SdrFilterState;
   refreshKey?: number;
   onLoadingChange?: (loading: boolean) => void;
+  targetConversation?: { conversationId: string; leadName?: string; ts: number } | null;
+  onTargetConversationHandled?: () => void;
 }
 
 export function SdrTab({
@@ -515,6 +517,8 @@ export function SdrTab({
   filterState,
   refreshKey,
   onLoadingChange,
+  targetConversation,
+  onTargetConversationHandled,
 }: SdrTabProps = {}) {
   const { tenant, setActiveView, setSelectedChatId, operators, operatorProfile } = useChat();
   const navigate = useNavigate();
@@ -780,6 +784,54 @@ export function SdrTab({
       scrollChatToBottom();
     }, 60);
   };
+
+  // Quando o usuário clica em "Ver Triagem" na aba de Rodízio, seleciona a sessão correspondente e rola para o chat SDR
+  useEffect(() => {
+    if (!targetConversation?.conversationId || sessions.length === 0) return;
+
+    const targetId = targetConversation.conversationId;
+    const normLeadName = (targetConversation.leadName || "").trim().toLowerCase();
+
+    const matched =
+      sessions.find(
+        (s) =>
+          s.conversationId === targetId ||
+          s.id === targetId ||
+          (s.linkedDeal?.dealId && s.linkedDeal.dealId === targetId)
+      ) ||
+      (normLeadName
+        ? sessions.find((s) => s.contactName.trim().toLowerCase() === normLeadName)
+        : undefined);
+
+    if (matched) {
+      setStatusFilter("all");
+      setPeriodFilter("todos");
+      setChannelFilter("all");
+      setSearchQuery("");
+      setSelectedSession(matched);
+      setSelectedChatId(matched.conversationId);
+      setIsChatHighlighted(true);
+      setTimeout(() => setIsChatHighlighted(false), 1600);
+
+      setTimeout(() => {
+        scrollToLiveChat();
+        scrollChatToBottom();
+      }, 90);
+    } else {
+      setTimeout(() => {
+        scrollToLiveChat();
+      }, 90);
+    }
+
+    onTargetConversationHandled?.();
+  }, [
+    targetConversation,
+    sessions,
+    setSelectedChatId,
+    scrollToLiveChat,
+    scrollChatToBottom,
+    onTargetConversationHandled,
+  ]);
 
   // Carregar dados e configurações REAIS do SDR via API
   const fetchSdrData = useCallback(async () => {

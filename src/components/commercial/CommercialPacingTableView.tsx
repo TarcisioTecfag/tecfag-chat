@@ -110,7 +110,7 @@ export const CommercialPacingTableView = React.memo(function CommercialPacingTab
             <span className="text-slate-400 dark:text-zinc-600">-</span>
             <span className="text-slate-500 dark:text-zinc-400">Fechado:</span>
             <span className="font-bold text-emerald-600 dark:text-emerald-400">
-              {formatPacingCurrency(team.fechadoTotal)} ({team.fechadoPercent}%)
+              {formatPacingCurrency(team.fechadoTotal)} ({Number(team.fechadoPercent.toFixed(1))}%)
             </span>
             <span className="text-slate-400 dark:text-zinc-600">-</span>
             <span className="text-slate-500 dark:text-zinc-400">Ritmo:</span>
@@ -283,7 +283,7 @@ export const CommercialPacingTableView = React.memo(function CommercialPacingTab
                           </div>
                           <div className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
                             Fechou: {formatPacingCurrency(seller.dailyRealized)} (
-                            {seller.dailyRealizedPercent}%)
+                            {Math.round(seller.dailyRealizedPercent)}%)
                           </div>
                         </div>
                       ) : (
@@ -296,7 +296,7 @@ export const CommercialPacingTableView = React.memo(function CommercialPacingTab
                           </div>
                           <div className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
                             Semana: {formatPacingCurrency(seller.weeklyRealized)} (
-                            {seller.weeklyRealizedPercent}%)
+                            {Math.round(seller.weeklyRealizedPercent)}%)
                           </div>
                         </div>
                       )}
@@ -378,7 +378,7 @@ export const CommercialPacingTableView = React.memo(function CommercialPacingTab
               <div className="font-bold text-slate-900 dark:text-white leading-none mt-0.5">
                 {formatPacingCurrency(globalKpis.metaGlobal)}{" "}
                 <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                  ({globalKpis.globalPercent}% batida)
+                  ({Number(globalKpis.globalPercent.toFixed(1))}% batida)
                 </span>
               </div>
             </div>
