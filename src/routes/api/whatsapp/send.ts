@@ -9,6 +9,8 @@ import { eq, and } from "drizzle-orm";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
+import { SITE_CHANNEL } from "../../../lib/livechat/site-channel-policy";
+import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
 import fs from "fs";
 import path from "path";
 
@@ -170,6 +172,32 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               if (existing.conversationId !== conversationId) return Response.json({ error: "Chave já utilizada em outra conversa." }, { status: 409 });
               const result = storedResult(existing);
               return Response.json({ ...result, ...(templateName ? {renderedText: existing.content} : {}) }, { status: result.success ? 200 : 400 });
+            }
+          }
+
+          // Canal Site (widget): entrega pelo WebSocket do visitante, não pelo provedor WhatsApp.
+          if (!isInternalNote) {
+            const [targetContact] = await db
+              .select({ mainChannel: contacts.mainChannel })
+              .from(contacts)
+              .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, session.tenantId)));
+            if (targetContact?.mainChannel === SITE_CHANNEL) {
+              if (templateName || pendingFile || mediaUrl) {
+                return Response.json(
+                  { error: "No chat do site, envie apenas mensagens de texto por enquanto.", code: "SITE_TEXT_ONLY" },
+                  { status: 400 },
+                );
+              }
+              const siteText = (text || "").trim().slice(0, 4000);
+              if (!siteText) return Response.json({ error: "Mensagem vazia." }, { status: 400 });
+              const siteResult = await sendSiteOperatorText({
+                tenantId: session.tenantId,
+                conversationId: conv.id,
+                text: siteText,
+                operatorName: session.operator.name,
+                idempotencyKey: clientMessageId,
+              });
+              return Response.json(siteResult, { status: 200 });
             }
           }
           if (pendingFile) {

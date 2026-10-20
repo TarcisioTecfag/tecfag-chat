@@ -8,6 +8,7 @@ import { Globe, CheckCircle2, AlertCircle, Copy, Check, Loader2, ExternalLink, S
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { toast } from "sonner";
+import { SiteChannelCard } from "./SiteChannelCard";
 
 interface TrayConfig {
   apiAddress: string;
@@ -83,9 +84,10 @@ export function LiveChatSettingsTab() {
     }
   };
 
-  const widgetScript = `<!-- Valem Chat Widget -->
-<link rel="stylesheet" href="${BACKEND_URL}/valem-chat.css">
-<script src="${BACKEND_URL}/valem-chat.iife.js"
+  const widgetBundle = persona.triagePolicy === "industrial" ? "site-chat" : "valem-chat";
+  const widgetScript = `<!-- ${persona.company} — Chat do Site (${persona.name}) -->
+<link rel="stylesheet" href="${BACKEND_URL}/${widgetBundle}.css">
+<script src="${BACKEND_URL}/${widgetBundle}.iife.js"
   data-tenant="${tenant}"
   data-ws="${BACKEND_URL?.replace("https://", "wss://")?.replace("http://", "ws://")}/ws/livechat"
   defer>
@@ -108,6 +110,9 @@ export function LiveChatSettingsTab() {
 
   return (
     <div className="space-y-5 w-full pb-4">
+      {persona.triagePolicy === "industrial" && (
+        <SiteChannelCard personaName={persona.name} backendUrl={BACKEND_URL} />
+      )}
       {/* ── Card: Tray Commerce ────────────────────────────────────────── */}
       <div className="rounded-2xl bg-card border border-border p-6 shadow-soft">
         <div className="flex items-center justify-between mb-5">

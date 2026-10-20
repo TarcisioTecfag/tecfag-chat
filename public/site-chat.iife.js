@@ -1,0 +1,263 @@
+(function(){"use strict";async function C(){return new Promise((s,e)=>{const t=indexedDB.open("chat-pending-intents",1);t.onupgradeneeded=()=>t.result.createObjectStore("intents",{keyPath:"id"}),t.onsuccess=()=>s(t.result),t.onerror=()=>e(t.error)})}async function E(s,e){const t=await C();try{return await new Promise((i,n)=>{const a=t.transaction("intents",s),o=e(a.objectStore("intents"));a.oncomplete=()=>i(o.result),a.onerror=()=>n(a.error),a.onabort=()=>n(a.error||new Error("Armazenamento local indisponível."))})}finally{t.close()}}const L=s=>E("readwrite",e=>e.put(s)),P=s=>E("readwrite",e=>e.delete(s));async function M(s,e){return(await E("readonly",i=>i.getAll())).filter(i=>i.tenantId===s&&i.operatorId===e).sort((i,n)=>i.createdAt-n.createdAt)}const A={valem:{aiName:"Valentina",lightboxRole:"Consultora Comercial • Valem Pack",headerRole:"Comercial",prechatTitle:"Bem-vindo à Valem!",prechatSubtitle:"Valentina está pronta para te atender. Como podemos te chamar?",legalLine:"Valem Válvulas e Embalagens • Loja Oficial",footer:"Valem Pack",welcomeIntro:"Eu sou a Valentina, da Valem Válvulas e Embalagens.",whatsappText:"Olá, estou no site da Valem e gostaria de um atendimento.",defaultWhatsapp:"5514981468232",backendAvatarPath:null,defaultAvatar:"/valentina-avatar.png",storagePrefix:"valem",requireDoc:!0,transcriptTitle:"Atendimento Valem Pack",aiTranscriptLabel:"Valentina (Valem)",closedMessage:"Atendimento finalizado. Agradecemos o contato com a Valem Pack!"},tecfag:{aiName:"Fagner",lightboxRole:"Consultor Técnico-Comercial • Grupo Tecfag",headerRole:"Consultor",prechatTitle:"Bem-vindo ao Grupo Tecfag!",prechatSubtitle:"O Fagner está pronto para te atender. Como podemos te chamar?",legalLine:"Grupo Tecfag • Máquinas Industriais de Embalagem",footer:"Grupo Tecfag",welcomeIntro:null,whatsappText:"Olá, estou no site do Grupo Tecfag e gostaria de um atendimento.",defaultWhatsapp:"",backendAvatarPath:"/fagner-dark.png",defaultAvatar:"/fagner-dark.png",storagePrefix:"tecfag",requireDoc:!1,transcriptTitle:"Atendimento Grupo Tecfag",aiTranscriptLabel:"Fagner (Grupo Tecfag)",closedMessage:"Atendimento finalizado. Agradecemos o contato com o Grupo Tecfag!"}};function N(s){return A[s]||A.valem}function U(s){try{const e=new URL(s);return`${e.protocol==="wss:"?"https:":"http:"}//${e.host}`}catch{return location.origin}}function y(s){return s.replace(/[&<>"']/g,e=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[e])}function p(s=new Date){const e=typeof s=="string"?new Date(s):s;return isNaN(e.getTime())?"00:00":e.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}function g(s=new Date){const e=typeof s=="string"?new Date(s):s;if(isNaN(e.getTime()))return"";const t=e.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"}),i=e.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});return`${t} às ${i}`}function b(s=new Date){const e=typeof s=="string"?new Date(s):s;return isNaN(e.getTime())?"":`${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,"0")}-${String(e.getDate()).padStart(2,"0")}`}function R(s=new Date){const e=typeof s=="string"?new Date(s):s;if(isNaN(e.getTime()))return"Hoje";const t=new Date,i=new Date;i.setDate(t.getDate()-1);const n=b(e),a=b(t),o=b(i);return n===a?"Hoje":n===o?"Ontem":e.toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}function k(s=0){return s<1024?`${s} B`:s<1024*1024?`${(s/1024).toFixed(1)} KB`:`${(s/(1024*1024)).toFixed(1)} MB`}function I(s=0){const e=Math.floor(s/60),t=Math.floor(s%60);return`${e}:${t<10?"0":""}${t}`}function F(){const s=new Date().getHours();return s>=5&&s<12?"Bom dia":s>=12&&s<18?"Boa tarde":"Boa noite"}function O(s){const e=s.replace(/\D/g,"");if(e.length!==11||/^(\d)\1{10}$/.test(e))return!1;let t=0,i=0;for(let n=1;n<=9;n++)t+=parseInt(e[n-1])*(11-n);if(i=t*10%11,(i===10||i===11)&&(i=0),i!==parseInt(e[9]))return!1;t=0;for(let n=1;n<=10;n++)t+=parseInt(e[n-1])*(12-n);return i=t*10%11,(i===10||i===11)&&(i=0),i===parseInt(e[10])}function V(s){const e=s.replace(/\D/g,"");if(e.length!==14||/^(\d)\1{13}$/.test(e))return!1;let t=e.length-2,i=e.substring(0,t);const n=e.substring(t);let a=0,o=t-7;for(let l=t;l>=1;l--)a+=parseInt(i.charAt(t-l))*o--,o<2&&(o=9);let r=a%11<2?0:11-a%11;if(r!==parseInt(n.charAt(0)))return!1;t+=1,i=e.substring(0,t),a=0,o=t-7;for(let l=t;l>=1;l--)a+=parseInt(i.charAt(t-l))*o--,o<2&&(o=9);return r=a%11<2?0:11-a%11,r===parseInt(n.charAt(1))}function q(s){const e=s.replace(/\D/g,"").slice(0,14);return e.length<=11?e.replace(/^(\d{3})(\d)/,"$1.$2").replace(/^(\d{3})\.(\d{3})(\d)/,"$1.$2.$3").replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/,"$1.$2.$3-$4"):e.replace(/^(\d{2})(\d)/,"$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/,"$1.$2.$3").replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/,"$1.$2.$3/$4").replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/,"$1.$2.$3/$4-$5")}function H(s="valem"){const e=`${s}_visitor_id`;try{let t=localStorage.getItem(e);return t||(t=crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2,9)}`,localStorage.setItem(e,t)),t}catch{return`${Date.now()}-${Math.random().toString(36).slice(2,9)}`}}function z(s){const e=(s.split(".").pop()||"").toLowerCase();return["xlsx","xls","csv"].includes(e)?`
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="8" y1="13" x2="16" y2="13"/>
+        <line x1="8" y1="17" x2="16" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+    `:["pdf"].includes(e)?`
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <path d="M9 15h6"/>
+        <path d="M9 11h6"/>
+      </svg>
+    `:["doc","docx","txt","rtf"].includes(e)?`
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+    `:["zip","rar","7z","tar","gz"].includes(e)?`
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        <line x1="12" y1="11" x2="12" y2="17"/>
+        <line x1="9" y1="14" x2="15" y2="14"/>
+      </svg>
+    `:`
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg>
+  `}class W{constructor(e={}){this.ws=null,this.messages=[],this.isOpen=!1,this.isPillExpanded=!0,this.unreadCount=0,this.isTyping=!1,this.reconnectAttempts=0,this.reconnectTimer=null,this.pageviewInterval=null,this.pillLoopTimer=null,this.isHoveringFab=!1,this.pendingFile=null,this.visitorName="",this.visitorDoc="",this.hasCompletedPrechat=!1,this.hasSentWelcomeSequence=!1,this.hasTriggeredAttentionToast=!1,this.lastRenderedDateKey="",this.mediaRecorder=null,this.audioChunks=[],this.recordStartTime=0,this.recordTimer=null,this.recordingDurationSec=0,this.recordedAudioBlob=null,this.recordedAudioDataUrl="",this.previewAudioElem=null,this.audioContext=null,this.analyserNode=null,this.waveformAnimFrame=null,this.isDragging=!1,this.dragStartX=0,this.dragStartY=0,this.panelInitialLeft=0,this.panelInitialTop=0;const t=document.currentScript,i=t?t.dataset:{},n=e.tenant||i.tenant||"valem",a=e.wsUrl||i.ws||`ws://${location.host}/ws/livechat`;this.brand=N(n);const o=this.brand.backendAvatarPath?`${U(a)}${this.brand.backendAvatarPath}`:this.brand.defaultAvatar;this.opts={tenant:n,wsUrl:a,avatarUrl:e.avatarUrl||i.avatar||o,whatsappNumber:e.whatsappNumber||i.whatsapp||this.brand.defaultWhatsapp,mock:e.mock!==void 0?e.mock:i.mock==="true"},this.cookieId=H(this.brand.storagePrefix),this.loadSavedVisitorData(),this.init()}mount(){}loadSavedVisitorData(){try{const e=this.brand.storagePrefix;this.visitorName=localStorage.getItem(`${e}_visitor_name`)||"",this.visitorDoc=localStorage.getItem(`${e}_visitor_doc`)||"",this.visitorName&&(this.visitorDoc||!this.brand.requireDoc)&&(this.hasCompletedPrechat=!0)}catch{}}saveVisitorData(e,t){this.visitorName=e.trim(),this.visitorDoc=t.trim(),this.hasCompletedPrechat=!0;try{const i=this.brand.storagePrefix;localStorage.setItem(`${i}_visitor_name`,this.visitorName),localStorage.setItem(`${i}_visitor_doc`,this.visitorDoc)}catch{}}init(){this.injectDOM(),this.connectWebSocket(),this.startPageviewTracking(),this.startPillAnimationLoop(),setTimeout(()=>{!this.isOpen&&!this.hasTriggeredAttentionToast&&this.triggerAttentionToast()},4500)}injectDOM(){const e=document.createElement("div");e.id="vlm-chat-root",e.innerHTML=this.renderHTML(),document.body.appendChild(e),this.bindEvents(),this.initDraggable()}renderHTML(){const e=y(this.opts.avatarUrl),t=this.brand,i=y(t.aiName),n=this.opts.whatsappNumber?`<a href="https://wa.me/${encodeURIComponent(this.opts.whatsappNumber)}?text=${encodeURIComponent(t.whatsappText)}" target="_blank" rel="noopener noreferrer" class="vlm-header-btn-action" title="Continuar no WhatsApp" aria-label="Abrir WhatsApp">`:"";return`
+    <!-- BOTÃO FLUTUANTE PILL -->
+    <div id="vlm-fab-wrapper">
+      <button id="vlm-fab-button" class="vlm-pill-expanded" aria-label="Falar com ${i}">
+        <div class="vlm-fab-avatar-wrap">
+          <img src="${e}" alt="${i}" class="vlm-fab-avatar-img" />
+          <span class="vlm-fab-avatar-badge" id="vlm-fab-gold-badge">+1</span>
+        </div>
+        <div class="vlm-fab-text-block">
+          <span class="vlm-fab-title">Falar com atendente</span>
+          <span class="vlm-fab-subtitle"><span class="vlm-online-dot"></span>${i} • Online agora</span>
+        </div>
+      </button>
+    </div>
+
+    <!-- LIGHTBOX FOTO EM TELA CHEIA -->
+    <div id="vlm-avatar-lightbox">
+      <div class="vlm-lightbox-content">
+        <button id="vlm-btn-close-lightbox" class="vlm-lightbox-close-btn" title="Fechar">✕</button>
+        <img src="${e}" alt="${i}" class="vlm-lightbox-img" />
+        <span class="vlm-lightbox-name">${i}</span>
+        <span class="vlm-lightbox-role">${y(t.lightboxRole)}</span>
+      </div>
+    </div>
+
+    <!-- PAINEL PRINCIPAL DO CHAT (DRAGGABLE) -->
+    <div id="vlm-panel" aria-hidden="true">
+
+      <!-- TELA 1: PRE-CHAT ONBOARDING (NOME + CPF/CNPJ) -->
+      <div id="vlm-prechat-view" class="${this.hasCompletedPrechat?"vlm-prechat-hidden":""}">
+        <button id="vlm-btn-prechat-close" class="vlm-prechat-header-close" title="Fechar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+
+        <div class="vlm-prechat-body">
+          <div class="vlm-prechat-icon-circle">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+          </div>
+          <h2 class="vlm-prechat-title">${y(t.prechatTitle)}</h2>
+          <p class="vlm-prechat-subtitle">${y(t.prechatSubtitle)}</p>
+
+          <form id="vlm-prechat-form" class="vlm-prechat-form">
+            <div class="vlm-prechat-field">
+              <label class="vlm-prechat-label">Seu Nome</label>
+              <input type="text" id="vlm-input-name" class="vlm-prechat-input" placeholder="Digite seu nome..." autocomplete="name" required />
+            </div>
+
+            <div class="vlm-prechat-field">
+              <label class="vlm-prechat-label">${t.requireDoc?"CPF ou CNPJ":"CPF ou CNPJ (opcional)"}</label>
+              <input type="text" id="vlm-input-doc" class="vlm-prechat-input" placeholder="Digite seu CPF ou CNPJ..." maxlength="18" autocomplete="off" ${t.requireDoc?"required":""} />
+              <span id="vlm-doc-error" class="vlm-prechat-error-msg">Informe um CPF ou CNPJ válido</span>
+            </div>
+
+            <button type="submit" id="vlm-btn-start-chat" class="vlm-prechat-submit-btn" disabled>
+              <span>Iniciar Atendimento</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </form>
+        </div>
+
+        <div style="font-size:11px; opacity:0.65; text-align:center; padding-top:12px;">
+          ${y(t.legalLine)}
+        </div>
+      </div>
+
+      <!-- TELA 2: INTERFACE DE CONVERSA COM A PERSONA -->
+      <div id="vlm-header" title="Clique e arraste para reposicionar">
+        <div id="vlm-header-left">
+          <div class="vlm-header-avatar-wrap" id="vlm-header-avatar-btn" title="Ver foto em tela cheia">
+            <img src="${e}" alt="${i}" class="vlm-header-avatar-img" />
+            <span class="vlm-header-status-badge"></span>
+          </div>
+          <div class="vlm-header-info">
+            <span class="vlm-header-name">${i}</span>
+            <div class="vlm-header-subrow">
+              <span class="vlm-header-role">${y(t.headerRole)}</span>
+              <span class="vlm-header-sep">·</span>
+              <div class="vlm-header-actions-inline">
+                ${n?`${n}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                </a>`:""}
+                <button id="vlm-btn-copy-dialog" class="vlm-header-btn-action" title="Copiar conversa" aria-label="Copiar conversa">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="vlm-header-right">
+          <button id="vlm-btn-close" class="vlm-header-ctrl-btn" title="Fechar chat" aria-label="Fechar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div id="vlm-copy-toast">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Conversa copiada!
+        </div>
+      </div>
+
+      <div id="vlm-messages-container"></div>
+
+      <!-- INPUT ZONE -->
+      <div id="vlm-input-zone">
+        <!-- Barra de Prévia de Arquivo -->
+        <div id="vlm-attachment-preview-bar">
+          <div class="vlm-preview-chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span id="vlm-preview-filename">arquivo.pdf</span>
+          </div>
+          <button id="vlm-btn-remove-attachment" class="vlm-preview-remove-btn" title="Remover anexo">✕</button>
+        </div>
+
+        <!-- 1) Linha Padrão de Input (Clipe + Textarea + Botão Unificado Mic/Enviar) -->
+        <div id="vlm-standard-input-row" class="vlm-input-row">
+          <input type="file" id="vlm-file-input" style="display:none" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.csv,.txt" />
+          <button id="vlm-btn-attach" class="vlm-btn-clip" title="Anexar foto, vídeo, documento ou planilha" aria-label="Anexar arquivo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <div class="vlm-textarea-wrap">
+            <textarea id="vlm-chat-textarea" rows="1" placeholder="Digite sua mensagem..." autocomplete="off" maxlength="1500"></textarea>
+          </div>
+          <!-- Botão Unificado: Mic quando vazio, Enviar quando preenchido -->
+          <button id="vlm-btn-action-main" class="vlm-btn-action-circle" title="Gravar áudio" aria-label="Ação">
+            <svg id="vlm-icon-mic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            <svg id="vlm-icon-send" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+
+        <!-- 2) Linha de Gravação de Áudio Ativa com Waveform Dourado -->
+        <div id="vlm-audio-record-row" class="vlm-audio-record-zone">
+          <div class="vlm-rec-indicator">
+            <span class="vlm-rec-dot"></span>
+            <span id="vlm-rec-timer">00:00</span>
+          </div>
+
+          <!-- Waveform Visualizer -->
+          <div class="vlm-rec-waveform" id="vlm-rec-waveform">
+            ${Array.from({length:18}).map(()=>'<span class="vlm-wave-bar"></span>').join("")}
+          </div>
+
+          <div class="vlm-rec-actions">
+            <button id="vlm-btn-rec-cancel" class="vlm-btn-rec-cancel" title="Cancelar gravação">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+            <button id="vlm-btn-rec-finish" class="vlm-btn-rec-stop" title="Concluir gravação para pré-escuta">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3) Linha de Pré-Escuta do Áudio Gravado (Preview Dourado) -->
+        <div id="vlm-audio-preview-row" class="vlm-audio-preview-zone">
+          <div class="vlm-preview-player-left">
+            <button id="vlm-btn-preview-play" class="vlm-btn-preview-play" title="Tocar prévia">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+            <div class="vlm-preview-track">
+              <div id="vlm-preview-progressbar-bg" class="vlm-preview-progressbar-bg">
+                <div id="vlm-preview-progressbar-fill" class="vlm-preview-progressbar-fill"></div>
+              </div>
+              <span id="vlm-preview-duration" class="vlm-preview-time">0:00</span>
+            </div>
+          </div>
+          <div class="vlm-preview-actions">
+            <button id="vlm-btn-preview-trash" class="vlm-btn-preview-trash" title="Descartar áudio">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+            <button id="vlm-btn-preview-send" class="vlm-btn-preview-send" title="Enviar áudio gravado">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <div id="vlm-footer">${y(t.footer)}</div>
+    </div>
+    `}bindEvents(){const e=document.getElementById("vlm-fab-button"),t=document.getElementById("vlm-btn-close"),i=document.getElementById("vlm-btn-copy-dialog"),n=document.getElementById("vlm-btn-action-main"),a=document.getElementById("vlm-btn-attach"),o=document.getElementById("vlm-file-input"),r=document.getElementById("vlm-btn-remove-attachment"),l=document.getElementById("vlm-btn-rec-cancel"),c=document.getElementById("vlm-btn-rec-finish"),d=document.getElementById("vlm-chat-textarea"),f=document.getElementById("vlm-prechat-form"),u=document.getElementById("vlm-input-name"),m=document.getElementById("vlm-input-doc"),w=document.getElementById("vlm-doc-error"),x=document.getElementById("vlm-btn-start-chat"),D=document.getElementById("vlm-btn-prechat-close"),j=document.getElementById("vlm-header-avatar-btn"),S=document.getElementById("vlm-avatar-lightbox"),_=document.getElementById("vlm-btn-close-lightbox"),G=document.getElementById("vlm-btn-preview-play"),J=document.getElementById("vlm-btn-preview-trash"),Y=document.getElementById("vlm-btn-preview-send"),B=()=>{const h=u.value.trim(),v=m.value.replace(/\D/g,""),T=v.length===11?O(v):v.length===14?V(v):!1;v.length>0&&!T&&(v.length===11||v.length===14)?(m.classList.add("vlm-input-error"),w.classList.add("vlm-show-error")):(m.classList.remove("vlm-input-error"),w.classList.remove("vlm-show-error")),h.length>=2&&(T||!this.brand.requireDoc&&v.length===0)?x.removeAttribute("disabled"):x.setAttribute("disabled","true")};u.addEventListener("input",B),m.addEventListener("input",()=>{m.value=q(m.value),B()}),f.addEventListener("submit",h=>{h.preventDefault();const v=u.value.trim(),T=m.value.trim();!v||this.brand.requireDoc&&!T||(this.saveVisitorData(v,T),document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden"),this.notifyVisitorDataToBackend(),this.triggerWelcomeSequence())}),D.addEventListener("click",()=>this.closePanel());const K=()=>{S.classList.add("vlm-lightbox-open")},$=()=>{S.classList.remove("vlm-lightbox-open")};j.addEventListener("click",h=>{h.stopPropagation(),K()}),_.addEventListener("click",h=>{h.stopPropagation(),$()}),S.addEventListener("click",h=>{h.target===S&&$()}),e.addEventListener("mouseenter",()=>{this.isHoveringFab=!0,this.setPillState(!0)}),e.addEventListener("mouseleave",()=>{this.isHoveringFab=!1}),e.addEventListener("click",()=>this.togglePanel()),t.addEventListener("click",h=>{h.stopPropagation(),this.closePanel()}),i.addEventListener("click",h=>{h.stopPropagation(),this.copyConversation()}),n.addEventListener("click",()=>{const h=d.value.trim().length>0,v=this.pendingFile!==null;h||v?this.handleSendMessage():this.startAudioRecording()}),d.addEventListener("input",()=>{d.style.height="20px";const h=Math.min(Math.max(d.scrollHeight,20),100);d.style.height=`${h}px`,this.updateButtonsState()}),d.addEventListener("keydown",h=>{h.key==="Enter"&&!h.shiftKey&&(h.preventDefault(),this.handleSendMessage())}),l.addEventListener("click",()=>this.cancelAudioRecording()),c.addEventListener("click",()=>this.finishRecordingForPreview()),G.addEventListener("click",()=>this.togglePreviewAudioPlay()),J.addEventListener("click",()=>this.discardAudioPreview()),Y.addEventListener("click",()=>this.sendRecordedAudioFromPreview()),a.addEventListener("click",()=>o.click()),o.addEventListener("change",()=>{o.files&&o.files[0]&&this.handleFileSelected(o.files[0])}),r.addEventListener("click",()=>this.clearPendingFile())}initDraggable(){const e=document.getElementById("vlm-header"),t=document.getElementById("vlm-panel");if(!e||!t)return;const i=(o,r,l)=>{if(l?.closest("button, a, input, textarea, .vlm-header-avatar-wrap"))return;this.isDragging=!0,this.dragStartX=o,this.dragStartY=r;const c=t.getBoundingClientRect();this.panelInitialLeft=c.left,this.panelInitialTop=c.top,t.style.bottom="auto",t.style.right="auto",t.style.left=`${this.panelInitialLeft}px`,t.style.top=`${this.panelInitialTop}px`,t.classList.add("vlm-is-dragging")},n=(o,r)=>{if(!this.isDragging)return;const l=o-this.dragStartX,c=r-this.dragStartY;let d=this.panelInitialLeft+l,f=this.panelInitialTop+c;const u=10,m=window.innerWidth-t.offsetWidth-10,w=10,x=window.innerHeight-t.offsetHeight-10;d=Math.max(u,Math.min(m,d)),f=Math.max(w,Math.min(x,f)),t.style.left=`${d}px`,t.style.top=`${f}px`},a=()=>{this.isDragging&&(this.isDragging=!1,t.classList.remove("vlm-is-dragging"))};e.addEventListener("mousedown",o=>i(o.clientX,o.clientY,o.target)),window.addEventListener("mousemove",o=>n(o.clientX,o.clientY)),window.addEventListener("mouseup",a),e.addEventListener("touchstart",o=>{o.touches.length===1&&i(o.touches[0].clientX,o.touches[0].clientY,o.target)},{passive:!0}),window.addEventListener("touchmove",o=>{this.isDragging&&o.touches.length===1&&n(o.touches[0].clientX,o.touches[0].clientY)},{passive:!0}),window.addEventListener("touchend",a)}startPillAnimationLoop(){let e=!0;const t=()=>{if(this.isOpen||this.isHoveringFab){this.pillLoopTimer=setTimeout(t,3e3);return}e=!e,this.setPillState(e);const i=e?6500:4500;this.pillLoopTimer=setTimeout(t,i)};this.pillLoopTimer=setTimeout(t,6500)}setPillState(e){this.isPillExpanded=e;const t=document.getElementById("vlm-fab-button");t&&(e?(t.classList.remove("vlm-pill-collapsed"),t.classList.add("vlm-pill-expanded")):(t.classList.remove("vlm-pill-expanded"),t.classList.add("vlm-pill-collapsed")))}triggerAttentionToast(){this.hasTriggeredAttentionToast=!0;const e=document.getElementById("vlm-fab-gold-badge"),t=document.getElementById("vlm-fab-button");e&&e.classList.add("vlm-badge-visible"),t&&t.classList.add("vlm-fab-attention"),this.playNotificationToastSound()}playNotificationToastSound(){try{const e=window.AudioContext||window.webkitAudioContext;if(!e)return;const t=new e;t.state==="suspended"&&t.resume().catch(()=>{});const i=t.currentTime,n=t.createOscillator(),a=t.createGain();n.type="sine",n.frequency.setValueAtTime(587.33,i),a.gain.setValueAtTime(0,i),a.gain.linearRampToValueAtTime(.18,i+.02),a.gain.exponentialRampToValueAtTime(.001,i+.35),n.connect(a),a.connect(t.destination),n.start(i),n.stop(i+.36);const o=t.createOscillator(),r=t.createGain();o.type="sine",o.frequency.setValueAtTime(880,i+.08),r.gain.setValueAtTime(0,i+.08),r.gain.linearRampToValueAtTime(.22,i+.1),r.gain.exponentialRampToValueAtTime(.001,i+.55),o.connect(r),r.connect(t.destination),o.start(i+.08),o.stop(i+.56)}catch(e){console.warn("[Toast Sound] Áudio toast desativado:",e)}}togglePanel(){this.isOpen?this.closePanel():this.openPanel()}openPanel(){this.isOpen=!0;const e=document.getElementById("vlm-panel"),t=document.getElementById("vlm-fab-wrapper"),i=document.getElementById("vlm-fab-gold-badge"),n=document.getElementById("vlm-fab-button");e&&(e.style.display="flex",setTimeout(()=>{e.classList.add("vlm-panel-open"),e.removeAttribute("aria-hidden")},10)),t&&(t.style.display="none"),i&&i.classList.remove("vlm-badge-visible"),n&&n.classList.remove("vlm-fab-attention"),this.hasCompletedPrechat?(document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden"),this.triggerWelcomeSequence(),setTimeout(()=>{document.getElementById("vlm-chat-textarea")?.focus()},200)):(document.getElementById("vlm-prechat-view")?.classList.remove("vlm-prechat-hidden"),setTimeout(()=>{document.getElementById("vlm-input-name")?.focus()},200)),this.scrollToBottom()}closePanel(){this.isOpen=!1;const e=document.getElementById("vlm-panel"),t=document.getElementById("vlm-fab-wrapper");e&&(e.classList.remove("vlm-panel-open"),e.setAttribute("aria-hidden","true"),setTimeout(()=>{this.isOpen||(e.style.display="none")},280)),t&&(t.style.display="block",this.setPillState(!0))}triggerWelcomeSequence(){if(this.hasSentWelcomeSequence)return;const e=b(new Date),t=this.messages[this.messages.length-1],i=t?.timestamp?b(t.timestamp):"";if(t&&i===e){this.hasSentWelcomeSequence=!0;return}if(this.hasSentWelcomeSequence=!0,this.brand.welcomeIntro===null)return;const n=this.visitorName?this.visitorName.split(" ")[0]:"",a=F(),o=n?`${a}, ${n}!`:`${a}!`,r=this.brand.welcomeIntro,l="Como posso te ajudar hoje?";setTimeout(()=>{this.addMessage({id:`welcome-1-${Date.now()}`,sender:"ai",text:o,contentType:"text",timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()}),setTimeout(()=>{this.showTypingIndicator(),setTimeout(()=>{this.hideTypingIndicator(),this.addMessage({id:`welcome-2-${Date.now()}`,sender:"ai",text:r,contentType:"text",timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()}),setTimeout(()=>{this.showTypingIndicator(),setTimeout(()=>{this.hideTypingIndicator(),this.addMessage({id:`welcome-3-${Date.now()}`,sender:"ai",text:l,contentType:"text",timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()})},800)},400)},800)},400)},300)}notifyVisitorDataToBackend(){this.ws&&this.ws.readyState===WebSocket.OPEN&&this.ws.send(JSON.stringify({type:"visitor_identify",name:this.visitorName,doc:this.visitorDoc,url:location.href,title:document.title}))}copyConversation(){if(this.messages.length===0)return;const e=this.messages.map(a=>{const o=a.sender==="visitor"?this.visitorName||"Você":a.sender==="ai"?this.brand.aiTranscriptLabel:"Operador",r=a.text||(a.fileName?`[Arquivo: ${a.fileName}]`:"[Áudio]");return`[${a.timeStr}] ${o}:
+${r}
+`}).join(`
+`),i=`--- ${this.brand.transcriptTitle} ---
+Data: ${new Date().toLocaleDateString("pt-BR")}
+Cliente: ${this.visitorName||"Visitante"} (${this.visitorDoc||"Não informado"})
+
+`+e,n=()=>{const a=document.getElementById("vlm-copy-toast");a&&(a.classList.add("vlm-toast-active"),setTimeout(()=>a.classList.remove("vlm-toast-active"),2200))};navigator.clipboard?navigator.clipboard.writeText(i).then(n).catch(()=>this.fallbackCopy(i,n)):this.fallbackCopy(i,n)}fallbackCopy(e,t){const i=document.createElement("textarea");i.value=e,i.style.position="fixed",i.style.opacity="0",document.body.appendChild(i),i.select(),document.execCommand("copy"),document.body.removeChild(i),t()}async startAudioRecording(){try{const e=await navigator.mediaDevices.getUserMedia({audio:!0});this.audioChunks=[];let t="audio/webm";MediaRecorder.isTypeSupported("audio/webm")||(MediaRecorder.isTypeSupported("audio/mp4")?t="audio/mp4":t=""),this.mediaRecorder=new MediaRecorder(e,t?{mimeType:t}:void 0),this.mediaRecorder.ondataavailable=a=>{a.data.size>0&&this.audioChunks.push(a.data)},this.mediaRecorder.start(200),this.recordStartTime=Date.now(),this.recordingDurationSec=0,this.initWaveformVisualizer(e),document.getElementById("vlm-standard-input-row").style.display="none",document.getElementById("vlm-audio-preview-row").classList.remove("vlm-preview-active"),document.getElementById("vlm-audio-record-row").classList.add("vlm-recording-active");const n=document.getElementById("vlm-rec-timer");n.textContent="00:00",this.recordTimer=setInterval(()=>{this.recordingDurationSec=Math.floor((Date.now()-this.recordStartTime)/1e3);const a=Math.floor(this.recordingDurationSec/60),o=this.recordingDurationSec%60;n.textContent=`${a<10?"0":""}${a}:${o<10?"0":""}${o}`},1e3)}catch{alert("Permissão de microfone negada ou microfone indisponível.")}}initWaveformVisualizer(e){try{const t=window.AudioContext||window.webkitAudioContext;this.audioContext=new t;const i=this.audioContext.createMediaStreamSource(e);this.analyserNode=this.audioContext.createAnalyser(),this.analyserNode.fftSize=64,i.connect(this.analyserNode);const n=this.analyserNode.frequencyBinCount,a=new Uint8Array(n),o=document.querySelectorAll(".vlm-wave-bar"),r=()=>{this.analyserNode&&(this.analyserNode.getByteFrequencyData(a),o.forEach((l,c)=>{const d=Math.floor(c/o.length*(n/2)),f=a[d]||0,u=Math.max(4,Math.min(24,Math.floor(f/255*24*1.5)));l.style.height=`${u}px`}),this.waveformAnimFrame=requestAnimationFrame(r))};r()}catch(t){console.warn("Waveform visualizer não inicializado:",t)}}stopWaveformVisualizer(){this.waveformAnimFrame&&(cancelAnimationFrame(this.waveformAnimFrame),this.waveformAnimFrame=null),this.audioContext&&this.audioContext.state!=="closed"&&(this.audioContext.close().catch(()=>{}),this.audioContext=null),this.analyserNode=null}cancelAudioRecording(){this.recordTimer&&clearInterval(this.recordTimer),this.stopWaveformVisualizer(),this.mediaRecorder&&this.mediaRecorder.state!=="inactive"&&(this.mediaRecorder.stop(),this.mediaRecorder.stream.getTracks().forEach(e=>e.stop())),this.audioChunks=[],this.resetAudioUI()}finishRecordingForPreview(){this.recordTimer&&clearInterval(this.recordTimer),this.stopWaveformVisualizer(),this.mediaRecorder&&(this.mediaRecorder.onstop=()=>{this.mediaRecorder?.stream.getTracks().forEach(i=>i.stop());const e=this.mediaRecorder?.mimeType||"audio/webm";if(this.recordedAudioBlob=new Blob(this.audioChunks,{type:e}),this.recordedAudioBlob.size<500){this.resetAudioUI();return}const t=new FileReader;t.onloadend=()=>{this.recordedAudioDataUrl=t.result||"",this.showAudioPreviewUI(this.recordedAudioDataUrl,this.recordingDurationSec)},t.readAsDataURL(this.recordedAudioBlob)},this.mediaRecorder.state!=="inactive"&&this.mediaRecorder.stop())}showAudioPreviewUI(e,t){document.getElementById("vlm-standard-input-row").style.display="none",document.getElementById("vlm-audio-record-row").classList.remove("vlm-recording-active"),document.getElementById("vlm-audio-preview-row").classList.add("vlm-preview-active");const n=document.getElementById("vlm-preview-duration");n.textContent=I(t),this.previewAudioElem&&this.previewAudioElem.pause(),this.previewAudioElem=new Audio(e);const a=document.getElementById("vlm-preview-progressbar-fill"),o=document.getElementById("vlm-btn-preview-play");a.style.width="0%",o.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>',this.previewAudioElem.addEventListener("timeupdate",()=>{const r=t>0?t:this.previewAudioElem?.duration||1,l=Math.min((this.previewAudioElem?.currentTime||0)/r*100,100);a.style.width=`${l}%`}),this.previewAudioElem.addEventListener("ended",()=>{o.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>',a.style.width="0%"})}togglePreviewAudioPlay(){if(!this.previewAudioElem)return;const e=document.getElementById("vlm-btn-preview-play");this.previewAudioElem.paused?(this.previewAudioElem.play(),e.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'):(this.previewAudioElem.pause(),e.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>')}discardAudioPreview(){this.previewAudioElem&&(this.previewAudioElem.pause(),this.previewAudioElem=null),this.recordedAudioBlob=null,this.recordedAudioDataUrl="",this.resetAudioUI()}sendRecordedAudioFromPreview(){if(!this.recordedAudioDataUrl){this.resetAudioUI();return}this.previewAudioElem&&(this.previewAudioElem.pause(),this.previewAudioElem=null);const e=this.recordedAudioBlob?.type||"audio/webm",t=this.recordingDurationSec,i=this.recordedAudioDataUrl;this.resetAudioUI(),this.sendAudioMessage(i,e,t)}resetAudioUI(){document.getElementById("vlm-standard-input-row").style.display="flex",document.getElementById("vlm-audio-record-row").classList.remove("vlm-recording-active"),document.getElementById("vlm-audio-preview-row").classList.remove("vlm-preview-active"),this.updateButtonsState()}sendAudioMessage(e,t,i){const n=crypto.randomUUID?crypto.randomUUID():String(Date.now());this.addMessage({id:n,sender:"visitor",text:"",contentType:"audio",mediaUrl:e,durationSec:i,timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()}),this.showTypingIndicator(),this.queuePayload({messageId:n,type:"visitor_audio",audioBase64:e,mimeType:t,durationSec:i,visitorName:this.visitorName,visitorDoc:this.visitorDoc,url:location.href,title:document.title})}handleFileSelected(e){if(e.size>20*1024*1024){alert("Arquivo muito grande. Limite máximo: 20MB.");return}this.pendingFile=e;const t=document.getElementById("vlm-attachment-preview-bar"),i=document.getElementById("vlm-preview-filename");i.textContent=`${e.name} (${k(e.size)})`,t.classList.add("vlm-preview-active"),this.updateButtonsState()}clearPendingFile(){this.pendingFile=null,document.getElementById("vlm-attachment-preview-bar").classList.remove("vlm-preview-active"),document.getElementById("vlm-file-input").value="",this.updateButtonsState()}addMessage(e){if(this.messages.push(e),this.renderSingleMessage(e),!this.isOpen&&e.sender!=="visitor"){this.unreadCount++;const t=document.getElementById("vlm-fab-badge");t&&(t.textContent=String(this.unreadCount),t.style.display="flex")}}renderSingleMessage(e){const t=document.getElementById("vlm-messages-container");if(!t)return;this.hideTypingIndicator();const i=e.timestamp?new Date(e.timestamp):new Date,n=b(i);if(n&&this.lastRenderedDateKey!==n){this.lastRenderedDateKey=n;const c=document.createElement("div");c.className="vlm-date-divider",c.innerHTML=`<span>${R(i)}</span>`,t.appendChild(c)}const a=this.messages[this.messages.length-2],o=a&&a.sender===e.sender,r=document.createElement("div");r.className=`vlm-message-row vlm-message-row--${e.sender} ${o?"vlm-msg-consecutive":"vlm-msg-first-in-group"}`,r.addEventListener("click",()=>r.classList.toggle("vlm-details-visible"));let l="";if(e.contentType==="audio"&&e.mediaUrl)l=this.renderAudioPlayer(e.mediaUrl,e.durationSec||0);else if(e.contentType==="image"&&e.mediaUrl)l=`
+        <div class="vlm-media-image-wrap">
+          <img src="${e.mediaUrl}" alt="${this.escapeHtml(e.fileName||"Foto")}" class="vlm-media-image" onclick="window.open('${e.mediaUrl}', '_blank')" />
+        </div>
+        ${e.text?`<div class="vlm-media-caption">${this.escapeAndFormat(e.text)}</div>`:""}
+      `;else if(e.contentType==="video"&&e.mediaUrl)l=`
+        <div class="vlm-media-video-wrap">
+          <video src="${e.mediaUrl}" controls playsinline class="vlm-media-video"></video>
+        </div>
+        ${e.text?`<div class="vlm-media-caption">${this.escapeAndFormat(e.text)}</div>`:""}
+      `;else if(e.contentType==="document"&&e.mediaUrl){const c=z(e.fileName||"");l=`
+        <a href="${e.mediaUrl}" download="${this.escapeHtml(e.fileName||"arquivo")}" class="vlm-media-file-card" target="_blank">
+          <span class="vlm-media-file-icon">${c}</span>
+          <div class="vlm-media-file-info">
+            <span class="vlm-media-file-name" title="${this.escapeHtml(e.fileName||"Download")}">${this.escapeHtml(e.fileName||"Download")}</span>
+            <span class="vlm-media-file-size">${k(e.fileSize)} • Baixar</span>
+          </div>
+        </a>
+        ${e.text?`<div class="vlm-media-caption">${this.escapeAndFormat(e.text)}</div>`:""}
+      `}else l=this.escapeAndFormat(e.text);r.innerHTML=`<div class="vlm-bubble-box">${l}</div><span class="vlm-msg-details">Enviado em ${e.fullDateStr}</span>`,t.appendChild(r),e.contentType==="audio"&&this.attachAudioPlayerEvents(r),this.scrollToBottom()}loadHistoryMessages(e){if(!Array.isArray(e)||e.length===0||!document.getElementById("vlm-messages-container"))return;const i=new Set(this.messages.map(a=>a.id)),n=e.filter(a=>a&&a.id&&!i.has(a.id));if(n.length!==0){for(const a of n){const o=a.sentAt?new Date(a.sentAt):new Date,r={id:a.id,sender:a.sender||"visitor",text:a.content||a.text||"",contentType:a.contentType||"text",mediaUrl:a.mediaUrl,fileName:a.fileName,fileSize:a.fileSize,durationSec:a.durationSec,timestamp:o.toISOString(),timeStr:p(o),fullDateStr:g(o)};this.messages.push(r),this.renderSingleMessage(r)}this.scrollToBottom()}}renderAudioPlayer(e,t){const i=t>0?I(t):"0:05";return`
+      <div class="vlm-audio-player" data-audio-src="${e}" data-fallback-sec="${t||5}">
+        <button class="vlm-audio-btn-play" aria-label="Tocar áudio">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+        </button>
+        <div class="vlm-audio-track">
+          <div class="vlm-audio-progressbar-bg">
+            <div class="vlm-audio-progressbar-fill"></div>
+          </div>
+          <div class="vlm-audio-time-row">
+            <span class="vlm-audio-time-curr">0:00</span>
+            <span class="vlm-audio-time-total">${i}</span>
+          </div>
+        </div>
+        <button class="vlm-audio-speed-btn">1x</button>
+        <audio src="${e}" preload="metadata" style="display:none"></audio>
+      </div>
+    `}attachAudioPlayerEvents(e){const t=e.querySelector(".vlm-audio-player");if(!t)return;const i=t.querySelector("audio"),n=t.querySelector(".vlm-audio-btn-play"),a=t.querySelector(".vlm-audio-progressbar-fill"),o=t.querySelector(".vlm-audio-time-curr"),r=t.querySelector(".vlm-audio-time-total"),l=t.querySelector(".vlm-audio-speed-btn"),c=t.querySelector(".vlm-audio-progressbar-bg"),d=parseFloat(t.getAttribute("data-fallback-sec")||"5"),f=()=>i.duration&&isFinite(i.duration)&&!isNaN(i.duration)&&i.duration>0?i.duration:d>0?d:5;i.addEventListener("loadedmetadata",()=>{const m=f();r.textContent=I(m)}),i.addEventListener("durationchange",()=>{const m=f();r.textContent=I(m)}),n.addEventListener("click",m=>{m.stopPropagation(),i.paused?(document.querySelectorAll("audio").forEach(w=>{w!==i&&w.pause()}),i.play().then(()=>{n.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'}).catch(()=>{})):(i.pause(),n.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>')}),i.addEventListener("timeupdate",()=>{const m=f(),w=Math.min(i.currentTime/m*100,100);a.style.width=`${w}%`,o.textContent=I(i.currentTime)}),i.addEventListener("ended",()=>{n.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>',a.style.width="0%",o.textContent="0:00"}),c.addEventListener("click",m=>{m.stopPropagation();const w=c.getBoundingClientRect(),x=(m.clientX-w.left)/w.width,D=f();i.currentTime=x*D});let u=1;l.addEventListener("click",m=>{m.stopPropagation(),u===1?u=1.5:u===1.5?u=2:u=1,i.playbackRate=u,l.textContent=`${u}x`})}showTypingIndicator(){if(this.isTyping)return;this.isTyping=!0;const e=document.getElementById("vlm-messages-container");if(!e)return;const t=document.createElement("div");t.id="vlm-typing-indicator",t.className="vlm-typing-row",t.innerHTML=`
+      <img src="${y(this.opts.avatarUrl)}" alt="${y(this.brand.aiName)}" class="vlm-typing-avatar" id="vlm-typing-avatar-btn" />
+      <div class="vlm-typing-bubble">
+        <span class="vlm-typing-dot"></span>
+        <span class="vlm-typing-dot"></span>
+        <span class="vlm-typing-dot"></span>
+      </div>
+    `,e.appendChild(t),t.querySelector("#vlm-typing-avatar-btn")?.addEventListener("click",i=>{i.stopPropagation(),document.getElementById("vlm-avatar-lightbox")?.classList.add("vlm-lightbox-open")}),this.scrollToBottom()}hideTypingIndicator(){this.isTyping=!1,document.getElementById("vlm-typing-indicator")?.remove()}scrollToBottom(){const e=document.getElementById("vlm-messages-container");e&&setTimeout(()=>{e.scrollTop=e.scrollHeight},30)}escapeHtml(e){return e.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}escapeAndFormat(e){if(!e)return"";const t=e.replace(/\\"/g,'"').replace(/\\\\/g,"").trim();return this.escapeHtml(t).replace(/\n/g,"<br>").replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>")}handleSendMessage(){const e=document.getElementById("vlm-chat-textarea"),t=e?e.value.trim():"",i=this.pendingFile;if(!t&&!i)return;if(e&&(e.value="",e.style.height="20px"),i){const a=new FileReader;a.onloadend=()=>{const o=a.result||"",r=i.type.startsWith("image/"),l=i.type.startsWith("video/"),c=r?"image":l?"video":"document",d=crypto.randomUUID?crypto.randomUUID():String(Date.now());this.addMessage({id:d,sender:"visitor",text:t,contentType:c,mediaUrl:o,fileName:i.name,fileSize:i.size,timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()}),this.showTypingIndicator(),this.queuePayload({messageId:d,type:"visitor_media",fileBase64:o,fileName:i.name,fileType:i.type,fileSize:i.size,text:t,visitorName:this.visitorName,visitorDoc:this.visitorDoc,url:location.href,title:document.title}),this.clearPendingFile(),this.updateButtonsState()},a.readAsDataURL(i);return}const n=crypto.randomUUID?crypto.randomUUID():String(Date.now());this.addMessage({id:n,sender:"visitor",text:t,contentType:"text",timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()}),this.showTypingIndicator(),this.queuePayload({type:"visitor_message",text:t,messageId:n,visitorName:this.visitorName,visitorDoc:this.visitorDoc,url:location.href,title:document.title}),this.updateButtonsState()}updateButtonsState(){const e=document.getElementById("vlm-chat-textarea"),t=document.getElementById("vlm-icon-mic"),i=document.getElementById("vlm-icon-send"),n=document.getElementById("vlm-btn-action-main");if(!t||!i||!n)return;const a=e?e.value.trim().length>0:!1,o=this.pendingFile!==null;a||o?(t.style.display="none",i.style.display="block",n.setAttribute("title","Enviar mensagem")):(t.style.display="block",i.style.display="none",n.setAttribute("title","Gravar áudio"))}async queuePayload(e){try{await L({id:e.messageId,tenantId:this.opts.tenant,operatorId:this.cookieId,conversationId:this.cookieId,text:JSON.stringify(e),isInternal:!1,createdAt:Date.now()}),this.ws?.readyState===WebSocket.OPEN?this.ws.send(JSON.stringify(e)):this.connectWebSocket()}catch{this.addMessage({id:"err-"+Date.now(),sender:"system",text:"Não foi possível preservar o envio. Tente novamente.",timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()})}}async flushPending(){const e=await M(this.opts.tenant,this.cookieId).catch(()=>[]);for(const t of e){if(this.ws?.readyState!==WebSocket.OPEN)break;this.ws.send(t.text)}}connectWebSocket(){if(this.opts.mock)return;const e=`${this.opts.wsUrl}?tenantId=${this.opts.tenant}&cookieId=${this.cookieId}&name=${encodeURIComponent(this.visitorName)}&doc=${encodeURIComponent(this.visitorDoc)}&currentUrl=${encodeURIComponent(location.href)}&currentTitle=${encodeURIComponent(document.title)}`;try{this.ws=new WebSocket(e),this.ws.onopen=()=>{this.reconnectAttempts=0,this.flushPending(),this.hasCompletedPrechat&&this.notifyVisitorDataToBackend()},this.ws.onmessage=t=>{try{this.handleIncomingPayload(JSON.parse(t.data))}catch{}},this.ws.onclose=t=>{t.code!==1008&&this.scheduleReconnect()}}catch{this.scheduleReconnect()}}handleIncomingPayload(e){const{type:t}=e;if(t==="message_ack"){P(e.messageId);return}if(t==="chat_history"){this.loadHistoryMessages(e.messages||[]);return}if((t==="message"||t==="ai_message"||t==="operator_message")&&(this.hideTypingIndicator(),this.addMessage({id:e.messageId||crypto.randomUUID?.()||String(Date.now()),sender:e.sender==="operator"||t==="operator_message"?"operator":"ai",text:e.content||e.text||"",contentType:e.contentType||"text",mediaUrl:e.mediaUrl,fileName:e.fileName,timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()})),t==="send_image"){this.hideTypingIndicator();const i=this.opts.wsUrl?this.opts.wsUrl.replace(/^wss?:\/\//,"").replace(/\/ws\/.*$/,""):location.origin.replace(/^https?:\/\//,""),n=location.protocol==="https:"?"https:":"http:",a=e.imageUrl?.startsWith("http")?e.imageUrl:`${n}//${i}${e.imageUrl}`;this.addMessage({id:e.messageId||crypto.randomUUID?.()||String(Date.now()),sender:"ai",text:"",contentType:"image",mediaUrl:a,fileName:e.imageUrl?.split("/").pop()||"produto.jpg",timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()})}t==="typing"&&(e.isTyping?this.showTypingIndicator():this.hideTypingIndicator()),(t==="bridge_initiated"||t==="bridge_sent")&&(this.hideTypingIndicator(),this.addMessage({id:`bridge-${Date.now()}`,sender:"system",text:"📱 **Atendimento transferido para o WhatsApp!** Nossa equipe comercial já recebeu suas informações e responderá por lá. Fique de olho no seu app!",timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()})),t==="chat_closed"&&(this.hideTypingIndicator(),this.addMessage({id:`closed-${Date.now()}`,sender:"system",text:this.brand.closedMessage,timestamp:new Date().toISOString(),timeStr:p(),fullDateStr:g()}))}scheduleReconnect(){if(this.reconnectTimer)return;const e=Math.min(1500*Math.pow(1.5,this.reconnectAttempts),2e4);this.reconnectAttempts++,this.reconnectTimer=setTimeout(()=>{this.reconnectTimer=null,this.connectWebSocket()},e)}startPageviewTracking(){let e=location.href;this.pageviewInterval=setInterval(()=>{location.href!==e&&(e=location.href,this.ws&&this.ws.readyState===WebSocket.OPEN&&this.ws.send(JSON.stringify({type:"pageview",url:location.href,title:document.title,referrer:document.referrer})))},2e3)}}(function(){const s=document.currentScript;let e="";if(s?.src)try{e=new URL(s.src).origin}catch{}e||(e=location.origin);const t=s?.dataset.tenant||"valem",i=s?.dataset.mock==="true",n=s?.dataset.whatsapp||"5514981468232",a=s?.dataset.avatar||`${e}/valentina-avatar.png`,o=location.protocol==="https:"?"wss:":"ws:",r=e.replace(/^https?:\/\//,""),l=s?.dataset.ws||`${o}//${r}/ws/livechat`;function c(){if(!window.__valemChatWidget)try{const d=new W({tenant:t,wsUrl:l,avatarUrl:a,whatsappNumber:n,mock:i});typeof d.mount=="function"&&d.mount(),window.__valemChatWidget=d,console.log("[ValemChatWidget] Inicializado com sucesso!")}catch(d){console.error("[ValemChatWidget] Erro ao inicializar:",d)}}document.readyState==="loading"?document.addEventListener("DOMContentLoaded",c):c()})()})();

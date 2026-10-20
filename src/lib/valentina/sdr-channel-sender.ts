@@ -14,6 +14,8 @@ import { metaAdapter } from "../whatsapp/adapters/meta";
 import { sendMetaConversationPresence, resetMetaTypingThrottle } from "../whatsapp/meta-presence";
 export { resetMetaTypingThrottle };
 import { getAiPersona } from "../ai-persona";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
+import { pushSiteTyping } from "../livechat/site-delivery";
 
 export async function resolveTenantActiveProvider(tenantId: string): Promise<"baileys" | "meta"> {
   try {
@@ -39,6 +41,10 @@ export async function sendBotPresence(
   action: "composing" | "recording" | "paused"
 ): Promise<void> {
   try {
+    if (isSiteConversationId(conversationId)) {
+      await pushSiteTyping(tenantId, conversationId, action !== "paused");
+      return;
+    }
     const provider = await resolveTenantActiveProvider(tenantId);
     if (provider === "meta") {
       if (action === "composing" || action === "recording") {

@@ -142,6 +142,17 @@ export async function operatorTakeOver(
   await updateChatStatus(tenantId, chatId, "operator_took_over", { operatorId });
 }
 
+/** Chat do tenant ou null — nunca confiar em chatId recebido sem esta verificação. */
+export async function getChatById(tenantId: string, chatId: string): Promise<LcChat | null> {
+  if (typeof chatId !== "string" || !chatId || chatId.length > 200) return null;
+  const [chat] = await db
+    .select()
+    .from(lcChats)
+    .where(and(eq(lcChats.tenantId, tenantId), eq(lcChats.id, chatId)))
+    .limit(1);
+  return chat ?? null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MENSAGENS
 // ═══════════════════════════════════════════════════════════════════════════

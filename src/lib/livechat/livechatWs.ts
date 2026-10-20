@@ -20,6 +20,7 @@ import {
   recordPageview,
   getActiveVisitors,
   getVisitorPageviews,
+  getChatById,
 } from "./livechatStorage";
 import { generateProactiveGreeting, isNoise } from "./livechatAI";
 import { bridgeLiveChatToWhatsApp } from "./livechat-bridge";
@@ -28,6 +29,15 @@ import { searchProducts, extractSearchTermFromUrl } from "./trayCatalogService";
 import { LiveChatDebouncer } from "./livechatDebouncer";
 import { extractMediaContent } from "./livechatDocumentReader";
 import { getAuthSessionByToken } from "../auth-session";
+import { isSdrTenant } from "../ai-persona";
+import { siteGateway } from "./site-gateway";
+import { clampSiteText, isSiteOriginAllowed } from "./site-channel-policy";
+import {
+  applySiteIdentity,
+  handleIndustrialSiteMessage,
+  loadSiteChannelSettings,
+  usesIndustrialSiteCore,
+} from "./site-industrial-adapter";
 
 const uuid = () => crypto.randomUUID();
 
@@ -42,6 +52,8 @@ interface LcConnection {
   visitorId?: string; // para visitors
   chatId?: string; // chat ativo
   operatorId?: string; // para operators
+  /** Tenant com núcleo de triagem industrial: o site usa o mesmo atendimento do WhatsApp. */
+  industrial?: boolean;
 }
 
 // Mapas de conexões ativas
@@ -79,6 +91,11 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
 
     if (!tenantId) {
       ws.close(1008, "tenantId obrigatório");
+      return;
+    }
+    // O tenant informado pelo widget é apenas um seletor: precisa existir no servidor.
+    if (!isSdrTenant(tenantId)) {
+      ws.close(1008, "Empresa não reconhecida");
       return;
     }
 
@@ -119,9 +136,28 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
     }
 
     // ── Conexão de VISITANTE ───────────────────────────────────────────────
-    if (!cookieId) {
+    if (!cookieId || cookieId.length > 200) {
       ws.close(1008, "cookieId obrigatório para visitante");
       return;
+    }
+
+    const industrial = usesIndustrialSiteCore(tenantId);
+    if (industrial) {
+      try {
+        const siteSettings = await loadSiteChannelSettings(tenantId);
+        if (!siteSettings.enabled) {
+          ws.close(1008, "Atendimento pelo site indisponível");
+          return;
+        }
+        if (!isSiteOriginAllowed(req.headers.origin, siteSettings.allowedOrigins)) {
+          ws.close(1008, "Origem não autorizada");
+          return;
+        }
+      } catch (e: any) {
+        console.error("[LC WS] Erro ao validar canal do site:", e?.message);
+        ws.close(1011, "Erro interno");
+        return;
+      }
     }
 
     let visitor: any;
@@ -157,8 +193,12 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       tenantId,
       visitorId: visitor.id,
       chatId: chat.id,
+      industrial,
     };
     visitorConnections.set(visitor.id, conn);
+    const unregisterSite = industrial
+      ? siteGateway.register(tenantId, visitor.id, (payload) => send(ws, payload))
+      : null;
 
     console.log(`[LC WS] Visitante ${visitor.id} conectado (tenant: ${tenantId})`);
 
@@ -177,8 +217,9 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       chatId: chat.id,
     });
 
-    // Saudação proativa
-    if (!chat.status || chat.status === "active") {
+    // Saudação proativa (perfil industrial: a apresentação da persona é feita pelo núcleo
+    // na primeira mensagem do visitante, evitando saudação duplicada e regras de outro tenant)
+    if (!industrial && (!chat.status || chat.status === "active")) {
       const historyCount = (await getChatHistory(tenantId, chat.id, 1)).length;
       if (historyCount === 0) {
         setTimeout(async () => {
@@ -212,7 +253,8 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
 
     ws.on("close", async () => {
       LiveChatDebouncer.getInstance().clearSession(visitor.id);
-      visitorConnections.delete(visitor.id);
+      unregisterSite?.();
+      if (visitorConnections.get(visitor.id) === conn) visitorConnections.delete(visitor.id);
       console.log(`[LC WS] Visitante ${visitor.id} desconectado`);
       broadcastToOperators(tenantId, {
         type: "visitor_disconnected",
@@ -233,6 +275,24 @@ async function handleVisitorMessage(
   tenantId: string,
 ) {
   const { type, content, url, title } = payload;
+
+  if (type === "visitor_identify" && conn.industrial) {
+    const identity = await applySiteIdentity(tenantId, visitor.id, payload.name, payload.doc);
+    const fields: Record<string, unknown> = {};
+    if (identity.name) fields.name = identity.name;
+    if (identity.cnpj) fields.cnpj = identity.cnpj;
+    if (url) Object.assign(fields, { currentUrl: String(url).slice(0, 2000), currentTitle: String(title || "").slice(0, 300) });
+    if (Object.keys(fields).length) await updateVisitorData(tenantId, visitor.id, fields);
+    if (identity.name) visitor.name = identity.name;
+    if (identity.cnpj) visitor.cnpj = identity.cnpj;
+    broadcastToOperators(tenantId, {
+      type: "visitor_updated",
+      visitorId: visitor.id,
+      name: identity.name || undefined,
+      cnpj: identity.cnpj || undefined,
+    });
+    return;
+  }
 
   // Identificação do visitante (Onboarding Pré-Chat com Nome + CPF/CNPJ)
   if (type === "visitor_identify") {
@@ -298,7 +358,7 @@ async function handleVisitorMessage(
   };
 
   // ── Mensagem de texto (com Debounce, Stop & Restart e Fragmentação) ──
-  const userText = content || payload.text;
+  const userText = conn.industrial ? clampSiteText(content || payload.text) : content || payload.text;
   if ((type === "message" || type === "visitor_message") && userText) {
     // Salva imediatamente no banco para o histórico
     const savedMsg = await saveMessage(
@@ -308,6 +368,11 @@ async function handleVisitorMessage(
       userText,
       stableId ? { id: stableId } : {},
     );
+    if (conn.industrial) {
+      await handleIndustrialSiteMessage(tenantId, visitor, { siteMessageId: savedMsg.id, text: userText });
+      acknowledge(savedMsg);
+      return;
+    }
     if (acknowledge(savedMsg)) return;
     if (isNoise(userText)) return; // guardar/confirmar antes de suprimir efeitos de IA
 
@@ -357,6 +422,18 @@ async function handleVisitorMessage(
       mediaUrl: mediaDataUrl,
       mediaType: mimeType,
     });
+    if (conn.industrial) {
+      await handleIndustrialSiteMessage(tenantId, visitor, {
+        siteMessageId: savedAudio.id,
+        text: "",
+        mediaType: "audio",
+        mimeType: String(mimeType || "audio/webm").split(";")[0].trim() || "audio/webm",
+        mediaBase64: audioBase64,
+        fileName: "audio-visitante.webm",
+      });
+      acknowledge(savedAudio);
+      return;
+    }
     if (acknowledge(savedAudio)) return;
 
     broadcastToOperators(tenantId, {
@@ -449,6 +526,20 @@ async function handleVisitorMessage(
         mediaType: fileType,
       },
     );
+    if (conn.industrial) {
+      const isPdf = fileType === "application/pdf";
+      await handleIndustrialSiteMessage(tenantId, visitor, {
+        siteMessageId: savedFile.id,
+        text: clampSiteText(payload.text) || `[Arquivo: ${String(fileName).slice(0, 200)}]`,
+        mediaType: isImg ? "image" : "document",
+        mimeType: fileType,
+        mediaBase64: fileBase64,
+        aiMedia: isImg || isPdf,
+        fileName: String(fileName).slice(0, 200),
+      });
+      acknowledge(savedFile);
+      return;
+    }
     if (acknowledge(savedFile)) return;
 
     broadcastToOperators(tenantId, {
@@ -494,8 +585,27 @@ async function handleVisitorMessage(
 async function handleOperatorMessage(conn: LcConnection, rawData: string) {
   try {
     const payload = JSON.parse(rawData);
-    const { type, chatId, visitorId, content, messageId } = payload;
+    const { type, chatId, messageId } = payload;
+    let visitorId: string | undefined = payload.visitorId;
+    const content = typeof payload.content === "string" ? payload.content.slice(0, 4000) : "";
     const { tenantId } = conn;
+
+    if (["operator_message", "take_over", "release_to_ai", "close_chat"].includes(type)) {
+      if (usesIndustrialSiteCore(tenantId)) {
+        send(conn.ws, {
+          type: "error",
+          code: "USE_CONVERSATIONS",
+          message: "Atenda este visitante pelo módulo de Conversas.",
+        });
+        return;
+      }
+      const ownedChat = await getChatById(tenantId, chatId);
+      if (!ownedChat) {
+        send(conn.ws, { type: "error", code: "NOT_FOUND", message: "Chat não encontrado." });
+        return;
+      }
+      visitorId = ownedChat.visitorId;
+    }
 
     // Operador enviando mensagem ao visitante
     if (type === "operator_message" && chatId && content) {

@@ -26,6 +26,8 @@ import {
   resetMetaTypingThrottle,
 } from "./sdr-channel-sender";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
+import { isSiteConversationId } from "../livechat/site-channel-policy";
+import { deliverSiteBotFragment, deliverSiteCatalogImage, pushSiteTyping } from "../livechat/site-delivery";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
 import path from "node:path";
@@ -1482,6 +1484,22 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
               }
 
+              if (isSiteConversationId(conversationId) && getAiPersona(tenantId).triagePolicy === "industrial") {
+                await pushSiteTyping(tenantId, conversationId, true);
+                await new Promise(r => setTimeout(r, 600));
+                await deliverSiteCatalogImage({
+                  tenantId,
+                  conversationId,
+                  publicUrl: imageRelUrl,
+                  imgBuffer,
+                  mimeType,
+                  fileName,
+                  senderName: `${getAiPersona(tenantId).name} (SDR)`,
+                });
+                await pushSiteTyping(tenantId, conversationId, false);
+                await new Promise(r => setTimeout(r, 400));
+                continue;
+              }
               await sendBotPresence(tenantId, conversationId, contactPhone, "composing");
               await new Promise(r => setTimeout(r, 800));
               await sendBotCatalogImage({
@@ -1554,6 +1572,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
   ): Promise<void> {
     const cleanText = audioText.trim();
     if (!cleanText) return;
+
+    if (isSiteConversationId(conversationId) && getAiPersona(tenantId).triagePolicy === "industrial") {
+      const siteText = cleanText.replace(/\[[a-z_ ]{2,30}\]\s*/gi, "").trim();
+      if (siteText) await this.sendHumanizedBotMessages(tenantId, conversationId, phone, [siteText], signal);
+      return;
+    }
 
     const activeProvider = await resolveTenantActiveProvider(tenantId);
     const sock = SessionManager.getInstance().getSession(tenantId);
@@ -1748,6 +1772,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     targetQuoteMessageId?: string | null,
     expectedOperatorId?: string | null
   ): Promise<void> {
+    if (isSiteConversationId(conversationId) && getAiPersona(tenantId).triagePolicy === "industrial") {
+      return this.sendSiteBotMessages(tenantId, conversationId, messagesArray, signal, expectedOperatorId);
+    }
     const activeProvider = await resolveTenantActiveProvider(tenantId);
     const sock = SessionManager.getInstance().getSession(tenantId);
     const realJid = sock ? await resolveRealJid(sock, phone) : null;
@@ -1977,6 +2004,44 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         },
       });
     }
+  }
+
+  /**
+   * Canal Site: mesmas mensagens do núcleo, entregues no widget. A posse é revalidada antes de
+   * cada balão para que uma resposta atrasada não atropele o operador que assumiu.
+   */
+  private async sendSiteBotMessages(
+    tenantId: string,
+    conversationId: string,
+    messagesArray: string[],
+    signal?: AbortSignal,
+    expectedOperatorId?: string | null
+  ): Promise<void> {
+    const senderName = `${getAiPersona(tenantId).name} (SDR)`;
+    for (const raw of messagesArray) {
+      const fragmentText = raw.trim();
+      if (!fragmentText) continue;
+      if (signal?.aborted) break;
+      await pushSiteTyping(tenantId, conversationId, true);
+      const typingDelay = Math.min(2600, Math.max(900, fragmentText.length * 30));
+      const startDelay = Date.now();
+      while (Date.now() - startDelay < typingDelay && !signal?.aborted) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      if (signal?.aborted) break;
+      const owner = await db.query.conversations.findFirst({
+        where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
+      });
+      if (!owner || owner.queueState === "finalizados" || (owner.operatorId || null) !== (expectedOperatorId || null)
+        || (owner.queueState === "meus" && !expectedOperatorId)) break;
+      try {
+        await deliverSiteBotFragment({ tenantId, conversationId, text: fragmentText, senderName });
+      } catch (err: any) {
+        console.error(`[SdrEngine] ❌ Falha ao entregar balão no site (${tenantId}):`, err?.message);
+        break;
+      }
+    }
+    await pushSiteTyping(tenantId, conversationId, false);
   }
 }
 

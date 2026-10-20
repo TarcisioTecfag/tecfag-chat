@@ -16,6 +16,91 @@ export interface WidgetOptions {
   mock: boolean;
 }
 
+/**
+ * Identidade exibida no widget por tenant. Persona e empresa nunca são misturadas:
+ * cada tenant tem seus próprios textos, chaves de armazenamento e comportamento de saudação.
+ */
+interface WidgetBrand {
+  aiName: string;
+  lightboxRole: string;
+  headerRole: string;
+  prechatTitle: string;
+  prechatSubtitle: string;
+  legalLine: string;
+  footer: string;
+  /** null = sem sequência local; a apresentação vem do atendimento no servidor. */
+  welcomeIntro: string | null;
+  whatsappText: string;
+  defaultWhatsapp: string;
+  /** Caminho servido pelo backend do chat (resolvido a partir da URL do WebSocket). */
+  backendAvatarPath: string | null;
+  defaultAvatar: string;
+  storagePrefix: string;
+  requireDoc: boolean;
+  transcriptTitle: string;
+  aiTranscriptLabel: string;
+  closedMessage: string;
+}
+
+const BRANDS: Record<string, WidgetBrand> = {
+  valem: {
+    aiName: "Valentina",
+    lightboxRole: "Consultora Comercial • Valem Pack",
+    headerRole: "Comercial",
+    prechatTitle: "Bem-vindo à Valem!",
+    prechatSubtitle: "Valentina está pronta para te atender. Como podemos te chamar?",
+    legalLine: "Valem Válvulas e Embalagens • Loja Oficial",
+    footer: "Valem Pack",
+    welcomeIntro: "Eu sou a Valentina, da Valem Válvulas e Embalagens.",
+    whatsappText: "Olá, estou no site da Valem e gostaria de um atendimento.",
+    defaultWhatsapp: "5514981468232",
+    backendAvatarPath: null,
+    defaultAvatar: "/valentina-avatar.png",
+    storagePrefix: "valem",
+    requireDoc: true,
+    transcriptTitle: "Atendimento Valem Pack",
+    aiTranscriptLabel: "Valentina (Valem)",
+    closedMessage: "Atendimento finalizado. Agradecemos o contato com a Valem Pack!",
+  },
+  tecfag: {
+    aiName: "Fagner",
+    lightboxRole: "Consultor Técnico-Comercial • Grupo Tecfag",
+    headerRole: "Consultor",
+    prechatTitle: "Bem-vindo ao Grupo Tecfag!",
+    prechatSubtitle: "O Fagner está pronto para te atender. Como podemos te chamar?",
+    legalLine: "Grupo Tecfag • Máquinas Industriais de Embalagem",
+    footer: "Grupo Tecfag",
+    welcomeIntro: null,
+    whatsappText: "Olá, estou no site do Grupo Tecfag e gostaria de um atendimento.",
+    defaultWhatsapp: "",
+    backendAvatarPath: "/fagner-dark.png",
+    defaultAvatar: "/fagner-dark.png",
+    storagePrefix: "tecfag",
+    requireDoc: false,
+    transcriptTitle: "Atendimento Grupo Tecfag",
+    aiTranscriptLabel: "Fagner (Grupo Tecfag)",
+    closedMessage: "Atendimento finalizado. Agradecemos o contato com o Grupo Tecfag!",
+  },
+};
+
+function resolveBrand(tenant: string): WidgetBrand {
+  return BRANDS[tenant] || BRANDS.valem;
+}
+
+/** Origem HTTP do backend a partir da URL do WebSocket do chat. */
+function backendOriginFromWs(wsUrl: string): string {
+  try {
+    const url = new URL(wsUrl);
+    return `${url.protocol === "wss:" ? "https:" : "http:"}//${url.host}`;
+  } catch {
+    return location.origin;
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
+}
+
 interface ChatMessage {
   id: string;
   sender: "visitor" | "ai" | "operator" | "system";
@@ -160,8 +245,8 @@ function formatCpfCnpj(val: string): string {
     .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
 }
 
-function getOrCreateCookieId(): string {
-  const KEY = "valem_visitor_id";
+function getOrCreateCookieId(prefix = "valem"): string {
+  const KEY = `${prefix}_visitor_id`;
   try {
     let id = localStorage.getItem(KEY);
     if (!id) {
@@ -236,6 +321,7 @@ function getFileSvgIcon(name: string): string {
 
 export class ValemChatWidget {
   private opts: WidgetOptions;
+  private brand: WidgetBrand;
   private cookieId: string;
   private ws: WebSocket | null = null;
   private messages: ChatMessage[] = [];
@@ -282,15 +368,22 @@ export class ValemChatWidget {
     const scriptTag = document.currentScript as HTMLScriptElement | null;
     const dataset = scriptTag ? scriptTag.dataset : {};
 
+    const tenant = options.tenant || dataset.tenant || "valem";
+    const wsUrl = options.wsUrl || dataset.ws || `ws://${location.host}/ws/livechat`;
+    this.brand = resolveBrand(tenant);
+    const defaultAvatar = this.brand.backendAvatarPath
+      ? `${backendOriginFromWs(wsUrl)}${this.brand.backendAvatarPath}`
+      : this.brand.defaultAvatar;
+
     this.opts = {
-      tenant: options.tenant || dataset.tenant || "valem",
-      wsUrl: options.wsUrl || dataset.ws || `ws://${location.host}/ws/livechat`,
-      avatarUrl: options.avatarUrl || dataset.avatar || "/valentina-avatar.png",
-      whatsappNumber: options.whatsappNumber || dataset.whatsapp || "5514981468232",
+      tenant,
+      wsUrl,
+      avatarUrl: options.avatarUrl || dataset.avatar || defaultAvatar,
+      whatsappNumber: options.whatsappNumber || dataset.whatsapp || this.brand.defaultWhatsapp,
       mock: options.mock !== undefined ? options.mock : dataset.mock === "true",
     };
 
-    this.cookieId = getOrCreateCookieId();
+    this.cookieId = getOrCreateCookieId(this.brand.storagePrefix);
     this.loadSavedVisitorData();
     this.init();
   }
@@ -301,9 +394,10 @@ export class ValemChatWidget {
 
   private loadSavedVisitorData() {
     try {
-      this.visitorName = localStorage.getItem("valem_visitor_name") || "";
-      this.visitorDoc = localStorage.getItem("valem_visitor_doc") || "";
-      if (this.visitorName && this.visitorDoc) {
+      const prefix = this.brand.storagePrefix;
+      this.visitorName = localStorage.getItem(`${prefix}_visitor_name`) || "";
+      this.visitorDoc = localStorage.getItem(`${prefix}_visitor_doc`) || "";
+      if (this.visitorName && (this.visitorDoc || !this.brand.requireDoc)) {
         this.hasCompletedPrechat = true;
       }
     } catch {}
@@ -314,8 +408,9 @@ export class ValemChatWidget {
     this.visitorDoc = doc.trim();
     this.hasCompletedPrechat = true;
     try {
-      localStorage.setItem("valem_visitor_name", this.visitorName);
-      localStorage.setItem("valem_visitor_doc", this.visitorDoc);
+      const prefix = this.brand.storagePrefix;
+      localStorage.setItem(`${prefix}_visitor_name`, this.visitorName);
+      localStorage.setItem(`${prefix}_visitor_doc`, this.visitorDoc);
     } catch {}
   }
 
@@ -343,18 +438,23 @@ export class ValemChatWidget {
   }
 
   private renderHTML(): string {
-    const avatar = this.opts.avatarUrl;
+    const avatar = escapeHtml(this.opts.avatarUrl);
+    const b = this.brand;
+    const aiName = escapeHtml(b.aiName);
+    const whatsappLink = this.opts.whatsappNumber
+      ? `<a href="https://wa.me/${encodeURIComponent(this.opts.whatsappNumber)}?text=${encodeURIComponent(b.whatsappText)}" target="_blank" rel="noopener noreferrer" class="vlm-header-btn-action" title="Continuar no WhatsApp" aria-label="Abrir WhatsApp">`
+      : "";
     return `
     <!-- BOTÃO FLUTUANTE PILL -->
     <div id="vlm-fab-wrapper">
-      <button id="vlm-fab-button" class="vlm-pill-expanded" aria-label="Falar com Valentina">
+      <button id="vlm-fab-button" class="vlm-pill-expanded" aria-label="Falar com ${aiName}">
         <div class="vlm-fab-avatar-wrap">
-          <img src="${avatar}" alt="Valentina" class="vlm-fab-avatar-img" />
+          <img src="${avatar}" alt="${aiName}" class="vlm-fab-avatar-img" />
           <span class="vlm-fab-avatar-badge" id="vlm-fab-gold-badge">+1</span>
         </div>
         <div class="vlm-fab-text-block">
           <span class="vlm-fab-title">Falar com atendente</span>
-          <span class="vlm-fab-subtitle"><span class="vlm-online-dot"></span>Valentina • Online agora</span>
+          <span class="vlm-fab-subtitle"><span class="vlm-online-dot"></span>${aiName} • Online agora</span>
         </div>
       </button>
     </div>
@@ -363,9 +463,9 @@ export class ValemChatWidget {
     <div id="vlm-avatar-lightbox">
       <div class="vlm-lightbox-content">
         <button id="vlm-btn-close-lightbox" class="vlm-lightbox-close-btn" title="Fechar">✕</button>
-        <img src="${avatar}" alt="Valentina" class="vlm-lightbox-img" />
-        <span class="vlm-lightbox-name">Valentina</span>
-        <span class="vlm-lightbox-role">Consultora Comercial • Valem Pack</span>
+        <img src="${avatar}" alt="${aiName}" class="vlm-lightbox-img" />
+        <span class="vlm-lightbox-name">${aiName}</span>
+        <span class="vlm-lightbox-role">${escapeHtml(b.lightboxRole)}</span>
       </div>
     </div>
 
@@ -382,8 +482,8 @@ export class ValemChatWidget {
           <div class="vlm-prechat-icon-circle">
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
           </div>
-          <h2 class="vlm-prechat-title">Bem-vindo à Valem!</h2>
-          <p class="vlm-prechat-subtitle">Valentina está pronta para te atender. Como podemos te chamar?</p>
+          <h2 class="vlm-prechat-title">${escapeHtml(b.prechatTitle)}</h2>
+          <p class="vlm-prechat-subtitle">${escapeHtml(b.prechatSubtitle)}</p>
 
           <form id="vlm-prechat-form" class="vlm-prechat-form">
             <div class="vlm-prechat-field">
@@ -392,8 +492,8 @@ export class ValemChatWidget {
             </div>
 
             <div class="vlm-prechat-field">
-              <label class="vlm-prechat-label">CPF ou CNPJ</label>
-              <input type="text" id="vlm-input-doc" class="vlm-prechat-input" placeholder="Digite seu CPF ou CNPJ..." maxlength="18" autocomplete="off" required />
+              <label class="vlm-prechat-label">${b.requireDoc ? "CPF ou CNPJ" : "CPF ou CNPJ (opcional)"}</label>
+              <input type="text" id="vlm-input-doc" class="vlm-prechat-input" placeholder="Digite seu CPF ou CNPJ..." maxlength="18" autocomplete="off" ${b.requireDoc ? "required" : ""} />
               <span id="vlm-doc-error" class="vlm-prechat-error-msg">Informe um CPF ou CNPJ válido</span>
             </div>
 
@@ -405,26 +505,26 @@ export class ValemChatWidget {
         </div>
 
         <div style="font-size:11px; opacity:0.65; text-align:center; padding-top:12px;">
-          Valem Válvulas e Embalagens • Loja Oficial
+          ${escapeHtml(b.legalLine)}
         </div>
       </div>
 
-      <!-- TELA 2: INTERFACE DE CONVERSA COM VALENTINA -->
+      <!-- TELA 2: INTERFACE DE CONVERSA COM A PERSONA -->
       <div id="vlm-header" title="Clique e arraste para reposicionar">
         <div id="vlm-header-left">
           <div class="vlm-header-avatar-wrap" id="vlm-header-avatar-btn" title="Ver foto em tela cheia">
-            <img src="${avatar}" alt="Valentina" class="vlm-header-avatar-img" />
+            <img src="${avatar}" alt="${aiName}" class="vlm-header-avatar-img" />
             <span class="vlm-header-status-badge"></span>
           </div>
           <div class="vlm-header-info">
-            <span class="vlm-header-name">Valentina</span>
+            <span class="vlm-header-name">${aiName}</span>
             <div class="vlm-header-subrow">
-              <span class="vlm-header-role">Comercial</span>
+              <span class="vlm-header-role">${escapeHtml(b.headerRole)}</span>
               <span class="vlm-header-sep">·</span>
               <div class="vlm-header-actions-inline">
-                <a href="https://wa.me/${this.opts.whatsappNumber}?text=Ol%C3%A1%2C%20estou%20no%20site%20da%20Valem%20e%20gostaria%20de%20um%20atendimento." target="_blank" rel="noopener noreferrer" class="vlm-header-btn-action" title="Continuar no WhatsApp" aria-label="Abrir WhatsApp">
+                ${whatsappLink ? `${whatsappLink}
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                </a>
+                </a>` : ""}
                 <button id="vlm-btn-copy-dialog" class="vlm-header-btn-action" title="Copiar conversa" aria-label="Copiar conversa">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 </button>
@@ -521,7 +621,7 @@ export class ValemChatWidget {
 
       </div>
 
-      <div id="vlm-footer">Valem Pack</div>
+      <div id="vlm-footer">${escapeHtml(b.footer)}</div>
     </div>
     `;
   }
@@ -575,7 +675,7 @@ export class ValemChatWidget {
         docError.classList.remove("vlm-show-error");
       }
 
-      if (nameVal.length >= 2 && isDocValid) {
+      if (nameVal.length >= 2 && (isDocValid || (!this.brand.requireDoc && rawDoc.length === 0))) {
         btnStartChat.removeAttribute("disabled");
       } else {
         btnStartChat.setAttribute("disabled", "true");
@@ -592,7 +692,7 @@ export class ValemChatWidget {
       e.preventDefault();
       const name = inputName.value.trim();
       const doc = inputDoc.value.trim();
-      if (!name || !doc) return;
+      if (!name || (this.brand.requireDoc && !doc)) return;
       this.saveVisitorData(name, doc);
       document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden");
       this.notifyVisitorDataToBackend();
@@ -910,11 +1010,12 @@ export class ValemChatWidget {
     }
 
     this.hasSentWelcomeSequence = true;
+    if (this.brand.welcomeIntro === null) return;
 
     const name = this.visitorName ? this.visitorName.split(" ")[0] : "";
     const greeting = getGreeting();
     const msg1Text = name ? `${greeting}, ${name}!` : `${greeting}!`;
-    const msg2Text = "Eu sou a Valentina, da Valem Válvulas e Embalagens.";
+    const msg2Text = this.brand.welcomeIntro;
     const msg3Text = "Como posso te ajudar hoje?";
 
     setTimeout(() => {
@@ -984,13 +1085,13 @@ export class ValemChatWidget {
           m.sender === "visitor"
             ? this.visitorName || "Você"
             : m.sender === "ai"
-              ? "Valentina (Valem)"
+              ? this.brand.aiTranscriptLabel
               : "Operador";
         const content = m.text || (m.fileName ? `[Arquivo: ${m.fileName}]` : "[Áudio]");
         return `[${m.timeStr}] ${sender}:\n${content}\n`;
       })
       .join("\n");
-    const header = `--- Atendimento Valem Pack ---\nData: ${new Date().toLocaleDateString("pt-BR")}\nCliente: ${this.visitorName || "Visitante"} (${this.visitorDoc || "Não informado"})\n\n`;
+    const header = `--- ${this.brand.transcriptTitle} ---\nData: ${new Date().toLocaleDateString("pt-BR")}\nCliente: ${this.visitorName || "Visitante"} (${this.visitorDoc || "Não informado"})\n\n`;
     const fullText = header + transcript;
     const showToast = () => {
       const toast = document.getElementById("vlm-copy-toast");
@@ -1494,7 +1595,7 @@ export class ValemChatWidget {
     row.id = "vlm-typing-indicator";
     row.className = "vlm-typing-row";
     row.innerHTML = `
-      <img src="${this.opts.avatarUrl}" alt="Valentina" class="vlm-typing-avatar" id="vlm-typing-avatar-btn" />
+      <img src="${escapeHtml(this.opts.avatarUrl)}" alt="${escapeHtml(this.brand.aiName)}" class="vlm-typing-avatar" id="vlm-typing-avatar-btn" />
       <div class="vlm-typing-bubble">
         <span class="vlm-typing-dot"></span>
         <span class="vlm-typing-dot"></span>
@@ -1688,7 +1789,10 @@ export class ValemChatWidget {
           this.handleIncomingPayload(JSON.parse(event.data));
         } catch (e) {}
       };
-      this.ws.onclose = () => this.scheduleReconnect();
+      this.ws.onclose = (event) => {
+        if (event.code === 1008) return;
+        this.scheduleReconnect();
+      };
     } catch (e) {
       this.scheduleReconnect();
     }
@@ -1760,7 +1864,7 @@ export class ValemChatWidget {
       this.addMessage({
         id: `closed-${Date.now()}`,
         sender: "system",
-        text: "Atendimento finalizado. Agradecemos o contato com a Valem Pack!",
+        text: this.brand.closedMessage,
         timestamp: new Date().toISOString(),
         timeStr: formatTime(),
         fullDateStr: formatFullDate(),

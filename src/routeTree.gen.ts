@@ -46,6 +46,7 @@ import { Route as ApiWhatsappMetaTemplatesRouteImport } from './routes/api/whats
 import { Route as ApiWhatsappMetaStateRouteImport } from './routes/api/whatsapp/meta-state'
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
 import { Route as ApiValentinaSupervisorRouteImport } from './routes/api/valentina/supervisor'
+import { Route as ApiValentinaSiteChannelRouteImport } from './routes/api/valentina/site-channel'
 import { Route as ApiValentinaSdrRouteImport } from './routes/api/valentina/sdr'
 import { Route as ApiValentinaRodizioRouteImport } from './routes/api/valentina/rodizio'
 import { Route as ApiValentinaMessagesRouteImport } from './routes/api/valentina/messages'
@@ -358,6 +359,11 @@ const ApiWebhooksMetaRoute = ApiWebhooksMetaRouteImport.update({
 const ApiValentinaSupervisorRoute = ApiValentinaSupervisorRouteImport.update({
   id: '/api/valentina/supervisor',
   path: '/api/valentina/supervisor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiValentinaSiteChannelRoute = ApiValentinaSiteChannelRouteImport.update({
+  id: '/api/valentina/site-channel',
+  path: '/api/valentina/site-channel',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiValentinaSdrRoute = ApiValentinaSdrRouteImport.update({
@@ -1144,6 +1150,7 @@ export interface FileRoutesByFullPath {
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
+  '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
@@ -1309,6 +1316,7 @@ export interface FileRoutesByTo {
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
+  '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
@@ -1475,6 +1483,7 @@ export interface FileRoutesById {
   '/api/valentina/messages': typeof ApiValentinaMessagesRoute
   '/api/valentina/rodizio': typeof ApiValentinaRodizioRoute
   '/api/valentina/sdr': typeof ApiValentinaSdrRoute
+  '/api/valentina/site-channel': typeof ApiValentinaSiteChannelRoute
   '/api/valentina/supervisor': typeof ApiValentinaSupervisorRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
@@ -1642,6 +1651,7 @@ export interface FileRouteTypes {
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
+    | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
@@ -1807,6 +1817,7 @@ export interface FileRouteTypes {
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
+    | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
@@ -1972,6 +1983,7 @@ export interface FileRouteTypes {
     | '/api/valentina/messages'
     | '/api/valentina/rodizio'
     | '/api/valentina/sdr'
+    | '/api/valentina/site-channel'
     | '/api/valentina/supervisor'
     | '/api/webhooks/meta'
     | '/api/whatsapp/meta-state'
@@ -2129,6 +2141,7 @@ export interface RootRouteChildren {
   ApiValentinaMessagesRoute: typeof ApiValentinaMessagesRoute
   ApiValentinaRodizioRoute: typeof ApiValentinaRodizioRoute
   ApiValentinaSdrRoute: typeof ApiValentinaSdrRoute
+  ApiValentinaSiteChannelRoute: typeof ApiValentinaSiteChannelRoute
   ApiValentinaSupervisorRoute: typeof ApiValentinaSupervisorRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
   ApiWhatsappMetaStateRoute: typeof ApiWhatsappMetaStateRoute
@@ -2404,6 +2417,13 @@ declare module '@tanstack/react-router' {
       path: '/api/valentina/supervisor'
       fullPath: '/api/valentina/supervisor'
       preLoaderRoute: typeof ApiValentinaSupervisorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/valentina/site-channel': {
+      id: '/api/valentina/site-channel'
+      path: '/api/valentina/site-channel'
+      fullPath: '/api/valentina/site-channel'
+      preLoaderRoute: typeof ApiValentinaSiteChannelRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/valentina/sdr': {
@@ -3720,6 +3740,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaMessagesRoute: ApiValentinaMessagesRoute,
   ApiValentinaRodizioRoute: ApiValentinaRodizioRoute,
   ApiValentinaSdrRoute: ApiValentinaSdrRoute,
+  ApiValentinaSiteChannelRoute: ApiValentinaSiteChannelRoute,
   ApiValentinaSupervisorRoute: ApiValentinaSupervisorRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
   ApiWhatsappMetaStateRoute: ApiWhatsappMetaStateRoute,

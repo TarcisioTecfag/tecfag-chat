@@ -234,7 +234,22 @@ export function createIndustrialHandoffStore(
             .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, state.conv.contactId)));
           if (!contact) throw new Error("Contato não pertence ao tenant");
           const settings = cfg.config as Record<string, unknown>;
-          if (settings.whitelistEnabled === true) {
+          const siteContact = contact.mainChannel === "livechat";
+          if (siteContact && settings.siteChannelEnabled !== true) {
+            await tx
+              .update(agentFlowStates)
+              .set({
+                metadata: {
+                  ...state.meta,
+                  handoffNextAttemptAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+                },
+              })
+              .where(
+                and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
+              );
+            return { status: "handoff_failed", ...empty, superseded: true };
+          }
+          if (!siteContact && settings.whitelistEnabled === true) {
             const normalizePhone = (phone: string) =>
               phone.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
             if (
