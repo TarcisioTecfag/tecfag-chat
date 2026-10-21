@@ -70,6 +70,7 @@ SUBFLUXOS CANÔNICOS (não mostre códigos ao cliente):
 ${routes}
 
 REGRAS DE CLASSIFICAÇÃO:
+- Os subfluxos identificam o assunto; os destinos são unificados por equipe: Financeiro, Pós-Venda e Análise e revisão humana. Nunca use Atendimento Geral como destino.
 - A intenção é soberana sobre o nome do equipamento. Boleto da seladora é 2A_BOLETO; manual/esquema elétrico é 3_AT; manutenção de máquina Personnalité também é 3_AT.
 - NF relacionada a pedido/entrega é 4B_NF; documento fiscal financeiro sem contexto de pedido é 2B_NF.
 - Quero devolver/cancelar uma compra é POS_VENDA; estorno/reembolso de máquina já devolvida é 2C_OUTROS.
@@ -77,7 +78,7 @@ REGRAS DE CLASSIFICAÇÃO:
 - Uma campanha ou a palavra Personnalité NÃO comprova porte, capacidade nem classificação final. Use MAQUINAS enquanto coleta a aplicação/volume; classificação de linha depende de catálogo e validação do servidor. Nunca invente uma decisão do Decisor/LMS.
 - Pedido de humano ou pessoa específica: 5A_CLIENTE, sem insistir em documento ou qualificação. Uma cotação sem pedido de humano segue o comercial.
 - Currículo/vagas: 5B_CURRICULO; fornecedor oferecendo produtos/serviços: 5C_COMPRAS. Não confunda comprador buscando máquina com fornecedor.
-- Sem evidência suficiente, use subflow null, funnelStage triagem e targetFunnel null. Não adivinhe Máquinas.
+- Enquanto esclarece a necessidade, use subflow null, funnelStage triagem e targetFunnel null. Não adivinhe Máquinas. Se a solicitação não pertence a uma área identificável e precisa de uma pessoa, use 5A_CLIENTE para Análise e revisão humana.
 
 COLETA POR INTENÇÃO:
 Campos disponíveis: ${TECFAG_SDR_DEFAULT_FIELDS.join(", ")}. SETOR / FUNIL DE DESTINO é normalizado pelo servidor.

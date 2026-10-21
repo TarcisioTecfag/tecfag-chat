@@ -19,7 +19,7 @@ import {
 } from "../../db/schema";
 import { eq, and, asc, desc, inArray, gte, isNull, ne } from "drizzle-orm";
 import { getAiPersona } from "../ai-persona";
-import { isEligibleIndustrialOperator } from "../triage/industrial-policy";
+import { isEligibleIndustrialOperator, normalizeIndustrialFunnel, normalizeIndustrialFunnels } from "../triage/industrial-policy";
 import { mutateIndustrialRodizio, mergeIndustrialOperatorSettings } from "../triage/industrial-rodizio-store";
 import {
   RodizioOperatorConfig,
@@ -117,7 +117,9 @@ export class RodizioEngine {
             isOnLeave: flowOp.isOnLeave ?? false,
             isPenalized: flowOp.isPenalized ?? false,
             area: flowOp.area || "maquinas",
-            funnels: Array.isArray(flowOp.funnels) && flowOp.funnels.length > 0 ? flowOp.funnels : ["Máquinas"],
+            funnels: getAiPersona(tenantId).triagePolicy === "industrial"
+              ? normalizeIndustrialFunnels(Array.isArray(flowOp.funnels) ? flowOp.funnels : [])
+              : Array.isArray(flowOp.funnels) && flowOp.funnels.length > 0 ? flowOp.funnels : ["Máquinas"],
             compensation: flowOp.compensation ?? 0,
             leadsReceivedCount: flowOp.leadsReceivedCount ?? 0,
             recentLeads: flowOp.recentLeads || [],
@@ -311,10 +313,12 @@ export class RodizioEngine {
    * Alterna a participação em um funil específico
    */
   static async toggleFunnel(tenantId: string, operatorId: string, funnel: string): Promise<FlowOperator[]> {
-    if (getAiPersona(tenantId).triagePolicy === "industrial")
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      funnel = normalizeIndustrialFunnel(funnel);
       return mutateIndustrialRodizio(db, tenantId, (ops) => ops.map((op) => op.id !== operatorId ? op : {
         ...op, funnels: (op.funnels || []).includes(funnel) ? op.funnels.filter((item) => item !== funnel) : [...(op.funnels || []), funnel],
       }));
+    }
     const currentOps = await this.getRodizioState(tenantId);
     const updatedList = currentOps.map((op) => {
       if (op.id !== operatorId) return op;

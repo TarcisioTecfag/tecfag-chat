@@ -24,6 +24,10 @@ export const HANDOFF_ISSUES = {
     "Destino não configurado",
     "Vincule setor, funil e etapa exigidos pelo destino em Fluxos.",
   ],
+  destination_conflict: [
+    "Destinos anteriores com vínculos diferentes",
+    "Escolha uma única equipe, funil e etapa para o destino unificado em Fluxos e salve.",
+  ],
   destination_sector_invalid: [
     "Setor de destino indisponível",
     "Selecione um setor existente nesta empresa em Fluxos.",
@@ -42,7 +46,7 @@ export const HANDOFF_ISSUES = {
   ],
   no_eligible_operator: [
     "Nenhum responsável elegível",
-    "Confira participação, folga, autorização do subfluxo e vínculo ao setor na escala.",
+    "Confira participação, folga, autorização do destino e vínculo ao setor na escala.",
   ],
   crm_failed: [
     "Negociação não confirmada",

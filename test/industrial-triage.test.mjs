@@ -81,7 +81,10 @@ describe("roteamento industrial: regressões observadas no porte", () => {
       { funnelStage: "triagem", targetFunnel: null },
     );
     assert.equal(route("Oi").targetFunnel, null);
-    assert.equal(route("", { aiFunnelStage: "outros" }).targetFunnel, null);
+    const unclassified = route("", { aiFunnelStage: "outros" });
+    assert.equal(unclassified.targetFunnel, "Análise e revisão humana");
+    assert.equal(assessIndustrialReadiness(unclassified, {}).action, "review");
+    assert.equal(assessIndustrialReadiness(unclassified, {}).ready, true);
     assert.equal(route("", { aiFunnelStage: "sem_resposta" }).targetFunnel, null);
   });
   it("pedido atual sobrepõe setor anterior e declaração errada do LLM", () => {
@@ -372,8 +375,8 @@ describe("handoff: sucesso depende do que foi efetivamente persistido", () => {
   });
   it("pedido de humano e financeiro geral usam equipe correta sem card", async () => {
     for (const [text, funnel] of [
-      ["Quero falar com a Jessica", "Atendimento Geral"],
-      ["Preciso de reembolso", "Fin. Outros"],
+      ["Quero falar com a Jessica", "Análise e revisão humana"],
+      ["Preciso de reembolso", "Financeiro"],
     ]) {
       const { events, params } = setup({ route: route(text) });
       assert.equal((await executeIndustrialHandoff(params)).status, "transferred");
@@ -414,10 +417,12 @@ describe("equipes autorizadas e comunicação de pendências", () => {
     isPenalized: false,
   };
   const ids = new Set([operator.id]);
-  it("sem responsável do funil não usa Financeiro/Comercial como autorização genérica", () => {
+  it("autorizações anteriores do Financeiro valem para o destino unificado, sem liberar outras equipes", () => {
     assert.equal(isEligibleIndustrialOperator(operator, "Fin. Boleto", ids), true);
-    assert.equal(isEligibleIndustrialOperator(operator, "Fin. Outros", ids), false);
-    assert.equal(isEligibleIndustrialOperator(operator, "Financeiro", ids), false);
+    assert.equal(isEligibleIndustrialOperator(operator, "Fin. Outros", ids), true);
+    assert.equal(isEligibleIndustrialOperator(operator, "Financeiro", ids), true);
+    assert.equal(isEligibleIndustrialOperator(operator, "Pós-Venda", ids), false);
+    assert.equal(isEligibleIndustrialOperator(operator, "Análise e revisão humana", ids), false);
     assert.equal(isEligibleIndustrialOperator(operator, "", ids), false);
   });
   it("ID inexistente no tenant não participa mesmo se configurado no JSON", () => {
@@ -433,11 +438,17 @@ describe("equipes autorizadas e comunicação de pendências", () => {
         false,
       );
   });
-  it("Fluxos industrial expõe os 13 destinos e preserva as opções da Valem", () => {
+  it("Fluxos industrial expõe sete destinos unificados e preserva as opções da Valem", () => {
     const modern = getFlowConfiguration("tecfag");
-    assert.equal(modern.funnels.length, 13);
-    assert.ok(modern.funnels.includes("Fin. Outros"));
-    assert.ok(modern.funnels.includes("Atendimento Geral"));
+    assert.deepEqual(modern.funnels, [
+      "Máquinas",
+      "Personnalité",
+      "Peças",
+      "Financeiro",
+      "Assistência Técnica",
+      "Pós-Venda",
+      "Análise e revisão humana",
+    ]);
     assert.deepEqual(getFlowConfiguration("valem"), {
       areas: FLOW_AREAS,
       funnels: ALL_FLOW_FUNNELS,

@@ -3,6 +3,8 @@ import { agentConfigs, agentFlowStates, contacts, conversations, operators } fro
 import {
   assessIndustrialReadiness,
   INDUSTRIAL_POLICY_VERSION,
+  INDUSTRIAL_REVIEW_FUNNEL,
+  normalizeIndustrialFunnel,
   isEligibleIndustrialOperator,
   type CollectedFields,
   type IndustrialRoute,
@@ -23,7 +25,7 @@ import type {
   EnsureLocalCrmDealParams,
   EnsureLocalCrmDealResult,
 } from "../valentina/sdr-crm-local";
-import { industrialDestinationKey } from "./industrial-settings";
+import { industrialDestinationKey, resolveIndustrialDestination } from "./industrial-settings";
 import {
   IndustrialSettingsError,
   readIndustrialSettings,
@@ -179,8 +181,16 @@ export function createIndustrialHandoffStore(
               ? "Aguardando equipe"
               : "Encaminhamento pendente",
       })
-      .where(and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId))).returning();
-    if (updated) await appendIndustrialJournal(tx, state.flow, updated, "handoff", state.flow.lastInteractionAt.toISOString());
+      .where(and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)))
+      .returning();
+    if (updated)
+      await appendIndustrialJournal(
+        tx,
+        state.flow,
+        updated,
+        "handoff",
+        state.flow.lastInteractionAt.toISOString(),
+      );
   }
   return {
     /** Checkpoint durável separado: se o processo cair antes do commit, o worker retoma sem IA. */
@@ -236,8 +246,16 @@ export function createIndustrialHandoffStore(
           })
           .where(
             and(eq(agentFlowStates.tenantId, key.tenantId), eq(agentFlowStates.id, key.flowId)),
-          ).returning();
-        if (prepared) await appendIndustrialJournal(tx, state.flow, prepared, "collection", state.flow.lastInteractionAt.toISOString());
+          )
+          .returning();
+        if (prepared)
+          await appendIndustrialJournal(
+            tx,
+            state.flow,
+            prepared,
+            "collection",
+            state.flow.lastInteractionAt.toISOString(),
+          );
         return true;
       });
     },
@@ -356,13 +374,21 @@ export function createIndustrialHandoffStore(
               readiness = { ...readiness, action: "review", createsDeal: false };
             const destinationKey =
               readiness.action === "review" ? "REVIEW" : industrialDestinationKey(request.route);
-            const destination = destinationKey
-              ? configuration.settings.destinations[destinationKey]
+            const resolvedDestination = destinationKey
+              ? resolveIndustrialDestination(configuration.settings, destinationKey)
               : null;
+            if (resolvedDestination?.conflict)
+              throw new HandoffOperationalError("destination_conflict");
+            const destination = resolvedDestination?.destination;
             if (!destination) throw new HandoffOperationalError("destination_unconfigured");
+            if (readiness.createsDeal && (!destination.pipelineId || !destination.stageId))
+              throw new HandoffOperationalError("destination_pipeline_invalid");
             const sector = await validateIndustrialDestination(tx, key.tenantId, destination);
             const funnel =
-              readiness.action === "review" ? "Atendimento Geral" : request.route.targetFunnel;
+              readiness.action === "review"
+                ? INDUSTRIAL_REVIEW_FUNNEL
+                : request.route.targetFunnel &&
+                  normalizeIndustrialFunnel(request.route.targetFunnel);
             const registered = await tx
               .select({ id: operators.id, name: operators.name })
               .from(operators)
@@ -407,7 +433,7 @@ export function createIndustrialHandoffStore(
                       companyName: request.companyName,
                       targetOperatorId: operator.id,
                       targetOperatorName: operator.name,
-                      targetFunnel: request.route.targetFunnel!,
+                      targetFunnel: funnel!,
                       funnelStage: request.route.funnelStage,
                       collectedData: Object.fromEntries(
                         Object.entries(request.data).map(([name, field]) => [

@@ -127,14 +127,16 @@ export function getFlowConfiguration(tenantId: string): {
     areas: [
       ...FLOW_AREAS.map((area) =>
         area.id === "financeiro"
-          ? { ...area, defaultFunnels: [...area.defaultFunnels, "Fin. Outros"] }
-          : area,
+          ? { ...area, defaultFunnels: ["Financeiro"] }
+          : area.id === "pos_venda"
+            ? { ...area, defaultFunnels: ["Pós-Venda"] }
+            : area,
       ),
       {
         id: "outros",
-        name: "Outros e Análise",
-        description: "Atendimento humano, revisão e solicitações administrativas",
-        defaultFunnels: ["Atendimento Geral", "Currículos", "Compras / Fornecedores"],
+        name: "Análise e revisão humana",
+        description: "Solicitações sem área definida, atendimento humano e revisão",
+        defaultFunnels: ["Análise e revisão humana"],
         icon: "Folder",
         color: "#64748b",
       },

@@ -1,14 +1,35 @@
 import { z } from "zod";
 import {
   INDUSTRIAL_ROUTES,
+  INDUSTRIAL_REVIEW_FUNNEL,
   type IndustrialRoute,
   type IndustrialSubflow,
 } from "./industrial-policy.ts";
 
 export const INDUSTRIAL_SETTINGS_AGENT = "industrial_triage";
-export const DESTINATION_KEYS = [...Object.keys(INDUSTRIAL_ROUTES), "REVIEW"] as (
-  IndustrialSubflow | "REVIEW"
-)[];
+export const INDUSTRIAL_DESTINATIONS = {
+  MAQUINAS: { label: "Máquinas", createsDeal: true, aliases: ["MAQUINAS"] },
+  PERSONNALITE: { label: "Personnalité", createsDeal: true, aliases: ["PERSONNALITE"] },
+  PECAS: { label: "Peças", createsDeal: true, aliases: ["PECAS"] },
+  FINANCEIRO: {
+    label: "Financeiro",
+    createsDeal: true,
+    aliases: ["FINANCEIRO", "2A_BOLETO", "2B_NF", "2C_OUTROS"],
+  },
+  "3_AT": { label: "Assistência Técnica", createsDeal: true, aliases: ["3_AT"] },
+  POS_VENDA: {
+    label: "Pós-Venda",
+    createsDeal: true,
+    aliases: ["POS_VENDA", "4A_RASTREAR", "4B_NF"],
+  },
+  REVIEW: {
+    label: INDUSTRIAL_REVIEW_FUNNEL,
+    createsDeal: false,
+    aliases: ["REVIEW", "5A_CLIENTE"],
+  },
+} as const;
+export type IndustrialDestinationKey = keyof typeof INDUSTRIAL_DESTINATIONS;
+export const DESTINATION_KEYS = Object.keys(INDUSTRIAL_DESTINATIONS) as IndustrialDestinationKey[];
 const identifier = z.string().trim().min(1).max(160);
 export const machineSchema = z
   .object({
@@ -51,7 +72,10 @@ export const industrialSettingsSchema = z
   .strict()
   .superRefine((value, ctx) => {
     for (const key of Object.keys(value.destinations)) {
-      if (!DESTINATION_KEYS.includes(key as IndustrialSubflow))
+      if (
+        !DESTINATION_KEYS.includes(key as IndustrialDestinationKey) &&
+        !Object.hasOwn(INDUSTRIAL_ROUTES, key)
+      )
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["destinations", key],
@@ -59,7 +83,8 @@ export const industrialSettingsSchema = z
         });
       const destination = value.destinations[key];
       const createsDeal =
-        key !== "REVIEW" && INDUSTRIAL_ROUTES[key as IndustrialSubflow]?.createsDeal;
+        INDUSTRIAL_DESTINATIONS[key as IndustrialDestinationKey]?.createsDeal ??
+        INDUSTRIAL_ROUTES[key as IndustrialSubflow]?.createsDeal;
       if (createsDeal && (!destination.pipelineId || !destination.stageId))
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -110,10 +135,54 @@ export const emptyIndustrialSettings = (): IndustrialSettings => ({
   blockedFamilies: [],
   destinations: {},
 });
-export function industrialDestinationKey(route: IndustrialRoute): string | null {
-  if (!route.subflow) return null;
+export function industrialDestinationKey(route: IndustrialRoute): IndustrialDestinationKey | null {
   if (route.needsReview || route.reason === "human_requested") return "REVIEW";
-  return INDUSTRIAL_ROUTES[route.subflow].action === "inform" ? null : route.subflow;
+  if (!route.subflow || INDUSTRIAL_ROUTES[route.subflow].action === "inform") return null;
+  return (
+    DESTINATION_KEYS.find((key) =>
+      (INDUSTRIAL_DESTINATIONS[key].aliases as readonly string[]).includes(route.subflow!),
+    ) || null
+  );
+}
+
+/** Só unifica vínculos antigos equivalentes. Destinos divergentes exigem decisão administrativa. */
+export function resolveIndustrialDestination(
+  settings: IndustrialSettings,
+  key: IndustrialDestinationKey,
+) {
+  const entries = INDUSTRIAL_DESTINATIONS[key].aliases
+    .map((alias) => settings.destinations[alias])
+    .filter((value) => Boolean(value));
+  const signature = (value: IndustrialDestination) =>
+    JSON.stringify([value.sectorId, value.pipelineId || null, value.stageId || null]);
+  const conflict = new Set(entries.map(signature)).size > 1;
+  return {
+    configured: entries.length > 0,
+    conflict,
+    destination: conflict ? undefined : entries[0],
+  };
+}
+export function setIndustrialDestination(
+  settings: IndustrialSettings,
+  key: IndustrialDestinationKey,
+  value?: IndustrialDestination,
+): IndustrialSettings {
+  const destinations = { ...settings.destinations };
+  for (const alias of INDUSTRIAL_DESTINATIONS[key].aliases) delete destinations[alias];
+  if (value) destinations[key] = value;
+  return { ...settings, destinations };
+}
+export function consolidateIndustrialDestinations(
+  settings: IndustrialSettings,
+): IndustrialSettings {
+  let next = { ...settings, destinations: {} } as IndustrialSettings;
+  for (const key of DESTINATION_KEYS) {
+    const result = resolveIndustrialDestination(settings, key);
+    if (result.conflict)
+      throw new Error(`Escolha um único destino para ${INDUSTRIAL_DESTINATIONS[key].label}.`);
+    if (result.destination) next = setIndustrialDestination(next, key, result.destination);
+  }
+  return industrialSettingsSchema.parse(next);
 }
 
 /** Converte somente dados fornecidos explicitamente. Não lê arquivos/bancos nem ativa catálogo. */

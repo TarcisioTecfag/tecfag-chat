@@ -2573,6 +2573,127 @@ try {
       await scopedClient.unsafe("DROP FUNCTION fail_review_activity()");
     }
   });
+  await check(
+    "destinos unificados distribuem financeiro e pós-venda preservando o assunto",
+    async () => {
+      const previous = await readIndustrialSettings(scopedDb, tenantId);
+      const binding = { sectorId: "sector-sales", pipelineId: "pipe", stageId: "stage" };
+      await saveIndustrialSettings(
+        scopedDb,
+        tenantId,
+        previous.revision,
+        {
+          ...previous.settings,
+          destinations: {
+            ...previous.settings.destinations,
+            FINANCEIRO: binding,
+            POS_VENDA: binding,
+          },
+        },
+        opA,
+      );
+      await mutateIndustrialRodizio(scopedDb, tenantId, (ops) =>
+        ops.map((op) => ({
+          ...op,
+          isParticipating: true,
+          isOnLeave: false,
+          isPenalized: false,
+          funnels: [...op.funnels, "Financeiro", "Pós-Venda"],
+        })),
+      );
+      for (const [text, subject, createsDeal] of [
+        ["Preciso de boleto", "2A_BOLETO", true],
+        ["Preciso de XML", "2B_NF", true],
+        ["Preciso de estorno", "2C_OUTROS", false],
+        ["Quero rastrear meu pedido", "4A_RASTREAR", true],
+        ["Nota fiscal do pedido", "4B_NF", true],
+        ["Quero devolver a compra", "POS_VENDA", true],
+      ] as const) {
+        const key = await fixture();
+        const chosenRoute = resolveIndustrialRoute({ text, collectedData: {} });
+        await prepare(key, chosenRoute);
+        const before = await count(schema.crmDeals);
+        const result = await store.execute(key);
+        assert.equal(result.status, "transferred", text);
+        assert.equal(result.sectorId, "sector-sales");
+        assert.equal((await flow(key)).metadata?.subflow, subject);
+        assert.equal(await count(schema.crmDeals), before + (createsDeal ? 1 : 0));
+      }
+    },
+  );
+  await check(
+    "pendência antiga usa destino unificado sem recriar configuração ou perder o assunto",
+    async () => {
+      const key = await fixture();
+      const oldRoute = {
+        ...resolveIndustrialRoute({ text: "Preciso de boleto", collectedData: {} }),
+        targetFunnel: "Fin. Boleto",
+      };
+      // Simula checkpoint persistido pela versão anterior, sem depender de nova resposta da IA.
+      await prepare(key, oldRoute as typeof route);
+      assert.equal((await store.execute(key)).status, "transferred");
+      assert.equal((await flow(key)).metadata?.subflow, "2A_BOLETO");
+    },
+  );
+  await check(
+    "conflito legado bloqueia encaminhamento sem efeitos e permite correção explícita",
+    async () => {
+      const previous = await readIndustrialSettings(scopedDb, tenantId);
+      const finance = previous.settings.destinations.FINANCEIRO;
+      const legacy = { ...previous.settings, destinations: { ...previous.settings.destinations } };
+      delete legacy.destinations.FINANCEIRO;
+      legacy.destinations["2A_BOLETO"] = finance;
+      legacy.destinations["2B_NF"] = { ...finance, sectorId: "sector-review" };
+      assert.equal(industrialSettingsSchema.safeParse(legacy).success, true);
+      await scopedDb
+        .update(schema.agentConfigs)
+        .set({
+          config: {
+            settings: legacy,
+            revision: previous.revision,
+          },
+        })
+        .where(
+          and(
+            eq(schema.agentConfigs.tenantId, tenantId),
+            eq(schema.agentConfigs.agentType, "industrial_triage"),
+          ),
+        );
+      const key = await fixture();
+      await prepare(key, resolveIndustrialRoute({ text: "Preciso de boleto", collectedData: {} }));
+      const before = await count(schema.crmDeals);
+      const counters = (await config()).flowOperators.map((op) => [op.id, op.leadsReceivedCount]);
+      assert.equal((await store.execute(key)).status, "handoff_failed");
+      assert.equal((await diagnostics(key)).handoffIssue?.code, "destination_conflict");
+      assert.equal(await count(schema.crmDeals), before);
+      assert.deepEqual(
+        (await config()).flowOperators.map((op) => [op.id, op.leadsReceivedCount]),
+        counters,
+      );
+      await assert.rejects(
+        saveIndustrialSettings(scopedDb, tenantId, previous.revision, legacy, opA),
+        /Financeiro/,
+      );
+      assert.equal((await readIndustrialSettings(scopedDb, tenantId)).revision, previous.revision);
+      await saveIndustrialSettings(scopedDb, tenantId, previous.revision, previous.settings, opA);
+      assert.equal((await store.execute(key)).status, "transferred");
+    },
+  );
+  await check(
+    "solicitação sem área identificada vai para revisão humana sem card fictício",
+    async () => {
+      const key = await fixture();
+      const other = resolveIndustrialRoute({ aiFunnelStage: "outros", collectedData: {} });
+      await prepare(key, other, null);
+      const before = await count(schema.crmDeals);
+      const result = await store.execute(key);
+      assert.equal(result.status, "transferred");
+      assert.equal(result.sectorId, "sector-review");
+      assert.equal(result.deal, null);
+      assert.equal(await count(schema.crmDeals), before);
+      assert.equal((await flow(key)).metadata?.needsReview, true);
+    },
+  );
   console.log(
     JSON.stringify({
       suite: "industrial-handoff-postgres",

@@ -9,6 +9,10 @@ import {
   emptyIndustrialSettings,
   convertLegacyMachineCatalog,
   industrialDestinationKey,
+  DESTINATION_KEYS,
+  resolveIndustrialDestination,
+  consolidateIndustrialDestinations,
+  setIndustrialDestination,
 } from "../src/lib/triage/industrial-settings.ts";
 import {
   decideIndustrialMachine,
@@ -373,6 +377,96 @@ function apiHarness({
       }),
   };
 }
+describe("destinos unificados e compatibilidade de configuração", () => {
+  const binding = { sectorId: "finance", pipelineId: "pipeline", stageId: "entry" };
+  it("mantém os assuntos específicos com um destino por equipe", () => {
+    for (const [text, subflow, destination] of [
+      ["Preciso de boleto", "2A_BOLETO", "FINANCEIRO"],
+      ["Preciso de XML", "2B_NF", "FINANCEIRO"],
+      ["Preciso de estorno", "2C_OUTROS", "FINANCEIRO"],
+      ["Quero rastrear meu pedido", "4A_RASTREAR", "POS_VENDA"],
+      ["Nota fiscal do pedido", "4B_NF", "POS_VENDA"],
+      ["Quero devolver a compra", "POS_VENDA", "POS_VENDA"],
+      ["Quero falar com humano", "5A_CLIENTE", "REVIEW"],
+    ]) {
+      const route = resolveIndustrialRoute({ text, collectedData: {} });
+      assert.equal(route.subflow, subflow, text);
+      assert.equal(industrialDestinationKey(route), destination, text);
+    }
+    assert.equal(DESTINATION_KEYS.length, 7);
+    assert.equal(DESTINATION_KEYS.includes("5A_CLIENTE"), false);
+  });
+  it("lê vínculos antigos iguais e consolida sem duplicar destinos", () => {
+    const input = {
+      ...emptyIndustrialSettings(),
+      destinations: {
+        "2A_BOLETO": binding,
+        "2B_NF": { ...binding },
+        "2C_OUTROS": { ...binding },
+        "4A_RASTREAR": binding,
+        "4B_NF": { ...binding },
+        POS_VENDA: { ...binding },
+        "5A_CLIENTE": { sectorId: "review" },
+        REVIEW: { sectorId: "review" },
+      },
+    };
+    assert.equal(industrialSettingsSchema.safeParse(input).success, true);
+    assert.deepEqual(consolidateIndustrialDestinations(input).destinations, {
+      FINANCEIRO: binding,
+      POS_VENDA: binding,
+      REVIEW: { sectorId: "review" },
+    });
+    assert.ok(input.destinations["2A_BOLETO"]); // consulta não modifica o JSON original
+  });
+  it("vínculos divergentes não escolhem equipe, funil ou etapa arbitrariamente", () => {
+    for (const patch of [{ sectorId: "other" }, { pipelineId: "other" }, { stageId: "other" }]) {
+      const input = {
+        ...emptyIndustrialSettings(),
+        destinations: {
+          "2A_BOLETO": binding,
+          "2B_NF": { ...binding, ...patch },
+        },
+      };
+      const resolved = resolveIndustrialDestination(input, "FINANCEIRO");
+      assert.equal(resolved.conflict, true);
+      assert.equal(resolved.destination, undefined);
+      assert.throws(() => consolidateIndustrialDestinations(input), /Financeiro/);
+      const corrected = setIndustrialDestination(input, "FINANCEIRO", binding);
+      assert.deepEqual(consolidateIndustrialDestinations(corrected).destinations, {
+        FINANCEIRO: binding,
+      });
+      assert.deepEqual(setIndustrialDestination(input, "FINANCEIRO").destinations, {});
+    }
+  });
+  it("Atendimento Geral e revisão humana convergem sem perder divergência de configuração", () => {
+    const input = {
+      ...emptyIndustrialSettings(),
+      destinations: {
+        "5A_CLIENTE": { sectorId: "old" },
+        REVIEW: { sectorId: "review" },
+      },
+    };
+    assert.equal(resolveIndustrialDestination(input, "REVIEW").conflict, true);
+    const corrected = setIndustrialDestination(input, "REVIEW", { sectorId: "review" });
+    assert.deepEqual(consolidateIndustrialDestinations(corrected).destinations, {
+      REVIEW: { sectorId: "review" },
+    });
+  });
+  it("nomes antigos preservam o assunto e apontam para o destino novo", () => {
+    for (const [name, subflow, targetFunnel] of [
+      ["Fin. Boleto", "2A_BOLETO", "Financeiro"],
+      ["Fin. Nota Fiscal", "2B_NF", "Financeiro"],
+      ["Pós-Venda Rastreio", "4A_RASTREAR", "Pós-Venda"],
+      ["Pós-Venda - NF do Pedido", "4B_NF", "Pós-Venda"],
+      ["Atendimento Geral", "5A_CLIENTE", "Análise e revisão humana"],
+    ]) {
+      const route = resolveIndustrialRoute({ existingFunnel: name, collectedData: {} });
+      assert.equal(route.subflow, subflow);
+      assert.equal(route.targetFunnel, targetFunnel);
+    }
+  });
+});
+
 describe("configuração industrial autenticada", () => {
   for (const [options, expected] of [
     [{ authenticated: false }, 401],

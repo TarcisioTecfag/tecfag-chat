@@ -108,7 +108,7 @@ describe("Fagner SDR (Tecfag) — Persona, Fluxos, Kanban SDR e Regra de 3 Horas
       }),
     ).toEqual({
       funnelStage: "pos_venda",
-      targetFunnel: "Pós-Venda Rastreio",
+      targetFunnel: "Pós-Venda",
     });
 
     // 6. Pós-Venda - NF do Pedido
@@ -121,7 +121,7 @@ describe("Fagner SDR (Tecfag) — Persona, Fluxos, Kanban SDR e Regra de 3 Horas
       }),
     ).toEqual({
       funnelStage: "pos_venda",
-      targetFunnel: "Pós-Venda - NF do Pedido",
+      targetFunnel: "Pós-Venda",
     });
 
     // 7. Financeiro Boleto vs Nota Fiscal
@@ -133,7 +133,7 @@ describe("Fagner SDR (Tecfag) — Persona, Fluxos, Kanban SDR e Regra de 3 Horas
       }),
     ).toEqual({
       funnelStage: "financeiro",
-      targetFunnel: "Fin. Boleto",
+      targetFunnel: "Financeiro",
     });
 
     expect(
@@ -144,7 +144,7 @@ describe("Fagner SDR (Tecfag) — Persona, Fluxos, Kanban SDR e Regra de 3 Horas
       }),
     ).toEqual({
       funnelStage: "financeiro",
-      targetFunnel: "Fin. Nota Fiscal",
+      targetFunnel: "Financeiro",
     });
   });
 

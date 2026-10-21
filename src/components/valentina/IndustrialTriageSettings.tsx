@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import {
   DESTINATION_KEYS,
+  INDUSTRIAL_DESTINATIONS,
+  resolveIndustrialDestination,
+  setIndustrialDestination,
   convertLegacyMachineCatalog,
   emptyIndustrialSettings,
   findCatalogConflicts,
@@ -9,7 +12,6 @@ import {
   type IndustrialMachine,
   type IndustrialSettings,
 } from "@/lib/triage/industrial-settings";
-import { INDUSTRIAL_ROUTES, type IndustrialSubflow } from "@/lib/triage/industrial-policy";
 
 type Choices = {
   sectors: { id: string; name: string }[];
@@ -108,6 +110,9 @@ export function IndustrialTriageSettings() {
     `${entry.name} ${entry.sku} ${entry.code}`.toLowerCase().includes(search.toLowerCase()),
   );
   const conflicts = findCatalogConflicts(settings.catalog);
+  const destinationConflicts = DESTINATION_KEYS.filter(
+    (key) => resolveIndustrialDestination(settings, key).conflict,
+  );
   return (
     <details className="border border-border bg-card rounded-xl p-4">
       <summary className="cursor-pointer font-bold text-sm">
@@ -132,20 +137,24 @@ export function IndustrialTriageSettings() {
           <fieldset disabled={busy} className="space-y-5 min-w-0">
             <div className="space-y-3">
               <h3 className="font-semibold text-sm">Destinos do atendimento</h3>
-              {DESTINATION_KEYS.filter(
-                (key) => key === "REVIEW" || INDUSTRIAL_ROUTES[key].action !== "inform",
-              ).map((key) => {
-                const policy =
-                  key === "REVIEW" ? null : INDUSTRIAL_ROUTES[key as IndustrialSubflow];
-                const destination = settings.destinations[key];
+              <p className="text-xs text-muted-foreground">
+                Financeiro e Pós-Venda têm um destino por equipe. Boleto, nota fiscal e rastreio
+                continuam registrados como assuntos da triagem. Solicitações sem área definida
+                seguem para Análise e revisão humana.
+              </p>
+              {DESTINATION_KEYS.map((key) => {
+                const policy = INDUSTRIAL_DESTINATIONS[key];
+                const resolved = resolveIndustrialDestination(settings, key);
+                const destination =
+                  resolved.destination || (resolved.configured ? { sectorId: "" } : undefined);
                 const patch = (value: Partial<NonNullable<typeof destination>>) =>
-                  update({
-                    ...settings,
-                    destinations: {
-                      ...settings.destinations,
-                      [key]: { ...destination, sectorId: destination?.sectorId || "", ...value },
-                    },
-                  });
+                  update(
+                    setIndustrialDestination(settings, key, {
+                      ...destination,
+                      sectorId: destination?.sectorId || "",
+                      ...value,
+                    }),
+                  );
                 return (
                   <div key={key} className="border border-border rounded-lg p-3 space-y-2">
                     <label className="flex items-center gap-2 text-xs font-semibold">
@@ -154,14 +163,24 @@ export function IndustrialTriageSettings() {
                         checked={Boolean(destination)}
                         disabled={busy}
                         onChange={(event) => {
-                          const destinations = { ...settings.destinations };
-                          if (event.target.checked) destinations[key] = { sectorId: "" };
-                          else delete destinations[key];
-                          update({ ...settings, destinations });
+                          update(
+                            setIndustrialDestination(
+                              settings,
+                              key,
+                              event.target.checked ? { sectorId: "" } : undefined,
+                            ),
+                          );
                         }}
                       />
-                      {policy?.funnel || "Análise e revisão humana"}
+                      {policy.label}
                     </label>
+                    {resolved.conflict && (
+                      <p role="alert" className="text-xs text-amber-600">
+                        Os destinos anteriores têm vínculos diferentes. Selecione a equipe, o funil
+                        e a etapa deste destino unificado, ou desmarque para desativá-lo. O
+                        encaminhamento permanece pendente até a correção.
+                      </p>
+                    )}
                     {destination && (
                       <div className="grid gap-2 md:grid-cols-3">
                         <label className="text-xs">
@@ -542,7 +561,7 @@ export function IndustrialTriageSettings() {
             <button
               type="button"
               className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm disabled:opacity-50"
-              disabled={busy || !dirty || conflicts.length > 0}
+              disabled={busy || !dirty || conflicts.length > 0 || destinationConflicts.length > 0}
               onClick={() => void save()}
             >
               {busy ? "Salvando…" : "Salvar catálogo e destinos"}

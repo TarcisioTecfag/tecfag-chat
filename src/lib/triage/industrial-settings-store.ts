@@ -1,8 +1,10 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
+import { ZodError } from "zod";
 import { agentConfigs, crmPipelines, crmStages, sectors } from "../../db/schema";
 import {
   industrialSettingsSchema,
+  consolidateIndustrialDestinations,
   emptyIndustrialSettings,
   INDUSTRIAL_SETTINGS_AGENT,
   type IndustrialSettings,
@@ -117,7 +119,15 @@ export async function saveIndustrialSettings(
   input: unknown,
   operatorId: string,
 ) {
-  const settings = industrialSettingsSchema.parse(input);
+  const parsed = industrialSettingsSchema.parse(input);
+  let settings: IndustrialSettings;
+  try {
+    settings = consolidateIndustrialDestinations(parsed);
+  } catch (error) {
+    if (error instanceof Error && !(error instanceof ZodError))
+      throw new IndustrialSettingsError(error.message);
+    throw error;
+  }
   return database.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext('industrial-settings-v1'))`,

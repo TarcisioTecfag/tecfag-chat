@@ -1,5 +1,7 @@
 import {
   assessIndustrialReadiness,
+  INDUSTRIAL_REVIEW_FUNNEL,
+  normalizeIndustrialFunnel,
   type CollectedFields,
   type IndustrialRoute,
 } from "./industrial-policy.ts";
@@ -39,7 +41,10 @@ export async function executeIndustrialHandoff(params: {
   if (!readiness.ready) return { status: "collecting", ...empty };
   if (readiness.action === "inform") return { status: "resolved", ...empty };
   // Pedidos de humano e classificação incerta chegam à equipe de revisão, sem negociação fictícia.
-  const funnel = readiness.action === "review" ? "Atendimento Geral" : params.route.targetFunnel;
+  const funnel =
+    readiness.action === "review"
+      ? INDUSTRIAL_REVIEW_FUNNEL
+      : params.route.targetFunnel && normalizeIndustrialFunnel(params.route.targetFunnel);
   if (!funnel) return { status: "waiting_for_team", ...empty };
   let deal: HandoffDeal | null = null;
   let beforeTransferFailed = false;

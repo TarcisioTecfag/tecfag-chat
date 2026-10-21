@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { agentConfigs } from "../../db/schema";
 import type { db } from "../../db";
 import type { FlowOperator } from "../valentina/rodizio-types";
+import { normalizeIndustrialFunnels } from "./industrial-policy";
 
 export type IndustrialDatabase = typeof db;
 export type IndustrialTransaction = Parameters<Parameters<IndustrialDatabase["transaction"]>[0]>[0];
@@ -52,7 +53,14 @@ export async function mutateIndustrialRodizio(
   return database.transaction(async (tx) => {
     const row = await lockIndustrialRodizio(tx, tenantId);
     const config = (row?.config || {}) as RodizioConfig;
-    const next = mutate(Array.isArray(config.flowOperators) ? config.flowOperators : [], config);
+    const current = (Array.isArray(config.flowOperators) ? config.flowOperators : []).map((op) => ({
+      ...op,
+      funnels: normalizeIndustrialFunnels(Array.isArray(op.funnels) ? op.funnels : []),
+    }));
+    const next = mutate(current, config).map((op) => ({
+      ...op,
+      funnels: normalizeIndustrialFunnels(Array.isArray(op.funnels) ? op.funnels : []),
+    }));
     if (row) await writeIndustrialRodizio(tx, tenantId, row.id, { ...config, flowOperators: next });
     else
       await tx.insert(agentConfigs).values({

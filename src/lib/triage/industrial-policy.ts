@@ -1,5 +1,6 @@
 /** Regras de triagem industrial compartilháveis por Site e WhatsApp. Sem IO. */
-export const INDUSTRIAL_POLICY_VERSION = "industrial-v2";
+export const INDUSTRIAL_POLICY_VERSION = "industrial-v3";
+export const INDUSTRIAL_REVIEW_FUNNEL = "Análise e revisão humana";
 export type TriageStage =
   | "triagem"
   | "assistencia_tecnica"
@@ -36,21 +37,21 @@ export const INDUSTRIAL_ROUTES = {
   },
   "2A_BOLETO": {
     stage: "financeiro",
-    funnel: "Fin. Boleto",
+    funnel: "Financeiro",
     createsDeal: true,
     action: "handoff",
     fields: ["name", "document", "request"],
   },
   "2B_NF": {
     stage: "financeiro",
-    funnel: "Fin. Nota Fiscal",
+    funnel: "Financeiro",
     createsDeal: true,
     action: "handoff",
     fields: ["name", "document", "request"],
   },
   "2C_OUTROS": {
     stage: "financeiro",
-    funnel: "Fin. Outros",
+    funnel: "Financeiro",
     createsDeal: false,
     action: "handoff",
     fields: ["name", "request"],
@@ -64,30 +65,30 @@ export const INDUSTRIAL_ROUTES = {
   },
   "4A_RASTREAR": {
     stage: "pos_venda",
-    funnel: "Pós-Venda Rastreio",
+    funnel: "Pós-Venda",
     createsDeal: true,
     action: "handoff",
     fields: ["name", "document", "request"],
   },
   "4B_NF": {
     stage: "pos_venda",
-    funnel: "Pós-Venda - NF do Pedido",
+    funnel: "Pós-Venda",
     createsDeal: true,
     action: "handoff",
     fields: ["name", "document", "request"],
   },
   POS_VENDA: {
     stage: "pos_venda",
-    funnel: "Pós-Venda Geral",
+    funnel: "Pós-Venda",
     createsDeal: true,
     action: "handoff",
     fields: ["name", "document", "request"],
   },
   "5A_CLIENTE": {
     stage: "outros",
-    funnel: "Atendimento Geral",
+    funnel: INDUSTRIAL_REVIEW_FUNNEL,
     createsDeal: false,
-    action: "handoff",
+    action: "review",
     fields: [],
   },
   "5B_CURRICULO": {
@@ -108,7 +109,39 @@ export const INDUSTRIAL_ROUTES = {
 
 export type IndustrialSubflow = keyof typeof INDUSTRIAL_ROUTES;
 export type IndustrialFunnel = (typeof INDUSTRIAL_ROUTES)[IndustrialSubflow]["funnel"];
-export const INDUSTRIAL_FUNNELS = Object.values(INDUSTRIAL_ROUTES).map((route) => route.funnel);
+export const INDUSTRIAL_FUNNELS = [
+  ...new Set(
+    Object.values(INDUSTRIAL_ROUTES)
+      .filter((route) => route.action !== "inform")
+      .map((route) => route.funnel),
+  ),
+];
+
+/** Compatibilidade somente do núcleo industrial; não altera a política dos demais tenants. */
+const LEGACY_INDUSTRIAL_FUNNELS: Record<string, string> = {
+  "Fin. Boleto": "Financeiro",
+  "Fin. Nota Fiscal": "Financeiro",
+  "Fin. Outros": "Financeiro",
+  "Pós-Venda Rastreio": "Pós-Venda",
+  "Pós-Venda - NF do Pedido": "Pós-Venda",
+  "Pós-Venda Geral": "Pós-Venda",
+  "Atendimento Geral": INDUSTRIAL_REVIEW_FUNNEL,
+};
+export function normalizeIndustrialFunnel(value: string): string {
+  const normalized = normalizeTriageText(value);
+  return (
+    Object.entries(LEGACY_INDUSTRIAL_FUNNELS).find(
+      ([name]) => normalizeTriageText(name) === normalized,
+    )?.[1] ||
+    INDUSTRIAL_FUNNELS.find((name) => normalizeTriageText(name) === normalized) ||
+    value
+  );
+}
+export function normalizeIndustrialFunnels(values: readonly string[]): string[] {
+  return [
+    ...new Set(values.filter((value) => typeof value === "string").map(normalizeIndustrialFunnel)),
+  ];
+}
 export type RequiredField = "name" | "document" | "request" | "application" | "production";
 export interface IndustrialRoute {
   subflow: IndustrialSubflow | null;
@@ -159,6 +192,20 @@ export function isIndustrialSubflow(value: unknown): value is IndustrialSubflow 
 function declaredSubflow(value?: string | null): IndustrialSubflow | null {
   if (isIndustrialSubflow(value)) return value;
   const normalized = normalizeTriageText(value || "");
+  // Rótulos antigos preservam o assunto específico; o destino novo continua unificado.
+  const legacy: Record<string, IndustrialSubflow> = {
+    "Fin. Boleto": "2A_BOLETO",
+    "Fin. Nota Fiscal": "2B_NF",
+    "Fin. Outros": "2C_OUTROS",
+    "Pós-Venda Rastreio": "4A_RASTREAR",
+    "Pós-Venda - NF do Pedido": "4B_NF",
+    "Pós-Venda Geral": "POS_VENDA",
+    "Atendimento Geral": "5A_CLIENTE",
+    Financeiro: "2C_OUTROS",
+    "Pós-Venda": "POS_VENDA",
+  };
+  const old = Object.entries(legacy).find(([name]) => normalizeTriageText(name) === normalized);
+  if (old) return old[1];
   return (
     (Object.keys(INDUSTRIAL_ROUTES) as IndustrialSubflow[]).find(
       (key) => normalizeTriageText(INDUSTRIAL_ROUTES[key].funnel) === normalized,
@@ -254,7 +301,7 @@ export function requestsHuman(raw: string): boolean {
   );
 }
 
-/** Funil autorizado por igualdade; área genérica não concede permissão de atendimento. */
+/** Autorização por destino unificado, incluindo os nomes industriais anteriores. */
 export function isEligibleIndustrialOperator(
   operator: {
     id: string;
@@ -266,7 +313,7 @@ export function isEligibleIndustrialOperator(
   target: string,
   systemOperatorIds: ReadonlySet<string>,
 ): boolean {
-  const normalized = normalizeTriageText(target);
+  const normalized = normalizeTriageText(normalizeIndustrialFunnel(target));
   return (
     Boolean(normalized) &&
     systemOperatorIds.has(operator.id) &&
@@ -275,7 +322,9 @@ export function isEligibleIndustrialOperator(
     operator.isPenalized !== true &&
     Array.isArray(operator.funnels) &&
     operator.funnels.some(
-      (funnel) => typeof funnel === "string" && normalizeTriageText(funnel) === normalized,
+      (funnel) =>
+        typeof funnel === "string" &&
+        normalizeTriageText(normalizeIndustrialFunnel(funnel)) === normalized,
     )
   );
 }
@@ -333,6 +382,7 @@ export function resolveIndustrialRoute(input: ResolveIndustrialRouteInput): Indu
   }
   if (!subflow) {
     const other = input.aiFunnelStage === "outros";
+    if (other) return routeFor("5A_CLIENTE", "unknown", true);
     return {
       subflow: null,
       funnelStage: other ? "outros" : "triagem",
@@ -374,7 +424,7 @@ function routeFor(
     subflow,
     funnelStage: INDUSTRIAL_ROUTES[subflow].stage,
     targetFunnel: INDUSTRIAL_ROUTES[subflow].funnel,
-    needsReview,
+    needsReview: needsReview || subflow === "5A_CLIENTE",
     reason,
   };
 }
