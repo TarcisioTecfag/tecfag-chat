@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import {
+  cleanPlainNotificationText,
+  renderFormattedNotificationText,
+} from "@/lib/format-notification-text";
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -57,13 +61,13 @@ interface SupervisorApiData {
 
 const ALERT_TYPES = [
   { value: "all",               label: "Todos",          color: "bg-muted text-muted-foreground" },
-  { value: "sla_alert",         label: "SLA",            color: "bg-amber-100 text-amber-700" },
-  { value: "lead_transfer",     label: "Leads",          color: "bg-primary-soft text-primary" },
-  { value: "sentiment_alert",   label: "Sentimento",     color: "bg-rose-100 text-rose-700" },
-  { value: "operator_overload", label: "Sobrecarga",     color: "bg-violet-100 text-violet-700" },
-  { value: "no_response",       label: "Sem Resposta",   color: "bg-orange-100 text-orange-700" },
-  { value: "rating_received",   label: "Avaliações",     color: "bg-yellow-100 text-yellow-700" },
-  { value: "daily_summary",     label: "Resumo",         color: "bg-sky-100 text-sky-700" },
+  { value: "sla_alert",         label: "SLA",            color: "bg-amber-500/12 text-amber-600 dark:text-amber-400" },
+  { value: "lead_transfer",     label: "Leads",          color: "bg-primary/12 text-primary" },
+  { value: "sentiment_alert",   label: "Sentimento",     color: "bg-rose-500/12 text-rose-600 dark:text-rose-400" },
+  { value: "operator_overload", label: "Sobrecarga",     color: "bg-violet-500/12 text-violet-600 dark:text-violet-400" },
+  { value: "no_response",       label: "Sem Resposta",   color: "bg-orange-500/12 text-orange-600 dark:text-orange-400" },
+  { value: "rating_received",   label: "Avaliações",     color: "bg-amber-500/12 text-amber-600 dark:text-amber-400" },
+  { value: "daily_summary",     label: "Resumo",         color: "bg-sky-500/12 text-sky-600 dark:text-sky-400" },
 ] as const;
 
 type QuickPeriod = "today" | "yesterday" | "7d" | "30d" | "custom";
@@ -124,9 +128,12 @@ function getOperatorInitials(name: string) {
   const parts = name.trim().split(" ");
   const initials = parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : name.slice(0, 2);
   const colors = [
-    "bg-violet-100 text-violet-700", "bg-sky-100 text-sky-700",
-    "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700",
-    "bg-rose-100 text-rose-700", "bg-indigo-100 text-indigo-700",
+    "bg-violet-500/12 text-violet-600 dark:text-violet-400",
+    "bg-sky-500/12 text-sky-600 dark:text-sky-400",
+    "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
+    "bg-amber-500/12 text-amber-600 dark:text-amber-400",
+    "bg-rose-500/12 text-rose-600 dark:text-rose-400",
+    "bg-indigo-500/12 text-indigo-600 dark:text-indigo-400",
   ];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash += name.charCodeAt(i);
@@ -135,14 +142,14 @@ function getOperatorInitials(name: string) {
 
 function getNotifIcon(type: string) {
   switch (type) {
-    case "lead_transfer":     return { icon: ArrowRight,    color: "bg-primary-soft text-primary" };
-    case "sla_alert":         return { icon: AlertTriangle, color: "bg-amber-100 text-amber-600" };
-    case "no_response":       return { icon: Clock,         color: "bg-orange-100 text-orange-600" };
-    case "daily_summary":     return { icon: BarChart2,     color: "bg-sky-100 text-sky-600" };
-    case "sentiment_alert":   return { icon: Zap,           color: "bg-rose-100 text-rose-600" };
-    case "operator_overload": return { icon: Users,         color: "bg-violet-100 text-violet-600" };
-    case "rating_received":   return { icon: Star,          color: "bg-yellow-100 text-yellow-600" };
-    default:                  return { icon: Bell,          color: "bg-muted text-muted-foreground" };
+    case "lead_transfer":     return { icon: ArrowRight,    color: "bg-primary/12 text-primary border border-primary/20" };
+    case "sla_alert":         return { icon: AlertTriangle, color: "bg-amber-500/12 text-amber-600 dark:text-amber-400 border border-amber-500/20" };
+    case "no_response":       return { icon: Clock,         color: "bg-orange-500/12 text-orange-600 dark:text-orange-400 border border-orange-500/20" };
+    case "daily_summary":     return { icon: BarChart2,     color: "bg-sky-500/12 text-sky-600 dark:text-sky-400 border border-sky-500/20" };
+    case "sentiment_alert":   return { icon: Zap,           color: "bg-rose-500/12 text-rose-600 dark:text-rose-400 border border-rose-500/20" };
+    case "operator_overload": return { icon: Users,         color: "bg-violet-500/12 text-violet-600 dark:text-violet-400 border border-violet-500/20" };
+    case "rating_received":   return { icon: Star,          color: "bg-amber-500/12 text-amber-600 dark:text-amber-400 border border-amber-500/20" };
+    default:                  return { icon: Bell,          color: "bg-muted text-muted-foreground border border-border" };
   }
 }
 
@@ -343,22 +350,22 @@ export function SupervisorTab() {
       <div className="grid grid-cols-4 gap-3 shrink-0">
         <KpiCard
           icon={Bell}         label="Notificações Enviadas" value={kpis.notificationsSent}
-          accent="bg-emerald-100 text-emerald-600" loading={loading}
+          accent="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" loading={loading}
           active={activeType === "all" && false}
         />
         <KpiCard
           icon={MessageSquare} label="Perguntas Respondidas" value={kpis.questionsAnswered}
-          accent="bg-sky-100 text-sky-600" loading={loading}
+          accent="bg-sky-500/12 text-sky-600 dark:text-sky-400 border border-sky-500/20" loading={loading}
         />
         <KpiCard
           icon={AlertTriangle} label="Alertas SLA" value={kpis.slaAlerts}
-          accent="bg-amber-100 text-amber-600" loading={loading}
+          accent="bg-amber-500/12 text-amber-600 dark:text-amber-400 border border-amber-500/20" loading={loading}
           active={activeType === "sla_alert"}
           onClick={() => setActiveType(prev => prev === "sla_alert" ? "all" : "sla_alert")}
         />
         <KpiCard
           icon={SendIcon} label="Leads Transferidos" value={kpis.leadsTransferred}
-          accent="bg-primary-soft text-primary" loading={loading}
+          accent="bg-primary/12 text-primary border border-primary/20" loading={loading}
           active={activeType === "lead_transfer"}
           onClick={() => setActiveType(prev => prev === "lead_transfer" ? "all" : "lead_transfer")}
         />
@@ -437,7 +444,7 @@ export function SupervisorTab() {
                           <div className="flex items-center gap-2 mb-0.5">
                             <PriorityDot priority={notif.priority} />
                             <span className="text-xs font-bold text-foreground truncate flex-1">
-                              {notif.title}
+                              {cleanPlainNotificationText(notif.title)}
                             </span>
 
                             {/* Badge de agrupamento */}
@@ -445,7 +452,7 @@ export function SupervisorTab() {
                               <button
                                 onClick={() => toggleExpand(notif.id)}
                                 title={isExpanded ? "Recolher" : `${notif.repeatCount} ocorrências — clique para ver`}
-                                className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-100 hover:bg-violet-200 text-violet-700 text-[9px] font-bold transition-colors"
+                                className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-500/12 hover:bg-violet-500/20 text-violet-600 dark:text-violet-400 border border-violet-500/20 text-[9px] font-bold transition-colors cursor-pointer"
                               >
                                 <Repeat2 className="h-2.5 w-2.5" />
                                 ×{notif.repeatCount}
@@ -460,7 +467,7 @@ export function SupervisorTab() {
                               <button
                                 onClick={() => handleOpenConversation(notif.conversationId!)}
                                 title="Abrir conversa"
-                                className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 hover:bg-amber-200 text-amber-700 text-[9px] font-bold transition-colors"
+                                className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/12 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/25 text-[9px] font-bold transition-colors cursor-pointer"
                               >
                                 <ExternalLink className="h-2.5 w-2.5" />
                                 Ver
@@ -469,7 +476,10 @@ export function SupervisorTab() {
                           </div>
 
                           <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2">
-                            {notif.description}
+                            {renderFormattedNotificationText(notif.description, {
+                              stripEmojis: true,
+                              stripRedundantPrefix: isSla,
+                            })}
                           </p>
 
                           {/* Timestamps — início e última ocorrência */}

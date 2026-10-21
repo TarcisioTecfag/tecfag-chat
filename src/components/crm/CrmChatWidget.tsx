@@ -107,9 +107,40 @@ function previewSnippet(text: string) {
   return `${labels[type || ""] || "Mídia"}${caption ? `: ${caption}` : ""}`;
 }
 
+function renderInlineBoldSegments(segment: string, keyPrefix: string) {
+  if (!segment || !segment.includes("*")) return segment;
+  const normalized = segment.replace(/\*([^*\n]*)\*([^*\n]+)\*([^*\n]*)\*/g, "*$1$2$3*");
+  const tokenRegex = /(\*\*[^*\n]+\*\*|\*[^\s*](?:[^*\n]*[^\s*])?\*)/g;
+  const tokens = normalized.split(tokenRegex);
+  if (tokens.length === 1) return segment;
+
+  return tokens.map((tok, i) => {
+    if (!tok) return null;
+    if (tok.startsWith("**") && tok.endsWith("**") && tok.length > 4) {
+      return (
+        <strong key={`${keyPrefix}-b2-${i}`} className="font-semibold">
+          {tok.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (tok.startsWith("*") && tok.endsWith("*") && tok.length > 2) {
+      return (
+        <strong key={`${keyPrefix}-b1-${i}`} className="font-semibold">
+          {tok.slice(1, -1)}
+        </strong>
+      );
+    }
+    return <React.Fragment key={`${keyPrefix}-t-${i}`}>{tok}</React.Fragment>;
+  });
+}
+
 function renderTextWithLinks(text: string, isMe?: boolean) {
+  if (!text) return "";
   const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
   const parts = text.split(urlRegex);
+  if (parts.length === 1) {
+    return renderInlineBoldSegments(text, "w-txt");
+  }
 
   return parts.map((part, index) => {
     if (part.match(urlRegex)) {
@@ -143,7 +174,7 @@ function renderTextWithLinks(text: string, isMe?: boolean) {
         </React.Fragment>
       );
     }
-    return part;
+    return <React.Fragment key={index}>{renderInlineBoldSegments(part, `w-p-${index}`)}</React.Fragment>;
   });
 }
 

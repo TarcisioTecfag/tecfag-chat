@@ -7,9 +7,13 @@ import {
   Lock,
   AlertCircle,
   ArrowRight,
+  Clock,
+  UserCheck,
+  Users,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { MessageReactionPicker } from "./MessageReactionPicker";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
@@ -488,7 +492,13 @@ function ChatMessageBubbleComponent({
                 onClick={(e) => onBubbleClick(e, m.id)}
                 className={`${inR} ${
                   m.isWarning
-                    ? "bg-emerald-500/5 border-emerald-500/10 dark:bg-emerald-950/15 dark:border-emerald-900/30 border-l-4 border-l-primary text-foreground text-[11px]"
+                    ? `bg-card border-border border-l-4 ${
+                        m.warningType === "delay"
+                          ? "border-l-amber-500"
+                          : m.warningType === "overload"
+                          ? "border-l-violet-500"
+                          : "border-l-primary"
+                      } text-foreground text-[11px]`
                     : "bg-card border-border text-foreground text-sm"
                 } border px-4 py-2.5 leading-relaxed shadow-soft text-left cursor-pointer transition-all duration-300 ${
                   isMatch ? "scale-[1.01] shadow-lg" : ""
@@ -499,9 +509,33 @@ function ChatMessageBubbleComponent({
                 }}
               >
                 {m.isWarning && (
-                  <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-primary mb-1 select-none">
-                    <AlertCircle className="h-3 w-3 shrink-0" />
-                    Aviso de {aiPersona.name}
+                  <div
+                    className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider mb-1.5 select-none ${
+                      m.warningType === "delay"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : m.warningType === "overload"
+                        ? "text-violet-600 dark:text-violet-400"
+                        : "text-primary"
+                    }`}
+                  >
+                    {m.warningType === "delay" ? (
+                      <Clock className="h-3 w-3 shrink-0" />
+                    ) : m.warningType === "new_lead" ? (
+                      <UserCheck className="h-3 w-3 shrink-0" />
+                    ) : m.warningType === "overload" ? (
+                      <Users className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <AlertCircle className="h-3 w-3 shrink-0" />
+                    )}
+                    <span>
+                      {m.warningType === "delay"
+                        ? `Alerta de SLA · ${aiPersona.name}`
+                        : m.warningType === "new_lead"
+                        ? `Novo Lead · ${aiPersona.name}`
+                        : m.warningType === "overload"
+                        ? `Atendimentos Ativos · ${aiPersona.name}`
+                        : `Aviso de ${aiPersona.name}`}
+                    </span>
                   </div>
                 )}
                 {displayQuotedContent && (
@@ -514,7 +548,7 @@ function ChatMessageBubbleComponent({
                   />
                 )}
                 {renderMessageContent(
-                  m.text,
+                  m.isWarning ? stripNotificationEmojis(m.text) : m.text,
                   onMediaClick,
                   false,
                   undefined,

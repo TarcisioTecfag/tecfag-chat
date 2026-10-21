@@ -209,12 +209,12 @@ export class SupervisorEngine {
     const mins = waitMinutes % 60;
     const waitFormatted = hours > 0 ? `${hours}h${mins > 0 ? ` ${mins}min` : ""}` : `${waitMinutes} minutos`;
 
-    let alertMessage = `⚠️ *Atenção ao SLA:* O cliente *${clientName}* está aguardando sua resposta há *${waitFormatted}*.`;
+    let alertMessage = `*Atenção ao SLA:* O cliente *${clientName}* está aguardando sua resposta há *${waitFormatted}*.`;
 
     if (is24h) {
-      alertMessage = `🚨 *SLA Estourado (+24h sem resposta):* O cliente *${clientName}* está aguardando retorno há *${waitFormatted}*! Priorize este atendimento agora.`;
+      alertMessage = `*SLA Estourado (+24h sem resposta):* O cliente *${clientName}* está aguardando retorno há *${waitFormatted}*! Priorize este atendimento agora.`;
     } else if (priority === "high") {
-      alertMessage = `🚨 *SLA Estourado:* O cliente *${clientName}* já passou do limite de SLA e aguarda resposta há *${waitFormatted}*!`;
+      alertMessage = `*SLA Estourado:* O cliente *${clientName}* já passou do limite de SLA e aguarda resposta há *${waitFormatted}*!`;
     }
 
     if (!conv.operatorId) return;
@@ -227,8 +227,8 @@ export class SupervisorEngine {
       title: is24h
         ? `Cliente sem resposta há 24h+ — ${clientName}`
         : priority === "high"
-          ? `🚨 SLA estourado — ${clientName}`
-          : `⚠️ SLA em risco — ${clientName}`,
+          ? `SLA estourado — ${clientName}`
+          : `SLA em risco — ${clientName}`,
       priority,
       conversationId: conv.id,
       clientId: conv.id,
@@ -278,8 +278,8 @@ export class SupervisorEngine {
 
     const alertMessage =
       waitingCount > 0
-        ? `⚠️ ${firstName}, você está com *${convList.length} conversas ativas* em Meus Atendimentos agora (*${waitingCount} aguardando sua resposta*). Confira abaixo e clique para abrir diretamente:`
-        : `⚠️ ${firstName}, você possui *${convList.length} conversas ativas* em Meus Atendimentos neste momento. Veja abaixo os atendimentos abertos:`;
+        ? `${firstName}, você está com *${convList.length} conversas ativas* em Meus Atendimentos agora (*${waitingCount} aguardando sua resposta*). Confira abaixo e clique para abrir diretamente:`
+        : `${firstName}, você possui *${convList.length} conversas ativas* em Meus Atendimentos neste momento. Veja abaixo os atendimentos abertos:`;
 
     await this.dispatchInternalNotification(op.tenantId, operatorId, alertMessage, {
       type: "operator_overload",

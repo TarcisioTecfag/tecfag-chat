@@ -105,12 +105,12 @@ export async function notifyOperatorLeadTransferred(
 
     let content = "";
     if (transferSource === "manual_transfer") {
-      const byText = transferredBy ? ` por *${transferredBy}*` : "";
-      content = `📥 *Novo cliente transferido para você${byText}!*\nO atendimento de *${displayClient}*${companySuffix} já está na sua fila *Meus Atendimentos*${dealLabel}.`;
+      const byText = transferredBy ? ` por ${transferredBy}` : "";
+      content = `*Novo cliente transferido para você${byText}!*\nO atendimento de *${displayClient}*${companySuffix} já está na sua fila *Meus Atendimentos*${dealLabel}.`;
     } else if (transferSource === "rodizio_reassignment") {
-      content = `🔄 *Lead atribuído para você no Rodízio!*\nO cliente *${displayClient}*${companySuffix}${funnelLabel}${dealLabel} foi direcionado para a sua carteira.`;
+      content = `*Lead atribuído para você no Rodízio!*\nO cliente *${displayClient}*${companySuffix}${funnelLabel}${dealLabel} foi direcionado para a sua carteira.`;
     } else {
-      content = `🎯 *Novo lead qualificado por ${persona.name} e transferido para você!*\nCliente: *${displayClient}*${companySuffix}${funnelLabel}${dealLabel}. Já está em *Meus Atendimentos* aguardando seu contato!`;
+      content = `*Novo lead qualificado por ${persona.name} e transferido para você!*\nCliente: *${displayClient}*${companySuffix}${funnelLabel}${dealLabel}. Já está em *Meus Atendimentos* aguardando seu contato!`;
     }
 
     if (params.triageBriefing) content += `\n\n${params.triageBriefing.slice(0, 10_000)}`;

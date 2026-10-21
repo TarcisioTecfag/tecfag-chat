@@ -330,6 +330,33 @@ function DocumentCard({ src, fileName }: { src: string; fileName: string }) {
   );
 }
 
+function renderInlineBoldSegments(segment: string, keyPrefix: string) {
+  if (!segment || !segment.includes("*")) return segment;
+  const normalized = segment.replace(/\*([^*\n]*)\*([^*\n]+)\*([^*\n]*)\*/g, "*$1$2$3*");
+  const tokenRegex = /(\*\*[^*\n]+\*\*|\*[^\s*](?:[^*\n]*[^\s*])?\*)/g;
+  const tokens = normalized.split(tokenRegex);
+  if (tokens.length === 1) return segment;
+
+  return tokens.map((tok, i) => {
+    if (!tok) return null;
+    if (tok.startsWith("**") && tok.endsWith("**") && tok.length > 4) {
+      return (
+        <strong key={`${keyPrefix}-b2-${i}`} className="font-semibold">
+          {tok.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (tok.startsWith("*") && tok.endsWith("*") && tok.length > 2) {
+      return (
+        <strong key={`${keyPrefix}-b1-${i}`} className="font-semibold">
+          {tok.slice(1, -1)}
+        </strong>
+      );
+    }
+    return <React.Fragment key={`${keyPrefix}-t-${i}`}>{tok}</React.Fragment>;
+  });
+}
+
 export function renderTextWithLinks(text: string, isMe?: boolean, isInternalNote?: boolean) {
   if (!text) return "";
 
@@ -338,7 +365,7 @@ export function renderTextWithLinks(text: string, isMe?: boolean, isInternalNote
 
   const parts = text.split(urlRegex);
   if (parts.length === 1) {
-    return text;
+    return renderInlineBoldSegments(text, "txt");
   }
 
   return parts.map((part, index) => {
@@ -384,7 +411,7 @@ export function renderTextWithLinks(text: string, isMe?: boolean, isInternalNote
       );
     }
 
-    return part;
+    return <React.Fragment key={index}>{renderInlineBoldSegments(part, `p-${index}`)}</React.Fragment>;
   });
 }
 

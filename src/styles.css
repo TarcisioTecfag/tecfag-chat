@@ -860,5 +860,39 @@ html.dark.theme-voice .dark\:text-rose-300 {
   color: #ee6666 !important;
 }
 
+/* ── 8. Harmonização Global das Notificações (Sonner / Toasts) nos 3 Temas ── */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  background: var(--card) !important;
+  color: var(--foreground) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow-card) !important;
+  border-radius: 14px !important;
+}
 
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-title] {
+  color: var(--foreground) !important;
+  font-weight: 700 !important;
+}
 
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-description] {
+  color: var(--muted-foreground) !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {
+  background: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+}
+
+html.dark.theme-voice [data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  background: #1e1e22 !important;
+  border-color: #303036 !important;
+  color: #f1f0f3 !important;
+  border-radius: 9px !important;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45) !important;
+}
+
+html.dark.theme-voice [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {
+  border-radius: 6px !important;
+}

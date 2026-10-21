@@ -14,7 +14,21 @@ import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions 
 import { parseAppRoute } from "@/lib/app-routes";
 import { getAiPersona } from "@/lib/ai-persona";
 import { playNotificationSound } from "@/lib/sound-notifications";
-import { MessageSquare, MessageCircle, ExternalLink, X } from "lucide-react";
+import {
+  renderFormattedNotificationText,
+  cleanPlainNotificationText,
+} from "@/lib/format-notification-text";
+import {
+  MessageSquare,
+  MessageCircle,
+  ExternalLink,
+  X,
+  Clock,
+  AlertTriangle,
+  UserCheck,
+  Users,
+  ArrowRight,
+} from "lucide-react";
 
 export type MetaConfig = {
   businessAccountId: string;
@@ -2992,12 +3006,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
 
-            // 3. Renderizar Toast rico com DUPLO BOTÃO: 'Abrir Chat' e 'Abrir Mini Chat'
+            // 3. Renderizar Toast rico na parte superior com DUPLO BOTÃO: 'Abrir Chat' e 'Abrir Mini Chat'
             toast.custom(
               (t) => (
                 <div
-                  className="flex flex-col gap-2.5 w-[380px] bg-card/95 backdrop-blur-md border border-border rounded-2xl p-3.5 shadow-2xl animate-in slide-in-from-bottom-5 duration-200 border-l-[5px]"
-                  style={{ borderLeftColor: primaryColor }}
+                  className="flex flex-col gap-2.5 w-[388px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-card animate-in slide-in-from-top-3 duration-200 border-l-[4px] border-l-primary text-foreground"
                 >
                   <div className="flex items-start gap-3">
                     <div className="relative shrink-0">
@@ -3005,57 +3018,50 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         <img
                           src={clientAvatar}
                           alt={clientName}
-                          className="h-10 w-10 rounded-full object-cover border border-border shadow-sm"
+                          className="h-10 w-10 rounded-xl object-cover border border-border shadow-2xs"
                         />
                       ) : (
-                        <div
-                          className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold border shadow-sm"
-                          style={{
-                            backgroundColor: primarySoftBg,
-                            borderColor: `${primaryColor}20`,
-                            color: primaryColor,
-                          }}
-                        >
+                        <div className="grid h-10 w-10 place-items-center rounded-xl text-xs font-bold bg-primary/12 border border-primary/25 text-primary shadow-2xs">
                           {initials}
                         </div>
                       )}
-                      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card" />
+                      <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card" />
                     </div>
 
                     <div className="flex-1 min-w-0 pr-1">
-                      <div className="flex items-center justify-between gap-1">
+                      <div className="flex items-center justify-between gap-1.5">
                         <p className="text-xs font-bold text-foreground truncate">{clientName}</p>
                         <span className="text-[10px] text-muted-foreground font-mono shrink-0">
                           Agora
                         </span>
                       </div>
-                      <p className="text-[11px] text-muted-foreground/90 line-clamp-2 mt-0.5 leading-relaxed">
-                        {previewText}
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
+                        {cleanPlainNotificationText(previewText, { maxLength: 140 })}
                       </p>
                     </div>
 
                     <button
                       onClick={() => toast.dismiss(t)}
-                      className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-1 -mr-1"
+                      className="h-6 w-6 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
                       title="Fechar aviso"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
 
-                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/40">
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
                     <button
                       onClick={() => {
                         setSelectedChatId(message.conversationId);
                         markAsRead(message.conversationId);
                         window.dispatchEvent(
-                        new CustomEvent("crm:open-mini-chat", {
-                          detail: { conversationId: message.conversationId },
-                        })
-                      );
+                          new CustomEvent("crm:open-mini-chat", {
+                            detail: { conversationId: message.conversationId },
+                          }),
+                        );
                         toast.dismiss(t);
                       }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/70 transition shadow-sm cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/80 transition shadow-2xs cursor-pointer"
                     >
                       <MessageCircle className="h-3.5 w-3.5 text-primary" />
                       Abrir Mini Chat
@@ -3066,13 +3072,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         setSelectedChatId(message.conversationId);
                         setActiveView("chat");
                         markAsRead(message.conversationId);
-                        if (typeof window !== "undefined" && window.location.pathname.startsWith("/crm/deals/")) {
-                        window.location.href = `/?chatId=${message.conversationId}`;
-                      }
+                        if (
+                          typeof window !== "undefined" &&
+                          window.location.pathname.startsWith("/crm/deals/")
+                        ) {
+                          window.location.href = `/?chatId=${message.conversationId}`;
+                        }
                         toast.dismiss(t);
                       }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition shadow-sm hover:opacity-90 cursor-pointer"
-                      style={{ backgroundColor: primaryColor }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition shadow-2xs cursor-pointer"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                       Abrir Chat
@@ -3080,7 +3088,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   </div>
                 </div>
               ),
-              { duration: 8000, position: "bottom-right" },
+              { id: `chat-msg-${message.conversationId}`, duration: 8000, position: "top-right" },
             );
           }
 
@@ -3332,36 +3340,189 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
 
           const meta = rawNotif.metadata || rawNotif.warningMetadata || {};
-          const targetConvId = meta.conversationId || meta.clientId || aiMsg.warningMetadata?.clientId;
+          const targetConvId =
+            meta.conversationId || meta.clientId || aiMsg.warningMetadata?.clientId;
           const persona = getAiPersona(tenantRef.current || "valem");
-          const isLead = meta.type === "lead_transfer" || rawNotif.warningType === "new_lead" || aiMsg.warningType === "new_lead";
-          const title = isLead
-            ? `${persona.name}: Novo Cliente Transferido`
-            : aiMsg.warningType === "overload"
-            ? `${persona.name}: Atendimentos Ativos`
-            : `${persona.name}: Alerta de SLA (${meta.clientName || aiMsg.warningMetadata?.clientName || "Cliente"})`;
+          const isLead =
+            meta.type === "lead_transfer" ||
+            rawNotif.warningType === "new_lead" ||
+            aiMsg.warningType === "new_lead";
+          const isOverload =
+            meta.type === "operator_overload" ||
+            rawNotif.warningType === "overload" ||
+            aiMsg.warningType === "overload";
+          const clientName =
+            meta.clientName ||
+            meta.contactName ||
+            aiMsg.warningMetadata?.clientName ||
+            "Cliente";
+          const waitMinutes = Number(meta.waitMinutes) || 0;
+          const isHighSla =
+            !isLead &&
+            !isOverload &&
+            (meta.priority === "high" || meta.type === "no_response" || waitMinutes >= 15);
 
-          toast.info(title, {
-            description: String(rawNotif.content || "").replace(/\*\*/g, "").slice(0, 140),
-            duration: 9000,
-            action: targetConvId
-              ? {
-                  label: isLead ? "Abrir Atendimento" : "Abrir Conversa",
-                  onClick: () => {
-                    setSelectedChatId(targetConvId);
-                    setActiveView("chat");
-                    markAsRead(targetConvId);
-                  },
-                }
-              : {
-                  label: `Ver no ${persona.name}`,
-                  onClick: () => {
-                    setSelectedChatId("valentina");
-                    setActiveView("chat");
-                    markAsRead("valentina");
-                  },
-                },
-          });
+          const waitBadge =
+            !isLead && !isOverload && waitMinutes > 0
+              ? waitMinutes >= 60
+                ? `${Math.floor(waitMinutes / 60)}h${waitMinutes % 60 > 0 ? ` ${waitMinutes % 60}m` : ""}`
+                : `${waitMinutes} min`
+              : null;
+
+          const badgeLabel = isLead
+            ? `${persona.name} · Novo Lead`
+            : isOverload
+            ? `${persona.name} · Atendimentos Ativos`
+            : isHighSla
+            ? `${persona.name} · SLA Crítico`
+            : `${persona.name} · Alerta de SLA`;
+
+          const primaryHeading = isLead
+            ? clientName
+            : isOverload
+            ? meta.activeCount
+              ? `${meta.activeCount} conversas ativas na fila`
+              : "Resumo de Atendimentos"
+            : clientName;
+
+          const accentBorderClass = isLead
+            ? "border-l-primary"
+            : isOverload
+            ? "border-l-violet-500"
+            : isHighSla
+            ? "border-l-rose-500"
+            : "border-l-amber-500";
+
+          const iconBoxClass = isLead
+            ? "bg-primary/12 text-primary border-primary/25"
+            : isOverload
+            ? "bg-violet-500/12 text-violet-600 dark:text-violet-400 border-violet-500/25"
+            : isHighSla
+            ? "bg-rose-500/12 text-rose-600 dark:text-rose-400 border-rose-500/25"
+            : "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/25";
+
+          const badgeTextClass = isLead
+            ? "text-primary"
+            : isOverload
+            ? "text-violet-600 dark:text-violet-400"
+            : isHighSla
+            ? "text-rose-600 dark:text-rose-400"
+            : "text-amber-600 dark:text-amber-400";
+
+          const pillClass = isHighSla
+            ? "bg-rose-500/12 text-rose-600 dark:text-rose-400 border-rose-500/25"
+            : "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/25";
+
+          const notifToastId = isOverload
+            ? "ai-notif-overload"
+            : targetConvId
+            ? `ai-notif-${isLead ? "lead" : "sla"}-${targetConvId}`
+            : `ai-notif-${aiMsg.id}`;
+
+          const actionLabel = targetConvId
+            ? isLead
+              ? "Abrir Atendimento"
+              : "Abrir Conversa"
+            : `Ver no ${persona.name}`;
+
+          toast.custom(
+            (t) => (
+              <div
+                className={`flex flex-col gap-2.5 w-[396px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-card animate-in slide-in-from-top-3 duration-200 border-l-[4px] ${accentBorderClass} text-foreground`}
+              >
+                <div className="flex items-start gap-3">
+                  {/* Ícone SVG Semântico */}
+                  <div
+                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${iconBoxClass} shadow-2xs mt-0.5`}
+                  >
+                    {isLead ? (
+                      <UserCheck className="h-4 w-4" />
+                    ) : isOverload ? (
+                      <Users className="h-4 w-4" />
+                    ) : isHighSla ? (
+                      <AlertTriangle className="h-4 w-4" />
+                    ) : (
+                      <Clock className="h-4 w-4" />
+                    )}
+                  </div>
+
+                  {/* Cabeçalho e Mensagem Alinhados */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                        <span
+                          className={`text-[10px] font-extrabold uppercase tracking-wider ${badgeTextClass}`}
+                        >
+                          {badgeLabel}
+                        </span>
+                        {waitBadge && (
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold tabular-nums border ${pillClass}`}
+                          >
+                            <Clock className="h-2.5 w-2.5 shrink-0" />
+                            {waitBadge}
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => toast.dismiss(t)}
+                        className="h-6 w-6 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mr-1 -mt-0.5"
+                        title="Fechar notificação"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    <p className="text-xs font-bold text-foreground truncate mt-0.5">
+                      {primaryHeading}
+                    </p>
+
+                    <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 line-clamp-3">
+                      {renderFormattedNotificationText(String(rawNotif.content || ""), {
+                        stripEmojis: true,
+                        stripRedundantPrefix: !isLead && !isOverload,
+                        maxLength: 165,
+                      })}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Rodapé de Ação */}
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60">
+                  <span className="text-[10px] text-muted-foreground truncate">
+                    {isLead
+                      ? "Transferido para Meus Atendimentos"
+                      : isOverload
+                      ? `${meta.waitingCount || 0} aguardando resposta`
+                      : "Aguardando retorno no chat"}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (targetConvId) {
+                        setSelectedChatId(targetConvId);
+                        setActiveView("chat");
+                        markAsRead(targetConvId);
+                      } else {
+                        setSelectedChatId("valentina");
+                        setActiveView("chat");
+                        markAsRead("valentina");
+                      }
+                      toast.dismiss(t);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-2xs transition cursor-pointer shrink-0"
+                  >
+                    <span>{actionLabel}</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ),
+            { id: notifToastId, duration: 9000, position: "top-right" },
+          );
         }
       } catch (err) {
         console.error("Erro ao processar dados recebidos do SSE:", err);
