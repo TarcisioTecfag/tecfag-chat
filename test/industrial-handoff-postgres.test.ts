@@ -4,6 +4,7 @@
  * TEST_DATABASE_URL=postgres://...@127.0.0.1:<porta>/...test bun --no-env-file test/industrial-handoff-postgres.test.ts
  */
 import assert from "node:assert/strict";
+import { createHash, randomBytes } from "node:crypto";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { getTableName, is, SQL, sql, and, eq } from "drizzle-orm";
@@ -25,6 +26,20 @@ import { deliverIndustrialPostCommit } from "../src/lib/triage/industrial-post-c
 import { projectIndustrialMonitoring } from "../src/lib/triage/industrial-monitor";
 import { resolveIndustrialRoute } from "../src/lib/triage/industrial-policy";
 import { captureSiteContext, type SiteContext } from "../src/lib/livechat/site-context";
+import { linkSiteContinuityInDatabase } from "../src/lib/livechat/site-continuity-store";
+import {
+  hashContinuityCode,
+  generateContinuityCode,
+  siteIdentityIds,
+} from "../src/lib/livechat/site-channel-policy";
+import { defaultVtexSettings } from "../src/lib/vtex/contract";
+import {
+  saveVtexConfig,
+  readVtexConfig,
+  publicVtexConfig,
+  credentialsForVtex,
+} from "../src/lib/vtex/store";
+import { runVtexStoreTurn } from "../src/lib/vtex/runtime";
 import {
   readIndustrialSettings,
   saveIndustrialSettings,
@@ -140,16 +155,18 @@ const data = {
   "VOLUME / PRODUÇÃO": { value: "100 por dia", status: "filled" as const },
 };
 const route = resolveIndustrialRoute({ collectedData: data, text: "Comprar seladora" });
-async function fixture(tenant = tenantId, sameContact?: string) {
-  const id = `case-${++sequence}`;
-  const contactId = sameContact || `contact-${id}`;
+async function fixture(tenant = tenantId, sameContact?: string, siteVisitor?: string) {
+  const fixtureNumber = ++sequence;
+  const id = siteVisitor ? siteIdentityIds(siteVisitor).conversationId : `case-${fixtureNumber}`;
+  const contactId =
+    sameContact || (siteVisitor ? siteIdentityIds(siteVisitor).contactId : `contact-${id}`);
   if (!sameContact)
     await scopedDb.insert(schema.contacts).values({
       id: contactId,
       tenantId: tenant,
       name: "Teste",
-      phone: `5514999${String(sequence).padStart(6, "0")}`,
-      mainChannel: "whatsapp",
+      phone: siteVisitor ? null : `5514999${String(sequence).padStart(6, "0")}`,
+      mainChannel: siteVisitor ? "livechat" : "whatsapp",
     });
   await scopedDb
     .insert(schema.conversations)
@@ -2756,6 +2773,276 @@ try {
       assert.ok(
         activities.some((activity) => activity.description?.includes("utm_campaign=envase")),
       );
+    },
+  );
+  await check(
+    "VTEX salva por tenant, serializa revisões e não altera ativação do SDR",
+    async () => {
+      const settings = {
+        ...defaultVtexSettings(),
+        account: "fixture-store",
+        storefrontOrigin: "https://shop.example.test",
+        enabled: true,
+      };
+      const original = await scopedDb
+        .select()
+        .from(schema.agentConfigs)
+        .where(
+          and(eq(schema.agentConfigs.tenantId, tenantId), eq(schema.agentConfigs.agentType, "sdr")),
+        );
+      const results = await Promise.allSettled(
+        [opA, opB].map((actor) =>
+          saveVtexConfig(
+            scopedDb,
+            tenantId,
+            { action: "save", expectedRevision: 0, settings },
+            actor,
+          ),
+        ),
+      );
+      assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+      assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+      assert.equal((await readVtexConfig(scopedDb, tenantId)).revision, 1);
+      assert.equal((await readVtexConfig(scopedDb, otherTenant)).revision, 0);
+      assert.deepEqual(
+        await scopedDb
+          .select()
+          .from(schema.agentConfigs)
+          .where(
+            and(
+              eq(schema.agentConfigs.tenantId, tenantId),
+              eq(schema.agentConfigs.agentType, "sdr"),
+            ),
+          ),
+        original,
+      );
+    },
+  );
+  await check(
+    "VTEX persiste apenas credenciais cifradas, vinculadas a tenant e conta",
+    async () => {
+      const previousKey = process.env.VTEX_CREDENTIALS_ENCRYPTION_KEY;
+      process.env.VTEX_CREDENTIALS_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+      try {
+        const previous = await readVtexConfig(scopedDb, tenantId);
+        const settings = { ...previous.settings, useCredentials: true };
+        const publicState = await saveVtexConfig(
+          scopedDb,
+          tenantId,
+          {
+            action: "save",
+            expectedRevision: previous.revision,
+            settings,
+            appKey: "fixture-key",
+            appToken: "fixture-token",
+          },
+          opA,
+        );
+        const saved = await readVtexConfig(scopedDb, tenantId);
+        assert.doesNotMatch(JSON.stringify(saved.row), /fixture-key|fixture-token/);
+        assert.doesNotMatch(JSON.stringify(publicState), /credentialsEncrypted|fixture-token/);
+        assert.deepEqual(credentialsForVtex(tenantId, saved), {
+          appKey: "fixture-key",
+          appToken: "fixture-token",
+        });
+        assert.throws(() => credentialsForVtex(otherTenant, saved));
+        assert.throws(() =>
+          credentialsForVtex(tenantId, saved, { ...settings, account: "different" }),
+        );
+        assert.equal(publicVtexConfig(saved).hasCredentials, true);
+        await saveVtexConfig(
+          scopedDb,
+          tenantId,
+          {
+            action: "save",
+            expectedRevision: saved.revision,
+            settings: { ...settings, useCredentials: false },
+            clearCredentials: true,
+          },
+          opA,
+        );
+      } finally {
+        if (previousKey === undefined) delete process.env.VTEX_CREDENTIALS_ENCRYPTION_KEY;
+        else process.env.VTEX_CREDENTIALS_ENCRYPTION_KEY = previousKey;
+      }
+    },
+  );
+  const vtexTransport: typeof fetch = async () =>
+    Response.json([
+      {
+        productId: "10",
+        productName: "Seladora S100",
+        linkText: "seladora-s100",
+        description: "Seladora de bancada",
+        items: [
+          {
+            itemId: "147",
+            name: "110V",
+            sellers: [{ sellerId: "1", commertialOffer: { Price: 123.45, AvailableQuantity: 10 } }],
+          },
+        ],
+      },
+    ]);
+  async function consultVtex() {
+    const turn = await runVtexStoreTurn(scopedDb, tenantId, {
+      text: "Preço do SKU 147",
+      channel: "livechat",
+      siteContext: null,
+      fetch: vtexTransport,
+    });
+    assert.equal(turn?.evidence?.selectedSkuId, "147");
+    assert.match(turn!.messages.join(" "), /123,45/);
+    return turn!.evidence!;
+  }
+  async function continuityCode(key: Awaited<ReturnType<typeof fixture>>) {
+    const code = generateContinuityCode(randomBytes);
+    const codeHash = hashContinuityCode(tenantId, code, (value) =>
+      createHash("sha256").update(value).digest("hex"),
+    );
+    await scopedDb
+      .update(schema.contacts)
+      .set({
+        customFields: {
+          siteContinuity: { codeHash, expiresAt: new Date(Date.now() + 60000).toISOString() },
+        },
+      })
+      .where(
+        and(
+          eq(schema.contacts.tenantId, tenantId),
+          eq(
+            schema.contacts.id,
+            siteIdentityIds(key.conversationId.replace(/^conv-lc-/, "")).contactId,
+          ),
+        ),
+      );
+    return codeHash;
+  }
+  await check(
+    "consulta oficial não preenche coleta; site e WhatsApp continuam a mesma triagem parcial",
+    async () => {
+      const site = await fixture(tenantId, undefined, "vtex-partial-visitor");
+      const wa = await fixture();
+      const collected = { "NOME COMPLETO": data["NOME COMPLETO"] };
+      const evidence = await consultVtex();
+      await scopedDb
+        .update(schema.agentFlowStates)
+        .set({ collectedData: collected, metadata: { vtexLookup: evidence } })
+        .where(
+          and(
+            eq(schema.agentFlowStates.tenantId, tenantId),
+            eq(schema.agentFlowStates.id, site.flowId),
+          ),
+        );
+      assert.deepEqual((await flow(site)).collectedData, collected);
+      const beforeDeals = await count(schema.crmDeals);
+      const beforeCounters = (await config()).flowOperators.map((op) => op.leadsReceivedCount);
+      const hash = await continuityCode(site);
+      assert.equal(
+        (await linkSiteContinuityInDatabase(scopedDb, otherTenant, wa.conversationId, hash)).linked,
+        false,
+      );
+      const result = await linkSiteContinuityInDatabase(
+        scopedDb,
+        tenantId,
+        wa.conversationId,
+        hash,
+      );
+      assert.equal(result.linked, true);
+      if (!result.linked) throw new Error("Continuity failed");
+      assert.equal(result.mode, "automation");
+      const [continued] = await scopedDb
+        .select()
+        .from(schema.agentFlowStates)
+        .where(
+          and(
+            eq(schema.agentFlowStates.tenantId, tenantId),
+            eq(schema.agentFlowStates.conversationId, wa.conversationId),
+          ),
+        );
+      assert.deepEqual(continued.collectedData, collected);
+      assert.deepEqual(continued.metadata?.vtexLookup, evidence);
+      assert.equal(continued.outcome, "in_progress");
+      assert.equal(await count(schema.crmDeals), beforeDeals);
+      assert.deepEqual(
+        (await config()).flowOperators.map((op) => op.leadsReceivedCount),
+        beforeCounters,
+      );
+      assert.equal(
+        (await linkSiteContinuityInDatabase(scopedDb, tenantId, wa.conversationId, hash)).linked,
+        false,
+      );
+    },
+  );
+  await check(
+    "consulta, coleta completa e handoff no site mantêm card, responsável e evidência no WhatsApp",
+    async () => {
+      const [sdr] = await scopedDb
+        .select()
+        .from(schema.agentConfigs)
+        .where(
+          and(eq(schema.agentConfigs.tenantId, tenantId), eq(schema.agentConfigs.agentType, "sdr")),
+        );
+      await scopedDb
+        .update(schema.agentConfigs)
+        .set({ config: { ...(sdr.config || {}), siteChannelEnabled: true } })
+        .where(and(eq(schema.agentConfigs.tenantId, tenantId), eq(schema.agentConfigs.id, sdr.id)));
+      try {
+        const site = await fixture(tenantId, undefined, "vtex-complete-visitor");
+        const wa = await fixture();
+        const evidence = await consultVtex();
+        await prepare(site);
+        const prepared = await flow(site);
+        await scopedDb
+          .update(schema.agentFlowStates)
+          .set({ metadata: { ...prepared.metadata, vtexLookup: evidence } })
+          .where(
+            and(
+              eq(schema.agentFlowStates.tenantId, tenantId),
+              eq(schema.agentFlowStates.id, site.flowId),
+            ),
+          );
+        const handoff = await store.execute(site);
+        assert.equal(handoff.status, "transferred");
+        const beforeDeals = await count(schema.crmDeals);
+        const beforeCounters = (await config()).flowOperators.map((op) => op.leadsReceivedCount);
+        const result = await linkSiteContinuityInDatabase(
+          scopedDb,
+          tenantId,
+          wa.conversationId,
+          await continuityCode(site),
+        );
+        assert.equal(result.linked, true);
+        if (!result.linked) throw new Error("Continuity failed");
+        assert.equal(result.mode, "operator");
+        assert.equal(result.operatorId, handoff.operator?.id);
+        assert.equal((await flow(wa)).outcome, "transferred");
+        assert.deepEqual((await flow(wa)).collectedData, data);
+        assert.deepEqual((await flow(wa)).metadata?.vtexLookup, evidence);
+        assert.equal((await flow(site)).outcome, "transferred");
+        assert.equal((await flow(site)).metadata?.continuedTo?.conversationId, wa.conversationId);
+        const links = await scopedDb
+          .select()
+          .from(schema.crmConversationDeals)
+          .where(
+            and(
+              eq(schema.crmConversationDeals.tenantId, tenantId),
+              eq(schema.crmConversationDeals.conversationId, wa.conversationId),
+            ),
+          );
+        assert.equal(links.length, 1);
+        assert.equal(await count(schema.crmDeals), beforeDeals);
+        assert.deepEqual(
+          (await config()).flowOperators.map((op) => op.leadsReceivedCount),
+          beforeCounters,
+        );
+      } finally {
+        await scopedDb
+          .update(schema.agentConfigs)
+          .set({ config: sdr.config })
+          .where(
+            and(eq(schema.agentConfigs.tenantId, tenantId), eq(schema.agentConfigs.id, sdr.id)),
+          );
+      }
     },
   );
   console.log(

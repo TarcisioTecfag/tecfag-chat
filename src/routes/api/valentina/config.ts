@@ -4,6 +4,7 @@ import { agentConfigs } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
+import { VTEX_AGENT } from "../../../lib/vtex/contract";
 
 // ── Headers CORS padrão ────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -27,6 +28,9 @@ export const Route = createFileRoute("/api/valentina/config")({
 
         const url = new URL(request.url);
         const agentType = url.searchParams.get("agentType");
+        if (agentType === VTEX_AGENT) {
+          return new Response("null", { headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+        }
 
         try {
           let results;
@@ -59,7 +63,7 @@ export const Route = createFileRoute("/api/valentina/config")({
             );
           }
 
-          return new Response(JSON.stringify(results), {
+          return new Response(JSON.stringify(results.filter((row) => row.agentType !== VTEX_AGENT)), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
@@ -111,6 +115,12 @@ export const Route = createFileRoute("/api/valentina/config")({
               )
             )
             .limit(1);
+
+          if ([agentType, existing[0]?.agentType].includes(VTEX_AGENT)) {
+            return new Response(JSON.stringify({ error: "Use a configuração de Loja VTEX para alterar esta integração." }), {
+              status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
 
           if (getAiPersona(tenantId).triagePolicy === "industrial" &&
             [agentType, existing[0]?.agentType].some((type) => type === "industrial_triage" || type === "rodizio")) {

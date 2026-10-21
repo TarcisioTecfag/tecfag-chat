@@ -1,5 +1,6 @@
 import type { IndustrialMonitoring } from "@/lib/triage/industrial-monitor";
 import { SiteContextPanel } from "./SiteContextPanel";
+import { VtexEvidencePanel } from "./VtexEvidencePanel";
 
 const deliveryLabels: Record<string, string> = {
   sent: "Enviada",
@@ -37,6 +38,7 @@ export function IndustrialMonitoringPanel({ monitoring: m }: { monitoring: Indus
     >
       <p className="text-xs font-bold">{m.label}</p>
       <SiteContextPanel context={m.siteContext} />
+      <VtexEvidencePanel evidence={m.vtexLookup} />
       {[m.issue, m.clientIssue, m.operatorIssue].filter(Boolean).map((issue) => (
         <div
           key={issue!.code}

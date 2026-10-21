@@ -64,6 +64,7 @@ import { Route as ApiSettingsRdMarketingRouteImport } from './routes/api/setting
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
 import { Route as ApiPlatformAccessRouteImport } from './routes/api/platform/access'
 import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
+import { Route as ApiLivechatVtexConfigRouteImport } from './routes/api/livechat/vtex-config'
 import { Route as ApiLivechatVisitorsRouteImport } from './routes/api/livechat/visitors'
 import { Route as ApiLivechatTrayConfigRouteImport } from './routes/api/livechat/tray-config'
 import { Route as ApiLivechatMetricsRouteImport } from './routes/api/livechat/metrics'
@@ -456,6 +457,11 @@ const ApiOperatorsProfileRoute = ApiOperatorsProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
   getParentRoute: () => ApiOperatorsRoute,
+} as any)
+const ApiLivechatVtexConfigRoute = ApiLivechatVtexConfigRouteImport.update({
+  id: '/api/livechat/vtex-config',
+  path: '/api/livechat/vtex-config',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiLivechatVisitorsRoute = ApiLivechatVisitorsRouteImport.update({
   id: '/api/livechat/visitors',
@@ -1149,6 +1155,7 @@ export interface FileRoutesByFullPath {
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
+  '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
@@ -1317,6 +1324,7 @@ export interface FileRoutesByTo {
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
+  '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
@@ -1486,6 +1494,7 @@ export interface FileRoutesById {
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
+  '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
@@ -1656,6 +1665,7 @@ export interface FileRouteTypes {
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
+    | '/api/livechat/vtex-config'
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/rd-crm'
@@ -1824,6 +1834,7 @@ export interface FileRouteTypes {
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
+    | '/api/livechat/vtex-config'
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/rd-crm'
@@ -1992,6 +2003,7 @@ export interface FileRouteTypes {
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
+    | '/api/livechat/vtex-config'
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/rd-crm'
@@ -2153,6 +2165,7 @@ export interface RootRouteChildren {
   ApiLivechatMetricsRoute: typeof ApiLivechatMetricsRoute
   ApiLivechatTrayConfigRoute: typeof ApiLivechatTrayConfigRoute
   ApiLivechatVisitorsRoute: typeof ApiLivechatVisitorsRoute
+  ApiLivechatVtexConfigRoute: typeof ApiLivechatVtexConfigRoute
   ApiPlatformAccessRoute: typeof ApiPlatformAccessRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsRdMarketingRoute: typeof ApiSettingsRdMarketingRouteWithChildren
@@ -2572,6 +2585,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/operators/profile'
       preLoaderRoute: typeof ApiOperatorsProfileRouteImport
       parentRoute: typeof ApiOperatorsRoute
+    }
+    '/api/livechat/vtex-config': {
+      id: '/api/livechat/vtex-config'
+      path: '/api/livechat/vtex-config'
+      fullPath: '/api/livechat/vtex-config'
+      preLoaderRoute: typeof ApiLivechatVtexConfigRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/livechat/visitors': {
       id: '/api/livechat/visitors'
@@ -3768,6 +3788,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLivechatMetricsRoute: ApiLivechatMetricsRoute,
   ApiLivechatTrayConfigRoute: ApiLivechatTrayConfigRoute,
   ApiLivechatVisitorsRoute: ApiLivechatVisitorsRoute,
+  ApiLivechatVtexConfigRoute: ApiLivechatVtexConfigRoute,
   ApiPlatformAccessRoute: ApiPlatformAccessRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsRdMarketingRoute: ApiSettingsRdMarketingRouteWithChildren,

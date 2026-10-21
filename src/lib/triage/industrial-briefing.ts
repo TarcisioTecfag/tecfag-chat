@@ -32,6 +32,18 @@ export function buildIndustrialBriefing(snapshot: JournalSnapshot) {
       : "",
     `Destino registrado: ${snapshot.targetFunnel || "Não definido"}`,
     snapshot.subflow ? `Subfluxo: ${snapshot.subflow}` : "",
+    ...(snapshot.vtexLookup
+      ? [
+          `CONSULTA VTEX: ${snapshot.vtexLookup.status} · ${formatTime(snapshot.vtexLookup.checkedAt)}`,
+          snapshot.vtexLookup.productName
+            ? `Produto consultado na loja: ${snapshot.vtexLookup.productName}`
+            : "",
+          snapshot.vtexLookup.selectedSkuId
+            ? `SKU consultado: ${snapshot.vtexLookup.selectedSkuId}`
+            : "",
+          "Consulta de loja não confirma compra ou qualificação comercial.",
+        ]
+      : []),
     ...(snapshot.siteContext
       ? [
           "ORIGEM DO SITE (declarada pelo navegador):",

@@ -262,14 +262,14 @@ describe("continuidade site → WhatsApp (E4)", () => {
     assert.equal(parseSiteChannelSettings(true, {}).whatsappNumber, "");
   });
 
-  const continuity = read("src/lib/livechat/site-continuity.ts");
+  const continuity = read("src/lib/livechat/site-continuity.ts") + read("src/lib/livechat/site-continuity-store.ts");
   const inbound = read("src/lib/whatsapp/inbound.ts");
   const baileys = read("src/lib/baileys/session-manager.ts");
   const ws = read("src/lib/livechat/livechatWs.ts");
   const widget = read("valem-widget/src/widget.ts");
 
   it("vínculo é transacional, por tenant, de uso único e com prazo", () => {
-    assert.match(continuity, /db\.transaction\(/);
+    assert.match(continuity, /database\.transaction\(/);
     assert.match(continuity, /pg_advisory_xact_lock/);
     assert.match(continuity, /eq\(contacts\.tenantId, tenantId\)/);
     assert.match(continuity, /isUsableContinuityRecord\(continuity\)/);

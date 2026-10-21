@@ -2,7 +2,7 @@
 
 Data: 20/10/2026. Atualiza os 47 itens do diagnóstico `MAPA-PORTE-FAGNER-2026-10-20.md` sem apagar suas constatações históricas. O destino é um atendimento nativo único; RD Marketing permanece separado.
 
-Atualização de 21/10/2026: [destinos simplificados por equipe](./UNIFICACAO-DESTINOS-TRIAGEM-2026-10-21.md) e [contexto de origem/produto](./CONTEXTO-SITE-PRODUTO-2026-10-21.md). S02/S04 e C25 avançaram na integração local, mas a validação de produto/loja e a homologação publicada continuam pendentes.
+Atualização de 21/10/2026: [destinos simplificados por equipe](./UNIFICACAO-DESTINOS-TRIAGEM-2026-10-21.md), [contexto de origem/produto](./CONTEXTO-SITE-PRODUTO-2026-10-21.md) e [integração VTEX, etapas 1 a 4](./RELATORIO-INTEGRACAO-VTEX-ETAPAS-1-A-4-2026-10-21.md). S05/S06 têm implementação e consultas públicas reais; a homologação nos canais publicados continua pendente.
 
 **Esta é uma matriz de código e evidências locais. Nenhum item está homologado por esta entrega nos canais da operação.** Não usar quantidade de telas, testes ou linhas desta tabela como percentual de conclusão do porte.
 
@@ -20,6 +20,7 @@ Referências de evidência:
 - **B**: `test/industrial-review.test.mjs` — briefing, revisão humana, permissões e contrato da API. Implementação em `IMPLEMENTACAO-BRIEFING-REVISAO-2026-10-20.md`; interface conferida em prévia com dados e APIs fictícios.
 - **PG**: `test/industrial-handoff-postgres.test.ts` — PostgreSQL local isolado, transação, concorrência, configuração, monitor e avisos pós-commit.
 - **O**: `test/industrial-site-context.test.mjs` — contexto/UTM, consulta explícita, handlers reais do WebSocket, métodos reais do widget e renderização HTML do painel com dependências isoladas.
+- **V**: `test/vtex-store.test.mjs` — catálogo/variantes, preço/frete, política por canal, API, cifra, runtime e componente real com dependências isoladas. Consulta pública real registrada em `homologacao-vtex-publica-2026-10-21.json`; sem alteração operacional.
 
 ## Conversas — 27 capacidades
 
@@ -60,9 +61,9 @@ Referências de evidência:
 | S01 | Widget, sessão, histórico e reconexão | P | Widget por marca, adaptador e storage; S/PG | Validar instalação publicada, domínio/origem, sessão pública e reconexão em navegador. |
 | S02 | Página, atividade e origem/UTM | P | Entrada/página/referrer/UTM em mensagens, ciclo, briefing e painel; O/PG | Homologar instalação e uso operacional. Tempo, scroll/cliques gerais, retenção e calibração da navegação continuam parciais. |
 | S03 | Abordagem proativa por atividade | P | Caminho anterior possui proatividade; industrial evita saudação duplicada | Definir configuração industrial de abordagem e implementar no núcleo comum, com critérios e horário explícitos. |
-| S04 | Consulta de produto pelo botão da página | P | Botão/API do widget → evento idempotente → adaptador comum; O | Instalar e homologar o botão no site novo e validar dados na loja. Nome/SKU/categoria ainda são declarados, sem comprovação VTEX ou qualificação automática. |
-| S05 | Busca e especificações VTEX | A | Caminho anterior v2 usa Tray; industrial usa catálogo decisório | Integrar consulta VTEX por configuração do tenant; catálogo decisório não substitui busca comercial da loja. |
-| S06 | Preço público, frete e links de compra | A | Política industrial não demonstra essa capacidade integrada | Consolidar a diferença Site/WhatsApp do legado e criar consulta controlada, com dados verificáveis e regras de oferta. |
+| S04 | Consulta de produto pelo botão da página | P | Botão/API do widget → evento idempotente → adaptador comum; O; consulta oficial separada em V | Instalar e homologar o botão no site novo. O contexto do navegador continua declarado; uma consulta VTEX gera evidência própria e não qualificação automática. |
+| S05 | Busca e especificações VTEX | L | `lib/vtex`, configuração por tenant e resposta factual no SDR; V/PG e busca pública real | Homologar botão/widget e perguntas com equipe. Catálogo decisório continua separado; variante ambígua exige escolha. |
+| S06 | Preço público, frete e links de compra | L | Preço, disponibilidade, link e simulação anônima; V e frete público real | Homologar os canais publicados. Site permite valores públicos; WhatsApp mantém especificações/encaminhamento. Sem carrinho, reserva ou compra confirmada. |
 | S07 | Fluxos industriais do site | L | Mesmo SDR, política e handoff; T/S | Homologar os 13 subfluxos pelo widget publicado, com a equipe. |
 | S08 | Coleta, resumo e confirmação | P | `collectedData` comum e pré-chat validado; S | Conferir aproveitamento do pré-chat sem repetir perguntas e resumo/overview dos fluxos antigos. |
 | S09 | Operador no widget e retorno à IA | P | Atendimento nativo em Conversas; S | Homologar posse e retorno; saída humana de anexos/templates ainda tem restrições. |
@@ -81,7 +82,7 @@ Referências de evidência:
 ## Ordem de continuidade
 
 1. Homologar monitor, histórico paginado, revisão humana e briefing final. A implementação local tem evidência em H/B/PG e uma prévia de interface com dados fictícios.
-2. Homologar a evidência de origem/consulta de produto e integrar dados verificáveis da loja, consolidando a política VTEX/preço/frete antes de chamar o site de equivalente ao legado.
+2. Homologar a evidência de origem e a integração VTEX no widget/WhatsApp de teste. A política e as consultas públicas já têm evidência técnica no relatório das etapas 1 a 4; isso não conclui a paridade do site inteiro.
 3. Portar score comercial, avaliação/fechamento e exportações com contratos verificáveis.
 4. Confirmar catálogo/destinos e executar E7: dados reconciliados, casos anonimizados, transportes e equipe em ambiente separado.
 5. Executar E8 somente com corte de entrada e rollback por canal, preservando Valem e um único bot por entrada.

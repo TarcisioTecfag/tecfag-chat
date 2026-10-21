@@ -1,0 +1,160 @@
+{
+  "testedAt": "2026-10-21T13:24:53.523Z",
+  "account": "tecfag",
+  "storefront": "https://www.tecfag.com.br",
+  "salesChannel": "1",
+  "sellerId": "1",
+  "postalCodeFixture": "01001000",
+  "operationalConfigurationChanged": false,
+  "applicationDatabaseAccessed": false,
+  "credentialsUsed": false,
+  "orderOrCartCreated": false,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/catalog_system/pub/products/search",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/catalog_system/pub/products/search",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/checkout/pub/orderForms/simulation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/catalog_system/pub/products/search",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/catalog_system/pub/products/search/seladora-de-pedal-40-cm---frp400/p",
+      "status": 200
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "preço público por SKU",
+      "status": "passed",
+      "result": {
+        "status": "matched",
+        "source": "vtex",
+        "checkedAt": "2026-10-21T13:24:50.919Z",
+        "channel": "livechat",
+        "products": [
+          {
+            "id": "108",
+            "name": "Cinto TEFLON para Seladora - FRD1000/SF150",
+            "url": "https://www.tecfag.com.br/cinto-teflon-para-seladora---frd1000-sf150/p",
+            "description": "Cinto Teflon* aplicável nos modelos das Seladoras Automáticas Contínuas FRD1000 e SF150. Recupera as funções da sua máquina e garante melhor autonomia e qualidade na sua produção. Confira se o tamanho é compatível com sua seladora, caso contrário, confira os outros tamanhos disponíveis. *Apenas unidade do cinto teflon é vendida neste anúncio. Imagem ilustrativa.",
+            "specifications": {
+              "Modelo": "FRD1000 e SF150",
+              "Descrição": "Cinto Teflon* aplic&aacute;vel nos modelos das Seladoras Autom&aacute;ticas Cont&iacute;nuas FRD1000 e SF150. Recupera as fun&ccedil;&otilde;es da sua m&aacute;quina e garante melhor autonomia e qualidade na sua produ&ccedil;&atilde;o. Confira se o tamanho &eacute; compat&iacute;vel com sua seladora",
+              "Especificações Técnicas": "&bull; Espessura: 0,2mm &bull; Largura: 15mm &bull; Comprimento: 750mm"
+            },
+            "skus": [
+              {
+                "id": "147",
+                "name": "Un",
+                "reference": "PAACSLPD001",
+                "sellerId": "1",
+                "priceCents": 2279,
+                "available": true
+              }
+            ]
+          }
+        ],
+        "selectedSkuId": "147",
+        "shipping": [],
+        "shippingStatus": "not_requested",
+        "quantity": 1
+      },
+      "answer": [
+        "Cinto TEFLON para Seladora - FRD1000/SF150 — Un (SKU 147)\nPreço público consultado: R$ 22,79 por unidade.\nConsta disponível nesta consulta, sujeito à confirmação da loja.\nFonte: https://www.tecfag.com.br/cinto-teflon-para-seladora---frd1000-sf150/p\nConsulta em 21/10/2026, 10:24:50 (Brasília). Não representa reserva ou pedido confirmado."
+      ]
+    },
+    {
+      "name": "simulação pública de frete",
+      "status": "passed",
+      "result": {
+        "status": "matched",
+        "source": "vtex",
+        "checkedAt": "2026-10-21T13:24:52.207Z",
+        "channel": "livechat",
+        "products": [
+          {
+            "id": "108",
+            "name": "Cinto TEFLON para Seladora - FRD1000/SF150",
+            "url": "https://www.tecfag.com.br/cinto-teflon-para-seladora---frd1000-sf150/p",
+            "description": "Cinto Teflon* aplicável nos modelos das Seladoras Automáticas Contínuas FRD1000 e SF150. Recupera as funções da sua máquina e garante melhor autonomia e qualidade na sua produção. Confira se o tamanho é compatível com sua seladora, caso contrário, confira os outros tamanhos disponíveis. *Apenas unidade do cinto teflon é vendida neste anúncio. Imagem ilustrativa.",
+            "specifications": {
+              "Modelo": "FRD1000 e SF150",
+              "Descrição": "Cinto Teflon* aplic&aacute;vel nos modelos das Seladoras Autom&aacute;ticas Cont&iacute;nuas FRD1000 e SF150. Recupera as fun&ccedil;&otilde;es da sua m&aacute;quina e garante melhor autonomia e qualidade na sua produ&ccedil;&atilde;o. Confira se o tamanho &eacute; compat&iacute;vel com sua seladora",
+              "Especificações Técnicas": "&bull; Espessura: 0,2mm &bull; Largura: 15mm &bull; Comprimento: 750mm"
+            },
+            "skus": [
+              {
+                "id": "147",
+                "name": "Un",
+                "reference": "PAACSLPD001",
+                "sellerId": "1",
+                "priceCents": 2279,
+                "available": true
+              }
+            ]
+          }
+        ],
+        "selectedSkuId": "147",
+        "shipping": [
+          {
+            "name": "Transportadora",
+            "priceCents": 1103,
+            "estimate": "3bd"
+          },
+          {
+            "name": "PAC",
+            "priceCents": 1539,
+            "estimate": "6bd"
+          },
+          {
+            "name": "SEDEX",
+            "priceCents": 1703,
+            "estimate": "2bd"
+          },
+          {
+            "name": "Tecfast",
+            "priceCents": 7076,
+            "estimate": "3bd"
+          }
+        ],
+        "shippingStatus": "available",
+        "quantity": 1
+      },
+      "answer": [
+        "Cinto TEFLON para Seladora - FRD1000/SF150 — Un (SKU 147)\nConsta disponível nesta consulta, sujeito à confirmação da loja.\nSimulação pública para 1 unidade(s):\nTransportadora: R$ 11,03; prazo informado pela loja: 3 dias úteis.\nPAC: R$ 15,39; prazo informado pela loja: 6 dias úteis.\nSEDEX: R$ 17,03; prazo informado pela loja: 2 dias úteis.\nTecfast: R$ 70,76; prazo informado pela loja: 3 dias úteis.\nO prazo e o valor precisam ser confirmados pela loja no fechamento.\nFonte: https://www.tecfag.com.br/cinto-teflon-para-seladora---frd1000-sf150/p\nConsulta em 21/10/2026, 10:24:52 (Brasília). Não representa reserva ou pedido confirmado."
+      ]
+    },
+    {
+      "name": "preço bloqueado no WhatsApp sem consulta externa",
+      "status": "passed"
+    },
+    {
+      "name": "especificações no WhatsApp sem preço e estoque",
+      "status": "passed",
+      "answer": [
+        "Cinto TEFLON para Seladora - FRD1000/SF150 — Un (SKU 147)\nCinto Teflon* aplicável nos modelos das Seladoras Automáticas Contínuas FRD1000 e SF150. Recupera as funções da sua máquina e garante melhor autonomia e qualidade na sua produção. Confira se o tamanho é compatível com sua seladora, caso contrário, confira os outros tamanhos disponíveis. *Apenas unidade do cinto teflon é vendida neste anúncio. Imagem ilustrativa.\nModelo: FRD1000 e SF150\nDescrição: Cinto Teflon* aplic&aacute;vel nos modelos das Seladoras Autom&aacute;ticas Cont&iacute;nuas FRD1000 e SF150. Recupera as fun&ccedil;&otilde;es da sua m&aacute;quina e garante melhor autonomia e qualidade na sua produ&ccedil;&atilde;o. Confira se o tamanho &eacute; compat&iacute;vel com sua seladora\nEspecificações Técnicas: &bull; Espessura: 0,2mm &bull; Largura: 15mm &bull; Comprimento: 750mm\nFonte: https://www.tecfag.com.br/cinto-teflon-para-seladora---frd1000-sf150/p\nConsulta em 21/10/2026, 10:24:52 (Brasília). Não representa reserva ou pedido confirmado."
+      ]
+    },
+    {
+      "name": "produto com variantes exige escolha",
+      "status": "passed",
+      "answer": [
+        "Preciso confirmar o produto e a variante antes de consultar os valores. Qual destas opções você deseja?\nSeladora de Pedal 40 cm - FRP400 — 110V — SKU 475\nSeladora de Pedal 40 cm - FRP400 — 220V — SKU 691"
+      ]
+    }
+  ]
+}

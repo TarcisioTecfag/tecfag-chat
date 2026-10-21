@@ -14,6 +14,9 @@ import { buildTecfagFagnerPrompt } from "./sdr-tecfag-prompt";
 import { resolveLegacySdrStageAndFunnel } from "./legacy-sdr-routing";
 import { INDUSTRIAL_POLICY_VERSION, resolveIndustrialRoute, assessIndustrialReadiness, canFinishIndustrialTriage, hasPendingTriageQuestion, requestsHuman } from "../triage/industrial-policy";
 import { siteContextFromMessages } from "../livechat/site-context";
+import { runVtexStoreTurn } from "../vtex/runtime";
+import { guardVtexMessages } from "../vtex/turn";
+import { readVtexEvidence } from "../vtex/contract";
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
 import { industrialHandoffOutcome, industrialClientMessages, type IndustrialHandoffResult } from "../triage/industrial-handoff";
 import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
@@ -795,9 +798,17 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (signal?.aborted) return false;
 
       // 6. Consultar o Gemini 2.5 Pro via Vertex AI
+      const storeTurn = industrialTriage ? await runVtexStoreTurn(db, tenantId, {
+        text: combinedBatchText, siteContext, previous: readVtexEvidence(metaState.vtexLookup) || undefined,
+        channel: isSiteConversationId(conversationId) ? "livechat" : "whatsapp", signal,
+      }).catch(() => null) : null;
+      if (signal?.aborted) return false;
       let aiResult: SdrAiResult | null = null;
       if (industrialTriage && requestsHuman(combinedBatchText)) {
         aiResult = { subflow: "5A_CLIENTE", messagesToSend: ["Vou acionar a equipe responsável pelo seu atendimento."], isCompleted: true };
+      } else if (storeTurn) {
+        // Consulta factual não conclui coleta, cria card ou depende de uma resposta generativa.
+        aiResult = { messagesToSend: storeTurn.messages, isCompleted: false };
       } else if (vertexAi.isReady()) {
         aiResult = await vertexAi.generateStructuredJson<SdrAiResult>(
           multimodalParts,
@@ -830,7 +841,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
         // Checar se o cliente apenas deu oi/saudação ou se já explicou o que precisa
         const isGenericGreetingOnly =
-          combinedText.replace(/[^a-z0-9]/g, "").length < 25 &&
+          !storeTurn && combinedText.replace(/[^a-z0-9]/g, "").length < 25 &&
           !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|envas|empacot|datador|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit)/.test(combinedText);
 
         const article = aiPersona.gender === "female" ? "a" : "o";
@@ -1065,7 +1076,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       // ╚══════════════════════════════════════════════════════════════════════╝
       let isCompleted = false;
       if (industrialRoute) {
-        isCompleted = canFinishIndustrialTriage({ route: industrialRoute, data: updatedCollectedData, isCompleted: aiResult.isCompleted, hasPendingQuestion: hasPendingTriageQuestion(aiResult.messagesToSend) });
+        isCompleted = !storeTurn && canFinishIndustrialTriage({ route: industrialRoute, data: updatedCollectedData, isCompleted: aiResult.isCompleted, hasPendingQuestion: hasPendingTriageQuestion(aiResult.messagesToSend) });
       } else if (hasVitalInformation) {
         // Com dados vitais coletados: aceita conclusão da IA (sem pergunta real pendente) OU transferência explícita
         if ((aiResult.isCompleted && !botIsAskingQuestion) || messagesMentionTransfer) {
@@ -1263,6 +1274,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (flowState) {
         const updatedMetadata = {
           ...metaState,
+          ...(storeTurn ? { vtexLookup: storeTurn.evidence } : {}),
           ...(siteContext ? { siteContext } : {}),
           stepNumber: filledCount,
           totalSteps: 7,
@@ -1341,6 +1353,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       // ── Salvar interpretação de mídia na mensagem do cliente (memória visual futura) ──
+      if (industrialTriage) aiResult.messagesToSend = guardVtexMessages(aiResult.messagesToSend, storeTurn?.messages || []);
       // Se o Gemini retornou uma mediaDescription, salvamos na mensagem do cliente que
       // continha a mídia para que em turnos futuros a Valentina saiba o que foi visto/ouvido
       // sem precisar reenviar o binário da imagem/áudio/PDF.

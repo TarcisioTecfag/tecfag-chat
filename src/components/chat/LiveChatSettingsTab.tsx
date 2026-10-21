@@ -9,6 +9,7 @@ import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { toast } from "sonner";
 import { SiteChannelCard } from "./SiteChannelCard";
+import { VtexStoreCard } from "./VtexStoreCard";
 
 interface TrayConfig {
   apiAddress: string;
@@ -42,6 +43,7 @@ export function LiveChatSettingsTab() {
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   useEffect(() => {
+    if (persona.triagePolicy === "industrial") { setIsLoading(false); return; }
     const load = async () => {
       setIsLoading(true);
       try {
@@ -60,7 +62,7 @@ export function LiveChatSettingsTab() {
       }
     };
     load();
-  }, [tenant]);
+  }, [tenant, persona.triagePolicy]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,8 +113,9 @@ export function LiveChatSettingsTab() {
   return (
     <div className="space-y-5 w-full pb-4">
       {persona.triagePolicy === "industrial" && (
-        <SiteChannelCard personaName={persona.name} backendUrl={BACKEND_URL} />
+        <><SiteChannelCard personaName={persona.name} backendUrl={BACKEND_URL} /><VtexStoreCard key={tenant} backendUrl={BACKEND_URL} /></>
       )}
+      {persona.triagePolicy !== "industrial" && <>
       {/* ── Card: Tray Commerce ────────────────────────────────────────── */}
       <div className="rounded-2xl bg-card border border-border p-6 shadow-soft">
         <div className="flex items-center justify-between mb-5">
@@ -248,6 +251,7 @@ export function LiveChatSettingsTab() {
       </div>
 
       {/* ── Card: Script de instalação ────────────────────────────────── */}
+      </>}
       <div className="rounded-2xl bg-card border border-border p-6 shadow-soft">
         <div className="flex items-center gap-3 mb-5">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -255,7 +259,7 @@ export function LiveChatSettingsTab() {
           </div>
           <div>
             <h3 className="text-base font-bold text-foreground">Script de Instalação</h3>
-            <p className="text-xs text-muted-foreground">Cole este código no {"<head>"} de todas as páginas da loja Tray</p>
+            <p className="text-xs text-muted-foreground">Cole este código no {"<head>"} das páginas da loja</p>
           </div>
         </div>
 
@@ -281,7 +285,7 @@ export function LiveChatSettingsTab() {
             <ExternalLink className="h-3.5 w-3.5" />
             Abrir página de teste
           </a>
-          <p className="text-[11px] text-muted-foreground">Simula o widget sem precisar publicar na Tray</p>
+          <p className="text-[11px] text-muted-foreground">Página de teste do widget; confira o tenant antes de conectar</p>
         </div>
       </div>
     </div>

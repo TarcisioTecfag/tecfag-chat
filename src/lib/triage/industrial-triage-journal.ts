@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readHandoffIssue } from "./industrial-handoff-issues.ts";
 import { readHumanReview } from "./industrial-review-contract.ts";
 import { readSiteContext } from "../livechat/site-context.ts";
+import { readVtexEvidence } from "../vtex/contract.ts";
 export type TriageJournalKind =
   | "collection"
   | "handoff"
@@ -63,6 +64,7 @@ export function buildJournalSnapshot(flow: JournalFlow) {
     currentStep: text(flow.currentStep, 200),
     collectedData: normalizeJournalData(flow.collectedData),
     siteContext: readSiteContext(meta.siteContext),
+    vtexLookup: readVtexEvidence(meta.vtexLookup),
     humanReview: readHumanReview(
       meta.humanReview,
       startedAt,
@@ -109,6 +111,7 @@ export function readJournalSnapshot(raw: unknown): JournalSnapshot | null {
     metadata: {
       subflow: row.subflow,
       siteContext: row.siteContext,
+      vtexLookup: row.vtexLookup,
       targetFunnel: row.targetFunnel,
       needsReview: row.needsReview,
       missingFields: row.missingFields,
