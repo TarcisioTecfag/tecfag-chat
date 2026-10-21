@@ -41,6 +41,8 @@ const VOICE_SCORE_TABS: Array<{ id: VoiceTab; label: string; icon: React.Compone
   { id: "voice_ligacao", label: "Análise da Ligação", icon: Headphones, screen: "call" },
 ];
 
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
 export function LigacoesView() {
   const { canAccessLigacoesTab, canTriggerTestCall } = usePermissions();
   const { tenant } = useChat();
@@ -72,12 +74,21 @@ export function LigacoesView() {
     [allowedVoiceScoreTabs, allowedAiTabs]
   );
   const allowedTabIds = useMemo(() => allAllowedTabs.map((t) => t.id), [allAllowedTabs]);
-  const [activeTab, setActiveTab] = useState<VoiceTab>(() => allAllowedTabs[0]?.id || "voice_equipe");
+  const [activeTab, setActiveTab] = useState<VoiceTab>(() =>
+    getInitialTabFromUrl("ligacoes", allAllowedTabs[0]?.id || "voice_equipe", allowedTabIds),
+  );
 
   useTabNavigation({
     tabs: allowedTabIds,
     activeTab,
     onChange: setActiveTab,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "ligacoes",
+    activeTab,
+    setActiveTab,
+    allowedTabs: allowedTabIds,
   });
 
   useEffect(() => {

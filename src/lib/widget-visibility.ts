@@ -37,6 +37,8 @@ export type UpperModuleWithChatWidget = (typeof UPPER_MODULES_WITH_CHAT_WIDGET)[
 
 const UPPER_MODULES_SET = new Set<string>(UPPER_MODULES_WITH_CHAT_WIDGET);
 
+import { parseAppRoute } from "./app-routes";
+
 export function shouldShowMiniChatWidget({
   activeView,
   pathname = "/",
@@ -71,10 +73,14 @@ export function shouldShowMiniChatWidget({
     return true;
   }
 
+  const parsed = parseAppRoute(currentPath);
+  const effectiveView = parsed.viewId || activeView;
+
   // Deve ser estritamente um dos módulos superiores autorizados
-  if (!activeView || !UPPER_MODULES_SET.has(activeView)) {
+  if (!effectiveView || !UPPER_MODULES_SET.has(effectiveView)) {
     return false;
   }
 
   return true;
 }
+

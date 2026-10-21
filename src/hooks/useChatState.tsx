@@ -11,6 +11,7 @@ import {
   OperatorTemplate,
 } from "@/lib/mockData";
 import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
+import { parseAppRoute } from "@/lib/app-routes";
 import { getAiPersona } from "@/lib/ai-persona";
 import { playNotificationSound } from "@/lib/sound-notifications";
 import { MessageSquare, MessageCircle, ExternalLink, X } from "lucide-react";
@@ -342,6 +343,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
   const [activeView, setActiveView] = useState<"chat" | "commercialHome" | "commercialManagement" | "commercialBi" | "crm" | "contacts" | "wallet" | "settings" | "groups" | "monitor" | "analytics" | "tasks" | "valentina" | "ligacoes">(() => {
     if (typeof window !== "undefined") {
+      const parsed = parseAppRoute(window.location.pathname);
+      if (parsed.viewId) return parsed.viewId;
       const savedView = localStorage.getItem("chat_active_view");
       if (savedView) return savedView as any;
     }
@@ -389,7 +392,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [sessionPermissions, setSessionPermissions] = useState<GroupPermissions | null>(null);
   const [sessionRole, setSessionRole] = useState<string | null>(null);
   const [isCommercialConsultant, setIsCommercialConsultant] = useState(false);
-  const [commercialDivision, setCommercialDivision] = useState<string | null>(null);
+  const [commercialDivision, setCommercialDivision] = useState(null as string | null);
 
   // Refs to avoid stale closures in SSE event listener
   const selectedChatIdRef = useRef(selectedChatId);
@@ -462,9 +465,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveQueue(savedQueue as QueueType);
       }
 
-      const savedView = localStorage.getItem("chat_active_view");
-      if (savedView) {
-        setActiveView(savedView as any);
+      const parsedUrlRoute = parseAppRoute(window.location.pathname);
+      if (parsedUrlRoute.viewId) {
+        setActiveView(parsedUrlRoute.viewId);
+        if (parsedUrlRoute.viewId === "chat" && parsedUrlRoute.isAiAssistantChat) {
+          setSelectedChatId("valentina");
+        }
+      } else {
+        const savedView = localStorage.getItem("chat_active_view");
+        if (savedView) {
+          setActiveView(savedView as any);
+        }
       }
 
       // Validar sessão ativa no servidor com cookie HttpOnly
@@ -494,7 +505,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setSessionRole(data.operator.role || null);
             setIsCommercialConsultant(Boolean(data.isCommercialConsultant));
             setCommercialDivision(data.commercialDivision || null);
-            if (activeTenant === "tecfag" && !localStorage.getItem("chat_active_view") &&
+            const currentUrlRoute = parseAppRoute(window.location.pathname);
+            if (currentUrlRoute.viewId) {
+              setActiveView(currentUrlRoute.viewId);
+            } else if (activeTenant === "tecfag" && !localStorage.getItem("chat_active_view") &&
               Boolean(data.isCommercialConsultant)) {
               setActiveView("commercialHome");
             }

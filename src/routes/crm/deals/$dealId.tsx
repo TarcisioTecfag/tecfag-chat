@@ -78,15 +78,22 @@ function DealPage() {
   ) as CSSProperties;
 
   const goBack = () => {
-    setActiveView(from === "chat" ? "chat" : from === "valentina" ? "valentina" : "crm");
-    navigate({ to: "/" });
+    const targetView = from === "chat" ? "chat" : from === "valentina" ? "valentina" : "crm";
+    setActiveView(targetView);
+    const targetPath =
+      targetView === "chat"
+        ? "/chat"
+        : targetView === "valentina"
+        ? "/ia/rodizio"
+        : "/negociacoes/quadro";
+    navigate({ to: targetPath as any });
   };
 
   const openConversation = async (conversationId: string) => {
     await refreshConversations(conversationId);
     setSelectedChatId(conversationId);
     setActiveView("chat");
-    navigate({ to: "/" });
+    navigate({ to: "/chat/$chatKey", params: { chatKey: conversationId } });
   };
 
   if (!sessionChecked && !isAuthenticated) {

@@ -140,21 +140,41 @@ async function getOpenCommercialDeals(): Promise<Deal[]> {
   return deals;
 }
 
+import { getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
 export function CommercialManagementView() {
   const { setActiveView, operators } = useChat();
   const operatorsRef = useRef(operators);
   operatorsRef.current = operators;
   const navigate = useNavigate();
-  const [tab, setTab] = useState<CommercialTab>("consultants");
   const tabIds = useMemo(() => COMMERCIAL_TABS.map((t) => t.id), []);
+  const [tab, setTab] = useState<CommercialTab>(() =>
+    getInitialTabFromUrl("commercialManagement", "consultants", tabIds),
+  );
 
   useTabNavigation({
     tabs: tabIds,
     activeTab: tab,
     onChange: setTab,
   });
+
   const [month, setMonth] = useState(() => saoPauloDay().slice(0, 7));
-  const [activeProfileOperatorId, setActiveProfileOperatorId] = useState<string | null>(null);
+  const [activeProfileOperatorId, setActiveProfileOperatorId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const parsed = parseAppRoute(window.location.pathname);
+    if (parsed.viewId === "commercialManagement" && parsed.tabId === "profiles" && parsed.extraParam) {
+      return parsed.extraParam;
+    }
+    return null;
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "commercialManagement",
+    activeTab: tab,
+    setActiveTab: setTab,
+    allowedTabs: tabIds,
+    extraParam: tab === "profiles" ? activeProfileOperatorId : null,
+  });
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [directives, setDirectives] = useState<Directive[]>([]);

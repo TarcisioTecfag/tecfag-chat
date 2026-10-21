@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SplatRouteImport } from './routes/$'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChatChatKeyRouteImport } from './routes/chat/$chatKey'
 import { Route as CallRoomIdRouteImport } from './routes/call/$roomId'
@@ -177,6 +178,11 @@ import { Route as ApiCrmDealsDealIdFilesFileIdRouteImport } from './routes/api/c
 import { Route as ApiCrmDealsDealIdEmailsSendRouteImport } from './routes/api/crm/deals/$dealId/emails/send'
 import { Route as ApiCrmDealsDealIdActivitiesActivityIdRouteImport } from './routes/api/crm/deals/$dealId/activities/$activityId'
 
+const SplatRoute = SplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -1064,6 +1070,7 @@ const ApiCrmDealsDealIdActivitiesActivityIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
   '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
@@ -1233,6 +1240,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
   '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
@@ -1403,6 +1411,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
   '/api/calls': typeof ApiCallsRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
@@ -1574,6 +1583,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$'
     | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
@@ -1743,6 +1753,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$'
     | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
@@ -1912,6 +1923,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/$'
     | '/api/calls'
     | '/api/chats'
     | '/api/contacts'
@@ -2082,6 +2094,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SplatRoute: typeof SplatRoute
   ApiCallsRoute: typeof ApiCallsRoute
   ApiChatsRoute: typeof ApiChatsRouteWithChildren
   ApiContactsRoute: typeof ApiContactsRouteWithChildren
@@ -2201,6 +2214,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/$': {
+      id: '/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -3705,6 +3725,7 @@ const ApiSettingsWhatsappRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SplatRoute: SplatRoute,
   ApiCallsRoute: ApiCallsRoute,
   ApiChatsRoute: ApiChatsRouteWithChildren,
   ApiContactsRoute: ApiContactsRouteWithChildren,

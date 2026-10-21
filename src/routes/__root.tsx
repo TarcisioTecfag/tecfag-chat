@@ -29,12 +29,22 @@ import {
 } from "@/lib/asset-recovery";
 
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
+import { isAppShellPath } from "@/lib/app-routes";
+import { Index } from "./index";
 
 installAssetRecovery();
 
 const CrmChatWidget = lazy(() =>
   import("@/components/crm/CrmChatWidget").then((module) => ({ default: module.CrmChatWidget })),
 );
+
+function PersistentAppShell() {
+  const location = useLocation();
+  if (!isAppShellPath(location.pathname)) {
+    return null;
+  }
+  return <Index />;
+}
 
 function MaybeCrmChatWidget() {
   const { activeView, isAuthenticated } = useChat();
@@ -297,6 +307,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={300}>
         <ChatProvider>
+          <PersistentAppShell />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
           <MaybeCrmChatWidget />

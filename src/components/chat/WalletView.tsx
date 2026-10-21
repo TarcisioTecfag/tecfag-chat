@@ -34,6 +34,10 @@ import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
+const WALLET_TABS = ["wallet", "templates"] as const;
+
 export function WalletView() {
   const {
     tenant,
@@ -52,12 +56,21 @@ export function WalletView() {
 
   const aiPersona = getAiPersona(tenant || "valem");
 
-  const [activeTab, setActiveTab] = useState<"wallet" | "templates">("wallet");
+  const [activeTab, setActiveTab] = useState<"wallet" | "templates">(() =>
+    getInitialTabFromUrl("wallet", "wallet", WALLET_TABS),
+  );
 
   useTabNavigation({
-    tabs: ["wallet", "templates"] as const,
+    tabs: WALLET_TABS,
     activeTab,
     onChange: setActiveTab,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "wallet",
+    activeTab,
+    setActiveTab,
+    allowedTabs: WALLET_TABS,
   });
 
   // KPI de inatividade — busca do servidor isolado para o operador logado (apenas para a aba carteira)

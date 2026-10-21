@@ -118,6 +118,10 @@ function ContactAvatar({ avatar, name, initials, initialsBg, size = "h-9 w-9" }:
   );
 }
 
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
+const CONTACT_CHANNEL_TABS = ["all", "whatsapp", "instagram", "messenger"] as const;
+
 export function ContactsView() {
   const {
     tenant,
@@ -134,7 +138,9 @@ export function ContactsView() {
   const { canCreateContact, canEditContact } = usePermissions();
 
   const [search, setSearch] = useState("");
-  const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
+  const [channelFilter, setChannelFilter] = useState<Channel | "all">(() =>
+    getInitialTabFromUrl("contacts", "all", CONTACT_CHANNEL_TABS),
+  );
 
   const channelTabs: (Channel | "all")[] = useMemo(
     () => ["all", "whatsapp", "instagram", "messenger"],
@@ -145,6 +151,13 @@ export function ContactsView() {
     tabs: channelTabs,
     activeTab: channelFilter,
     onChange: setChannelFilter,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "contacts",
+    activeTab: channelFilter,
+    setActiveTab: setChannelFilter,
+    allowedTabs: channelTabs,
   });
   const [newContactCustomFields, setNewContactCustomFields] = useState<Record<string, unknown>>({});
   const [contactDealInput, setContactDealInput] = useState<ContactDealInput>({});

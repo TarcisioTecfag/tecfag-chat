@@ -202,7 +202,9 @@ function formatPhone(phone: string | null): string {
   return phone;
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
+const TASK_VIEW_MODES = ["month", "week", "day"] as const;
 
 export function TasksView() {
   const {
@@ -224,12 +226,21 @@ export function TasksView() {
   const [operatorsList, setOperatorsList] = useState<Array<{ id: string; name: string }>>([]);
 
   // Modo de visualização: Mês | Semana | Dia
-  const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month");
+  const [viewMode, setViewMode] = useState<"month" | "week" | "day">(() =>
+    getInitialTabFromUrl("tasks", "month", TASK_VIEW_MODES),
+  );
 
   useTabNavigation({
-    tabs: ["month", "week", "day"] as const,
+    tabs: TASK_VIEW_MODES,
     activeTab: viewMode,
     onChange: setViewMode,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "tasks",
+    activeTab: viewMode,
+    setActiveTab: setViewMode,
+    allowedTabs: TASK_VIEW_MODES,
   });
 
   // Filtros internos do painel diário

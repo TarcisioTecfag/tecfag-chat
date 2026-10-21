@@ -3522,6 +3522,8 @@ export function CostsTab({ tenant }: { tenant: string }) {
   );
 }
 
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
 // ── Componente Principal ─────────────────────────────────────────────────────
 export function MonitorView() {
   const { tenant } = useChat();
@@ -3546,12 +3548,21 @@ export function MonitorView() {
 
   const allowedTabs = allTabs.filter(t => canAccessMonitorTab(t.id));
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
-  const [activeTab, setActiveTab] = useState<MonitorTab>(() => allowedTabs[0]?.id || "live");
+  const [activeTab, setActiveTab] = useState<MonitorTab>(() =>
+    getInitialTabFromUrl("monitor", allowedTabs[0]?.id || "live", allowedTabIds),
+  );
 
   useTabNavigation({
     tabs: allowedTabIds,
     activeTab,
     onChange: setActiveTab,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "monitor",
+    activeTab,
+    setActiveTab,
+    allowedTabs: allowedTabIds,
   });
 
   useEffect(() => {

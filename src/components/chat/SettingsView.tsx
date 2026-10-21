@@ -19,8 +19,10 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { RdMarketingSettings } from "./RdMarketingSettings";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
+const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat"];
 
 export function SettingsView() {
   const {
@@ -35,7 +37,9 @@ export function SettingsView() {
 
   const aiPersona = getAiPersona(tenant || "valem");
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>("whatsapp");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
+    getInitialTabFromUrl("settings", "whatsapp", SETTINGS_TABS),
+  );
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
   const [pipelineSettingsOpen, setPipelineSettingsOpen] = useState(false);
   const [sourcesCampaignsOpen, setSourcesCampaignsOpen] = useState(false);
@@ -466,6 +470,13 @@ export function SettingsView() {
     tabs: allowedTabIds,
     activeTab,
     onChange: setActiveTab,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "settings",
+    activeTab,
+    setActiveTab,
+    allowedTabs: allowedTabIds,
   });
 
   useEffect(() => {

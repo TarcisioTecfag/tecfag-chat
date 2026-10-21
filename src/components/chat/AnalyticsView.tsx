@@ -11,6 +11,7 @@ import {
 import { OverviewTab, CostsTab } from "@/components/chat/MonitorView";
 import { ReportsIATab } from "@/components/reports/ReportsIATab";
 import { usePermissions } from "@/hooks/usePermissions";
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, BarChart, Bar, Cell, PieChart, Pie, RadialBarChart, RadialBar
@@ -699,12 +700,21 @@ export function AnalyticsView() {
 
   const allowedTabs = allTabs.filter(t => canAccessAnalyticsTab(t.id));
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>(() => allowedTabs[0]?.id || "overview");
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>(() =>
+    getInitialTabFromUrl("analytics", allowedTabs[0]?.id || "overview", allowedTabIds),
+  );
 
   useTabNavigation({
     tabs: allowedTabIds,
     activeTab,
     onChange: setActiveTab,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "analytics",
+    activeTab,
+    setActiveTab,
+    allowedTabs: allowedTabIds,
   });
 
   useEffect(() => {

@@ -2,7 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { getChatLinkKey } from "@/lib/chat-link";
-import { Index } from "../index";
+
+const AI_ASSISTANT_SLUGS = new Set(["assistente", "ia", "fagner", "valentina"]);
 
 export const Route = createFileRoute("/chat/$chatKey")({
   component: ChatLinkPage,
@@ -22,6 +23,14 @@ function ChatLinkPage() {
     if (!isAuthenticated) return;
     let cancelled = false;
     setError(null);
+
+    if (AI_ASSISTANT_SLUGS.has(chatKey.toLowerCase())) {
+      setActiveView("chat");
+      setSelectedChatId("valentina");
+      setResolved({ key: chatKey, id: "valentina" });
+      return;
+    }
+
     // Uma troca feita na lista já atualizou o chat no estado compartilhado.
     // Navegar para a nova URL não precisa buscar nem remontar a tela inteira.
     if (activeChat && (activeChat.id === chatKey || getChatLinkKey(activeChat, conversations) === chatKey)) {
@@ -51,24 +60,26 @@ function ChatLinkPage() {
 
   useEffect(() => {
     if (!resolved || resolved.key !== chatKey) return;
-    if (activeView !== "chat" || selectedChatId === null || selectedChatId === "valentina") {
-      navigate({ to: "/", replace: true });
-    } else if (selectedChatId !== resolved.id && activeChat?.id === selectedChatId) {
+    if (activeView !== "chat") return;
+
+    if (selectedChatId === null) {
+      navigate({ to: "/chat" as any, replace: true });
+    } else if (selectedChatId === "valentina" && !AI_ASSISTANT_SLUGS.has(chatKey.toLowerCase())) {
+      navigate({ to: "/chat/$chatKey", params: { chatKey: "assistente" } });
+    } else if (selectedChatId !== "valentina" && selectedChatId !== resolved.id && activeChat?.id === selectedChatId) {
       navigate({ to: "/chat/$chatKey", params: { chatKey: getChatLinkKey(activeChat, conversations) } });
     }
   }, [activeChat, activeView, chatKey, conversations, navigate, resolved, selectedChatId]);
 
+  if (!error) return null;
+
   return (
-    <>
-      <Index />
-      {error && (
-        <div role="alert" className="fixed bottom-6 left-1/2 z-[100] flex max-w-[90vw] -translate-x-1/2 items-center gap-4 rounded-xl border border-border bg-card px-5 py-3 text-sm text-foreground shadow-xl">
-          <span>{error}</span>
-          <button className="shrink-0 font-semibold text-primary" onClick={() => navigate({ to: "/" })}>
-            Voltar
-          </button>
-        </div>
-      )}
-    </>
+    <div role="alert" className="fixed bottom-6 left-1/2 z-[100] flex max-w-[90vw] -translate-x-1/2 items-center gap-4 rounded-xl border border-border bg-card px-5 py-3 text-sm text-foreground shadow-xl">
+      <span>{error}</span>
+      <button className="shrink-0 font-semibold text-primary" onClick={() => navigate({ to: "/chat" as any })}>
+        Voltar
+      </button>
+    </div>
   );
 }
+

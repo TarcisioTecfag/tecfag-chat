@@ -38,13 +38,17 @@ const allTabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = 
 
 // ── Componente principal ────────────────────────────────────────────────────
 
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
 export function ValentinaView() {
   const { tenant } = useChat();
   const persona = getAiPersona(tenant || "valem");
   const { canAccessValentinaTab } = usePermissions();
   const allowedTabs = allTabs.filter(tab => canAccessValentinaTab(tab.id));
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
-  const [activeTab, setActiveTab] = useState<ValentinaTab>(() => allowedTabs[0]?.id || "chat");
+  const [activeTab, setActiveTab] = useState<ValentinaTab>(() =>
+    getInitialTabFromUrl("valentina", allowedTabs[0]?.id || "chat", allowedTabIds),
+  );
 
   // Estado e Controle de SDR Triagem Automática (elevado ao Header para maximizar espaço de tela)
   const [sdrEnabled, setSdrEnabled] = useState(true);
@@ -113,6 +117,13 @@ export function ValentinaView() {
     tabs: allowedTabIds,
     activeTab,
     onChange: setActiveTab,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "valentina",
+    activeTab,
+    setActiveTab,
+    allowedTabs: allowedTabIds,
   });
 
   useEffect(() => {

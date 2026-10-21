@@ -16,6 +16,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { CrmKanbanSkeleton } from "./CrmKanbanSkeleton";
 import { invalidateDealCache } from "@/lib/crm/deal-prefetch";
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
 type CrmViewSnapshot = {
   savedAt: number;
@@ -105,8 +106,17 @@ export function CrmView() {
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
 
   // Filtros Globais Compartilhados entre Kanban e Lista
-  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
+  const [viewMode, setViewMode] = useState<"kanban" | "list">(() =>
+    getInitialTabFromUrl("crm", "kanban", ["kanban", "list"] as const),
+  );
   const [statusFilter, setStatusFilter] = useState<CrmStatusFilter>("open");
+
+  useSyncModuleTabWithUrl({
+    viewId: "crm",
+    activeTab: viewMode,
+    setActiveTab: setViewMode,
+    allowedTabs: ["kanban", "list"] as const,
+  });
 
   // Troca de funil unificada com persistência imediata no localStorage
   const handlePipelineChange = useCallback(

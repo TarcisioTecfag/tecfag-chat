@@ -44,13 +44,15 @@ const subscribeHydration = () => () => {};
 const getClientMounted = () => true;
 const getServerMounted = () => false;
 
+import { buildAppRoutePath, parseAppRoute } from "@/lib/app-routes";
+
 export const Route = createFileRoute("/")({
   ssr: true,
-  component: Index,
+  component: () => null,
 });
 
 export function Index() {
-  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations, isCommercialConsultant } = useChat();
+  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, setSelectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations, isCommercialConsultant } = useChat();
   const { canAccessView } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
@@ -66,10 +68,104 @@ export function Index() {
     enabled: isAuthenticated && !isMobile,
   });
 
+  const prevPathRef = React.useRef(location.pathname);
+  const prevViewRef = React.useRef(activeView);
+  const prevChatIdRef = React.useRef(selectedChatId);
+
   useEffect(() => {
-    if (location.pathname !== "/" || !isAuthenticated || activeView !== "chat" || !activeChat || activeChat.id === "valentina") return;
-    navigate({ to: "/chat/$chatKey", params: { chatKey: getChatLinkKey(activeChat, conversations) }, replace: true });
-  }, [activeChat, activeView, conversations, isAuthenticated, location.pathname, navigate]);
+    if (!isAuthenticated || isRestoringSession) return;
+
+    const pathnameChanged = prevPathRef.current !== location.pathname;
+    const viewChanged = prevViewRef.current !== activeView;
+    const chatIdChanged = prevChatIdRef.current !== selectedChatId;
+
+    prevPathRef.current = location.pathname;
+    prevViewRef.current = activeView;
+    prevChatIdRef.current = selectedChatId;
+
+    const parsed = parseAppRoute(location.pathname);
+    if (!parsed.isAppShell) return;
+
+    // 1. Mudança externa da URL (botões Voltar/Avançar do navegador ou acesso via link direto)
+    if (pathnameChanged && !viewChanged && parsed.viewId) {
+      if (parsed.viewId !== activeView) {
+        if (canAccessView(parsed.viewId)) {
+          prevViewRef.current = parsed.viewId;
+          setActiveView(parsed.viewId);
+          return;
+        }
+      }
+      if (parsed.viewId === "chat") {
+        if (parsed.isAiAssistantChat && selectedChatId !== "valentina") {
+          prevChatIdRef.current = "valentina";
+          setSelectedChatId("valentina");
+          return;
+        }
+        if (!parsed.chatKey && !parsed.isAiAssistantChat && selectedChatId && activeChat) {
+          const chatKey = getChatLinkKey(activeChat, conversations);
+          const nextPath = `/chat/${encodeURIComponent(chatKey)}`;
+          if (location.pathname !== nextPath && location.pathname !== `/chat/${chatKey}`) {
+            prevPathRef.current = `/chat/${chatKey}`;
+            navigate({ to: "/chat/$chatKey", params: { chatKey }, replace: true });
+          }
+          return;
+        }
+      }
+      return;
+    }
+
+    // 2. Módulo Chat ativo: sincronizar /chat, /chat/assistente e /chat/$chatKey
+    if (activeView === "chat") {
+      if (selectedChatId === "valentina") {
+        const target = "/chat/assistente";
+        if (location.pathname !== target) {
+          prevPathRef.current = target;
+          navigate({ to: "/chat/$chatKey", params: { chatKey: "assistente" }, replace: parsed.isRoot });
+        }
+        return;
+      }
+
+      if (activeChat && selectedChatId === activeChat.id && activeChat.id !== "valentina") {
+        const chatKey = getChatLinkKey(activeChat, conversations);
+        const target = `/chat/${encodeURIComponent(chatKey)}`;
+        if (location.pathname !== target && location.pathname !== `/chat/${chatKey}`) {
+          prevPathRef.current = `/chat/${chatKey}`;
+          navigate({ to: "/chat/$chatKey", params: { chatKey }, replace: parsed.isRoot });
+        }
+        return;
+      }
+
+      if (!selectedChatId && (parsed.isRoot || viewChanged || chatIdChanged || parsed.viewId !== "chat")) {
+        const target = "/chat";
+        if (location.pathname !== target) {
+          prevPathRef.current = target;
+          navigate({ to: target as any, replace: parsed.isRoot });
+        }
+      }
+      return;
+    }
+
+    // 3. Demais 13 módulos: sincronizar com a rota dedicada do módulo e sua aba
+    if (parsed.isRoot || parsed.viewId !== activeView) {
+      const targetPath = buildAppRoutePath(activeView);
+      if (location.pathname !== targetPath) {
+        prevPathRef.current = targetPath;
+        navigate({ to: targetPath as any, replace: parsed.isRoot });
+      }
+    }
+  }, [
+    activeChat,
+    activeView,
+    canAccessView,
+    conversations,
+    isAuthenticated,
+    isRestoringSession,
+    location.pathname,
+    navigate,
+    selectedChatId,
+    setActiveView,
+    setSelectedChatId,
+  ]);
 
   if (!isMounted || isRestoringSession) {
     return <div className="flex min-h-screen items-center justify-center bg-background text-primary"><Loader2 className="h-7 w-7 animate-spin" aria-label="Abrindo atendimento" /></div>;

@@ -221,6 +221,10 @@ function StatCard({
   );
 }
 
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
+const HOME_FILTER_TABS: readonly Filter[] = ["Todas", "Atrasadas", "Alta", "Hoje", "Concluídas"];
+
 export interface CommercialHomeViewProps {
   operatorId?: string;
   isManagementPreview?: boolean;
@@ -237,7 +241,9 @@ export function CommercialHomeView({
   const [data, setData] = useState<CommercialHome | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>("Todas");
+  const [filter, setFilter] = useState<Filter>(() =>
+    isManagementPreview ? "Todas" : getInitialTabFromUrl("commercialHome", "Todas", HOME_FILTER_TABS),
+  );
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>("");
   const [selectedDirective, setSelectedDirective] = useState<
     CommercialHome["directives"][number] | null
@@ -289,7 +295,7 @@ export function CommercialHomeView({
 
   const openCrm = () => {
     setActiveView("crm");
-    navigate({ to: "/" });
+    navigate({ to: "/negociacoes/quadro" as any });
   };
 
   // Dados calculados para exibição
@@ -348,6 +354,15 @@ export function CommercialHomeView({
     tabs: directiveTabs,
     activeTab: filter,
     onChange: setFilter,
+    enabled: !isManagementPreview,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "commercialHome",
+    activeTab: filter,
+    setActiveTab: setFilter,
+    allowedTabs: HOME_FILTER_TABS,
+    enabled: !isManagementPreview,
   });
 
   // Filtragem de diretrizes

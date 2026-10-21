@@ -15,6 +15,7 @@ import { MultiTenantAccessPanel } from "./MultiTenantAccessPanel";
 import { MetaTemplatesManager } from "./MetaTemplatesManager";
 import { getAiPersona } from "@/lib/ai-persona";
 import { usePermissions } from "@/hooks/usePermissions";
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
 interface OperatorWalletCardProps {
   op: Operator;
@@ -417,7 +418,9 @@ export function GroupsView() {
   const aiPersona = getAiPersona(tenant || "valem");
 
   // Active sub-views / tabs
-  const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors" | "wallets" | "templates">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors" | "wallets" | "templates">(() =>
+    getInitialTabFromUrl("groups", "users", ["users", "groups", "sectors", "wallets", "templates"] as const),
+  );
 
   // Modal de confirmação de exclusão de operador
   // Delete Operator Confirmation State (com auditoria e transferência de patrimônio)
@@ -913,6 +916,13 @@ export function GroupsView() {
     tabs: groupTabIds,
     activeTab,
     onChange: setActiveTab,
+  });
+
+  useSyncModuleTabWithUrl({
+    viewId: "groups",
+    activeTab,
+    setActiveTab,
+    allowedTabs: groupTabIds,
   });
 
   return (

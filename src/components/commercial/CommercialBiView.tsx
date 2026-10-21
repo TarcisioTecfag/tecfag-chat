@@ -241,6 +241,10 @@ export const LiveClockHeader = memo(function LiveClockHeader() {
   );
 });
 
+import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+
+const WAR_ROOM_SLIDE_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
+
 export function CommercialBiView() {
   const navigate = useNavigate();
   const { tenant, setActiveView, operators } = useChat();
@@ -248,8 +252,18 @@ export function CommercialBiView() {
   operatorsRef.current = operators;
   const panelRef = useRef<HTMLElement>(null);
   const [division, setDivision] = useState("");
-  const [module, setModule] = useState(0);
+  const [module, setModule] = useState<number>(() =>
+    getInitialTabFromUrl("commercialBi", 0, WAR_ROOM_SLIDE_IDS),
+  );
   const [rotating, setRotating] = useState(true);
+
+  useSyncModuleTabWithUrl({
+    viewId: "commercialBi",
+    activeTab: module,
+    setActiveTab: setModule,
+    allowedTabs: WAR_ROOM_SLIDE_IDS,
+    replaceOnChange: rotating,
+  });
   const [data, setData] = useState<BiData | null>(null);
   const [pipelineData, setPipelineData] = useState<ReturnType<
     typeof toPipelinePresentation
