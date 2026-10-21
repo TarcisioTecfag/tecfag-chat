@@ -20,6 +20,7 @@ import {
   Columns3,
   BriefcaseBusiness,
   Keyboard,
+  Check,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -31,6 +32,16 @@ export function Sidebar() {
   const { canAccessView } = usePermissions();
   const [showDropdown, setShowDropdown] = useState(false);
   const persona = getAiPersona(tenant || "valem");
+  const canSwitchTenant = availableTenants.length > 1;
+
+  useEffect(() => {
+    if (!showDropdown) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowDropdown(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showDropdown]);
 
   const navItems = [
     ...(tenant === "tecfag" && isCommercialConsultant ? [{ id: "commercialHome", icon: House, label: "Início" }] : []),
@@ -74,18 +85,27 @@ export function Sidebar() {
 
 
   return (
-    <aside className="vp-sidebar-rail flex h-full w-14 md:w-[72px] shrink-0 flex-col items-center justify-between py-2.5 md:py-4.5 relative z-50 select-none overflow-hidden">
-      <div className="flex flex-col items-center w-full flex-1 min-h-0 overflow-hidden">
+    <aside
+      className={`vp-sidebar-rail flex h-full w-14 md:w-[72px] shrink-0 flex-col items-center justify-between py-2.5 md:py-4.5 relative ${
+        showDropdown ? "z-[120]" : "z-50 hover:z-[110]"
+      } select-none overflow-visible`}
+    >
+      <div className="flex flex-col items-center w-full flex-1 min-h-0 overflow-visible">
         {/* Tenant Switcher Logo */}
-        <div className="relative shrink-0 mb-2 md:mb-4">
+        <div className="relative shrink-0 mb-2 md:mb-4 z-[130]">
           <motion.button
-            whileHover={availableTenants.length > 1 ? { scale: 1.05 } : {}}
-            whileTap={availableTenants.length > 1 ? { scale: 0.95 } : {}}
-            onClick={() => availableTenants.length > 1 && setShowDropdown(!showDropdown)}
-            className={`group relative flex h-10 w-10 md:h-12 md:w-12 items-center justify-center rounded-xl md:rounded-2xl bg-card border border-border shadow-soft transition-all hover:border-primary ${
-              availableTenants.length > 1 ? "cursor-pointer" : "cursor-default"
-            }`}
-            title={availableTenants.length > 1 ? "Alternar Empresa" : `Empresa: ${tenant === "tecfag" ? "Tecfag" : "Valem"}`}
+            type="button"
+            whileHover={canSwitchTenant ? { scale: 1.05 } : {}}
+            whileTap={canSwitchTenant ? { scale: 0.95 } : {}}
+            onClick={() => canSwitchTenant && setShowDropdown((prev) => !prev)}
+            className={`group relative flex h-10 w-10 md:h-12 md:w-12 items-center justify-center rounded-xl md:rounded-2xl bg-card border shadow-soft transition-all ${
+              showDropdown && canSwitchTenant
+                ? "border-primary ring-2 ring-primary/25"
+                : "border-border hover:border-primary"
+            } ${canSwitchTenant ? "cursor-pointer" : "cursor-default"}`}
+            title={canSwitchTenant ? "Alternar Empresa" : `Empresa: ${tenant === "tecfag" ? "Tecfag" : "Valem"}`}
+            aria-label={canSwitchTenant ? "Alternar Empresa" : `Empresa: ${tenant === "tecfag" ? "Tecfag" : "Valem"}`}
+            aria-expanded={showDropdown && canSwitchTenant}
           >
             <AnimatePresence mode="wait">
               <motion.img
@@ -93,74 +113,94 @@ export function Sidebar() {
                 initial={{ rotateY: -90, opacity: 0 }}
                 animate={{ rotateY: 0, opacity: 1 }}
                 exit={{ rotateY: 90, opacity: 0 }}
-                transition={{ duration: 0.3 }}
+                transition={{ duration: 0.25 }}
                 src={tenant === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg"}
                 alt="Logo"
                 className="h-8 w-8 md:h-10 md:w-10 rounded-lg md:rounded-xl object-cover"
               />
             </AnimatePresence>
-            {availableTenants.length > 1 && (
-              <span className="absolute -bottom-1 -right-1 md:-bottom-1.5 md:right-0 grid h-3.5 w-3.5 md:h-4 md:w-4 place-items-center rounded-full bg-primary text-[8px] md:text-[9px] font-bold text-primary-foreground">
-                <ChevronDown className="h-2 w-2 md:h-2.5 md:w-2.5" />
+            {canSwitchTenant && (
+              <span className="absolute -bottom-1 -right-1 grid h-4 w-4 md:h-[18px] md:w-[18px] place-items-center rounded-full bg-primary text-primary-foreground ring-2 ring-card shadow-md transition-transform duration-200">
+                <ChevronDown
+                  className={`h-2.5 w-2.5 transition-transform duration-200 ${
+                    showDropdown ? "-rotate-90" : ""
+                  }`}
+                  strokeWidth={2.75}
+                />
               </span>
             )}
           </motion.button>
 
           {/* Tenant Switcher Dropdown */}
           <AnimatePresence>
-            {showDropdown && availableTenants.length > 1 && (
+            {showDropdown && canSwitchTenant && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
+                <div
+                  className="fixed inset-0 z-[125]"
+                  onClick={() => setShowDropdown(false)}
+                />
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.9, x: -10 }}
+                  initial={{ opacity: 0, scale: 0.94, x: -8 }}
                   animate={{ opacity: 1, scale: 1, x: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, x: -10 }}
-                  transition={{ type: "spring", damping: 20, stiffness: 300 }}
-                  className="absolute left-14 top-0 z-50 w-48 rounded-2xl bg-card p-2 border border-border shadow-card origin-left"
+                  exit={{ opacity: 0, scale: 0.94, x: -8 }}
+                  transition={{ type: "spring", damping: 22, stiffness: 320 }}
+                  className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] top-0 z-[130] w-56 rounded-2xl bg-card p-2 border border-border shadow-2xl origin-left"
                 >
                   <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Empresa Ativa
                   </div>
                   {availableTenants.includes("tecfag") && (
                     <button
+                      type="button"
                       onClick={() => {
                         setTenant("tecfag");
                         setShowDropdown(false);
                       }}
-                      className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition hover:bg-muted ${
-                        tenant === "tecfag" ? "text-primary bg-primary-soft/50" : "text-foreground"
+                      className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition cursor-pointer ${
+                        tenant === "tecfag"
+                          ? "text-primary bg-primary-soft/60 border border-primary/25"
+                          : "text-foreground hover:bg-muted border border-transparent"
                       }`}
                     >
                       <img
                         src="/logo_tecfag.png"
                         alt="TF"
-                        className="h-6 w-6 rounded-lg object-cover bg-white"
+                        className="h-7 w-7 rounded-lg object-cover bg-white shrink-0"
                       />
-                      <div>
-                        <div>Tecfag Chat</div>
-                        <div className="text-[10px] font-normal text-muted-foreground">Abrir sistema Tecfag</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">Tecfag Chat</div>
+                        <div className="text-[10px] font-normal text-muted-foreground truncate">
+                          Abrir sistema Tecfag
+                        </div>
                       </div>
+                      {tenant === "tecfag" && <Check className="h-4 w-4 text-primary shrink-0" />}
                     </button>
                   )}
                   {availableTenants.includes("valem") && (
                     <button
+                      type="button"
                       onClick={() => {
                         setTenant("valem");
                         setShowDropdown(false);
                       }}
-                      className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition hover:bg-muted ${
-                        tenant === "valem" ? "text-primary bg-primary-soft/50" : "text-foreground"
+                      className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition cursor-pointer ${
+                        tenant === "valem"
+                          ? "text-primary bg-primary-soft/60 border border-primary/25"
+                          : "text-foreground hover:bg-muted border border-transparent"
                       }`}
                     >
                       <img
                         src="/logo_valem.jpg"
                         alt="V"
-                        className="h-6 w-6 rounded-lg object-cover bg-white"
+                        className="h-7 w-7 rounded-lg object-cover bg-white shrink-0"
                       />
-                      <div>
-                        <div>Valem Chat</div>
-                        <div className="text-[10px] font-normal text-muted-foreground">Abrir sistema Valem</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">Valem Chat</div>
+                        <div className="text-[10px] font-normal text-muted-foreground truncate">
+                          Abrir sistema Valem
+                        </div>
                       </div>
+                      {tenant === "valem" && <Check className="h-4 w-4 text-primary shrink-0" />}
                     </button>
                   )}
                 </motion.div>
@@ -169,8 +209,8 @@ export function Sidebar() {
           </AnimatePresence>
         </div>
 
-        {/* Navigation Items (Scrollável silenciosamente se a tela for muito baixa) */}
-        <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden scrollbar-none flex flex-col items-center py-1">
+        {/* Navigation Items */}
+        <div className="flex-1 min-h-0 w-full overflow-visible flex flex-col items-center py-1">
           <nav className="flex flex-col items-center gap-1.5 md:gap-2.5 w-full">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -191,13 +231,13 @@ export function Sidebar() {
                   {isActive && (
                     <motion.span
                       layoutId="activeTabIndicator"
-                      className="absolute -left-3 md:-left-6 top-1/2 h-5 md:h-7 w-[3px] -translate-y-1/2 rounded-r bg-primary"
+                      className="absolute -left-2.5 md:-left-3.5 top-1/2 h-5 md:h-7 w-[3px] -translate-y-1/2 rounded-r bg-primary"
                       transition={{ type: "spring", stiffness: 350, damping: 25 }}
                     />
                   )}
                   <Icon className="h-4 w-4 md:h-5 md:w-5" strokeWidth={isActive ? 2.25 : 1.75} />
                   {/* Floating tooltip — mesmo padrão dos módulos inferiores */}
-                  <span className="absolute left-12 md:left-14 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+                  <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
                     {item.label}
                   </span>
                 </motion.button>
@@ -228,13 +268,13 @@ export function Sidebar() {
                     {isActive && (
                       <motion.span
                         layoutId="activeTabIndicator"
-                        className="absolute -left-3 md:-left-6 top-1/2 h-5 md:h-7 w-[3px] -translate-y-1/2 rounded-r bg-primary"
+                        className="absolute -left-2.5 md:-left-3.5 top-1/2 h-5 md:h-7 w-[3px] -translate-y-1/2 rounded-r bg-primary"
                         transition={{ type: "spring", stiffness: 350, damping: 25 }}
                       />
                     )}
                     <Icon className="h-4 w-4 md:h-5 md:w-5" strokeWidth={isActive ? 2.25 : 1.75} />
                     {/* Floating tooltip */}
-                    <span className="absolute left-12 md:left-14 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+                    <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
                       {item.label}
                     </span>
                   </motion.button>
@@ -251,7 +291,7 @@ export function Sidebar() {
                 >
                   <Icon className="h-4 w-4 md:h-5 md:w-5" strokeWidth={1.75} />
                   {/* Floating tooltip */}
-                  <span className="absolute left-12 md:left-14 scale-0 opacity-0 rounded bg-foreground px-2 py-1 text-xs text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none">
+                  <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded bg-foreground px-2 py-1 text-xs text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none">
                     {item.label}
                   </span>
                 </motion.button>
@@ -270,7 +310,7 @@ export function Sidebar() {
           aria-label="Navegação por Teclado: Setas ↑/↓ para módulos · Setas ←/→ para abas"
         >
           <Keyboard className="h-3.5 w-3.5 md:h-4 md:w-4" />
-          <span className="absolute left-12 md:left-14 bottom-0 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-[11px] font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+          <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+22px)] bottom-0 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-[11px] font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
             Setas ↑ / ↓ : Módulos <br /> Setas ← / → : Abas
           </span>
         </div>
@@ -293,7 +333,7 @@ export function Sidebar() {
                 : "bg-gray-400"
             }`} />
             {/* Floating tooltip */}
-            <span className="absolute left-12 md:left-14 bottom-0 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
+            <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] bottom-0 scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
               Editar Meu Perfil
             </span>
           </button>
