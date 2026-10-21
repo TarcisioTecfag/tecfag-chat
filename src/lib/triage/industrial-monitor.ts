@@ -1,5 +1,6 @@
 /** Projeção do estado persistido, sem expor prompts ou checkpoints brutos. */
 import { describeHandoffIssue } from "./industrial-handoff-issues.ts";
+import { readSiteContext } from "../livechat/site-context.ts";
 type Json = Record<string, unknown>;
 const object = (value: unknown): Json =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Json) : {};
@@ -111,6 +112,7 @@ export function projectIndustrialMonitoring(
     state,
     label,
     subflow: text(meta.subflow),
+    siteContext: readSiteContext(meta.siteContext),
     targetFunnel: text(meta.targetFunnel),
     reason: text(meta.routeReason),
     needsReview: meta.needsReview === true,

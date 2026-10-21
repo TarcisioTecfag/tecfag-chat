@@ -40,6 +40,7 @@ import {
 } from "./industrial-handoff-issues";
 import type { MachineDecision } from "./industrial-decisor";
 import { appendIndustrialJournal } from "./industrial-triage-journal-store";
+import { readSiteContext, type SiteContext } from "../livechat/site-context";
 
 export interface HandoffRequest {
   version: 1;
@@ -50,6 +51,7 @@ export interface HandoffRequest {
   companyName: string;
   preparedAt: string;
   machineDecision?: MachineDecision;
+  siteContext?: SiteContext | null;
 }
 export interface HandoffReceipt {
   cycle: string;
@@ -202,6 +204,7 @@ export function createIndustrialHandoffStore(
         clientName: string;
         companyName: string;
         machineDecision?: MachineDecision;
+        siteContext?: SiteContext | null;
       },
     ): Promise<boolean> {
       return database.transaction(async (tx) => {
@@ -228,6 +231,9 @@ export function createIndustrialHandoffStore(
             completedAt: null,
             metadata: {
               ...state.meta,
+              ...(readSiteContext(input.siteContext)
+                ? { siteContext: readSiteContext(input.siteContext) }
+                : {}),
               triagePolicyVersion: INDUSTRIAL_POLICY_VERSION,
               subflow: input.route.subflow,
               targetFunnel: input.route.targetFunnel,

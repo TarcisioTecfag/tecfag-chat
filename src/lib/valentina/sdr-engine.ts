@@ -13,6 +13,7 @@ import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
 import { buildTecfagFagnerPrompt } from "./sdr-tecfag-prompt";
 import { resolveLegacySdrStageAndFunnel } from "./legacy-sdr-routing";
 import { INDUSTRIAL_POLICY_VERSION, resolveIndustrialRoute, assessIndustrialReadiness, canFinishIndustrialTriage, hasPendingTriageQuestion, requestsHuman } from "../triage/industrial-policy";
+import { siteContextFromMessages } from "../livechat/site-context";
 import { parseIndustrialAiResult } from "../triage/industrial-ai-result";
 import { industrialHandoffOutcome, industrialClientMessages, type IndustrialHandoffResult } from "../triage/industrial-handoff";
 import { createIndustrialHandoffStore } from "../triage/industrial-handoff-store";
@@ -398,6 +399,7 @@ export class SdrEngine {
       // Verificar se a saudação já foi enviada usando flag no metadata (evita race condition
       // entre lotes concorrentes onde ambos leem historyMsgs vazio e enviam saudação dupla)
       const metaState = (flowState?.metadata as Record<string, any>) || {};
+      const siteContext = industrialTriage ? siteContextFromMessages(historyMsgs, metaState.siteContext) : null;
       const greetingAlreadyDone = metaState.greetingDone === true;
       const hasBotRespondedBefore = greetingAlreadyDone || historyMsgs.some((m) => m.senderType === "bot");
       const isFirstMessage = !hasBotRespondedBefore;
@@ -772,6 +774,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               hasPreviousEmoji,
               hasPreviousAudio,
               policyInstructions: typeof configData.industrialInstructions === "string" ? configData.industrialInstructions : undefined,
+              siteContext,
             })
           : valemPromptText;
 
@@ -1100,7 +1103,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             if (!flowState) return false;
             const store = createIndustrialHandoffStore(db, ensureLocalCrmDealBeforeTransfer);
             const key = { tenantId, conversationId, flowId: flowState.id, cycle: flowState.startedAt.toISOString() };
-            if (!await store.prepare(key, { route: industrialRoute, data: updatedCollectedData, clientName, companyName: company, machineDecision })) return false;
+            if (!await store.prepare(key, { route: industrialRoute, data: updatedCollectedData, clientName, companyName: company, machineDecision, siteContext })) return false;
             const committed = await store.execute(key, { signal });
             if (committed.replayed || committed.superseded) return false;
             industrialHandoff = committed;
@@ -1260,6 +1263,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       if (flowState) {
         const updatedMetadata = {
           ...metaState,
+          ...(siteContext ? { siteContext } : {}),
           stepNumber: filledCount,
           totalSteps: 7,
           followUpStage: 0,

@@ -32,6 +32,7 @@ import { getAuthSessionByToken } from "../auth-session";
 import { isSdrTenant } from "../ai-persona";
 import { siteGateway } from "./site-gateway";
 import { clampSiteText, isSiteOriginAllowed } from "./site-channel-policy";
+import { captureSiteContext, mergeSiteContexts, siteProductInquiryText, type SiteContext } from "./site-context";
 import {
   applySiteIdentity,
   handleIndustrialSiteMessage,
@@ -54,6 +55,8 @@ interface LcConnection {
   operatorId?: string; // para operators
   /** Tenant com núcleo de triagem industrial: o site usa o mesmo atendimento do WhatsApp. */
   industrial?: boolean;
+  siteOrigin?: string;
+  siteContext?: SiteContext | null;
 }
 
 // Mapas de conexões ativas
@@ -142,6 +145,10 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
     }
 
     const industrial = usesIndustrialSiteCore(tenantId);
+    const siteContext = industrial ? captureSiteContext({
+      page: { url: currentUrl, title: currentTitle, referrer: url.searchParams.get("referrer") },
+      entry: { url: url.searchParams.get("entryUrl"), title: url.searchParams.get("entryTitle"), referrer: url.searchParams.get("entryReferrer") },
+    }, req.headers.origin, new Date()) : null;
     if (industrial) {
       try {
         const siteSettings = await loadSiteChannelSettings(tenantId);
@@ -166,8 +173,9 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
     try {
       // Cria/atualiza visitante
       visitor = await upsertVisitor(tenantId, cookieId, {
-        currentUrl: currentUrl || undefined,
-        currentTitle: currentTitle || undefined,
+        currentUrl: industrial ? siteContext?.page.url : currentUrl || undefined,
+        currentTitle: industrial ? siteContext?.page.title : currentTitle || undefined,
+        ...(industrial && siteContext?.entry.referrer ? { referrer: siteContext.entry.referrer } : {}),
         ipAddress:
           (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
           req.socket.remoteAddress,
@@ -178,8 +186,8 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       chat = await getOrCreateActiveChat(tenantId, visitor.id);
 
       // Registra pageview de entrada
-      if (currentUrl) {
-        await recordPageview(tenantId, visitor.id, currentUrl, currentTitle);
+      if (industrial ? siteContext : currentUrl) {
+        await recordPageview(tenantId, visitor.id, siteContext?.page.url || currentUrl, industrial ? siteContext!.page.title : currentTitle);
       }
     } catch (e: any) {
       console.error("[LC WS] Erro ao criar visitante:", e?.message);
@@ -194,6 +202,8 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       visitorId: visitor.id,
       chatId: chat.id,
       industrial,
+      siteOrigin: req.headers.origin,
+      siteContext,
     };
     visitorConnections.set(visitor.id, conn);
     const unregisterSite = industrial
@@ -274,14 +284,35 @@ async function handleVisitorMessage(
   payload: any,
   tenantId: string,
 ) {
-  const { type, content, url, title } = payload;
+  let { type, content } = payload;
+  const { url, title } = payload;
+  let capturedSiteContext: SiteContext | null = null;
+  if (conn.industrial) {
+    const inquiry = type === "product_inquiry" || type === "PRODUCT_INQUIRY";
+    const captured = captureSiteContext(payload.siteContext || {
+      page: { url: url || visitor.currentUrl, title: title || visitor.currentTitle },
+      product: { url: payload.productUrl, name: payload.productName || payload.productSlug },
+    }, conn.siteOrigin, new Date(), inquiry);
+    capturedSiteContext = captured;
+    conn.siteContext = mergeSiteContexts(conn.siteContext, captured);
+    if (inquiry) {
+      const requestText = siteProductInquiryText(captured);
+      if (!requestText || typeof payload.messageId !== "string" || !payload.messageId || payload.messageId.length > 200) {
+        send(conn.ws, { type: "product_inquiry_rejected", messageId: payload.messageId,
+          message: "Não foi possível identificar o produto. Envie sua dúvida pelo chat." });
+        return;
+      }
+      type = "visitor_message";
+      content = requestText;
+    }
+  }
 
   if (type === "visitor_identify" && conn.industrial) {
     const identity = await applySiteIdentity(tenantId, visitor.id, payload.name, payload.doc);
     const fields: Record<string, unknown> = {};
     if (identity.name) fields.name = identity.name;
     if (identity.cnpj) fields.cnpj = identity.cnpj;
-    if (url) Object.assign(fields, { currentUrl: String(url).slice(0, 2000), currentTitle: String(title || "").slice(0, 300) });
+    if (conn.siteContext) Object.assign(fields, { currentUrl: conn.siteContext.page.url, currentTitle: conn.siteContext.page.title });
     if (Object.keys(fields).length) await updateVisitorData(tenantId, visitor.id, fields);
     if (identity.name) visitor.name = identity.name;
     if (identity.cnpj) visitor.cnpj = identity.cnpj;
@@ -345,6 +376,15 @@ async function handleVisitorMessage(
 
   // Pageview update
   if (type === "pageview") {
+    if (conn.industrial) {
+      const current = capturedSiteContext?.page;
+      if (current) {
+        await recordPageview(tenantId, visitor.id, current.url, current.title);
+        await updateVisitorData(tenantId, visitor.id, { currentUrl: current.url, currentTitle: current.title });
+        visitor.currentUrl = current.url; visitor.currentTitle = current.title;
+      }
+      return;
+    }
     if (url) {
       await recordPageview(tenantId, visitor.id, url, title);
       await updateVisitorData(tenantId, visitor.id, {
@@ -389,7 +429,7 @@ async function handleVisitorMessage(
       stableId ? { id: stableId } : {},
     );
     if (conn.industrial) {
-      await handleIndustrialSiteMessage(tenantId, visitor, { siteMessageId: savedMsg.id, text: userText });
+      await handleIndustrialSiteMessage(tenantId, visitor, { siteMessageId: savedMsg.id, text: userText, siteContext: conn.siteContext });
       acknowledge(savedMsg);
       return;
     }
@@ -450,6 +490,7 @@ async function handleVisitorMessage(
         mimeType: String(mimeType || "audio/webm").split(";")[0].trim() || "audio/webm",
         mediaBase64: audioBase64,
         fileName: "audio-visitante.webm",
+        siteContext: conn.siteContext,
       });
       acknowledge(savedAudio);
       return;
@@ -556,6 +597,7 @@ async function handleVisitorMessage(
         mediaBase64: fileBase64,
         aiMedia: isImg || isPdf,
         fileName: String(fileName).slice(0, 200),
+        siteContext: conn.siteContext,
       });
       acknowledge(savedFile);
       return;

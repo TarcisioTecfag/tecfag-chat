@@ -15,6 +15,7 @@ import { getAiPersona } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { reopenIndustrialSiteConversation } from "./site-conversation-store";
+import { readSiteContext, type SiteContext } from "./site-context";
 import {
   SITE_CHANNEL,
   SITE_PROVIDER,
@@ -127,6 +128,7 @@ export interface SiteInboundItem {
   /** false = guardar o anexo para o operador sem enviar o binário à IA. */
   aiMedia?: boolean;
   fileName?: string;
+  siteContext?: SiteContext | null;
 }
 
 /**
@@ -167,6 +169,7 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
   }
 
   const now = new Date();
+  const siteContext = readSiteContext(item.siteContext);
   const [inserted] = await db
     .insert(messages)
     .values({
@@ -181,6 +184,7 @@ export async function handleIndustrialSiteMessage(tenantId: string, visitor: LcV
       provider: SITE_PROVIDER,
       externalId: item.siteMessageId,
       status: "delivered",
+      ...(siteContext ? { metaDetails: { siteContext } } : {}),
       sentAt: now,
       updatedAt: now,
     })

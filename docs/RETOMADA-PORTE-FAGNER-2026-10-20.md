@@ -1,5 +1,7 @@
 # Retomada do porte Fagner — 20/10/2026
 
+Atualização de 21/10/2026: implementados [destinos unificados](./UNIFICACAO-DESTINOS-TRIAGEM-2026-10-21.md) e [origem/campanha e consulta de produto do site](./CONTEXTO-SITE-PRODUTO-2026-10-21.md). Os números e descrições abaixo são checkpoints históricos; a matriz e os relatórios posteriores indicam os avanços atuais. A continuidade técnica inclui política e integração VTEX, proatividade industrial e as demais lacunas registradas na matriz, antes da homologação/corte.
+
 O checkout já avançou até a implementação de silêncio e recuperação (E5). O próximo lote funcional é E6: monitoramento, métricas e paridade das telas. **Implementação presente no código não significa homologação ou ativação em produção.**
 
 Continuação após este checkpoint: [primeiro lote E6 — monitor e métricas reais](./IMPLEMENTACAO-MONITOR-METRICAS-2026-10-20.md). As verificações e os hashes abaixo registram a retomada anterior; a evidência de E6 está separada para preservar esse histórico.

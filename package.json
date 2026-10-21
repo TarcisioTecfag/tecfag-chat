@@ -21,7 +21,7 @@
     "db:migrate:platform": "node scripts/apply-platform-access-migration.mjs",
     "db:push": "tsx src/db/cleanup.ts && drizzle-kit push",
     "lint": "eslint .",
-    "test:triage": "node --experimental-strip-types --test test/industrial-triage.test.mjs test/industrial-catalog.test.mjs test/industrial-site-channel.test.mjs test/industrial-silence-resilience.test.mjs test/industrial-monitor.test.mjs test/industrial-handoff-issues.test.mjs test/industrial-triage-history.test.mjs test/industrial-review.test.mjs",
+    "test:triage": "node --experimental-strip-types --test test/industrial-triage.test.mjs test/industrial-catalog.test.mjs test/industrial-site-channel.test.mjs test/industrial-silence-resilience.test.mjs test/industrial-monitor.test.mjs test/industrial-handoff-issues.test.mjs test/industrial-triage-history.test.mjs test/industrial-review.test.mjs test/industrial-site-context.test.mjs",
     "test:triage:postgres": "bun --no-env-file test/industrial-handoff-postgres.test.ts",
     "format": "prettier --write ."
   },

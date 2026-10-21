@@ -32,6 +32,25 @@ export function buildIndustrialBriefing(snapshot: JournalSnapshot) {
       : "",
     `Destino registrado: ${snapshot.targetFunnel || "Não definido"}`,
     snapshot.subflow ? `Subfluxo: ${snapshot.subflow}` : "",
+    ...(snapshot.siteContext
+      ? [
+          "ORIGEM DO SITE (declarada pelo navegador):",
+          `Página de entrada: ${snapshot.siteContext.entry.url}`,
+          `Página no atendimento: ${snapshot.siteContext.page.url}`,
+          snapshot.siteContext.entry.referrer
+            ? `Referência de origem: ${snapshot.siteContext.entry.referrer}`
+            : "",
+          Object.keys(snapshot.siteContext.entry.utm).length
+            ? `Campanha de entrada: ${Object.entries(snapshot.siteContext.entry.utm)
+                .map(([key, value]) => `${key}=${value}`)
+                .join(" · ")}`
+            : "",
+          snapshot.siteContext.product
+            ? `Última consulta explícita de produto: ${snapshot.siteContext.product.name || "Nome não informado"} · ${snapshot.siteContext.product.url}${snapshot.siteContext.product.sku ? ` · SKU informado: ${snapshot.siteContext.product.sku}` : ""}`
+            : "",
+          "Navegação e consulta de produto não confirmam compra ou adequação técnica.",
+        ]
+      : []),
     snapshot.responsible
       ? `Responsável no encaminhamento: ${snapshot.responsible.name || snapshot.responsible.id}`
       : "Sem responsável comprovado por recibo neste ciclo.",

@@ -2,6 +2,8 @@
 
 Data: 20/10/2026. Atualiza os 47 itens do diagnóstico `MAPA-PORTE-FAGNER-2026-10-20.md` sem apagar suas constatações históricas. O destino é um atendimento nativo único; RD Marketing permanece separado.
 
+Atualização de 21/10/2026: [destinos simplificados por equipe](./UNIFICACAO-DESTINOS-TRIAGEM-2026-10-21.md) e [contexto de origem/produto](./CONTEXTO-SITE-PRODUTO-2026-10-21.md). S02/S04 e C25 avançaram na integração local, mas a validação de produto/loja e a homologação publicada continuam pendentes.
+
 **Esta é uma matriz de código e evidências locais. Nenhum item está homologado por esta entrega nos canais da operação.** Não usar quantidade de telas, testes ou linhas desta tabela como percentual de conclusão do porte.
 
 Estados: **L** = núcleo implementado com evidência local; **P** = parcial, com integração, comportamento ou validação faltante; **A** = equivalente ainda não demonstrado no caminho industrial unificado, a integrar/implementar. Uma base existente em outro módulo não equivale à capacidade integrada.
@@ -17,6 +19,7 @@ Referências de evidência:
 - **H**: `test/industrial-triage-history.test.mjs` — notas, paginação, sessão e contratos do histórico. Implementação em `IMPLEMENTACAO-HISTORICO-NOTAS-2026-10-20.md`.
 - **B**: `test/industrial-review.test.mjs` — briefing, revisão humana, permissões e contrato da API. Implementação em `IMPLEMENTACAO-BRIEFING-REVISAO-2026-10-20.md`; interface conferida em prévia com dados e APIs fictícios.
 - **PG**: `test/industrial-handoff-postgres.test.ts` — PostgreSQL local isolado, transação, concorrência, configuração, monitor e avisos pós-commit.
+- **O**: `test/industrial-site-context.test.mjs` — contexto/UTM, consulta explícita, handlers reais do WebSocket, métodos reais do widget e renderização HTML do painel com dependências isoladas.
 
 ## Conversas — 27 capacidades
 
@@ -38,7 +41,7 @@ Referências de evidência:
 | C14 | Escala, autorização e compensação | L | `industrial-handoff-store.ts`, rodízio; T/PG | Conferir equipe, permissões e compensações oficiais; homologar manutenção da escala. |
 | C15 | Reserva, confirmação e cancelamento | L | Recibo por ciclo, locks e outbox; PG/D | Homologar cancelamento no transporte real. Não afirmar entrega externa exatamente uma vez quando o canal aceita e o processo cai antes de persistir a prova. |
 | C16 | Card, contato, empresa, responsável e atividade | P | `sdr-crm-local.ts`, transação compartilhada; PG | Conferir tarefas/notas esperadas e a política de reuso por pessoa/funil/3h frente ao legado; reconciliar dados importados. |
-| C17 | Fluxos sem oportunidade comercial | L | Política por subfluxo; T/PG | Validar os destinos reais de administrativo, currículo, compras e atendimento geral. |
+| C17 | Fluxos sem oportunidade comercial | L | Política por subfluxo; T/PG | Validar orientações administrativas e equipe real de Análise e revisão humana. Atendimento Geral foi absorvido pela revisão. |
 | C18 | Notas progressivas e relatório final | L | Notas por ciclo, arquivo, briefing final e revisão humana auditada; H/B/PG | Homologar uso com a equipe e canais. Revisão da coleta não aprova máquina/destino nem sincroniza cadastro automaticamente. Dados antigos descartados não são reconstruídos. |
 | C19 | Áudio, imagem, documento e interpretação | P | SDR multimodal, `mediaInterpretation`, sender | Homologar tamanho, autorização, reenvio, memória e disponibilidade dos anexos em cada canal. |
 | C20 | Catálogo e famílias não atendidas | P | Configuração industrial, catálogo preparado; C | Resolver conflitos de SKU `964` e `1137`; confirmar dados oficiais antes de importar. O JSON preparado tem 1.037 registros históricos. |
@@ -46,7 +49,7 @@ Referências de evidência:
 | C22 | Sem resposta e fechamento diário | P | Régua de abandono, etapa preservada; R | Validar job em operação e relatório diário; coluna/estado não substitui relatório. |
 | C23 | Expediente e aviso fora do horário | P | Agenda industrial por configuração; R | Conferir agenda real, feriados e diferenças por equipe/setor; homologar aviso e retomada. |
 | C24 | Score comercial em cinco dimensões | A | Score de navegação existe, mas é outra medida | Definir e portar dimensões, evidências e revisão; não reutilizar temperatura do site como score comercial. |
-| C25 | Campanha e notificação operacional | P | Eventos locais, aviso por ciclo e RD Marketing separado | Conectar origem/UTM ao atendimento unificado, confirmar destinatários configuráveis e homologar atribuição de campanha. |
+| C25 | Campanha e notificação operacional | P | Origem/UTM declarada no ciclo, briefing e painel; O/PG; avisos por ciclo | Confirmar destinatários e homologar atribuição de campanha; UTM informada pelo navegador não é atribuição verificada pelo RD Marketing. |
 | C26 | Monitor, dados, histórico e simulação | P | SDR/Fluxos/Rodízio, projeção, diagnóstico e histórico paginado; M/D/H/PG | Homologar consulta de ciclos/notas, nomes amigáveis de destinos e simulador isolado. Histórico antigo depende dos registros preservados; não equivale à exportação integral de mensagens. |
 | C27 | Custos, concorrência e recuperação | P | Vertex central, contexto de custo e workers | Teste de carga, limites entre instâncias, tratamento de cotas e reconciliação de custos. Sem fallback para outros provedores. |
 
@@ -55,9 +58,9 @@ Referências de evidência:
 | ID | Capacidade | Estado | Código/evidência local | O que falta para paridade operacional |
 |---|---|---|---|---|
 | S01 | Widget, sessão, histórico e reconexão | P | Widget por marca, adaptador e storage; S/PG | Validar instalação publicada, domínio/origem, sessão pública e reconexão em navegador. |
-| S02 | Página, atividade e origem/UTM | P | Pageviews e scoring no livechat | Integrar evidências de navegação ao contato/conversa comuns e validar retenção, campos e uso operacional. |
+| S02 | Página, atividade e origem/UTM | P | Entrada/página/referrer/UTM em mensagens, ciclo, briefing e painel; O/PG | Homologar instalação e uso operacional. Tempo, scroll/cliques gerais, retenção e calibração da navegação continuam parciais. |
 | S03 | Abordagem proativa por atividade | P | Caminho anterior possui proatividade; industrial evita saudação duplicada | Definir configuração industrial de abordagem e implementar no núcleo comum, com critérios e horário explícitos. |
-| S04 | Consulta de produto pelo botão da página | A | Equivalente não demonstrado no adaptador industrial | Integrar produto/categoria/URL verificáveis ao evento de entrada e à coleta, sem inventar intenção. |
+| S04 | Consulta de produto pelo botão da página | P | Botão/API do widget → evento idempotente → adaptador comum; O | Instalar e homologar o botão no site novo e validar dados na loja. Nome/SKU/categoria ainda são declarados, sem comprovação VTEX ou qualificação automática. |
 | S05 | Busca e especificações VTEX | A | Caminho anterior v2 usa Tray; industrial usa catálogo decisório | Integrar consulta VTEX por configuração do tenant; catálogo decisório não substitui busca comercial da loja. |
 | S06 | Preço público, frete e links de compra | A | Política industrial não demonstra essa capacidade integrada | Consolidar a diferença Site/WhatsApp do legado e criar consulta controlada, com dados verificáveis e regras de oferta. |
 | S07 | Fluxos industriais do site | L | Mesmo SDR, política e handoff; T/S | Homologar os 13 subfluxos pelo widget publicado, com a equipe. |
@@ -78,7 +81,7 @@ Referências de evidência:
 ## Ordem de continuidade
 
 1. Homologar monitor, histórico paginado, revisão humana e briefing final. A implementação local tem evidência em H/B/PG e uma prévia de interface com dados fictícios.
-2. Integrar a evidência de origem e de produto do site e consolidar a política VTEX/preço/frete antes de chamar o site de equivalente ao legado.
+2. Homologar a evidência de origem/consulta de produto e integrar dados verificáveis da loja, consolidando a política VTEX/preço/frete antes de chamar o site de equivalente ao legado.
 3. Portar score comercial, avaliação/fechamento e exportações com contratos verificáveis.
 4. Confirmar catálogo/destinos e executar E7: dados reconciliados, casos anonimizados, transportes e equipe em ambiente separado.
 5. Executar E8 somente com corte de entrada e rollback por canal, preservando Valem e um único bot por entrada.

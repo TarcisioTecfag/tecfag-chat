@@ -1,4 +1,5 @@
 import type { IndustrialMonitoring } from "@/lib/triage/industrial-monitor";
+import { SiteContextPanel } from "./SiteContextPanel";
 
 const deliveryLabels: Record<string, string> = {
   sent: "Enviada",
@@ -35,6 +36,7 @@ export function IndustrialMonitoringPanel({ monitoring: m }: { monitoring: Indus
       aria-label="Situação da triagem"
     >
       <p className="text-xs font-bold">{m.label}</p>
+      <SiteContextPanel context={m.siteContext} />
       {[m.issue, m.clientIssue, m.operatorIssue].filter(Boolean).map((issue) => (
         <div
           key={issue!.code}

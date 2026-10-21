@@ -3,6 +3,7 @@ import {
   readBrowserIntents,
   removeBrowserIntent,
 } from "../../src/lib/browser-outbox";
+import { captureSiteContext, readSiteContext, siteProductInquiryText, type SiteContext } from "../../src/lib/livechat/site-context";
 // ══════════════════════════════════════════════════════════════════════════════
 // 💬 VALEM CHAT WIDGET — Valentina Live Chat Engine (v3.2)
 // Waveform Real-Time · Draggable · Ícones Vetoriais SVG (Sem Emojis) · Player Dourado
@@ -333,6 +334,8 @@ export class ValemChatWidget {
   private ws: WebSocket | null = null;
   private messages: ChatMessage[] = [];
   private isOpen = false;
+  private siteEntry: SiteContext["entry"] | null = null;
+  private pendingProductInquiry: SiteContext | null = null;
   private isPillExpanded = true;
   private unreadCount = 0;
   private isTyping = false;
@@ -392,12 +395,51 @@ export class ValemChatWidget {
     };
 
     this.cookieId = getOrCreateCookieId(this.brand.storagePrefix);
+    if (this.brand.serverContinuity) {
+      const captured = this.siteContextPayload();
+      try {
+        const key = `${this.brand.storagePrefix}_site_entry`;
+        const saved = readSiteContext(JSON.parse(sessionStorage.getItem(key) || "null"));
+        this.siteEntry = saved?.entry.url.startsWith(location.origin + "/") ? saved.entry : captured?.entry || null;
+        if (!saved && captured) sessionStorage.setItem(key, JSON.stringify(captured));
+      } catch { this.siteEntry = captured?.entry || null; }
+    }
     this.loadSavedVisitorData();
     this.init();
   }
 
   public mount() {
     // Inicialização automática já realizada
+  }
+
+  private siteContextPayload(product?: unknown) {
+    return captureSiteContext({
+      entry: this.siteEntry,
+      page: { url: location.href, title: document.title, referrer: document.referrer },
+      product,
+    }, location.origin, new Date(), Boolean(product));
+  }
+
+  /** Integração explícita com o botão de consulta da página; não inicia compra nem confirma SKU. */
+  public inquireProduct(product: { url: string; name?: string; sku?: string; category?: string }): boolean {
+    if (!this.brand.serverContinuity) return false;
+    const context = this.siteContextPayload(product);
+    if (!context?.product) return false;
+    this.pendingProductInquiry = context;
+    this.openPanel();
+    if (this.hasCompletedPrechat) this.sendPendingProductInquiry();
+    return true;
+  }
+
+  private sendPendingProductInquiry() {
+    const context = this.pendingProductInquiry, content = siteProductInquiryText(context);
+    if (!context || !content) return;
+    this.pendingProductInquiry = null;
+    const messageId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    this.addMessage({ id: messageId, sender: "visitor", text: content, contentType: "text",
+      timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
+    this.showTypingIndicator();
+    void this.queuePayload({ type: "product_inquiry", messageId, siteContext: context });
   }
 
   private loadSavedVisitorData() {
@@ -637,6 +679,13 @@ export class ValemChatWidget {
   }
 
   private bindEvents() {
+    if (this.brand.serverContinuity) document.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tecfag-product-inquiry]") : null;
+      if (!target) return;
+      const accepted = this.inquireProduct({ url: target.dataset.productUrl || location.href,
+        name: target.dataset.productName, sku: target.dataset.productSku, category: target.dataset.productCategory });
+      if (accepted) event.preventDefault();
+    });
     const fabButton = document.getElementById("vlm-fab-button")!;
     const btnClose = document.getElementById("vlm-btn-close")!;
     const btnCopy = document.getElementById("vlm-btn-copy-dialog")!;
@@ -707,6 +756,7 @@ export class ValemChatWidget {
       document.getElementById("vlm-prechat-view")?.classList.add("vlm-prechat-hidden");
       this.notifyVisitorDataToBackend();
       this.triggerWelcomeSequence();
+      this.sendPendingProductInquiry();
     });
 
     btnPrechatClose.addEventListener("click", () => this.closePanel());
@@ -1776,6 +1826,7 @@ export class ValemChatWidget {
   }
 
   private async queuePayload(payload: any) {
+    if (this.brand.serverContinuity && !payload.siteContext) payload.siteContext = this.siteContextPayload();
     try {
       await saveBrowserIntent({
         id: payload.messageId,
@@ -1809,7 +1860,9 @@ export class ValemChatWidget {
 
   private connectWebSocket() {
     if (this.opts.mock) return;
-    const url = `${this.opts.wsUrl}?tenantId=${this.opts.tenant}&cookieId=${this.cookieId}&name=${encodeURIComponent(this.visitorName)}&doc=${encodeURIComponent(this.visitorDoc)}&currentUrl=${encodeURIComponent(location.href)}&currentTitle=${encodeURIComponent(document.title)}`;
+    const context = this.brand.serverContinuity ? this.siteContextPayload() : null;
+    const contextQuery = context ? `&entryUrl=${encodeURIComponent(context.entry.url)}&entryTitle=${encodeURIComponent(context.entry.title)}&entryReferrer=${encodeURIComponent(context.entry.referrer || "")}&referrer=${encodeURIComponent(context.page.referrer || "")}` : "";
+    const url = `${this.opts.wsUrl}?tenantId=${this.opts.tenant}&cookieId=${this.cookieId}&name=${encodeURIComponent(this.visitorName)}&doc=${encodeURIComponent(this.visitorDoc)}&currentUrl=${encodeURIComponent(context?.page.url || location.href)}&currentTitle=${encodeURIComponent(context?.page.title || document.title)}${contextQuery}`;
     try {
       this.ws = new WebSocket(url);
       this.ws.onopen = () => {
@@ -1878,6 +1931,13 @@ export class ValemChatWidget {
         timeStr: formatTime(),
         fullDateStr: formatFullDate(),
       });
+    }
+    if (type === "product_inquiry_rejected") {
+      this.hideTypingIndicator();
+      if (typeof payload.messageId === "string") void removeBrowserIntent(payload.messageId);
+      this.addMessage({ id: `inquiry-error-${Date.now()}`, sender: "system",
+        text: String(payload.message || "Envie sua dúvida pelo chat."),
+        timestamp: new Date().toISOString(), timeStr: formatTime(), fullDateStr: formatFullDate() });
     }
     if (type === "whatsapp_continuation" && typeof payload.url === "string") {
       if (this.continuationWindow && !this.continuationWindow.closed) {
@@ -1971,6 +2031,7 @@ export class ValemChatWidget {
               url: location.href,
               title: document.title,
               referrer: document.referrer,
+              ...(this.brand.serverContinuity ? { siteContext: this.siteContextPayload() } : {}),
             }),
           );
         }

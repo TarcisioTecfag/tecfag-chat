@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readHandoffIssue } from "./industrial-handoff-issues.ts";
 import { readHumanReview } from "./industrial-review-contract.ts";
+import { readSiteContext } from "../livechat/site-context.ts";
 export type TriageJournalKind =
   | "collection"
   | "handoff"
@@ -61,6 +62,7 @@ export function buildJournalSnapshot(flow: JournalFlow) {
     outcome: text(flow.outcome, 80),
     currentStep: text(flow.currentStep, 200),
     collectedData: normalizeJournalData(flow.collectedData),
+    siteContext: readSiteContext(meta.siteContext),
     humanReview: readHumanReview(
       meta.humanReview,
       startedAt,
@@ -106,6 +108,7 @@ export function readJournalSnapshot(raw: unknown): JournalSnapshot | null {
     collectedData: row.collectedData,
     metadata: {
       subflow: row.subflow,
+      siteContext: row.siteContext,
       targetFunnel: row.targetFunnel,
       needsReview: row.needsReview,
       missingFields: row.missingFields,

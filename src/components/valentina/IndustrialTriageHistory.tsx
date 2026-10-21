@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import type { JournalSnapshot } from "@/lib/triage/industrial-triage-journal";
 import { IndustrialTriageReview } from "./IndustrialTriageReview";
+import { SiteContextPanel } from "./SiteContextPanel";
 import { buildIndustrialBriefing } from "@/lib/triage/industrial-briefing";
 
 interface Page<T> {
@@ -249,6 +250,7 @@ export function IndustrialTriageHistory({
             )}
             {selectedCycle && (
               <>
+                <SiteContextPanel context={selectedCycle.snapshot.siteContext} />
                 {!selectedCycle.isCurrent && selectedCycle.dataAvailable && (
                   <pre className="text-xs font-sans whitespace-pre-wrap break-words rounded-md border p-3">
                     {buildIndustrialBriefing(selectedCycle.snapshot).text}

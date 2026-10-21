@@ -38,6 +38,7 @@ import {
 } from "./site-channel-policy";
 import { ensureSiteConversation, loadSiteChannelSettings, usesIndustrialSiteCore } from "./site-industrial-adapter";
 import { readSiteContinuationHistory } from "./site-conversation-store";
+import { siteContextFromMessages } from "./site-context";
 import { appendIndustrialJournal } from "../triage/industrial-triage-journal-store";
 
 const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
@@ -199,7 +200,7 @@ export async function linkSiteContinuity(
             provider: m.provider || SITE_CHANNEL,
             direction: m.direction,
             status: m.status === "pending" || m.status === "sending" ? "accepted" : m.status,
-            metaDetails: { copiedFrom: { channel: SITE_CHANNEL, conversationId: siteConv.id, messageId: m.id } },
+            metaDetails: { ...(siteContextFromMessages([m]) ? { siteContext: siteContextFromMessages([m]) } : {}), copiedFrom: { channel: SITE_CHANNEL, conversationId: siteConv.id, messageId: m.id } },
             sentAt: m.sentAt,
             updatedAt: now,
           })),
@@ -214,6 +215,7 @@ export async function linkSiteContinuity(
       .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.conversationId, siteConv.id), eq(agentFlowStates.agentType, "sdr")))
       .for("update");
     const siteFlow = siteFlows.sort((a, b) => +new Date(b.startedAt) - +new Date(a.startedAt))[0];
+    const siteContext = siteContextFromMessages(siteMessages, (siteFlow?.metadata as Record<string, unknown>)?.siteContext);
     const siteOwner = siteConv.operatorId && siteConv.queueState === "meus" ? siteConv.operatorId : null;
     const waHasOwner = Boolean(waConv.operatorId) || waConv.queueState === "meus";
     const mode: "automation" | "operator" = siteOwner || waHasOwner ? "operator" : "automation";
@@ -300,7 +302,7 @@ export async function linkSiteContinuity(
             outcome: "transferred",
             currentStep: "Continuado do site com responsável",
             completedAt: now,
-            metadata: { ...((flow.metadata as Record<string, unknown>) || {}), continuedFrom },
+            metadata: { ...((flow.metadata as Record<string, unknown>) || {}), ...(siteContext ? { siteContext } : {}), continuedFrom },
           })
           .where(and(eq(agentFlowStates.tenantId, tenantId), eq(agentFlowStates.id, flow.id))).returning();
         if (continued) await appendIndustrialJournal(tx, flow, continued, "continuity", codeHash);
@@ -340,6 +342,7 @@ export async function linkSiteContinuity(
           funnelStage: "triagem",
           targetFunnel: null,
           ...stripHandoffState(siteMeta),
+          ...(siteContext ? { siteContext } : {}),
           continuedFrom,
           previousTriages: previousTriages.slice(-20),
         },

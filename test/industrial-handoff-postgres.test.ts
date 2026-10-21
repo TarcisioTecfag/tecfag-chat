@@ -24,6 +24,7 @@ import {
 import { deliverIndustrialPostCommit } from "../src/lib/triage/industrial-post-commit-delivery";
 import { projectIndustrialMonitoring } from "../src/lib/triage/industrial-monitor";
 import { resolveIndustrialRoute } from "../src/lib/triage/industrial-policy";
+import { captureSiteContext, type SiteContext } from "../src/lib/livechat/site-context";
 import {
   readIndustrialSettings,
   saveIndustrialSettings,
@@ -170,6 +171,7 @@ async function prepare(
   key: Awaited<ReturnType<typeof fixture>>,
   chosenRoute = route,
   decision?: MachineDecision | null,
+  siteContext?: SiteContext | null,
 ) {
   const configuration = await readIndustrialSettings(scopedDb, key.tenantId);
   assert.equal(
@@ -178,6 +180,7 @@ async function prepare(
       data,
       clientName: "Pessoa de Teste",
       companyName: "Empresa Teste",
+      siteContext,
       machineDecision:
         decision === null
           ? undefined
@@ -2692,6 +2695,67 @@ try {
       assert.equal(result.deal, null);
       assert.equal(await count(schema.crmDeals), before);
       assert.equal((await flow(key)).metadata?.needsReview, true);
+    },
+  );
+  await check(
+    "origem e produto ficam no checkpoint, briefing e histórico sem alterar a coleta",
+    async () => {
+      const key = await fixture();
+      const siteContext = captureSiteContext(
+        {
+          page: {
+            url: "https://shop.example.test/seladora?utm_campaign=envase&token=secret",
+            title: "Seladora",
+          },
+          product: {
+            url: "https://shop.example.test/seladora",
+            name: "Seladora S100",
+            sku: "S100",
+          },
+        },
+        "https://shop.example.test",
+        new Date(),
+        true,
+      )!;
+      await prepare(key, route, undefined, siteContext);
+      assert.deepEqual((await flow(key)).metadata?.siteContext, siteContext);
+      assert.equal((await store.execute(key)).status, "transferred");
+      const current = await readIndustrialReview(
+        scopedDb,
+        tenantId,
+        key.conversationId,
+        reviewAdmin,
+      );
+      assert.deepEqual(current.snapshot.siteContext, siteContext);
+      const notes = await scopedDb
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.tenantId, tenantId),
+            eq(schema.messages.conversationId, key.conversationId),
+            eq(schema.messages.isInternalNote, true),
+          ),
+        );
+      assert.ok(
+        notes.some((note) =>
+          note.content.includes("Última consulta explícita de produto: Seladora S100"),
+        ),
+      );
+      assert.ok(!notes.some((note) => note.content.includes("token=secret")));
+      assert.deepEqual(current.snapshot.collectedData, data);
+      const activities = await scopedDb
+        .select()
+        .from(schema.crmDealActivities)
+        .where(
+          and(
+            eq(schema.crmDealActivities.tenantId, tenantId),
+            eq(schema.crmDealActivities.conversationId, key.conversationId),
+          ),
+        );
+      assert.ok(
+        activities.some((activity) => activity.description?.includes("utm_campaign=envase")),
+      );
     },
   );
   console.log(
