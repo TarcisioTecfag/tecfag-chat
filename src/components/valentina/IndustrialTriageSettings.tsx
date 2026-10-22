@@ -913,12 +913,12 @@ export function IndustrialTriageSettings() {
                 </span>
               </SystemTooltip>
 
-              <SystemTooltip content="Quantidade de destinos de atendimento vinculados a setores e funis do CRM">
+              <SystemTooltip content="Quantidade de destinos de atendimento vinculados a funis do CRM">
                 <span
                   className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${
                     configuredDestinationsCount === DESTINATION_KEYS.length
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25"
-                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25"
+                      ? "bg-muted/60 text-foreground border-border"
+                      : "bg-primary/10 text-primary border-primary/25"
                   }`}
                 >
                   {configuredDestinationsCount}/{DESTINATION_KEYS.length} destinos ativos
@@ -926,7 +926,7 @@ export function IndustrialTriageSettings() {
               </SystemTooltip>
 
               {dirty && (
-                <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+                <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-primary/15 text-primary border border-primary/30 animate-pulse">
                   Alterações não salvas
                 </span>
               )}
@@ -1134,10 +1134,8 @@ export function IndustrialTriageSettings() {
               role="status"
               className={`rounded-2xl border p-3.5 text-xs font-semibold flex items-center justify-between gap-3 ${
                 messageType === "error"
-                  ? "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
-                  : messageType === "success"
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    : "border-primary/30 bg-primary/10 text-primary"
+                  ? "border-primary/35 bg-primary/10 text-primary"
+                  : "border-border bg-muted/40 text-foreground"
               }`}
             >
               <span>{message}</span>
@@ -1155,9 +1153,9 @@ export function IndustrialTriageSettings() {
           {conflicts.length > 0 && (
             <div
               role="alert"
-              className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-3.5 text-xs space-y-2"
+              className="rounded-2xl border border-primary/35 bg-primary/10 p-3.5 text-xs space-y-2"
             >
-              <div className="flex items-center gap-2 font-extrabold text-amber-600 dark:text-amber-400">
+              <div className="flex items-center gap-2 font-extrabold text-primary">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 <span>
                   Atenção: Existem códigos/SKUs ativos duplicados que precisam ser ajustados antes de
@@ -1177,7 +1175,7 @@ export function IndustrialTriageSettings() {
                         setSearch(conflict.code);
                         setStatusFilter("CONFLICT");
                       }}
-                      className="px-3 py-1.5 rounded-xl bg-card border border-amber-500/40 text-amber-600 dark:text-amber-400 font-extrabold hover:bg-amber-500/15 transition cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl bg-card border border-primary/35 text-primary font-extrabold hover:bg-primary/15 transition cursor-pointer"
                     >
                       {conflict.field.toUpperCase()} {conflict.code} ({conflict.machineIds.length}{" "}
                       máquinas) — Localizar
@@ -1199,7 +1197,7 @@ export function IndustrialTriageSettings() {
               {/* ════════════════════════════════════════════════════════════════ */}
               {activeTab === "catalog" && (
                 <div className="space-y-4">
-                  {/* 4 Cards KPI Clicáveis para Filtro Rápido */}
+                  {/* 4 Cards KPI Clicáveis em Harmonia com a Paleta do Sistema */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <SystemTooltip content="Clique para exibir todas as máquinas do catálogo (Semi-Industrial + Personnalité)">
                       <button
@@ -1210,12 +1208,18 @@ export function IndustrialTriageSettings() {
                         }}
                         className={`p-3.5 rounded-2xl border text-left transition flex items-center justify-between cursor-pointer ${
                           lineFilter === "ALL" && statusFilter === "ALL"
-                            ? "bg-primary/10 border-primary shadow-xs"
-                            : "bg-card border-border hover:bg-muted/30"
+                            ? "bg-primary/8 border-primary/40 shadow-xs"
+                            : "bg-card border-border hover:border-primary/30 hover:bg-muted/20"
                         }`}
                       >
                         <div>
-                          <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                          <p
+                            className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                              lineFilter === "ALL" && statusFilter === "ALL"
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                            }`}
+                          >
                             Total Exposto no Catálogo
                           </p>
                           <p className="text-xl font-black text-foreground mt-0.5">
@@ -1225,7 +1229,13 @@ export function IndustrialTriageSettings() {
                             100% da base consultável pela IA
                           </p>
                         </div>
-                        <div className="p-2.5 rounded-xl bg-muted/60 text-foreground">
+                        <div
+                          className={`p-2.5 rounded-xl border ${
+                            lineFilter === "ALL" && statusFilter === "ALL"
+                              ? "bg-primary/15 text-primary border-primary/25"
+                              : "bg-muted/50 text-muted-foreground border-border"
+                          }`}
+                        >
                           <Package className="h-4 w-4" />
                         </div>
                       </button>
@@ -1241,22 +1251,34 @@ export function IndustrialTriageSettings() {
                         }
                         className={`p-3.5 rounded-2xl border text-left transition flex items-center justify-between cursor-pointer ${
                           lineFilter === "SEMI-INDUSTRIAL"
-                            ? "bg-sky-500/15 border-sky-500 shadow-xs"
-                            : "bg-card border-sky-500/25 hover:bg-sky-500/5"
+                            ? "bg-primary/8 border-primary/40 shadow-xs"
+                            : "bg-card border-border hover:border-primary/30 hover:bg-muted/20"
                         }`}
                       >
                         <div>
-                          <p className="text-[10px] font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                          <p
+                            className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                              lineFilter === "SEMI-INDUSTRIAL"
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                            }`}
+                          >
                             Linha Máquinas (Semi-Industrial)
                           </p>
-                          <p className="text-xl font-black text-sky-600 dark:text-sky-400 mt-0.5">
+                          <p className="text-xl font-black text-foreground mt-0.5">
                             {catalogStats.semi}
                           </p>
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             Confirmadas direto p/ Funil Máquinas
                           </p>
                         </div>
-                        <div className="p-2.5 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                        <div
+                          className={`p-2.5 rounded-xl border ${
+                            lineFilter === "SEMI-INDUSTRIAL"
+                              ? "bg-primary/15 text-primary border-primary/25"
+                              : "bg-muted/50 text-muted-foreground border-border"
+                          }`}
+                        >
                           <Wrench className="h-4 w-4" />
                         </div>
                       </button>
@@ -1272,22 +1294,34 @@ export function IndustrialTriageSettings() {
                         }
                         className={`p-3.5 rounded-2xl border text-left transition flex items-center justify-between cursor-pointer ${
                           lineFilter === "PERSONNALITE"
-                            ? "bg-purple-500/15 border-purple-500 shadow-xs"
-                            : "bg-card border-purple-500/25 hover:bg-purple-500/5"
+                            ? "bg-primary/8 border-primary/40 shadow-xs"
+                            : "bg-card border-border hover:border-primary/30 hover:bg-muted/20"
                         }`}
                       >
                         <div>
-                          <p className="text-[10px] font-extrabold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                          <p
+                            className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                              lineFilter === "PERSONNALITE"
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                            }`}
+                          >
                             Linha Personnalité (Industrial)
                           </p>
-                          <p className="text-xl font-black text-purple-600 dark:text-purple-400 mt-0.5">
+                          <p className="text-xl font-black text-foreground mt-0.5">
                             {catalogStats.personnalite}
                           </p>
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             Projetos e alta capacidade c/ revisão
                           </p>
                         </div>
-                        <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                        <div
+                          className={`p-2.5 rounded-xl border ${
+                            lineFilter === "PERSONNALITE"
+                              ? "bg-primary/15 text-primary border-primary/25"
+                              : "bg-muted/50 text-muted-foreground border-border"
+                          }`}
+                        >
                           <Gem className="h-4 w-4" />
                         </div>
                       </button>
@@ -1307,15 +1341,19 @@ export function IndustrialTriageSettings() {
                         }
                         className={`p-3.5 rounded-2xl border text-left transition flex items-center justify-between cursor-pointer ${
                           statusFilter !== "ALL"
-                            ? "bg-emerald-500/15 border-emerald-500 shadow-xs"
-                            : "bg-card border-emerald-500/25 hover:bg-emerald-500/5"
+                            ? "bg-primary/8 border-primary/40 shadow-xs"
+                            : "bg-card border-border hover:border-primary/30 hover:bg-muted/20"
                         }`}
                       >
                         <div>
-                          <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                          <p
+                            className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                              statusFilter !== "ALL" ? "text-primary" : "text-muted-foreground"
+                            }`}
+                          >
                             Status de Ativação
                           </p>
-                          <p className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                          <p className="text-xl font-black text-foreground mt-0.5">
                             {catalogStats.active}{" "}
                             <span className="text-xs font-bold text-muted-foreground">
                               ativas / {catalogStats.inactive} inativas
@@ -1329,7 +1367,13 @@ export function IndustrialTriageSettings() {
                                 : "Filtro: Apenas inativos"}
                           </p>
                         </div>
-                        <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        <div
+                          className={`p-2.5 rounded-xl border ${
+                            statusFilter !== "ALL"
+                              ? "bg-primary/15 text-primary border-primary/25"
+                              : "bg-muted/50 text-muted-foreground border-border"
+                          }`}
+                        >
                           <CheckCircle2 className="h-4 w-4" />
                         </div>
                       </button>
@@ -1503,9 +1547,9 @@ export function IndustrialTriageSettings() {
 
                   {/* Barra de Ações em Lote quando há máquinas selecionadas */}
                   {selectedMachineIds.size > 0 && (
-                    <div className="p-3 rounded-2xl bg-primary/10 border border-primary/30 flex flex-wrap items-center justify-between gap-2 animate-in fade-in-0">
-                      <div className="flex items-center gap-2 text-xs font-extrabold text-primary">
-                        <ListChecks className="h-4 w-4" />
+                    <div className="p-3 rounded-2xl bg-muted/30 border border-border flex flex-wrap items-center justify-between gap-2 animate-in fade-in-0">
+                      <div className="flex items-center gap-2 text-xs font-extrabold text-foreground">
+                        <ListChecks className="h-4 w-4 text-primary" />
                         <span>{selectedMachineIds.size} equipamento(s) selecionado(s)</span>
                       </div>
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -1513,7 +1557,7 @@ export function IndustrialTriageSettings() {
                           <button
                             type="button"
                             onClick={() => handleBulkAction("activate")}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-extrabold hover:bg-emerald-700 transition cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-primary text-primary-foreground text-[11px] font-extrabold hover:bg-primary-hover transition cursor-pointer"
                           >
                             Ativar Selecionados
                           </button>
@@ -1531,7 +1575,7 @@ export function IndustrialTriageSettings() {
                           <button
                             type="button"
                             onClick={() => handleBulkAction("set_semi")}
-                            className="px-2.5 py-1 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400 text-[11px] font-extrabold hover:bg-sky-500/25 transition cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-card border border-border text-foreground text-[11px] font-bold hover:border-primary/35 hover:bg-muted transition cursor-pointer"
                           >
                             Mudar p/ Semi-Industrial
                           </button>
@@ -1540,7 +1584,7 @@ export function IndustrialTriageSettings() {
                           <button
                             type="button"
                             onClick={() => handleBulkAction("set_personnalite")}
-                            className="px-2.5 py-1 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-600 dark:text-purple-400 text-[11px] font-extrabold hover:bg-purple-500/25 transition cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-card border border-border text-foreground text-[11px] font-bold hover:border-primary/35 hover:bg-muted transition cursor-pointer"
                           >
                             Mudar p/ Personnalité
                           </button>
@@ -1549,7 +1593,7 @@ export function IndustrialTriageSettings() {
                           <button
                             type="button"
                             onClick={() => handleBulkAction("delete")}
-                            className="px-2.5 py-1 rounded-lg bg-red-600 text-white text-[11px] font-extrabold hover:bg-red-700 transition cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/25 text-primary text-[11px] font-extrabold hover:bg-primary hover:text-primary-foreground transition cursor-pointer"
                           >
                             Remover ({selectedMachineIds.size})
                           </button>
@@ -1625,7 +1669,7 @@ export function IndustrialTriageSettings() {
                                       : !entry.active
                                         ? "bg-muted/20 opacity-65"
                                         : hasConflict
-                                          ? "bg-amber-500/5"
+                                          ? "bg-primary/5"
                                           : "hover:bg-muted/25"
                                   }`}
                                 >
@@ -1644,7 +1688,7 @@ export function IndustrialTriageSettings() {
                                     />
                                   </td>
 
-                                  {/* Badge de Linha Clicável */}
+                                  {/* Badge de Linha Clicável (Paleta Harmônica do Sistema) */}
                                   <td className="py-2.5 px-3 align-top">
                                     <SystemTooltip content="Clique para alternar rapidamente entre Semi-Industrial (Máquinas) e Personnalité">
                                       <button
@@ -1652,18 +1696,18 @@ export function IndustrialTriageSettings() {
                                         onClick={() => handleToggleMachineLine(entry.id)}
                                         className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border inline-flex items-center gap-1.5 transition cursor-pointer ${
                                           entry.line === "PERSONNALITE"
-                                            ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/20"
-                                            : "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30 hover:bg-sky-500/20"
+                                            ? "bg-primary/10 text-primary border-primary/25 hover:bg-primary/15"
+                                            : "bg-muted/50 text-foreground border-border hover:border-primary/35 hover:bg-muted"
                                         }`}
                                       >
                                         {entry.line === "PERSONNALITE" ? (
                                           <>
-                                            <Gem className="h-3 w-3 shrink-0" />
+                                            <Gem className="h-3 w-3 shrink-0 text-primary" />
                                             <span>Personnalité</span>
                                           </>
                                         ) : (
                                           <>
-                                            <Wrench className="h-3 w-3 shrink-0" />
+                                            <Wrench className="h-3 w-3 shrink-0 text-muted-foreground" />
                                             <span>Semi-Industrial</span>
                                           </>
                                         )}
@@ -1685,7 +1729,7 @@ export function IndustrialTriageSettings() {
                                           >
                                             <span>{entry.code}</span>
                                             {copiedBadge === `code-${entry.id}` ? (
-                                              <Check className="h-3 w-3 text-emerald-500" />
+                                              <Check className="h-3 w-3 text-primary" />
                                             ) : (
                                               <Copy className="h-2.5 w-2.5 opacity-50" />
                                             )}
@@ -1708,7 +1752,7 @@ export function IndustrialTriageSettings() {
                                           >
                                             <span>SKU: {entry.sku}</span>
                                             {copiedBadge === `sku-${entry.id}` && (
-                                              <Check className="h-2.5 w-2.5 text-emerald-500" />
+                                              <Check className="h-2.5 w-2.5 text-primary" />
                                             )}
                                           </button>
                                         </SystemTooltip>
@@ -1727,7 +1771,7 @@ export function IndustrialTriageSettings() {
                                           {category}
                                         </span>
                                         {hasConflict && (
-                                          <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-extrabold">
+                                          <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px] font-extrabold">
                                             Código repetido
                                           </span>
                                         )}
@@ -1790,7 +1834,7 @@ export function IndustrialTriageSettings() {
                                   {/* Capacidade / Produtividade */}
                                   <td className="py-2.5 px-3 align-top">
                                     {entry.production ? (
-                                      <span className="px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-bold inline-block">
+                                      <span className="px-2 py-1 rounded-lg bg-muted/50 text-foreground border border-border text-[11px] font-bold inline-block">
                                         {entry.production}
                                       </span>
                                     ) : (
@@ -1817,7 +1861,7 @@ export function IndustrialTriageSettings() {
                                         <span
                                           className={`text-[10px] font-extrabold ${
                                             entry.active
-                                              ? "text-emerald-600 dark:text-emerald-400"
+                                              ? "text-foreground"
                                               : "text-muted-foreground"
                                           }`}
                                         >
@@ -1844,7 +1888,7 @@ export function IndustrialTriageSettings() {
                                         <button
                                           type="button"
                                           onClick={() => setMachineToDelete(entry)}
-                                          className="p-1.5 rounded-lg border border-border hover:bg-red-500/10 hover:border-red-500/30 text-muted-foreground hover:text-red-500 transition cursor-pointer"
+                                          className="p-1.5 rounded-lg border border-border hover:bg-primary/10 hover:border-primary/30 text-muted-foreground hover:text-primary transition cursor-pointer"
                                         >
                                           <Trash2 className="h-3.5 w-3.5" />
                                         </button>
@@ -1922,7 +1966,7 @@ export function IndustrialTriageSettings() {
               {activeTab === "destinations" && (
                 <div className="space-y-4">
                   {/* Card Explicativo Didático: Conversa via Rodízio das Pastas vs Card no Funil do CRM */}
-                  <div className="p-4 rounded-2xl border border-primary/25 bg-primary/5 space-y-3">
+                  <div className="p-4 rounded-2xl border border-border bg-muted/20 space-y-3">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div className="flex items-start gap-2.5">
                         <HelpCircle className="h-5 w-5 text-primary shrink-0 mt-0.5" />
@@ -1984,12 +2028,12 @@ export function IndustrialTriageSettings() {
                         </div>
                       </div>
 
-                      <div className="p-2.5 rounded-xl bg-card border border-emerald-500/25 flex items-center gap-2.5">
-                        <div className="h-6 w-6 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-black text-xs flex items-center justify-center shrink-0">
+                      <div className="p-2.5 rounded-xl bg-card border border-border flex items-center gap-2.5">
+                        <div className="h-6 w-6 rounded-lg bg-primary/10 text-primary font-black text-xs flex items-center justify-center shrink-0">
                           2
                         </div>
                         <div className="text-[11px]">
-                          <p className="font-extrabold text-emerald-600 dark:text-emerald-400">
+                          <p className="font-extrabold text-foreground">
                             Conversa → Ordem do Rodízio (Automático)
                           </p>
                           <p className="text-muted-foreground text-[10px]">
@@ -2086,7 +2130,7 @@ export function IndustrialTriageSettings() {
                           key={key}
                           className={`rounded-2xl border p-4 space-y-3 transition-all ${
                             resolved.conflict
-                              ? "border-amber-500/40 bg-amber-500/5"
+                              ? "border-primary/40 bg-primary/5"
                               : isFullyConfigured
                                 ? "border-border bg-card shadow-2xs"
                                 : "border-dashed border-border bg-muted/15"
@@ -2160,12 +2204,12 @@ export function IndustrialTriageSettings() {
                               <span
                                 className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border shrink-0 cursor-help ${
                                   resolved.conflict
-                                    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                    ? "bg-primary/15 text-primary border-primary/30"
                                     : isFullyConfigured
-                                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25"
+                                      ? "bg-primary/10 text-primary border-primary/25"
                                       : destination
-                                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25"
-                                        : "bg-muted text-muted-foreground border-border"
+                                        ? "bg-muted text-foreground border-border"
+                                        : "bg-muted/50 text-muted-foreground border-border"
                                 }`}
                               >
                                 {resolved.conflict
@@ -2183,9 +2227,9 @@ export function IndustrialTriageSettings() {
 
                           {/* Indicador Automático da Conversa (Ordem do Rodízio da Pasta de Fluxos) */}
                           <SystemTooltip content="O Fagner não envia a conversa para uma fila genérica: ele sorteia automaticamente o próximo operador ativo desta pasta seguindo a ordem do Rodízio configurado abaixo em Operadores na Escala Local">
-                            <div className="px-3 py-2 rounded-xl bg-emerald-500/8 border border-emerald-500/25 flex items-center justify-between gap-2 cursor-help">
+                            <div className="px-3 py-2 rounded-xl bg-muted/35 border border-border flex items-center justify-between gap-2 cursor-help">
                               <div className="flex items-center gap-2 text-[11px]">
-                                <Shuffle className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <Shuffle className="h-3.5 w-3.5 text-primary shrink-0" />
                                 <span className="text-muted-foreground font-semibold">
                                   Transferência da Conversa:
                                 </span>
@@ -2193,7 +2237,7 @@ export function IndustrialTriageSettings() {
                                   Ordem do Rodízio → {meta.fluxosFolderName}
                                 </strong>
                               </div>
-                              <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0">
+                              <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20 text-[10px] font-extrabold shrink-0">
                                 Automático via Escala
                               </span>
                             </div>
@@ -2202,7 +2246,7 @@ export function IndustrialTriageSettings() {
                           {resolved.conflict && (
                             <p
                               role="alert"
-                              className="text-xs text-amber-600 dark:text-amber-400 font-semibold"
+                              className="text-xs text-primary font-semibold"
                             >
                               Os vínculos antigos divergiam. Selecione o funil e a etapa abaixo para
                               unificar este destino.
@@ -2273,9 +2317,9 @@ export function IndustrialTriageSettings() {
               {/* ════════════════════════════════════════════════════════════════ */}
               {activeTab === "blocked" && (
                 <div className="space-y-4">
-                  <div className="p-4 rounded-2xl border border-amber-500/25 bg-amber-500/5 space-y-1.5">
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-amber-600 dark:text-amber-400">
-                      <Ban className="h-4 w-4 shrink-0" />
+                  <div className="p-4 rounded-2xl border border-border bg-muted/20 space-y-1.5">
+                    <div className="flex items-center gap-2 text-xs font-extrabold text-foreground">
+                      <Ban className="h-4 w-4 text-primary shrink-0" />
                       <span>Camada 0 do Decisor — Famílias que a Tecfag Não Comercializa</span>
                     </div>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
@@ -2409,7 +2453,7 @@ export function IndustrialTriageSettings() {
                               {family.terms.map((t, idx) => (
                                 <span
                                   key={idx}
-                                  className="px-2 py-0.5 rounded-md bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 text-[10px] font-bold"
+                                  className="px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20 text-[10px] font-bold"
                                 >
                                   {t}
                                 </span>
@@ -2430,7 +2474,7 @@ export function IndustrialTriageSettings() {
                                 });
                                 toast.info(`Família "${family.name}" removida do rascunho.`);
                               }}
-                              className="p-1.5 rounded-lg border border-border hover:bg-red-500/10 hover:border-red-500/30 text-muted-foreground hover:text-red-500 transition cursor-pointer"
+                              className="p-1.5 rounded-lg border border-border hover:bg-primary/10 hover:border-primary/30 text-muted-foreground hover:text-primary transition cursor-pointer"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -2446,9 +2490,9 @@ export function IndustrialTriageSettings() {
 
           {/* Barra Inferior de Salvamento quando houver alterações pendentes */}
           {dirty && (
-            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-300">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
+            <div className="p-3.5 rounded-2xl bg-primary/8 border border-primary/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-foreground">
+                <AlertTriangle className="h-4 w-4 text-primary shrink-0" />
                 <span>
                   Você possui alterações em rascunho no catálogo ou nos destinos. Salve para aplicar
                   na operação do Fagner.
