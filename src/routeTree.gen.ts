@@ -64,6 +64,7 @@ import { Route as ApiSettingsWhatsappRouteImport } from './routes/api/settings/w
 import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/reports'
 import { Route as ApiSettingsRdMarketingRouteImport } from './routes/api/settings/rd-marketing'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
+import { Route as ApiSettingsMcpRouteImport } from './routes/api/settings/mcp'
 import { Route as ApiPlatformAccessRouteImport } from './routes/api/platform/access'
 import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
 import { Route as ApiLivechatVtexConfigRouteImport } from './routes/api/livechat/vtex-config'
@@ -458,6 +459,11 @@ const ApiSettingsRdMarketingRoute = ApiSettingsRdMarketingRouteImport.update({
 const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
   id: '/api/settings/rd-crm',
   path: '/api/settings/rd-crm',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsMcpRoute = ApiSettingsMcpRouteImport.update({
+  id: '/api/settings/mcp',
+  path: '/api/settings/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPlatformAccessRoute = ApiPlatformAccessRouteImport.update({
@@ -1172,6 +1178,7 @@ export interface FileRoutesByFullPath {
   '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
+  '/api/settings/mcp': typeof ApiSettingsMcpRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
@@ -1343,6 +1350,7 @@ export interface FileRoutesByTo {
   '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
+  '/api/settings/mcp': typeof ApiSettingsMcpRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
@@ -1515,6 +1523,7 @@ export interface FileRoutesById {
   '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
+  '/api/settings/mcp': typeof ApiSettingsMcpRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRouteWithChildren
   '/api/settings/reports': typeof ApiSettingsReportsRoute
@@ -1688,6 +1697,7 @@ export interface FileRouteTypes {
     | '/api/livechat/vtex-config'
     | '/api/operators/profile'
     | '/api/platform/access'
+    | '/api/settings/mcp'
     | '/api/settings/rd-crm'
     | '/api/settings/rd-marketing'
     | '/api/settings/reports'
@@ -1859,6 +1869,7 @@ export interface FileRouteTypes {
     | '/api/livechat/vtex-config'
     | '/api/operators/profile'
     | '/api/platform/access'
+    | '/api/settings/mcp'
     | '/api/settings/rd-crm'
     | '/api/settings/rd-marketing'
     | '/api/settings/reports'
@@ -2030,6 +2041,7 @@ export interface FileRouteTypes {
     | '/api/livechat/vtex-config'
     | '/api/operators/profile'
     | '/api/platform/access'
+    | '/api/settings/mcp'
     | '/api/settings/rd-crm'
     | '/api/settings/rd-marketing'
     | '/api/settings/reports'
@@ -2193,6 +2205,7 @@ export interface RootRouteChildren {
   ApiLivechatVisitorsRoute: typeof ApiLivechatVisitorsRoute
   ApiLivechatVtexConfigRoute: typeof ApiLivechatVtexConfigRoute
   ApiPlatformAccessRoute: typeof ApiPlatformAccessRoute
+  ApiSettingsMcpRoute: typeof ApiSettingsMcpRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsRdMarketingRoute: typeof ApiSettingsRdMarketingRouteWithChildren
   ApiSettingsReportsRoute: typeof ApiSettingsReportsRoute
@@ -2610,6 +2623,13 @@ declare module '@tanstack/react-router' {
       path: '/api/settings/rd-crm'
       fullPath: '/api/settings/rd-crm'
       preLoaderRoute: typeof ApiSettingsRdCrmRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings/mcp': {
+      id: '/api/settings/mcp'
+      path: '/api/settings/mcp'
+      fullPath: '/api/settings/mcp'
+      preLoaderRoute: typeof ApiSettingsMcpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/platform/access': {
@@ -3832,6 +3852,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLivechatVisitorsRoute: ApiLivechatVisitorsRoute,
   ApiLivechatVtexConfigRoute: ApiLivechatVtexConfigRoute,
   ApiPlatformAccessRoute: ApiPlatformAccessRoute,
+  ApiSettingsMcpRoute: ApiSettingsMcpRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsRdMarketingRoute: ApiSettingsRdMarketingRouteWithChildren,
   ApiSettingsReportsRoute: ApiSettingsReportsRoute,

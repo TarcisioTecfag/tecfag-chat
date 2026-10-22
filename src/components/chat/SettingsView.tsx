@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/ConfiguracaoTab";
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
+import { McpSettingsTab } from "./McpSettingsTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
 import { PipelineSettingsModal } from "@/components/crm/PipelineSettingsModal";
@@ -21,8 +22,8 @@ import { SystemTooltip } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
-type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
-const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat"];
+type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat" | "mcp";
+const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat", "mcp"];
 
 export function SettingsView() {
   const {
@@ -452,7 +453,7 @@ export function SettingsView() {
     </motion.div>
   );
 
-  const { canAccessSettingsTab } = usePermissions();
+  const { canAccessSettingsTab, canAccessView } = usePermissions();
 
   const allTabs = [
     { id: "whatsapp" as const, label: "WhatsApp (Meta / Baileys)", icon: Smartphone },
@@ -461,9 +462,12 @@ export function SettingsView() {
     { id: "crm" as const, label: "Configurações do CRM", icon: FileText },
     { id: "email" as const, label: "E-mail & Automações", icon: Mail },
     { id: "livechat" as const, label: "Live Chat (Site)", icon: Globe },
+    { id: "mcp" as const, label: "Conector MCP (Claude / IA)", icon: Sparkles },
   ];
 
-  const allowedTabs = allTabs.filter(t => canAccessSettingsTab(t.id));
+  const allowedTabs = allTabs.filter((t) =>
+    t.id === "mcp" ? canAccessView("settings") : canAccessSettingsTab(t.id),
+  );
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
 
   useTabNavigation({
@@ -1492,6 +1496,9 @@ export function SettingsView() {
 
         {/* ABA 5: LIVE CHAT */}
         {activeTab === "livechat" && <LiveChatSettingsTab />}
+
+        {/* ABA 6: CONECTOR MCP (CLAUDE / IA) */}
+        {activeTab === "mcp" && <McpSettingsTab />}
       </div>
       <CustomFieldsSettingsModal isOpen={customFieldsOpen} onClose={() => setCustomFieldsOpen(false)} />
       <CrmActionHistoryModal isOpen={actionHistoryOpen} onClose={() => setActionHistoryOpen(false)} />

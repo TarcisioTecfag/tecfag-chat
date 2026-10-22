@@ -24,11 +24,36 @@ export const DEFAULT_MCP_TECFAG_TOKEN = "mcp_tf_8f4e2a9c1d7b6e3f5a0c2d4e8b1f7a3c
 export const DEFAULT_MCP_VALEM_TOKEN = "mcp_vl_3c7a1f8b4e2d0c5a3f6e7b1d9c2a4e8f";
 export const DEFAULT_MCP_ADMIN_TOKEN = "mcp_admin_7d9e3b5c1a8f4e6d2b0c9a7e5f3d1b8c";
 
+export const MCP_SERVER_INFO = {
+  name: "valem-tecfag-mcp",
+  version: "1.0.0",
+};
+
+export interface McpNamedKey {
+  id: string;
+  label: string;
+  token: string;
+  createdBy: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  usageCount: number;
+  active: boolean;
+}
+
+export interface McpTenantSettings {
+  tenantId: "tecfag" | "valem";
+  enabled: boolean;
+  primaryToken: string;
+  primaryTokenUpdatedAt: string | null;
+  namedKeys: McpNamedKey[];
+}
+
 export interface McpAccessContext {
   authorized: boolean;
   lockedTenantId: "tecfag" | "valem" | null;
   defaultTenantId: "tecfag" | "valem";
   authMode: "token_tecfag" | "token_valem" | "token_admin" | "session" | "none";
+  keyLabel?: string;
 }
 
 function safeCompareToken(provided: string, expected: string): boolean {
@@ -37,6 +62,165 @@ function safeCompareToken(provided: string, expected: string): boolean {
   const bufB = Buffer.from(expected.trim(), "utf8");
   if (bufA.length !== bufB.length) return false;
   return crypto.timingSafeEqual(bufA, bufB);
+}
+
+export function generateMcpTokenForTenant(tenantId: "tecfag" | "valem"): string {
+  const prefix = tenantId === "valem" ? "mcp_vl_" : "mcp_tf_";
+  return `${prefix}${crypto.randomBytes(16).toString("hex")}`;
+}
+
+export function getDefaultPrimaryToken(tenantId: "tecfag" | "valem"): string {
+  if (tenantId === "valem") {
+    return (process.env.MCP_VALEM_TOKEN || DEFAULT_MCP_VALEM_TOKEN).trim();
+  }
+  return (process.env.MCP_TECFAG_TOKEN || DEFAULT_MCP_TECFAG_TOKEN).trim();
+}
+
+export async function getMcpTenantSettings(
+  tenantId: "tecfag" | "valem",
+): Promise<McpTenantSettings> {
+  const defaultToken = getDefaultPrimaryToken(tenantId);
+  try {
+    const rows = await defaultSqlClient<
+      Array<{ enabled: number; config: Record<string, unknown> | null; updated_at: Date | string | null }>
+    >`
+      SELECT enabled, config, updated_at
+      FROM agent_configs
+      WHERE tenant_id = ${tenantId}
+        AND agent_type = 'mcp'
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `;
+    if (!rows.length) {
+      return {
+        tenantId,
+        enabled: true,
+        primaryToken: defaultToken,
+        primaryTokenUpdatedAt: null,
+        namedKeys: [],
+      };
+    }
+    const row = rows[0];
+    const cfg =
+      row.config && typeof row.config === "object" && !Array.isArray(row.config)
+        ? (row.config as Record<string, unknown>)
+        : {};
+    const primaryToken =
+      typeof cfg.primaryToken === "string" && cfg.primaryToken.trim()
+        ? cfg.primaryToken.trim()
+        : defaultToken;
+    const primaryTokenUpdatedAt =
+      typeof cfg.primaryTokenUpdatedAt === "string" ? cfg.primaryTokenUpdatedAt : null;
+    const rawKeys = Array.isArray(cfg.namedKeys) ? cfg.namedKeys : [];
+    const namedKeys: McpNamedKey[] = rawKeys
+      .filter((k): k is Record<string, unknown> => Boolean(k && typeof k === "object"))
+      .map((k) => ({
+        id: String(k.id || ""),
+        label: String(k.label || "Link de Acesso"),
+        token: String(k.token || ""),
+        createdBy: String(k.createdBy || "Admin"),
+        createdAt: String(k.createdAt || new Date().toISOString()),
+        lastUsedAt: typeof k.lastUsedAt === "string" ? k.lastUsedAt : null,
+        usageCount: Number(k.usageCount || 0),
+        active: k.active !== false,
+      }))
+      .filter((k) => Boolean(k.id && k.token));
+
+    return {
+      tenantId,
+      enabled: row.enabled !== 0,
+      primaryToken,
+      primaryTokenUpdatedAt,
+      namedKeys,
+    };
+  } catch {
+    return {
+      tenantId,
+      enabled: true,
+      primaryToken: defaultToken,
+      primaryTokenUpdatedAt: null,
+      namedKeys: [],
+    };
+  }
+}
+
+export async function saveMcpTenantSettings(
+  tenantId: "tecfag" | "valem",
+  settings: {
+    enabled: boolean;
+    primaryToken: string;
+    primaryTokenUpdatedAt: string | null;
+    namedKeys: McpNamedKey[];
+  },
+): Promise<McpTenantSettings> {
+  const rowId = `mcp-config-${tenantId}`;
+  const enabledInt = settings.enabled ? 1 : 0;
+  const configJson = {
+    primaryToken: settings.primaryToken,
+    primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
+    namedKeys: settings.namedKeys,
+  };
+
+  const existing = await defaultSqlClient<Array<{ id: string }>>`
+    SELECT id FROM agent_configs
+    WHERE tenant_id = ${tenantId} AND agent_type = 'mcp'
+    LIMIT 1
+  `;
+
+  if (existing.length > 0) {
+    await defaultSqlClient`
+      UPDATE agent_configs
+      SET enabled = ${enabledInt},
+          config = ${defaultSqlClient.json(configJson as any)},
+          updated_at = NOW()
+      WHERE id = ${existing[0].id}
+        AND tenant_id = ${tenantId}
+    `;
+  } else {
+    await defaultSqlClient`
+      INSERT INTO agent_configs (id, tenant_id, agent_type, enabled, config, created_at, updated_at)
+      VALUES (
+        ${rowId},
+        ${tenantId},
+        'mcp',
+        ${enabledInt},
+        ${defaultSqlClient.json(configJson as any)},
+        NOW(),
+        NOW()
+      )
+    `;
+  }
+
+  return {
+    tenantId,
+    enabled: settings.enabled,
+    primaryToken: settings.primaryToken,
+    primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
+    namedKeys: settings.namedKeys,
+  };
+}
+
+async function recordMcpNamedKeyUsage(tenantId: "tecfag" | "valem", keyId: string): Promise<void> {
+  try {
+    const current = await getMcpTenantSettings(tenantId);
+    const updatedKeys = current.namedKeys.map((k) =>
+      k.id === keyId
+        ? {
+            ...k,
+            lastUsedAt: new Date().toISOString(),
+            usageCount: (k.usageCount || 0) + 1,
+          }
+        : k,
+    );
+    await saveMcpTenantSettings(tenantId, {
+      enabled: current.enabled,
+      primaryToken: current.primaryToken,
+      primaryTokenUpdatedAt: current.primaryTokenUpdatedAt,
+      namedKeys: updatedKeys,
+    });
+  } catch {
+    // Non-blocking telemetry update
+  }
 }
 
 /**
@@ -55,45 +239,87 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
   const headerToken = request.headers.get("x-mcp-token") || "";
   const candidateToken = (queryToken || bearerToken || headerToken).trim();
 
-  const tecfagTokens = [
-    process.env.MCP_TECFAG_TOKEN,
-    DEFAULT_MCP_TECFAG_TOKEN,
-  ].filter((t): t is string => Boolean(t && t.trim()));
-
-  const valemTokens = [
-    process.env.MCP_VALEM_TOKEN,
-    DEFAULT_MCP_VALEM_TOKEN,
-  ].filter((t): t is string => Boolean(t && t.trim()));
-
   const adminTokens = [
     process.env.MCP_ACCESS_TOKEN,
     DEFAULT_MCP_ADMIN_TOKEN,
   ].filter((t): t is string => Boolean(t && t.trim()));
 
   if (candidateToken) {
-    if (tecfagTokens.some((expected) => safeCompareToken(candidateToken, expected))) {
-      return {
-        authorized: true,
-        lockedTenantId: "tecfag",
-        defaultTenantId: "tecfag",
-        authMode: "token_tecfag",
-      };
-    }
-    if (valemTokens.some((expected) => safeCompareToken(candidateToken, expected))) {
-      return {
-        authorized: true,
-        lockedTenantId: "valem",
-        defaultTenantId: "valem",
-        authMode: "token_valem",
-      };
-    }
     if (adminTokens.some((expected) => safeCompareToken(candidateToken, expected))) {
       return {
         authorized: true,
         lockedTenantId: null,
         defaultTenantId: "tecfag",
         authMode: "token_admin",
+        keyLabel: "Admin Multi-Tenant",
       };
+    }
+
+    const [tecfagSettings, valemSettings] = await Promise.all([
+      getMcpTenantSettings("tecfag"),
+      getMcpTenantSettings("valem"),
+    ]);
+
+    if (tecfagSettings.enabled) {
+      const tecfagPrimaryCandidates = [
+        tecfagSettings.primaryToken,
+        process.env.MCP_TECFAG_TOKEN,
+      ].filter((t): t is string => Boolean(t && t.trim()));
+
+      if (tecfagPrimaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
+        return {
+          authorized: true,
+          lockedTenantId: "tecfag",
+          defaultTenantId: "tecfag",
+          authMode: "token_tecfag",
+          keyLabel: "Link Principal (Tecfag)",
+        };
+      }
+
+      const matchedNamedKey = tecfagSettings.namedKeys.find(
+        (k) => k.active && safeCompareToken(candidateToken, k.token),
+      );
+      if (matchedNamedKey) {
+        void recordMcpNamedKeyUsage("tecfag", matchedNamedKey.id);
+        return {
+          authorized: true,
+          lockedTenantId: "tecfag",
+          defaultTenantId: "tecfag",
+          authMode: "token_tecfag",
+          keyLabel: matchedNamedKey.label,
+        };
+      }
+    }
+
+    if (valemSettings.enabled) {
+      const valemPrimaryCandidates = [
+        valemSettings.primaryToken,
+        process.env.MCP_VALEM_TOKEN,
+      ].filter((t): t is string => Boolean(t && t.trim()));
+
+      if (valemPrimaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
+        return {
+          authorized: true,
+          lockedTenantId: "valem",
+          defaultTenantId: "valem",
+          authMode: "token_valem",
+          keyLabel: "Link Principal (Valem)",
+        };
+      }
+
+      const matchedNamedKey = valemSettings.namedKeys.find(
+        (k) => k.active && safeCompareToken(candidateToken, k.token),
+      );
+      if (matchedNamedKey) {
+        void recordMcpNamedKeyUsage("valem", matchedNamedKey.id);
+        return {
+          authorized: true,
+          lockedTenantId: "valem",
+          defaultTenantId: "valem",
+          authMode: "token_valem",
+          keyLabel: matchedNamedKey.label,
+        };
+      }
     }
   }
 
@@ -106,6 +332,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
       lockedTenantId: sessionTenant,
       defaultTenantId: sessionTenant,
       authMode: "session",
+      keyLabel: "Sessão Web",
     };
   }
 
