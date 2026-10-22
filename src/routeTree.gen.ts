@@ -31,6 +31,7 @@ import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
 import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
 import { Route as ApiPushRouteImport } from './routes/api/push'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
+import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiGroupsRouteImport } from './routes/api/groups'
 import { Route as ApiEventsRouteImport } from './routes/api/events'
@@ -286,6 +287,11 @@ const ApiPushRoute = ApiPushRouteImport.update({
 const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
   id: '/api/operators',
   path: '/api/operators',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -1079,6 +1085,7 @@ export interface FileRoutesByFullPath {
   '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -1249,6 +1256,7 @@ export interface FileRoutesByTo {
   '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -1420,6 +1428,7 @@ export interface FileRoutesById {
   '/api/events': typeof ApiEventsRoute
   '/api/groups': typeof ApiGroupsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
@@ -1592,6 +1601,7 @@ export interface FileRouteTypes {
     | '/api/events'
     | '/api/groups'
     | '/api/health'
+    | '/api/mcp'
     | '/api/operators'
     | '/api/push'
     | '/api/quick-responses'
@@ -1762,6 +1772,7 @@ export interface FileRouteTypes {
     | '/api/events'
     | '/api/groups'
     | '/api/health'
+    | '/api/mcp'
     | '/api/operators'
     | '/api/push'
     | '/api/quick-responses'
@@ -1932,6 +1943,7 @@ export interface FileRouteTypes {
     | '/api/events'
     | '/api/groups'
     | '/api/health'
+    | '/api/mcp'
     | '/api/operators'
     | '/api/push'
     | '/api/quick-responses'
@@ -2103,6 +2115,7 @@ export interface RootRouteChildren {
   ApiEventsRoute: typeof ApiEventsRoute
   ApiGroupsRoute: typeof ApiGroupsRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiMcpRoute: typeof ApiMcpRoute
   ApiOperatorsRoute: typeof ApiOperatorsRouteWithChildren
   ApiPushRoute: typeof ApiPushRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
@@ -2366,6 +2379,13 @@ declare module '@tanstack/react-router' {
       path: '/api/operators'
       fullPath: '/api/operators'
       preLoaderRoute: typeof ApiOperatorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -3734,6 +3754,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiEventsRoute: ApiEventsRoute,
   ApiGroupsRoute: ApiGroupsRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiMcpRoute: ApiMcpRoute,
   ApiOperatorsRoute: ApiOperatorsRouteWithChildren,
   ApiPushRoute: ApiPushRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
