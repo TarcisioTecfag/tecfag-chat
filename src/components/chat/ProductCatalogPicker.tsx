@@ -76,7 +76,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [zoomImage, setZoomImage] = useState<CatalogImageItem | null>(null);
   const [isAttaching, setIsAttaching] = useState(false);
-  const [visibleLimit, setVisibleLimit] = useState(60);
+  const [visibleLimit, setVisibleLimit] = useState(80);
 
   const fetchCatalogImages = async (forceRefresh = false) => {
     if (!forceRefresh) {
@@ -125,7 +125,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
 
   // Resetar limite de paginação ao filtrar
   useEffect(() => {
-    setVisibleLimit(60);
+    setVisibleLimit(80);
   }, [searchTerm, selectedCategory]);
 
   // Categorias dinâmicas (caso o backend não envie ou para manter sincronizado)
@@ -171,7 +171,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
     const el = e.currentTarget;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 180) {
       if (visibleLimit < filteredImages.length) {
-        setVisibleLimit((prev) => Math.min(prev + 60, filteredImages.length));
+        setVisibleLimit((prev) => Math.min(prev + 80, filteredImages.length));
       }
     }
   };
@@ -259,9 +259,9 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[410px] w-full bg-card border border-border rounded-2xl overflow-hidden shadow-soft animate-in slide-in-from-bottom-2 duration-200">
+    <div className="flex flex-col h-[420px] w-full bg-card border border-border rounded-2xl overflow-hidden shadow-soft animate-in slide-in-from-bottom-2 duration-200">
       {/* Top Bar: Search & Actions */}
-      <div className="flex items-center gap-2 p-2.5 border-b border-border bg-muted/30">
+      <div className="flex items-center gap-2 p-2 border-b border-border bg-muted/30">
         <div className="relative flex-1 flex items-center">
           <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input
@@ -306,7 +306,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
 
       {/* Barra Horizontal de Categorias (Pastas da Base de Conhecimento) */}
       {effectiveCategories.length > 0 && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-card overflow-x-auto scrollbar-none shrink-0">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-border bg-card overflow-x-auto scrollbar-none shrink-0">
           <button
             type="button"
             onClick={() => setSelectedCategory("ALL")}
@@ -342,7 +342,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
       {/* Grid de Imagens */}
       <div
         onScroll={handleGridScroll}
-        className="flex-1 p-3 overflow-y-auto min-h-0 bg-background/50 scrollbar-thin"
+        className="flex-1 p-2 overflow-y-auto min-h-0 bg-background/50 scrollbar-thin"
       >
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-full space-y-2 text-muted-foreground">
@@ -367,7 +367,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
               {visibleImages.map((item) => {
                 const isSelected = selectedIds.has(item.id);
                 const imgSrc = item.thumbnailUrl || item.mediaUrl;
@@ -378,14 +378,14 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
                   <div
                     key={item.id}
                     onClick={() => toggleSelect(item.id)}
-                    className={`group relative flex flex-col rounded-xl border overflow-hidden bg-card cursor-pointer transition-all duration-150 select-none ${
+                    className={`group relative flex flex-col rounded-lg border overflow-hidden bg-card cursor-pointer transition-all duration-150 select-none ${
                       isSelected
                         ? "border-primary ring-2 ring-primary/20 bg-primary/5 shadow-xs"
                         : "border-border hover:border-primary/40 hover:shadow-xs"
                     }`}
                   >
-                    {/* Thumbnail */}
-                    <div className="relative aspect-square w-full bg-white dark:bg-muted/40 overflow-hidden flex items-center justify-center">
+                    {/* Thumbnail Compacta */}
+                    <div className="relative h-[88px] w-full bg-white dark:bg-muted/40 overflow-hidden flex items-center justify-center">
                       {imgSrc ? (
                         <img
                           src={imgSrc}
@@ -398,17 +398,17 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
                           }}
                         />
                       ) : null}
-                      <Package className="h-8 w-8 text-muted-foreground/30 absolute z-0" />
+                      <Package className="h-6 w-6 text-muted-foreground/30 absolute z-0" />
 
                       {/* Checkbox indicator */}
                       <div
-                        className={`absolute top-2 left-2 z-2 flex h-5 w-5 items-center justify-center rounded-md border transition-all ${
+                        className={`absolute top-1.5 left-1.5 z-2 flex h-4 w-4 items-center justify-center rounded border transition-all ${
                           isSelected
                             ? "bg-primary border-primary text-primary-foreground shadow-xs"
                             : "bg-background/85 backdrop-blur-xs border-border/80 text-transparent group-hover:border-foreground/40"
                         }`}
                       >
-                        <Check className="h-3.5 w-3.5 stroke-[2.5]" />
+                        <Check className="h-3 w-3 stroke-[2.5]" />
                       </div>
 
                       {/* Zoom button */}
@@ -419,27 +419,27 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
                           setZoomImage(item);
                         }}
                         title="Ampliar visualização"
-                        className="absolute top-2 right-2 z-2 flex h-6 w-6 items-center justify-center rounded-md bg-background/85 backdrop-blur-xs border border-border text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition shadow-xs cursor-pointer"
+                        className="absolute top-1.5 right-1.5 z-2 flex h-5 w-5 items-center justify-center rounded bg-background/85 backdrop-blur-xs border border-border text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition shadow-xs cursor-pointer"
                       >
-                        <Maximize2 className="h-3 w-3" />
+                        <Maximize2 className="h-2.5 w-2.5" />
                       </button>
                     </div>
 
                     {/* Informações do Produto */}
-                    <div className="p-2 flex flex-col justify-between flex-1 min-w-0">
+                    <div className="p-1.5 flex flex-col justify-between flex-1 min-w-0">
                       <p
-                        className="text-[11px] font-semibold text-foreground line-clamp-2 leading-tight"
+                        className="text-[10px] font-semibold text-foreground line-clamp-2 leading-tight"
                         title={cleanTitle}
                       >
                         {cleanTitle}
                       </p>
-                      <div className="flex items-center justify-between gap-1 mt-1.5 pt-1 border-t border-border/40">
+                      <div className="flex items-center justify-between gap-1 mt-1 pt-1 border-t border-border/40">
                         {item.sku ? (
-                          <span className="text-[9px] font-mono font-bold text-primary bg-primary/10 px-1.5 py-0.2 rounded truncate max-w-[110px]">
+                          <span className="text-[9px] font-mono font-bold text-primary bg-primary/10 px-1 py-0.2 rounded truncate max-w-[90px]">
                             {tenantId === "tecfag" ? item.sku : `SKU ${item.sku}`}
                           </span>
                         ) : item.category ? (
-                          <span className="text-[9px] font-medium text-muted-foreground truncate max-w-[110px]">
+                          <span className="text-[9px] font-medium text-muted-foreground truncate max-w-[90px]">
                             {item.category}
                           </span>
                         ) : (
@@ -475,7 +475,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
       </div>
 
       {/* Bottom Bar: Selection counter & Attach Button */}
-      <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-card">
+      <div className="flex items-center justify-between px-3 py-1.5 border-t border-border bg-card">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-foreground">
             {selectedIds.size === 0
