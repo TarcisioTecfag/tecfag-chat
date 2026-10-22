@@ -1,26 +1,27 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
+  AlertCircle,
   Check,
   CheckCircle2,
+  Clock,
   Copy,
   Eye,
   EyeOff,
-  ExternalLink,
-  Key,
+  History,
   Link2,
   Loader2,
   MessageSquare,
   Plus,
   RefreshCw,
   RotateCcw,
+  Search,
   Server,
   Shield,
   Sparkles,
   Terminal,
   Trash2,
   Users,
-  Activity,
-  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
@@ -38,6 +39,20 @@ interface McpNamedKey {
   active: boolean;
 }
 
+interface McpAuditLogEntry {
+  id: string;
+  timestamp: string;
+  keyId: string;
+  keyLabel: string;
+  toolName: string;
+  toolLabel: string;
+  argumentsSummary: string;
+  argumentsRaw: Record<string, unknown>;
+  resultSummary: string;
+  status: "success" | "error";
+  latencyMs: number;
+}
+
 interface McpToolItem {
   name: string;
   description: string;
@@ -51,6 +66,7 @@ interface McpSettingsResponse {
   primaryTokenUpdatedAt: string | null;
   isDefaultPrimaryToken: boolean;
   namedKeys: McpNamedKey[];
+  auditLogs?: McpAuditLogEntry[];
   tools: McpToolItem[];
 }
 
@@ -63,6 +79,7 @@ export function McpSettingsTab() {
   const companyLabel = activeTenant === "valem" ? "Valem" : "Tecfag";
 
   const [loading, setLoading] = useState(true);
+  const [refreshingLogs, setRefreshingLogs] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [primaryToken, setPrimaryToken] = useState(
     activeTenant === "valem"
@@ -72,16 +89,24 @@ export function McpSettingsTab() {
   const [primaryTokenUpdatedAt, setPrimaryTokenUpdatedAt] = useState<string | null>(null);
   const [isDefaultPrimaryToken, setIsDefaultPrimaryToken] = useState(true);
   const [namedKeys, setNamedKeys] = useState<McpNamedKey[]>([]);
+  const [auditLogs, setAuditLogs] = useState<McpAuditLogEntry[]>([]);
   const [tools, setTools] = useState<McpToolItem[]>([]);
 
   const [showPrimaryToken, setShowPrimaryToken] = useState(true);
   const [useProductionDomain, setUseProductionDomain] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [guideClient, setGuideClient] = useState<"claude" | "antigravity" | "codex">("claude");
 
   const [newKeyLabel, setNewKeyLabel] = useState("");
   const [creatingKey, setCreatingKey] = useState(false);
   const [rotatingPrimary, setRotatingPrimary] = useState(false);
   const [togglingEnabled, setTogglingEnabled] = useState(false);
+
+  const [selectedKeyFilter, setSelectedKeyFilter] = useState<string>("all");
+  const [logSearch, setLogSearch] = useState("");
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [clearingLogs, setClearingLogs] = useState(false);
+  const auditSectionRef = useRef<HTMLDivElement | null>(null);
 
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -136,8 +161,33 @@ export function McpSettingsTab() {
     ].join("\n");
   };
 
-  const loadMcpSettings = async () => {
-    setLoading(true);
+  const antigravityJsonSnippet = useMemo(
+    () =>
+      JSON.stringify(
+        {
+          mcpServers: {
+            [`${activeTenant}-chat`]: {
+              serverUrl: primaryConnectorUrl,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    [activeTenant, primaryConnectorUrl],
+  );
+
+  const codexCliSnippet = useMemo(
+    () => `codex mcp add ${activeTenant}-chat --url "${primaryConnectorUrl}"`,
+    [activeTenant, primaryConnectorUrl],
+  );
+
+  const loadMcpSettings = async (silent = false) => {
+    if (silent) {
+      setRefreshingLogs(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const res = await fetch("/api/settings/mcp", { credentials: "include" });
       if (res.ok) {
@@ -147,18 +197,21 @@ export function McpSettingsTab() {
         setPrimaryTokenUpdatedAt(data.primaryTokenUpdatedAt);
         setIsDefaultPrimaryToken(data.isDefaultPrimaryToken);
         setNamedKeys(Array.isArray(data.namedKeys) ? data.namedKeys : []);
+        setAuditLogs(Array.isArray(data.auditLogs) ? data.auditLogs : []);
         setTools(Array.isArray(data.tools) ? data.tools : []);
       }
     } catch (err) {
       console.error("Erro ao carregar configurações do MCP:", err);
     } finally {
       setLoading(false);
+      setRefreshingLogs(false);
     }
   };
 
   useEffect(() => {
     setTestResult(null);
-    void loadMcpSettings();
+    setSelectedKeyFilter("all");
+    void loadMcpSettings(false);
   }, [activeTenant]);
 
   const copyToClipboard = async (text: string, id: string, successLabel: string) => {
@@ -274,7 +327,9 @@ export function McpSettingsTab() {
         if (data.createdKey?.token) {
           const url = buildConnectorUrl(data.createdKey.token);
           await navigator.clipboard.writeText(url).catch(() => {});
-          toast.success(`Link criado para "${cleanLabel}" e já copiado para a área de transferência!`);
+          toast.success(
+            `Link criado para "${cleanLabel}" e já copiado para a área de transferência!`,
+          );
         } else {
           toast.success(`Link individual criado para "${cleanLabel}".`);
         }
@@ -321,10 +376,35 @@ export function McpSettingsTab() {
       const data = await res.json();
       if (res.ok && data.ok && data.settings) {
         setNamedKeys(data.settings.namedKeys || []);
+        if (selectedKeyFilter === keyId) {
+          setSelectedKeyFilter("all");
+        }
         toast.success(`Link de "${label}" revogado permanentemente.`);
       }
     } catch {
       toast.error("Erro ao revogar link.");
+    }
+  };
+
+  const handleClearAuditLogs = async () => {
+    if (clearingLogs) return;
+    setClearingLogs(true);
+    try {
+      const res = await fetch("/api/settings/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "clear_audit_logs" }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setAuditLogs([]);
+        toast.success("Histórico de auditoria limpo com sucesso.");
+      }
+    } catch {
+      toast.error("Erro ao limpar histórico de auditoria.");
+    } finally {
+      setClearingLogs(false);
     }
   };
 
@@ -348,6 +428,9 @@ export function McpSettingsTab() {
           protocolVersion: data.protocolVersion,
           sampleOverview: data.sampleOverview,
         });
+        if (Array.isArray(data.auditLogs)) {
+          setAuditLogs(data.auditLogs);
+        }
         toast.success(`Conector MCP validado em ${data.latencyMs}ms!`);
       } else {
         setTestResult({
@@ -364,6 +447,58 @@ export function McpSettingsTab() {
       setTestingConnection(false);
     }
   };
+
+  const focusPersonHistory = (keyId: string) => {
+    setSelectedKeyFilter(keyId);
+    auditSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const filteredAuditLogs = useMemo(() => {
+    return auditLogs.filter((entry) => {
+      if (selectedKeyFilter !== "all" && entry.keyId !== selectedKeyFilter) {
+        return false;
+      }
+      if (logSearch.trim()) {
+        const q = logSearch.trim().toLowerCase();
+        const hay = [
+          entry.keyLabel,
+          entry.toolName,
+          entry.toolLabel,
+          entry.argumentsSummary,
+          entry.resultSummary,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [auditLogs, selectedKeyFilter, logSearch]);
+
+  const filterOptions = useMemo(() => {
+    const map = new Map<string, { id: string; label: string; count: number }>();
+    map.set("primary", {
+      id: "primary",
+      label: `Link Principal (${companyLabel})`,
+      count: 0,
+    });
+    for (const k of namedKeys) {
+      map.set(k.id, { id: k.id, label: k.label, count: 0 });
+    }
+    for (const log of auditLogs) {
+      const existing = map.get(log.keyId);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(log.keyId, {
+          id: log.keyId,
+          label: log.keyLabel,
+          count: 1,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [auditLogs, companyLabel, namedKeys]);
 
   const samplePrompts = [
     `Como está o faturamento fechado deste mês na ${companyLabel}, o pacing da meta e o ranking por consultor?`,
@@ -398,15 +533,16 @@ export function McpSettingsTab() {
               </span>
             </div>
             <h3 className="text-lg font-extrabold text-foreground">
-              Conector Remoto por Link Único (Claude, Antigravity & IA)
+              Conector Remoto Universal (Claude, Antigravity, Codex & Cursor)
             </h3>
             <p className="text-xs text-muted-foreground leading-relaxed max-w-3xl">
-              Compartilhe um único link seguro com membros da sua operação para conectarem o{" "}
-              <strong className="text-foreground">Claude</strong> ou{" "}
-              <strong className="text-foreground">Antigravity</strong> diretamente às conversas,
-              triagens do <strong className="text-foreground">{aiPersona.name}</strong>, CRM e
-              métricas comerciais da <strong className="text-foreground">{companyLabel}</strong> —
-              sem instalar nada e sem expor credenciais do banco.
+              Gere links exclusivos por pessoa da operação para conectarem o{" "}
+              <strong className="text-foreground">Claude</strong>,{" "}
+              <strong className="text-foreground">Antigravity</strong> ou{" "}
+              <strong className="text-foreground">Codex</strong> diretamente às conversas, triagens
+              do <strong className="text-foreground">{aiPersona.name}</strong>, CRM e métricas
+              comerciais da <strong className="text-foreground">{companyLabel}</strong> — com
+              auditoria completa de tudo que foi consultado em cada link.
             </p>
           </div>
 
@@ -610,6 +746,17 @@ export function McpSettingsTab() {
                 </button>
               </SystemTooltip>
 
+              <SystemTooltip content="Filtrar o histórico abaixo para ver tudo o que foi puxado usando o Link Principal">
+                <button
+                  type="button"
+                  onClick={() => focusPersonHistory("primary")}
+                  className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-card hover:bg-muted text-foreground text-xs font-semibold border border-border transition cursor-pointer"
+                >
+                  <History className="h-3.5 w-3.5 text-primary" />
+                  Ver Histórico
+                </button>
+              </SystemTooltip>
+
               {sessionRole === "admin" && (
                 <SystemTooltip content="Gerar um novo código de token principal (invalida o token anterior)">
                   <button
@@ -674,9 +821,9 @@ export function McpSettingsTab() {
               </h4>
             </div>
             <p className="text-xs text-muted-foreground">
-              Vai liberar o teste para alguém da operação? Gere um link identificado com o nome da
-              pessoa. Assim você acompanha quando ela usou e pode desativar o acesso dela a
-              qualquer momento com 1 clique.
+              Gere um link exclusivo com o nome de cada pessoa que vai usar. Tudo o que ela
+              perguntar e puxar no Claude/IA fica registrado com o nome dela no{" "}
+              <strong className="text-foreground">Histórico de Auditoria</strong> abaixo.
             </p>
           </div>
         </div>
@@ -711,8 +858,9 @@ export function McpSettingsTab() {
               Nenhum link individual separado foi criado ainda
             </p>
             <p className="text-[11px] text-muted-foreground">
-              Você pode usar o <strong>Link Único Principal</strong> acima ou digitar o nome de um
-              colaborador no campo acima para gerar um link exclusivo e revogável para ele.
+              Digite o nome de uma pessoa no campo acima e clique em{" "}
+              <strong>Gerar Link Individual</strong> para rastrear separadamente tudo o que ela
+              consultar.
             </p>
           </div>
         ) : (
@@ -748,9 +896,9 @@ export function McpSettingsTab() {
                           {new Date(item.createdAt).toLocaleDateString("pt-BR")}
                         </span>
                         <span className="text-[11px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
-                          {item.usageCount || 0} acessos
+                          {item.usageCount || 0} consultas
                           {item.lastUsedAt
-                            ? ` · último em ${new Date(item.lastUsedAt).toLocaleString("pt-BR", {
+                            ? ` · última em ${new Date(item.lastUsedAt).toLocaleString("pt-BR", {
                                 dateStyle: "short",
                                 timeStyle: "short",
                               })}`
@@ -802,6 +950,17 @@ export function McpSettingsTab() {
                         WhatsApp
                       </button>
 
+                      <SystemTooltip content={`Filtrar o histórico abaixo apenas pelas consultas de ${item.label}`}>
+                        <button
+                          type="button"
+                          onClick={() => focusPersonHistory(item.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card hover:bg-muted text-foreground text-xs font-semibold border border-border transition cursor-pointer"
+                        >
+                          <History className="h-3.5 w-3.5 text-primary" />
+                          Histórico
+                        </button>
+                      </SystemTooltip>
+
                       {sessionRole === "admin" && (
                         <>
                           <button
@@ -832,58 +991,353 @@ export function McpSettingsTab() {
         )}
       </div>
 
-      {/* 4. COMO USAR NO CLAUDE (PASSO A PASSO) + EXemplos DE PERGUNTAS */}
+      {/* 4. HISTÓRICO DE CONSULTAS & AUDITORIA POR LINK / PESSOA */}
+      <div
+        ref={auditSectionRef}
+        className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-5"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-border pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4 text-primary" />
+              <h4 className="text-sm font-extrabold text-foreground">
+                Histórico de Consultas & Auditoria por Link / Pessoa
+              </h4>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border">
+                {filteredAuditLogs.length} registro(s)
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Veja exatamente <strong className="text-foreground">quem puxou</strong>,{" "}
+              <strong className="text-foreground">qual link utilizou</strong>,{" "}
+              <strong className="text-foreground">qual módulo/ferramenta consultou</strong>,{" "}
+              <strong className="text-foreground">quais filtros enviou</strong> e o{" "}
+              <strong className="text-foreground">resumo do que foi retornado</strong> em tempo
+              real.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar pessoa, ferramenta ou termo..."
+                value={logSearch}
+                onChange={(e) => setLogSearch(e.target.value)}
+                className="h-9 w-56 rounded-xl bg-muted/40 border border-border pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => loadMcpSettings(true)}
+              disabled={refreshingLogs}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-bold border border-border transition cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshingLogs ? "animate-spin" : ""}`} />
+              Atualizar
+            </button>
+
+            {sessionRole === "admin" && auditLogs.length > 0 && (
+              <SystemTooltip content="Limpar registros antigos de auditoria deste tenant">
+                <button
+                  type="button"
+                  onClick={handleClearAuditLogs}
+                  disabled={clearingLogs}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl bg-card hover:bg-red-500/10 text-muted-foreground hover:text-red-500 text-xs font-semibold border border-border transition cursor-pointer"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Limpar
+                </button>
+              </SystemTooltip>
+            )}
+          </div>
+        </div>
+
+        {/* Filtros por Pessoa / Link */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setSelectedKeyFilter("all")}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
+              selectedKeyFilter === "all"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
+            }`}
+          >
+            Todos os Links ({auditLogs.length})
+          </button>
+          {filterOptions.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setSelectedKeyFilter(opt.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
+                selectedKeyFilter === opt.id
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
+              }`}
+            >
+              {opt.label} ({opt.count})
+            </button>
+          ))}
+        </div>
+
+        {/* Tabela / Lista de Consultas Auditadas */}
+        {filteredAuditLogs.length === 0 ? (
+          <div className="rounded-xl bg-muted/20 border border-dashed border-border p-8 text-center space-y-1.5">
+            <Clock className="h-5 w-5 text-muted-foreground mx-auto" />
+            <p className="text-xs font-bold text-foreground">
+              Nenhuma consulta registrada para o filtro selecionado
+            </p>
+            <p className="text-[11px] text-muted-foreground max-w-md mx-auto">
+              Assim que alguém fizer uma pergunta no Claude/Antigravity/Codex (ou quando você
+              clicar em <strong>Testar Conector Agora</strong> no topo), cada leitura aparecerá
+              detalhada aqui.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+            {filteredAuditLogs.map((log) => {
+              const isExpanded = expandedLogId === log.id;
+              return (
+                <div
+                  key={log.id}
+                  className="rounded-xl bg-muted/20 hover:bg-muted/35 border border-border p-3.5 transition space-y-2"
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary border border-primary/25 text-xs font-extrabold">
+                        <Users className="h-3 w-3" />
+                        {log.keyLabel}
+                      </span>
+
+                      <span className="text-xs font-extrabold text-foreground">
+                        {log.toolLabel}
+                      </span>
+
+                      <code className="text-[11px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                        {log.toolName}
+                      </code>
+
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                          log.status === "success"
+                            ? "bg-muted text-foreground border-border"
+                            : "bg-red-500/10 text-red-500 border-red-500/20"
+                        }`}
+                      >
+                        {log.status === "success" ? "OK" : "Erro"} · {log.latencyMs}ms
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-mono text-muted-foreground">
+                        {new Date(log.timestamp).toLocaleString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                        className="px-2 py-1 rounded-lg bg-card hover:bg-muted text-[11px] font-semibold text-muted-foreground hover:text-foreground border border-border transition cursor-pointer"
+                      >
+                        {isExpanded ? "Ocultar parâmetros" : "Ver parâmetros"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-card/70 border border-border/70 px-3 py-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                        O que foi buscado (Filtros):
+                      </span>
+                      <span className="font-mono text-[11px] text-foreground">
+                        {log.argumentsSummary}
+                      </span>
+                    </div>
+
+                    <div className="rounded-lg bg-card/70 border border-border/70 px-3 py-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                        Resumo do que foi puxado:
+                      </span>
+                      <span className="font-semibold text-[11px] text-foreground">
+                        {log.resultSummary}
+                      </span>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <pre className="rounded-lg bg-card border border-border p-3 text-[11px] font-mono text-muted-foreground overflow-x-auto">
+                      {JSON.stringify(log.argumentsRaw || {}, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 5. COMO CONECTAR (CLAUDE / ANTIGRAVITY / CODEX) + CATÁLOGO DAS 10 FERRAMENTAS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Passo a passo Claude */}
+        {/* Guia Universal de Conexão */}
         <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
-          <div className="flex items-center justify-between border-b border-border pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-3">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
               <h4 className="text-sm font-extrabold text-foreground">
-                Como Conectar no Claude (Por Link Único)
+                Como Conectar em Qualquer IA (Mesmo Link)
               </h4>
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-primary/10 text-primary">
-              Recomendado p/ Equipe
-            </span>
+
+            <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-xl border border-border">
+              <button
+                type="button"
+                onClick={() => setGuideClient("claude")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  guideClient === "claude"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Claude
+              </button>
+              <button
+                type="button"
+                onClick={() => setGuideClient("antigravity")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  guideClient === "antigravity"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Antigravity / Cursor
+              </button>
+              <button
+                type="button"
+                onClick={() => setGuideClient("codex")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  guideClient === "codex"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Codex
+              </button>
+            </div>
           </div>
 
-          <ol className="space-y-3 text-xs text-muted-foreground">
-            <li className="flex items-start gap-2.5">
-              <span className="h-5 w-5 rounded-full bg-primary/15 text-primary font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
-                1
-              </span>
-              <div>
-                Abra o <strong className="text-foreground">Claude</strong> no navegador (
-                <code className="text-foreground font-mono">claude.ai</code>) ou no aplicativo{" "}
-                <strong className="text-foreground">Claude Desktop</strong>.
+          {guideClient === "claude" && (
+            <ol className="space-y-3 text-xs text-muted-foreground">
+              <li className="flex items-start gap-2.5">
+                <span className="h-5 w-5 rounded-full bg-primary/15 text-primary font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  1
+                </span>
+                <div>
+                  Abra o <strong className="text-foreground">Claude</strong> no navegador (
+                  <code className="text-foreground font-mono">claude.ai</code>) ou no aplicativo{" "}
+                  <strong className="text-foreground">Claude Desktop</strong>.
+                </div>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <span className="h-5 w-5 rounded-full bg-primary/15 text-primary font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  2
+                </span>
+                <div>
+                  Acesse <strong className="text-foreground">Settings (Configurações)</strong>{" "}
+                  $\rightarrow${" "}
+                  <strong className="text-foreground">Integrations / Connectors</strong> e clique
+                  no botão <strong className="text-foreground">Add Custom Connector</strong>.
+                </div>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <span className="h-5 w-5 rounded-full bg-primary/15 text-primary font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  3
+                </span>
+                <div>
+                  Informe o nome{" "}
+                  <strong className="text-foreground">{companyLabel} Chat & CRM</strong> e cole o{" "}
+                  <strong className="text-foreground">Link Único</strong> (principal ou individual
+                  da pessoa).
+                </div>
+              </li>
+            </ol>
+          )}
+
+          {guideClient === "antigravity" && (
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <p>
+                No <strong className="text-foreground">Antigravity</strong>,{" "}
+                <strong className="text-foreground">Cursor</strong> ou{" "}
+                <strong className="text-foreground">Windsurf</strong>, basta colar este bloco no{" "}
+                <code className="text-foreground font-mono">mcp_config.json</code> apontando para o
+                mesmo Link Único:
+              </p>
+              <div className="relative">
+                <pre className="rounded-xl bg-muted/40 border border-border p-3.5 text-[11px] font-mono text-foreground overflow-x-auto">
+                  {antigravityJsonSnippet}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(
+                      antigravityJsonSnippet,
+                      "copy-ag-json",
+                      "JSON para Antigravity/Cursor copiado!",
+                    )
+                  }
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold cursor-pointer"
+                >
+                  {copiedId === "copy-ag-json" ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                  Copiar JSON (Antigravity / Cursor)
+                </button>
               </div>
-            </li>
-            <li className="flex items-start gap-2.5">
-              <span className="h-5 w-5 rounded-full bg-primary/15 text-primary font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
-                2
-              </span>
-              <div>
-                Acesse <strong className="text-foreground">Settings (Configurações)</strong>{" "}
-                $\rightarrow$ <strong className="text-foreground">Integrations / Connectors</strong>{" "}
-                e clique no botão{" "}
-                <strong className="text-foreground">Add Custom Connector</strong>.
+            </div>
+          )}
+
+          {guideClient === "codex" && (
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <p>
+                No <strong className="text-foreground">OpenAI Codex</strong>, execute o comando
+                abaixo no terminal (usando o mesmo Link Único):
+              </p>
+              <div className="space-y-2">
+                <pre className="rounded-xl bg-muted/40 border border-border p-3.5 text-[11px] font-mono text-foreground overflow-x-auto">
+                  {codexCliSnippet}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(codexCliSnippet, "copy-codex-cmd", "Comando do Codex copiado!")
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold cursor-pointer"
+                >
+                  {copiedId === "copy-codex-cmd" ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <Terminal className="h-3.5 w-3.5" />
+                  )}
+                  Copiar Comando Codex
+                </button>
               </div>
-            </li>
-            <li className="flex items-start gap-2.5">
-              <span className="h-5 w-5 rounded-full bg-primary/15 text-primary font-extrabold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
-                3
-              </span>
-              <div>
-                Informe o nome <strong className="text-foreground">{companyLabel} Chat & CRM</strong>{" "}
-                e cole o <strong className="text-foreground">Link Único</strong> copiado acima.
-              </div>
-            </li>
-          </ol>
+            </div>
+          )}
 
           <div className="pt-2 space-y-2">
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              Exemplos prontos para testar no Claude (clique para copiar):
+              Exemplos prontos para testar na IA (clique para copiar):
             </div>
             <div className="space-y-1.5">
               {samplePrompts.map((prompt, idx) => (
@@ -927,11 +1381,13 @@ export function McpSettingsTab() {
               : [
                   {
                     name: "search_conversations",
-                    description: "Busca e filtra conversas de atendimento por nome, telefone, CNPJ, fila ou vendedor.",
+                    description:
+                      "Busca e filtra conversas de atendimento por nome, telefone, CNPJ, fila ou vendedor.",
                   },
                   {
                     name: "get_conversation_messages",
-                    description: "Lê o histórico cronológico completo de mensagens e notas de uma conversa.",
+                    description:
+                      "Lê o histórico cronológico completo de mensagens e notas de uma conversa.",
                   },
                   {
                     name: "get_fagner_triage_overview",
@@ -939,19 +1395,23 @@ export function McpSettingsTab() {
                   },
                   {
                     name: "get_fagner_triage_history",
-                    description: "Histórico de ciclos de triagem, briefing consolidado e notas progressivas.",
+                    description:
+                      "Histórico de ciclos de triagem, briefing consolidado e notas progressivas.",
                   },
                   {
                     name: "search_crm_deals",
-                    description: "Pesquisa negociações do CRM por cliente, funil, etapa, consultor ou status.",
+                    description:
+                      "Pesquisa negociações do CRM por cliente, funil, etapa, consultor ou status.",
                   },
                   {
                     name: "get_crm_deal_details",
-                    description: "Ficha 360º da negociação com empresa, Receita Federal, produtos, propostas e atividades.",
+                    description:
+                      "Ficha 360º da negociação com empresa, Receita Federal, produtos, propostas e atividades.",
                   },
                   {
                     name: "search_crm_accounts",
-                    description: "Busca empresas (crm_accounts) com dados completos da Receita Federal, QSA e CNAE.",
+                    description:
+                      "Busca empresas (crm_accounts) com dados completos da Receita Federal, QSA e CNAE.",
                   },
                   {
                     name: "search_contacts",
@@ -959,7 +1419,8 @@ export function McpSettingsTab() {
                   },
                   {
                     name: "get_sales_and_commercial_metrics",
-                    description: "Métricas de vendas fechadas no mês, meta, pacing de dias úteis, ranking e motivos de perda.",
+                    description:
+                      "Métricas de vendas fechadas no mês, meta, pacing de dias úteis, ranking e motivos de perda.",
                   },
                   {
                     name: "get_rodizio_and_operators_status",

@@ -40,12 +40,27 @@ export interface McpNamedKey {
   active: boolean;
 }
 
+export interface McpAuditLogEntry {
+  id: string;
+  timestamp: string;
+  keyId: string;
+  keyLabel: string;
+  toolName: string;
+  toolLabel: string;
+  argumentsSummary: string;
+  argumentsRaw: Record<string, unknown>;
+  resultSummary: string;
+  status: "success" | "error";
+  latencyMs: number;
+}
+
 export interface McpTenantSettings {
   tenantId: "tecfag" | "valem";
   enabled: boolean;
   primaryToken: string;
   primaryTokenUpdatedAt: string | null;
   namedKeys: McpNamedKey[];
+  auditLogs: McpAuditLogEntry[];
 }
 
 export interface McpAccessContext {
@@ -53,7 +68,117 @@ export interface McpAccessContext {
   lockedTenantId: "tecfag" | "valem" | null;
   defaultTenantId: "tecfag" | "valem";
   authMode: "token_tecfag" | "token_valem" | "token_admin" | "session" | "none";
+  keyId?: string;
   keyLabel?: string;
+  skipAuditLog?: boolean;
+}
+
+const TOOL_LABELS_PT: Record<string, string> = {
+  search_conversations: "Busca de Conversas",
+  get_conversation_messages: "Mensagens da Conversa",
+  get_fagner_triage_overview: "Panorama da Triagem IA",
+  get_fagner_triage_history: "Histórico da Triagem IA",
+  search_crm_deals: "Pesquisa de Negociações (CRM)",
+  get_crm_deal_details: "Ficha 360º da Negociação",
+  search_crm_accounts: "Empresas & Receita Federal",
+  search_contacts: "Busca de Contatos",
+  get_sales_and_commercial_metrics: "Métricas de Vendas & Meta",
+  get_rodizio_and_operators_status: "Escala do Rodízio & Operadores",
+};
+
+export function formatMcpToolLabel(toolName: string): string {
+  return TOOL_LABELS_PT[toolName] || toolName;
+}
+
+export function summarizeMcpToolArguments(
+  _toolName: string,
+  args: Record<string, unknown>,
+): string {
+  const entries = Object.entries(args || {}).filter(
+    ([k, v]) => k !== "tenantId" && v !== undefined && v !== null && String(v).trim() !== "",
+  );
+  if (entries.length === 0) {
+    return "Consulta geral (padrão)";
+  }
+  return entries
+    .map(([k, v]) => {
+      const valStr = typeof v === "object" ? JSON.stringify(v) : String(v);
+      return `${k}: ${valStr.length > 40 ? `${valStr.slice(0, 37)}...` : valStr}`;
+    })
+    .join(" · ");
+}
+
+export function summarizeMcpToolResult(toolName: string, data: any): string {
+  if (!data || typeof data !== "object") return "Resposta concluída";
+  try {
+    switch (toolName) {
+      case "search_conversations": {
+        const count = Number(data.totalReturned ?? 0);
+        const first = data.conversations?.[0]?.clientName;
+        return first
+          ? `${count} conversa(s) retornada(s) (ex: ${first})`
+          : `${count} conversa(s) retornada(s)`;
+      }
+      case "get_conversation_messages": {
+        const client = data.conversation?.clientName || data.conversation?.id || "Conversa";
+        const msgs = Number(data.totalMessagesReturned ?? 0);
+        return `Conversa de "${client}" (${msgs} mensagens lidas)`;
+      }
+      case "get_fagner_triage_overview": {
+        const total = Number(data.summary?.totalConversations ?? 0);
+        const auto = Number(data.summary?.inAutomationNow ?? 0);
+        const transf = Number(data.summary?.transferredCount ?? 0);
+        return `${total} triagens analisadas (${auto} em automação, ${transf} transferidas)`;
+      }
+      case "get_fagner_triage_history": {
+        const client = data.conversation?.clientName || data.conversation?.id || "Cliente";
+        const cycles = Number(data.totalCycles ?? 0);
+        return `Histórico de "${client}" (${cycles} ciclo(s) de triagem)`;
+      }
+      case "search_crm_deals": {
+        const count = Number(data.summary?.totalReturned ?? 0);
+        const sum = Number(data.summary?.sumReturnedValue ?? 0);
+        return `${count} negociação(ões) · R$ ${sum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+      }
+      case "get_crm_deal_details": {
+        const title = data.deal?.title || data.deal?.id || "Card";
+        const val = Number(data.deal?.value ?? 0);
+        return `Card "${title}" (R$ ${val.toLocaleString("pt-BR", { minimumFractionDigits: 2 })})`;
+      }
+      case "search_crm_accounts": {
+        if (data.account) {
+          return `Ficha da empresa "${data.account.name}" (${data.account.document || "sem doc"})`;
+        }
+        const count = Number(data.totalReturned ?? 0);
+        const first = data.accounts?.[0]?.name;
+        return first
+          ? `${count} empresa(s) encontrada(s) (ex: ${first})`
+          : `${count} empresa(s) encontrada(s)`;
+      }
+      case "search_contacts": {
+        const count = Number(data.totalReturned ?? 0);
+        const first = data.contacts?.[0]?.name;
+        return first
+          ? `${count} contato(s) encontrado(s) (ex: ${first})`
+          : `${count} contato(s) encontrado(s)`;
+      }
+      case "get_sales_and_commercial_metrics": {
+        const month = data.month || "";
+        const won = Number(data.executiveSummary?.closedWonDealsCount ?? 0);
+        const rev = Number(data.executiveSummary?.totalClosedRevenue ?? 0);
+        return `Mês ${month}: ${won} vendas ganhas (R$ ${rev.toLocaleString("pt-BR", { minimumFractionDigits: 2 })})`;
+      }
+      case "get_rodizio_and_operators_status": {
+        const online = Number(data.summary?.onlineOperators ?? 0);
+        const total = Number(data.summary?.totalOperators ?? 0);
+        return `${online}/${total} operadores online · escala e setores lidos`;
+      }
+      default:
+        return "Dados retornados com sucesso";
+    }
+  } catch {
+    return "Dados retornados com sucesso";
+  }
 }
 
 function safeCompareToken(provided: string, expected: string): boolean {
@@ -98,6 +223,7 @@ export async function getMcpTenantSettings(
         primaryToken: defaultToken,
         primaryTokenUpdatedAt: null,
         namedKeys: [],
+        auditLogs: [],
       };
     }
     const row = rows[0];
@@ -126,12 +252,34 @@ export async function getMcpTenantSettings(
       }))
       .filter((k) => Boolean(k.id && k.token));
 
+    const rawLogs = Array.isArray(cfg.auditLogs) ? cfg.auditLogs : [];
+    const auditLogs: McpAuditLogEntry[] = rawLogs
+      .filter((l): l is Record<string, unknown> => Boolean(l && typeof l === "object"))
+      .map((l) => ({
+        id: String(l.id || ""),
+        timestamp: String(l.timestamp || new Date().toISOString()),
+        keyId: String(l.keyId || "primary"),
+        keyLabel: String(l.keyLabel || "Link Principal"),
+        toolName: String(l.toolName || ""),
+        toolLabel: String(l.toolLabel || formatMcpToolLabel(String(l.toolName || ""))),
+        argumentsSummary: String(l.argumentsSummary || "Consulta geral"),
+        argumentsRaw:
+          l.argumentsRaw && typeof l.argumentsRaw === "object" && !Array.isArray(l.argumentsRaw)
+            ? (l.argumentsRaw as Record<string, unknown>)
+            : {},
+        resultSummary: String(l.resultSummary || ""),
+        status: l.status === "error" ? ("error" as const) : ("success" as const),
+        latencyMs: Number(l.latencyMs || 0),
+      }))
+      .filter((l) => Boolean(l.id && l.toolName));
+
     return {
       tenantId,
       enabled: row.enabled !== 0,
       primaryToken,
       primaryTokenUpdatedAt,
       namedKeys,
+      auditLogs,
     };
   } catch {
     return {
@@ -140,6 +288,7 @@ export async function getMcpTenantSettings(
       primaryToken: defaultToken,
       primaryTokenUpdatedAt: null,
       namedKeys: [],
+      auditLogs: [],
     };
   }
 }
@@ -151,14 +300,20 @@ export async function saveMcpTenantSettings(
     primaryToken: string;
     primaryTokenUpdatedAt: string | null;
     namedKeys: McpNamedKey[];
+    auditLogs?: McpAuditLogEntry[];
   },
 ): Promise<McpTenantSettings> {
   const rowId = `mcp-config-${tenantId}`;
   const enabledInt = settings.enabled ? 1 : 0;
+  const currentAuditLogs = Array.isArray(settings.auditLogs)
+    ? settings.auditLogs.slice(0, 250)
+    : (await getMcpTenantSettings(tenantId)).auditLogs.slice(0, 250);
+
   const configJson = {
     primaryToken: settings.primaryToken,
     primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
     namedKeys: settings.namedKeys,
+    auditLogs: currentAuditLogs,
   };
 
   const existing = await defaultSqlClient<Array<{ id: string }>>`
@@ -197,29 +352,63 @@ export async function saveMcpTenantSettings(
     primaryToken: settings.primaryToken,
     primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
     namedKeys: settings.namedKeys,
+    auditLogs: currentAuditLogs,
   };
 }
 
-async function recordMcpNamedKeyUsage(tenantId: "tecfag" | "valem", keyId: string): Promise<void> {
+export async function recordMcpToolAuditLog(params: {
+  tenantId: "tecfag" | "valem";
+  access?: McpAccessContext;
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+  resultSummary: string;
+  status: "success" | "error";
+  latencyMs: number;
+}): Promise<void> {
+  if (params.access?.skipAuditLog) return;
   try {
-    const current = await getMcpTenantSettings(tenantId);
+    const current = await getMcpTenantSettings(params.tenantId);
+    const nowIso = new Date().toISOString();
+    const keyId = params.access?.keyId || "primary";
+    const keyLabel =
+      params.access?.keyLabel ||
+      (params.tenantId === "valem" ? "Link Principal (Valem)" : "Link Principal (Tecfag)");
+
+    const newEntry: McpAuditLogEntry = {
+      id: `mcp-log-${crypto.randomBytes(6).toString("hex")}`,
+      timestamp: nowIso,
+      keyId,
+      keyLabel,
+      toolName: params.toolName,
+      toolLabel: formatMcpToolLabel(params.toolName),
+      argumentsSummary: summarizeMcpToolArguments(params.toolName, params.toolArgs),
+      argumentsRaw: params.toolArgs || {},
+      resultSummary: params.resultSummary,
+      status: params.status,
+      latencyMs: params.latencyMs,
+    };
+
     const updatedKeys = current.namedKeys.map((k) =>
       k.id === keyId
         ? {
             ...k,
-            lastUsedAt: new Date().toISOString(),
+            lastUsedAt: nowIso,
             usageCount: (k.usageCount || 0) + 1,
           }
         : k,
     );
-    await saveMcpTenantSettings(tenantId, {
+
+    const updatedLogs = [newEntry, ...current.auditLogs].slice(0, 250);
+
+    await saveMcpTenantSettings(params.tenantId, {
       enabled: current.enabled,
       primaryToken: current.primaryToken,
       primaryTokenUpdatedAt: current.primaryTokenUpdatedAt,
       namedKeys: updatedKeys,
+      auditLogs: updatedLogs,
     });
   } catch {
-    // Non-blocking telemetry update
+    // Non-blocking audit update
   }
 }
 
@@ -251,6 +440,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
         lockedTenantId: null,
         defaultTenantId: "tecfag",
         authMode: "token_admin",
+        keyId: "admin",
         keyLabel: "Admin Multi-Tenant",
       };
     }
@@ -272,6 +462,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
           lockedTenantId: "tecfag",
           defaultTenantId: "tecfag",
           authMode: "token_tecfag",
+          keyId: "primary",
           keyLabel: "Link Principal (Tecfag)",
         };
       }
@@ -280,12 +471,12 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
         (k) => k.active && safeCompareToken(candidateToken, k.token),
       );
       if (matchedNamedKey) {
-        void recordMcpNamedKeyUsage("tecfag", matchedNamedKey.id);
         return {
           authorized: true,
           lockedTenantId: "tecfag",
           defaultTenantId: "tecfag",
           authMode: "token_tecfag",
+          keyId: matchedNamedKey.id,
           keyLabel: matchedNamedKey.label,
         };
       }
@@ -303,6 +494,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
           lockedTenantId: "valem",
           defaultTenantId: "valem",
           authMode: "token_valem",
+          keyId: "primary",
           keyLabel: "Link Principal (Valem)",
         };
       }
@@ -311,12 +503,12 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
         (k) => k.active && safeCompareToken(candidateToken, k.token),
       );
       if (matchedNamedKey) {
-        void recordMcpNamedKeyUsage("valem", matchedNamedKey.id);
         return {
           authorized: true,
           lockedTenantId: "valem",
           defaultTenantId: "valem",
           authMode: "token_valem",
+          keyId: matchedNamedKey.id,
           keyLabel: matchedNamedKey.label,
         };
       }
@@ -332,7 +524,8 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
       lockedTenantId: sessionTenant,
       defaultTenantId: sessionTenant,
       authMode: "session",
-      keyLabel: "Sessão Web",
+      keyId: "session",
+      keyLabel: `Sessão Web (${auth.session.operator.name || "Operador"})`,
     };
   }
 
@@ -2064,8 +2257,25 @@ export async function handleSingleJsonRpcMessage(
     if (method === "tools/call") {
       const toolName = String(params?.name || "");
       const toolArgs = params?.arguments && typeof params.arguments === "object" ? params.arguments : {};
+      const startedAt = Date.now();
+      let effectiveTenant: "tecfag" | "valem" = "tecfag";
+      try {
+        effectiveTenant = resolveEffectiveTenantId(toolArgs.tenantId, access);
+      } catch {
+        effectiveTenant = access?.lockedTenantId || access?.defaultTenantId || "tecfag";
+      }
       try {
         const data = await executeMcpTool(toolName, toolArgs, access, sql);
+        const latencyMs = Date.now() - startedAt;
+        void recordMcpToolAuditLog({
+          tenantId: effectiveTenant,
+          access,
+          toolName,
+          toolArgs,
+          resultSummary: summarizeMcpToolResult(toolName, data),
+          status: "success",
+          latencyMs,
+        });
         return {
           jsonrpc: "2.0",
           id,
@@ -2080,6 +2290,17 @@ export async function handleSingleJsonRpcMessage(
           },
         };
       } catch (toolError) {
+        const latencyMs = Date.now() - startedAt;
+        const errMsg = toolError instanceof Error ? toolError.message : String(toolError);
+        void recordMcpToolAuditLog({
+          tenantId: effectiveTenant,
+          access,
+          toolName,
+          toolArgs,
+          resultSummary: `Erro: ${errMsg}`,
+          status: "error",
+          latencyMs,
+        });
         return {
           jsonrpc: "2.0",
           id,
@@ -2089,7 +2310,7 @@ export async function handleSingleJsonRpcMessage(
                 type: "text",
                 text: JSON.stringify(
                   {
-                    error: toolError instanceof Error ? toolError.message : String(toolError),
+                    error: errMsg,
                   },
                   null,
                   2,

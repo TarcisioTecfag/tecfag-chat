@@ -43,6 +43,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
           primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
           isDefaultPrimaryToken: settings.primaryToken === getDefaultPrimaryToken(tenantId),
           namedKeys: settings.namedKeys,
+          auditLogs: settings.auditLogs,
           tools: MCP_TOOLS.map((t) => ({
             name: t.name,
             description: t.description,
@@ -76,7 +77,8 @@ export const Route = createFileRoute("/api/settings/mcp")({
             lockedTenantId: tenantId,
             defaultTenantId: tenantId,
             authMode: "session",
-            keyLabel: "Diagnóstico em Configurações",
+            keyId: "diagnostic",
+            keyLabel: `Diagnóstico (${session.operator.name || "Admin"})`,
           };
 
           const initRes = (await processMcpJsonRpcPayload(
@@ -114,6 +116,10 @@ export const Route = createFileRoute("/api/settings/mcp")({
             sampleOverview = null;
           }
 
+          // Pequena pausa para garantir que o log assíncrono foi persistido antes de devolver a lista atualizada
+          await new Promise((r) => setTimeout(r, 80));
+          const refreshed = await getMcpTenantSettings(tenantId);
+
           return jsonResponse({
             ok: true,
             latencyMs,
@@ -122,6 +128,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
               ? toolsRes.result.tools.length
               : MCP_TOOLS.length,
             sampleOverview,
+            auditLogs: refreshed.auditLogs,
           });
         }
 
@@ -223,6 +230,17 @@ export const Route = createFileRoute("/api/settings/mcp")({
           const updated = await saveMcpTenantSettings(tenantId, {
             ...current,
             namedKeys: updatedKeys,
+          });
+          return jsonResponse({
+            ok: true,
+            settings: updated,
+          });
+        }
+
+        if (action === "clear_audit_logs") {
+          const updated = await saveMcpTenantSettings(tenantId, {
+            ...current,
+            auditLogs: [],
           });
           return jsonResponse({
             ok: true,
