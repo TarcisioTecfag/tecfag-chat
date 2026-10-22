@@ -887,11 +887,11 @@ export function IndustrialTriageSettings() {
   );
 
   return (
-    <div className="rounded-3xl border border-border bg-card shadow-xs overflow-hidden transition-all">
+    <div className="shrink-0 rounded-3xl border border-border bg-card shadow-xs transition-all">
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {/* CABEÇALHO SUPERIOR EXECUTIVO                                          */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      <div className="px-5 py-4 border-b border-line flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-muted/15">
+      <div className="px-5 py-4 border-b border-line rounded-t-3xl flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-muted/15">
         <div
           onClick={() => setIsExpanded((v) => !v)}
           className="flex items-start md:items-center gap-3 cursor-pointer select-none flex-1 min-w-0"

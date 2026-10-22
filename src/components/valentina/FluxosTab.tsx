@@ -455,9 +455,13 @@ export function FluxosTab() {
 
   return (
     <div className="flex flex-col gap-5 h-full overflow-y-auto scrollbar-thin pr-1 animate-fadeIn pb-12">
-      {persona.triagePolicy === "industrial" && <IndustrialTriageSettings key={tenant || "tecfag"} />}
+      {persona.triagePolicy === "industrial" && (
+        <div className="shrink-0">
+          <IndustrialTriageSettings key={tenant || "tecfag"} />
+        </div>
+      )}
       {/* ── HEADER PRINCIPAL ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-4">
+      <div className="shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-4">
         <div>
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20">
