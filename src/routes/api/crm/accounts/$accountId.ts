@@ -30,8 +30,14 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          const permError = requireCrmPermission(session, "canViewCrm");
-          if (permError) return permError;
+          const canViewViaContacts = Boolean(
+            session.permissions?.views?.contacts ||
+            session.permissions?.chat?.canEditClientInfo
+          );
+          if (!canViewViaContacts) {
+            const permError = requireCrmPermission(session, "canViewCrm");
+            if (permError) return permError;
+          }
 
           const { accountId } = params as any;
           const result = await crmService.getAccountById(tenantId, accountId);
@@ -56,8 +62,14 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          const permError = requireCrmPermission(session, "canEditDeals");
-          if (permError) return permError;
+          const canEditViaContacts = Boolean(
+            session.permissions?.contacts?.canEditContact ||
+            session.permissions?.chat?.canEditClientInfo
+          );
+          if (!canEditViaContacts) {
+            const permError = requireCrmPermission(session, "canEditDeals");
+            if (permError) return permError;
+          }
 
           const { accountId } = params as any;
           const body = await request.json();
@@ -101,8 +113,11 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          const permError = requireCrmPermission(session, "canEditDeals");
-          if (permError) return permError;
+          const canDeleteViaContacts = Boolean(session.permissions?.contacts?.canDeleteContact || session.permissions?.contacts?.canEditContact);
+          if (!canDeleteViaContacts) {
+            const permError = requireCrmPermission(session, "canEditDeals");
+            if (permError) return permError;
+          }
 
           const { accountId } = params as any;
           const [account] = await db.select({ name: crmAccounts.name }).from(crmAccounts)

@@ -14,6 +14,7 @@ import {
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
@@ -23,6 +24,9 @@ import {
   Search,
   Plus,
   User,
+  Users,
+  Briefcase,
+  Globe,
   Phone,
   Mail,
   Building,
@@ -43,6 +47,7 @@ import { Channel, Conversation, QueueType } from "@/lib/mockData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 import { AccountPicker } from "@/components/crm/AccountPicker";
+import { AccountDetailModal } from "@/components/crm/AccountDetailModal";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import {
   formatAccountDocumentInput,
@@ -51,6 +56,21 @@ import {
 } from "@/lib/crm/account-validation";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+
+type CompanyListItem = {
+  id: string;
+  name: string;
+  tradeName: string | null;
+  type: "company" | "person";
+  segment: string | null;
+  document: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  contactsCount: number;
+  dealsCount: number;
+  createdAt?: string | null;
+};
 
 type ContactListItem = {
   id: string;
@@ -120,7 +140,8 @@ function ContactAvatar({ avatar, name, initials, initialsBg, size = "h-9 w-9" }:
 
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
-const CONTACT_CHANNEL_TABS = ["all", "whatsapp", "instagram", "messenger"] as const;
+const CONTACT_CHANNEL_TABS = ["all", "whatsapp", "instagram", "messenger", "companies"] as const;
+type ContactsViewTab = (typeof CONTACT_CHANNEL_TABS)[number];
 
 export function ContactsView() {
   const {
@@ -135,15 +156,18 @@ export function ContactsView() {
     currentGroup,
   } = useChat();
 
+  const navigate = useNavigate();
   const { canCreateContact, canEditContact } = usePermissions();
 
   const [search, setSearch] = useState("");
-  const [channelFilter, setChannelFilter] = useState<Channel | "all">(() =>
+  const [channelFilter, setChannelFilter] = useState<ContactsViewTab>(() =>
     getInitialTabFromUrl("contacts", "all", CONTACT_CHANNEL_TABS),
   );
 
-  const channelTabs: (Channel | "all")[] = useMemo(
-    () => ["all", "whatsapp", "instagram", "messenger"],
+  const isCompaniesView = channelFilter === "companies";
+
+  const channelTabs: ContactsViewTab[] = useMemo(
+    () => ["all", "whatsapp", "instagram", "messenger", "companies"],
     [],
   );
 
@@ -161,7 +185,7 @@ export function ContactsView() {
   });
   const [newContactCustomFields, setNewContactCustomFields] = useState<Record<string, unknown>>({});
   const [contactDealInput, setContactDealInput] = useState<ContactDealInput>({});
-  const [selectedDealMeta, setSelectedDealMeta] = useState<DealCardSummary | null>(null);
+  const [selectedDealMeta, setSelectedDealMeta] = useState<DealPreviewItem | null>(null);
   const [showDealModalOnSave, setShowDealModalOnSave] = useState(false);
   const [existingContact, setExistingContact] = useState<ExistingPhoneContact | null>(null);
   const [pendingDealContactId, setPendingDealContactId] = useState<string | null>(null);
@@ -176,11 +200,31 @@ export function ContactsView() {
   const [editAccountId, setEditAccountId] = useState<string | null>(null);
   const contactsRequestRevision = useRef(0);
 
+  // ── Estados da Visão de Empresas (crm_accounts) ──────────────────────────
+  const [companyRows, setCompanyRows] = useState<CompanyListItem[]>([]);
+  const [totalCompanies, setTotalCompanies] = useState(0);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [companyTypeFilter, setCompanyTypeFilter] = useState<"all" | "company" | "person">("all");
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [showAddCompanyDrawer, setShowAddCompanyDrawer] = useState(false);
+  const [standaloneCompanyForm, setStandaloneCompanyForm] = useState({
+    name: "",
+    tradeName: "",
+    document: "",
+    type: "company" as "company" | "person",
+    phone: "",
+    email: "",
+    website: "",
+    notes: "",
+  });
+  const [savingStandaloneCompany, setSavingStandaloneCompany] = useState(false);
+  const companiesRequestRevision = useRef(0);
+
   const loadContacts = async (offset = 0, signal?: AbortSignal) => {
     const revision = contactsRequestRevision.current;
     const params = new URLSearchParams({ limit: "50", offset: String(offset) });
     if (search.trim()) params.set("search", search.trim());
-    if (channelFilter !== "all") params.set("channel", channelFilter);
+    if (channelFilter !== "all" && channelFilter !== "companies") params.set("channel", channelFilter);
     const response = await fetch(`/api/contacts?${params}`, { credentials: "include", signal });
     if (!response.ok) throw new Error("Não foi possível carregar a base de clientes.");
     const result = await response.json();
@@ -209,7 +253,35 @@ export function ContactsView() {
     setTotalContacts(result.total || 0);
   };
 
+  const loadCompanies = async (offset = 0, signal?: AbortSignal) => {
+    const revision = companiesRequestRevision.current;
+    const params = new URLSearchParams({ limit: "50", offset: String(offset) });
+    if (search.trim()) params.set("search", search.trim());
+    if (companyTypeFilter !== "all") params.set("type", companyTypeFilter);
+    const response = await fetch(`/api/crm/accounts?${params}`, { credentials: "include", signal });
+    if (!response.ok) throw new Error("Não foi possível carregar as empresas cadastradas.");
+    const result = await response.json();
+    if (revision !== companiesRequestRevision.current) return;
+    const rows: CompanyListItem[] = (result.accounts || []).map((item: any) => ({
+      id: item.id,
+      name: item.name || "Empresa sem nome",
+      tradeName: item.tradeName || null,
+      type: item.type === "person" ? "person" : "company",
+      segment: item.segment || null,
+      document: item.document || null,
+      phone: item.phone || null,
+      email: item.email || null,
+      website: item.website || null,
+      contactsCount: Number(item.contactsCount || 0),
+      dealsCount: Number(item.dealsCount || 0),
+      createdAt: item.createdAt || null,
+    }));
+    setCompanyRows((previous) => (offset === 0 ? rows : [...previous, ...rows]));
+    setTotalCompanies(result.total || 0);
+  };
+
   useEffect(() => {
+    if (isCompaniesView) return;
     const controller = new AbortController();
     contactsRequestRevision.current += 1;
     setLoadingContacts(true);
@@ -219,7 +291,20 @@ export function ContactsView() {
         .finally(() => { if (!controller.signal.aborted) setLoadingContacts(false); });
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [tenant, search, channelFilter]);
+  }, [tenant, search, channelFilter, isCompaniesView]);
+
+  useEffect(() => {
+    if (!isCompaniesView) return;
+    const controller = new AbortController();
+    companiesRequestRevision.current += 1;
+    setLoadingCompanies(true);
+    const timer = window.setTimeout(() => {
+      loadCompanies(0, controller.signal)
+        .catch((error) => { if (!controller.signal.aborted) toast.error(error.message); })
+        .finally(() => { if (!controller.signal.aborted) setLoadingCompanies(false); });
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [tenant, search, companyTypeFilter, isCompaniesView]);
 
   // ── Global Conversation Search ──────────────────────────────────────────
   const [showSearchModal, setShowSearchModal] = useState(false);
@@ -495,6 +580,57 @@ export function ContactsView() {
     }
   };
 
+  const handleCreateStandaloneCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!standaloneCompanyForm.name.trim()) {
+      toast.error("Informe o nome ou razão social da empresa.");
+      return;
+    }
+    const docValidation = validateAccountDocument(standaloneCompanyForm.type, standaloneCompanyForm.document);
+    if (!docValidation.valid) {
+      toast.error(docValidation.error || "Documento inválido.");
+      return;
+    }
+    setSavingStandaloneCompany(true);
+    try {
+      const response = await fetch("/api/crm/accounts", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: standaloneCompanyForm.name.trim(),
+          type: standaloneCompanyForm.type,
+          tradeName: standaloneCompanyForm.tradeName.trim() || undefined,
+          document: standaloneCompanyForm.document.replace(/\D/g, ""),
+          phone: standaloneCompanyForm.phone.trim() || undefined,
+          email: standaloneCompanyForm.email.trim() || undefined,
+          website: standaloneCompanyForm.website.trim() || undefined,
+          notes: standaloneCompanyForm.notes.trim() || undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Não foi possível cadastrar a empresa.");
+      const createdAcc: CrmAccountDTO = data.account;
+      setShowAddCompanyDrawer(false);
+      setStandaloneCompanyForm({
+        name: "",
+        tradeName: "",
+        document: "",
+        type: "company",
+        phone: "",
+        email: "",
+        website: "",
+        notes: "",
+      });
+      toast.success(`Empresa "${createdAcc.name}" cadastrada com sucesso!`);
+      await loadCompanies(0);
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao cadastrar empresa.");
+    } finally {
+      setSavingStandaloneCompany(false);
+    }
+  };
+
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-8 shadow-soft relative overflow-hidden select-none">
 
@@ -516,24 +652,43 @@ export function ContactsView() {
         <div>
           <span className="text-xs font-semibold uppercase tracking-wider text-primary">Cadastro Geral</span>
           <h2 className="text-2xl font-bold text-foreground mt-0.5">
-            Base de Clientes — {tenant === "tecfag" ? "Tecfag" : "Valem"}
+            {isCompaniesView
+              ? `Empresas Cadastradas — ${tenant === "tecfag" ? "Tecfag" : "Valem"}`
+              : `Base de Clientes — ${tenant === "tecfag" ? "Tecfag" : "Valem"}`}
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Veja, edite ou crie contatos para iniciar conversas ativas multicanais.
+            {isCompaniesView
+              ? "Consulte, edite ou cadastre empresas e contas vinculadas aos contatos e negociações."
+              : "Veja, edite ou crie contatos para iniciar conversas ativas multicanais."}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {/* Botao Conversas */}
           <button
+            type="button"
             onClick={() => setShowSearchModal(true)}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 text-sm font-semibold text-foreground transition hover:bg-muted cursor-pointer shadow-soft"
           >
             <MessagesSquare className="h-4 w-4 text-primary" />
             Conversas
           </button>
+          {/* Botao Empresas (entre Conversas e Novo Contato) */}
+          <button
+            type="button"
+            onClick={() => setChannelFilter((prev) => (prev === "companies" ? "all" : "companies"))}
+            className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-5 text-sm font-semibold transition cursor-pointer shadow-soft ${
+              isCompaniesView
+                ? "border-primary bg-primary/15 text-primary ring-1 ring-primary/30"
+                : "border-border bg-card text-foreground hover:bg-muted"
+            }`}
+          >
+            <Building2 className="h-4 w-4 text-primary" />
+            Empresas
+          </button>
           {/* Botao Novo Contato */}
           {canCreateContact && (
             <button
+              type="button"
               onClick={() => {
                 setCreatingCompany(false);
                 setNewAccount(null);
@@ -556,176 +711,458 @@ export function ContactsView() {
       {/* Filters Row */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6 bg-card p-4 rounded-2xl border border-border shadow-soft">
         <div className="relative w-full sm:w-80">
-          {loadingContacts ? (
+          {(isCompaniesView ? loadingCompanies : loadingContacts) ? (
             <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-primary" />
           ) : (
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
           )}
           <input
-            placeholder="Filtrar por nome, CNPJ, tag, telefone..."
+            placeholder={
+              isCompaniesView
+                ? "Filtrar por razão social, fantasia, CNPJ, telefone..."
+                : "Filtrar por nome, CNPJ, tag, telefone..."
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-10 w-full rounded-xl bg-muted px-4 pr-10 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
           />
         </div>
-        <div className="flex items-center gap-1.5 self-end sm:self-auto">
-          <span className="text-xs text-muted-foreground font-semibold mr-1">Canal:</span>
-          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}>Todos</motion.button>
-          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
-          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
-          <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
-        </div>
+        {isCompaniesView ? (
+          <div className="flex flex-wrap items-center gap-1.5 self-end sm:self-auto">
+            <span className="text-xs text-muted-foreground font-semibold mr-1">Tipo:</span>
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={() => setCompanyTypeFilter("all")}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                companyTypeFilter === "all"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
+              }`}
+            >
+              Todas
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={() => setCompanyTypeFilter("company")}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                companyTypeFilter === "company"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
+              }`}
+            >
+              PJ (CNPJ)
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={() => setCompanyTypeFilter("person")}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                companyTypeFilter === "person"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
+              }`}
+            >
+              PF (CPF)
+            </motion.button>
+            {canCreateContact && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStandaloneCompanyForm({
+                    name: "",
+                    tradeName: "",
+                    document: "",
+                    type: "company",
+                    phone: "",
+                    email: "",
+                    website: "",
+                    notes: "",
+                  });
+                  setShowAddCompanyDrawer(true);
+                }}
+                className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Nova Empresa
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+            <span className="text-xs text-muted-foreground font-semibold mr-1">Canal:</span>
+            <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}>Todos</motion.button>
+            <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
+            <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
+            <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
+          </div>
+        )}
       </div>
 
       {/* Main Table (Desktop View) */}
       <div className="hidden md:flex flex-1 bg-card rounded-2xl border border-border shadow-soft overflow-hidden flex-col">
         <div className="flex-1 overflow-y-auto scrollbar-thin">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-line text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground bg-muted/40">
-                <th className="py-4 px-6">Nome / Cliente</th>
-                <th className="py-4 px-4">Canal</th>
-                <th className="py-4 px-4">Contato</th>
-                <th className="py-4 px-4">CNPJ</th>
-                <th className="py-4 px-4">Marcadores (Tags)</th>
-                <th className="py-4 px-4">Responsável</th>
-                <th className="py-4 px-6 text-right">Acoes</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y divide-line transition-opacity duration-150 ${loadingContacts && filteredContacts.length > 0 ? "opacity-60 pointer-events-none" : "opacity-100"}`}>
-              {loadingContacts && filteredContacts.length === 0 ? (
-                Array.from({ length: 6 }).map((_, idx) => (
-                  <tr key={`skel-${idx}`} className="animate-in fade-in duration-150">
-                    <td className="py-3.5 px-6">
-                      <div className="flex items-center gap-3">
-                        <Skeleton className="h-9 w-9 rounded-full shrink-0" />
-                        <div className="space-y-1">
-                          <Skeleton className="h-3.5 w-28 rounded" />
-                          <Skeleton className="h-2.5 w-16 rounded" />
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4"><Skeleton className="h-5 w-20 rounded-full" /></td>
-                    <td className="py-3.5 px-4"><Skeleton className="h-3.5 w-28 rounded" /></td>
-                    <td className="py-3.5 px-4"><Skeleton className="h-3.5 w-24 rounded" /></td>
-                    <td className="py-3.5 px-4"><Skeleton className="h-4 w-16 rounded" /></td>
-                    <td className="py-3.5 px-4"><Skeleton className="h-4 w-20 rounded" /></td>
-                    <td className="py-3.5 px-6 text-right"><Skeleton className="h-7 w-20 rounded-lg ml-auto" /></td>
-                  </tr>
-                ))
-              ) : filteredContacts.length > 0 ? (
-                filteredContacts.map((c) => (
-                  <tr key={c.id} className="hover:bg-muted/10 transition text-xs font-semibold text-foreground/90">
-                    <td className="py-3.5 px-6">
-                      <div className="flex items-center gap-3">
-                        <ContactAvatar avatar={c.avatar} name={c.name} initials={c.initials} initialsBg={c.initialsBg} size="h-9 w-9" />
-                        <div>
-                          <span className="block font-bold text-foreground">{c.name}</span>
-                          <span className="text-[10px] text-muted-foreground font-medium">Cadastrado</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-white shadow-soft ${c.channel === "whatsapp" ? "bg-emerald-500" : c.channel === "instagram" ? "bg-gradient-to-tr from-yellow-500 to-purple-600" : "bg-blue-600"}`}>
-                        {c.channel === "whatsapp" && <><WhatsappLogo className="h-3 w-3" /> WhatsApp</>}
-                        {c.channel === "instagram" && <><InstagramLogo className="h-3 w-3" /> Instagram</>}
-                        {c.channel === "messenger" && <><MessengerLogo className="h-3 w-3" /> Messenger</>}
-                        {c.channel === "livechat" && <>Live Chat</>}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 space-y-0.5">
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        <Phone className="h-3 w-3" />
-                        <span>{c.phone ? formatPhoneNumber(c.phone) : "Número não informado"}</span>
-                      </div>
-                      {c.whatsappUsername && c.channel === "whatsapp" && (
-                        <div className="text-primary font-semibold">@{c.whatsappUsername}</div>
-                      )}
-                      {c.email && (
-                        <div className="flex items-center gap-1.5 text-muted-foreground">
-                          <Mail className="h-3 w-3" />
-                          <span className="truncate max-w-[150px]">{c.email}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {c.accountName ? (
-                        <div>
-                          <div className="flex items-center gap-1 text-foreground">
-                            <Building className="h-3 w-3 text-muted-foreground" />
-                            {c.accountName}
+          {isCompaniesView ? (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-line text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground bg-muted/40">
+                  <th className="py-4 px-6">Empresa / Razão Social</th>
+                  <th className="py-4 px-4">CNPJ / Documento</th>
+                  <th className="py-4 px-4">Segmento</th>
+                  <th className="py-4 px-4">Contato</th>
+                  <th className="py-4 px-4">Vínculos</th>
+                  <th className="py-4 px-6 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className={`divide-y divide-line transition-opacity duration-150 ${loadingCompanies && companyRows.length > 0 ? "opacity-60 pointer-events-none" : "opacity-100"}`}>
+                {loadingCompanies && companyRows.length === 0 ? (
+                  Array.from({ length: 6 }).map((_, idx) => (
+                    <tr key={`skel-comp-${idx}`} className="animate-in fade-in duration-150">
+                      <td className="py-3.5 px-6">
+                        <div className="flex items-center gap-3">
+                          <Skeleton className="h-9 w-9 rounded-xl shrink-0" />
+                          <div className="space-y-1">
+                            <Skeleton className="h-3.5 w-36 rounded" />
+                            <Skeleton className="h-2.5 w-24 rounded" />
                           </div>
-                          {c.accountDocument && <span className="text-[10px] text-muted-foreground font-mono">{c.accountType === "company" ? formatCNPJ(c.accountDocument) : formatCPF(c.accountDocument)}</span>}
                         </div>
-                      ) : (
-                        <span className="text-muted-foreground italic font-medium">Nenhum</span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex flex-wrap gap-1 max-w-[180px]">
-                        {c.tags.map((tag) => (
-                          <span key={tag} className="rounded bg-primary-soft/50 px-1.5 py-0.5 text-[9px] font-bold text-primary border border-primary/10">{tag}</span>
-                        ))}
-                        {c.tags.length === 0 && <span className="text-muted-foreground italic font-medium text-[10px]">Sem tags</span>}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {(() => {
-                        const opName = c.operatorId ? operators.find(o => o.id === c.operatorId)?.name : null;
-                        const displayName = opName || (c.responsibleName === "Na Fila" || !c.responsibleName ? "Na Fila" : c.responsibleName);
-                        
-                        return displayName === "Na Fila" ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
-                            Na Fila
+                      </td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-4 w-28 rounded" /></td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-4 w-20 rounded" /></td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-3.5 w-28 rounded" /></td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-4 w-24 rounded" /></td>
+                      <td className="py-3.5 px-6 text-right"><Skeleton className="h-7 w-24 rounded-lg ml-auto" /></td>
+                    </tr>
+                  ))
+                ) : companyRows.length > 0 ? (
+                  companyRows.map((acc) => (
+                    <tr
+                      key={acc.id}
+                      onClick={() => setSelectedAccountId(acc.id)}
+                      className="hover:bg-muted/10 transition text-xs font-semibold text-foreground/90 cursor-pointer"
+                    >
+                      <td className="py-3.5 px-6">
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary border border-primary/20 shrink-0">
+                            {acc.type === "company" ? <Building2 className="h-4.5 w-4.5" /> : <User className="h-4.5 w-4.5" />}
+                          </div>
+                          <div className="min-w-0">
+                            <span className="block font-bold text-foreground truncate max-w-[260px]">{acc.name}</span>
+                            <span className="text-[10px] text-muted-foreground font-medium block truncate max-w-[260px]">
+                              {acc.tradeName ? `Fantasia: ${acc.tradeName}` : acc.type === "company" ? "Pessoa Jurídica" : "Pessoa Física"}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-1.5">
+                          <span className="rounded bg-primary/10 border border-primary/20 px-1.5 py-0.5 text-[9px] font-bold uppercase text-primary">
+                            {acc.type === "company" ? "PJ" : "PF"}
+                          </span>
+                          {acc.document ? (
+                            <span className="font-mono text-xs text-foreground">
+                              {acc.type === "company" ? formatCNPJ(acc.document) : formatCPF(acc.document)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground italic font-medium">Não informado</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {acc.segment ? (
+                          <span className="rounded-lg bg-muted px-2 py-1 text-[10px] font-bold text-foreground border border-border">
+                            {acc.segment}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 font-bold text-foreground">
-                            <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                            {displayName}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="py-3.5 px-6 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {canEditContact && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button onClick={() => startEditing(c)} className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer">
-                                  <Edit2 className="h-3.5 w-3.5" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">Editar Cadastro</TooltipContent>
-                            </Tooltip>
+                          <span className="text-muted-foreground italic font-medium text-[11px]">Não informado</span>
                         )}
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button onClick={() => handleStartChat(c.id)} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">
-                              <MessageSquare className="h-3.5 w-3.5" />
-                              Conversar
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Iniciar Atendimento</TooltipContent>
-                        </Tooltip>
-                      </div>
+                      </td>
+                      <td className="py-3.5 px-4 space-y-0.5">
+                        {acc.phone ? (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Phone className="h-3 w-3 shrink-0" />
+                            <span>{formatPhoneNumber(acc.phone)}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-muted-foreground/60 italic">
+                            <Phone className="h-3 w-3 shrink-0" />
+                            <span>Sem telefone</span>
+                          </div>
+                        )}
+                        {acc.email && (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Mail className="h-3 w-3 shrink-0" />
+                            <span className="truncate max-w-[160px]">{acc.email}</span>
+                          </div>
+                        )}
+                        {acc.website && (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Globe className="h-3 w-3 shrink-0" />
+                            <span className="truncate max-w-[160px]">{acc.website}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-muted/70 border border-border px-2 py-0.5 text-[10px] font-bold text-foreground">
+                            <Users className="h-3 w-3 text-primary" />
+                            {acc.contactsCount} {acc.contactsCount === 1 ? "contato" : "contatos"}
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-md bg-muted/70 border border-border px-2 py-0.5 text-[10px] font-bold text-foreground">
+                            <Briefcase className="h-3 w-3 text-primary" />
+                            {acc.dealsCount} {acc.dealsCount === 1 ? "negociação" : "negociações"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAccountId(acc.id)}
+                                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                                Ver Empresa
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Abrir ficha completa, contatos e negociações da empresa</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-xs text-muted-foreground font-medium">
+                      Nenhuma empresa encontrada com os filtros aplicados.
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-xs text-muted-foreground font-medium">
-                    Nenhum cliente encontrado com os filtros aplicados.
-                  </td>
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-line text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground bg-muted/40">
+                  <th className="py-4 px-6">Nome / Cliente</th>
+                  <th className="py-4 px-4">Canal</th>
+                  <th className="py-4 px-4">Contato</th>
+                  <th className="py-4 px-4">CNPJ</th>
+                  <th className="py-4 px-4">Marcadores (Tags)</th>
+                  <th className="py-4 px-4">Responsável</th>
+                  <th className="py-4 px-6 text-right">Acoes</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className={`divide-y divide-line transition-opacity duration-150 ${loadingContacts && filteredContacts.length > 0 ? "opacity-60 pointer-events-none" : "opacity-100"}`}>
+                {loadingContacts && filteredContacts.length === 0 ? (
+                  Array.from({ length: 6 }).map((_, idx) => (
+                    <tr key={`skel-${idx}`} className="animate-in fade-in duration-150">
+                      <td className="py-3.5 px-6">
+                        <div className="flex items-center gap-3">
+                          <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+                          <div className="space-y-1">
+                            <Skeleton className="h-3.5 w-28 rounded" />
+                            <Skeleton className="h-2.5 w-16 rounded" />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-5 w-20 rounded-full" /></td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-3.5 w-28 rounded" /></td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-3.5 w-24 rounded" /></td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-4 w-16 rounded" /></td>
+                      <td className="py-3.5 px-4"><Skeleton className="h-4 w-20 rounded" /></td>
+                      <td className="py-3.5 px-6 text-right"><Skeleton className="h-7 w-20 rounded-lg ml-auto" /></td>
+                    </tr>
+                  ))
+                ) : filteredContacts.length > 0 ? (
+                  filteredContacts.map((c) => (
+                    <tr key={c.id} className="hover:bg-muted/10 transition text-xs font-semibold text-foreground/90">
+                      <td className="py-3.5 px-6">
+                        <div className="flex items-center gap-3">
+                          <ContactAvatar avatar={c.avatar} name={c.name} initials={c.initials} initialsBg={c.initialsBg} size="h-9 w-9" />
+                          <div>
+                            <span className="block font-bold text-foreground">{c.name}</span>
+                            <span className="text-[10px] text-muted-foreground font-medium">Cadastrado</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-white shadow-soft ${c.channel === "whatsapp" ? "bg-emerald-500" : c.channel === "instagram" ? "bg-gradient-to-tr from-yellow-500 to-purple-600" : "bg-blue-600"}`}>
+                          {c.channel === "whatsapp" && <><WhatsappLogo className="h-3 w-3" /> WhatsApp</>}
+                          {c.channel === "instagram" && <><InstagramLogo className="h-3 w-3" /> Instagram</>}
+                          {c.channel === "messenger" && <><MessengerLogo className="h-3 w-3" /> Messenger</>}
+                          {c.channel === "livechat" && <>Live Chat</>}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 space-y-0.5">
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <Phone className="h-3 w-3" />
+                          <span>{c.phone ? formatPhoneNumber(c.phone) : "Número não informado"}</span>
+                        </div>
+                        {c.whatsappUsername && c.channel === "whatsapp" && (
+                          <div className="text-primary font-semibold">@{c.whatsappUsername}</div>
+                        )}
+                        {c.email && (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Mail className="h-3 w-3" />
+                            <span className="truncate max-w-[150px]">{c.email}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {c.accountName ? (
+                          <div>
+                            <div className="flex items-center gap-1 text-foreground">
+                              <Building className="h-3 w-3 text-muted-foreground" />
+                              {c.accountName}
+                            </div>
+                            {c.accountDocument && <span className="text-[10px] text-muted-foreground font-mono">{c.accountType === "company" ? formatCNPJ(c.accountDocument) : formatCPF(c.accountDocument)}</span>}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground italic font-medium">Nenhum</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-wrap gap-1 max-w-[180px]">
+                          {c.tags.map((tag) => (
+                            <span key={tag} className="rounded bg-primary-soft/50 px-1.5 py-0.5 text-[9px] font-bold text-primary border border-primary/10">{tag}</span>
+                          ))}
+                          {c.tags.length === 0 && <span className="text-muted-foreground italic font-medium text-[10px]">Sem tags</span>}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {(() => {
+                          const opName = c.operatorId ? operators.find(o => o.id === c.operatorId)?.name : null;
+                          const displayName = opName || (c.responsibleName === "Na Fila" || !c.responsibleName ? "Na Fila" : c.responsibleName);
+                          
+                          return displayName === "Na Fila" ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                              Na Fila
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 font-bold text-foreground">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                              {displayName}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="py-3.5 px-6 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {canEditContact && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button onClick={() => startEditing(c)} className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer">
+                                    <Edit2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Editar Cadastro</TooltipContent>
+                              </Tooltip>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button onClick={() => handleStartChat(c.id)} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">
+                                <MessageSquare className="h-3.5 w-3.5" />
+                                Conversar
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Iniciar Atendimento</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-xs text-muted-foreground font-medium">
+                      Nenhum cliente encontrado com os filtros aplicados.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
       {/* Mobile Native Cards View (Exibido apenas em telas menores) */}
       <div className="flex flex-col gap-3 md:hidden mt-2 pb-10">
-        {filteredContacts.length > 0 ? (
+        {isCompaniesView ? (
+          companyRows.length > 0 ? (
+            companyRows.map((acc) => (
+              <div
+                key={acc.id}
+                onClick={() => setSelectedAccountId(acc.id)}
+                className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col gap-3 cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary border border-primary/20 shrink-0">
+                      {acc.type === "company" ? <Building2 className="h-5 w-5" /> : <User className="h-5 w-5" />}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="block font-bold text-sm text-foreground leading-tight truncate">{acc.name}</span>
+                      <span className="text-[10px] text-muted-foreground font-medium block truncate">
+                        {acc.tradeName ? `Fantasia: ${acc.tradeName}` : acc.type === "company" ? "Pessoa Jurídica" : "Pessoa Física"}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-bold uppercase text-primary shrink-0">
+                    {acc.type === "company" ? "PJ" : "PF"}
+                  </span>
+                </div>
+
+                <div className="bg-muted/40 rounded-xl p-3 text-xs space-y-1.5 border border-border/50">
+                  {acc.document && (
+                    <div className="font-mono text-foreground font-semibold">
+                      {acc.type === "company" ? formatCNPJ(acc.document) : formatCPF(acc.document)}
+                    </div>
+                  )}
+                  {acc.phone && (
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Phone className="h-3.5 w-3.5 text-primary" />
+                      <span>{formatPhoneNumber(acc.phone)}</span>
+                    </div>
+                  )}
+                  {acc.email && (
+                    <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+                      <Mail className="h-3 w-3" />
+                      <span className="truncate">{acc.email}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] font-bold text-foreground">
+                      <Users className="h-3 w-3 text-primary" />
+                      {acc.contactsCount}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] font-bold text-foreground">
+                      <Briefcase className="h-3 w-3 text-primary" />
+                      {acc.dealsCount}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedAccountId(acc.id);
+                    }}
+                    className="py-1.5 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center gap-1.5 shadow-soft"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" />
+                    <span>Ver Empresa</span>
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="p-8 text-center text-xs text-muted-foreground font-medium bg-card rounded-2xl border border-border">
+              Nenhuma empresa encontrada com os filtros aplicados.
+            </div>
+          )
+        ) : filteredContacts.length > 0 ? (
           filteredContacts.map((c) => {
             const opName = c.operatorId ? operators.find(o => o.id === c.operatorId)?.name : null;
             const displayName = opName || (c.responsibleName === "Na Fila" || !c.responsibleName ? "Na Fila" : c.responsibleName);
@@ -815,16 +1252,47 @@ export function ContactsView() {
       </div>
 
       <div className="flex items-center justify-between gap-3 pt-3 text-xs text-muted-foreground">
-        <span>{loadingContacts ? "Carregando contatos..." : `${contactRows.length} de ${totalContacts} contatos`}</span>
-        {contactRows.length < totalContacts && (
-          <button type="button" disabled={loadingContacts} onClick={async () => {
-            setLoadingContacts(true);
-            try { await loadContacts(contactRows.length); }
-            catch (error) { toast.error(error instanceof Error ? error.message : "Erro ao carregar contatos."); }
-            finally { setLoadingContacts(false); }
-          }} className="rounded-lg border border-border px-3 py-2 font-semibold text-primary hover:bg-muted disabled:opacity-50">
-            Carregar mais
-          </button>
+        {isCompaniesView ? (
+          <>
+            <span>
+              {loadingCompanies
+                ? "Carregando empresas..."
+                : `${companyRows.length} de ${totalCompanies} empresas`}
+            </span>
+            {companyRows.length < totalCompanies && (
+              <button
+                type="button"
+                disabled={loadingCompanies}
+                onClick={async () => {
+                  setLoadingCompanies(true);
+                  try {
+                    await loadCompanies(companyRows.length);
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Erro ao carregar empresas.");
+                  } finally {
+                    setLoadingCompanies(false);
+                  }
+                }}
+                className="rounded-lg border border-border px-3 py-2 font-semibold text-primary hover:bg-muted disabled:opacity-50"
+              >
+                Carregar mais
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <span>{loadingContacts ? "Carregando contatos..." : `${contactRows.length} de ${totalContacts} contatos`}</span>
+            {contactRows.length < totalContacts && (
+              <button type="button" disabled={loadingContacts} onClick={async () => {
+                setLoadingContacts(true);
+                try { await loadContacts(contactRows.length); }
+                catch (error) { toast.error(error instanceof Error ? error.message : "Erro ao carregar contatos."); }
+                finally { setLoadingContacts(false); }
+              }} className="rounded-lg border border-border px-3 py-2 font-semibold text-primary hover:bg-muted disabled:opacity-50">
+                Carregar mais
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -1663,6 +2131,205 @@ export function ContactsView() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* DRAWER: CADASTRAR NOVA EMPRESA */}
+      <Sheet open={showAddCompanyDrawer} onOpenChange={setShowAddCompanyDrawer}>
+        <SheetContent
+          side="right"
+          className="flex h-full w-full max-w-[500px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[500px] shadow-2xl border-l border-border"
+        >
+          <SheetHeader className="flex h-16 shrink-0 flex-row items-center justify-between border-b border-border px-6 bg-card space-y-0">
+            <SheetTitle className="text-base font-extrabold text-foreground flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" />
+              Cadastrar Nova Empresa
+            </SheetTitle>
+          </SheetHeader>
+
+          <form onSubmit={handleCreateStandaloneCompany} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Tipo de Cadastro</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStandaloneCompanyForm((prev) => ({ ...prev, type: "company" }))}
+                    className={`py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                      standaloneCompanyForm.type === "company"
+                        ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                        : "bg-card border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Pessoa Jurídica (PJ)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStandaloneCompanyForm((prev) => ({ ...prev, type: "person" }))}
+                    className={`py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                      standaloneCompanyForm.type === "person"
+                        ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                        : "bg-card border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Pessoa Física (PF)
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  {standaloneCompanyForm.type === "company" ? "Razão Social / Nome da Empresa *" : "Nome Completo *"}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={standaloneCompanyForm.type === "company" ? "Ex: Tecfag Máquinas Ltda" : "Ex: Maria Oliveira"}
+                  value={standaloneCompanyForm.name}
+                  onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, name: e.target.value }))}
+                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                />
+              </div>
+
+              {standaloneCompanyForm.type === "company" && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Fantasia</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Tecfag"
+                    value={standaloneCompanyForm.tradeName}
+                    onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, tradeName: e.target.value }))}
+                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  {standaloneCompanyForm.type === "company" ? "CNPJ *" : "CPF *"}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={standaloneCompanyForm.type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
+                  value={standaloneCompanyForm.document}
+                  onChange={(e) =>
+                    setStandaloneCompanyForm((prev) => ({
+                      ...prev,
+                      document: formatAccountDocumentInput(e.target.value, prev.type),
+                    }))
+                  }
+                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                />
+                {(() => {
+                  const mismatch = getInlineDocumentMismatch(standaloneCompanyForm.type, standaloneCompanyForm.document);
+                  if (!mismatch) return null;
+                  return (
+                    <div className="mt-1 space-y-1">
+                      <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{mismatch.message}</p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setStandaloneCompanyForm((prev) => ({
+                            ...prev,
+                            type: mismatch.suggestedType,
+                            document: formatAccountDocumentInput(prev.document, mismatch.suggestedType),
+                          }))
+                        }
+                        className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                      >
+                        {mismatch.suggestedLabel}
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
+                  <input
+                    type="text"
+                    placeholder="(00) 00000-0000"
+                    value={standaloneCompanyForm.phone}
+                    onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, phone: maskPhone(e.target.value) }))}
+                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">E-mail</label>
+                  <input
+                    type="email"
+                    placeholder="contato@empresa.com"
+                    value={standaloneCompanyForm.email}
+                    onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, email: e.target.value }))}
+                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Website</label>
+                <input
+                  type="text"
+                  placeholder="https://empresa.com.br"
+                  value={standaloneCompanyForm.website}
+                  onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, website: e.target.value }))}
+                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Observações Internas</label>
+                <textarea
+                  rows={3}
+                  placeholder="Notas sobre a empresa, ramo de atividade, condições..."
+                  value={standaloneCompanyForm.notes}
+                  onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  className="w-full rounded-xl bg-muted px-3.5 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent resize-y"
+                />
+              </div>
+            </div>
+
+            <div className="shrink-0 border-t border-border bg-card px-6 py-4 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAddCompanyDrawer(false)}
+                className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={savingStandaloneCompany}
+                className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50 flex items-center gap-2"
+              >
+                {savingStandaloneCompany && <Loader2 className="h-4 w-4 animate-spin" />}
+                {savingStandaloneCompany ? "Cadastrando..." : "Salvar Empresa"}
+              </button>
+            </div>
+          </form>
+        </SheetContent>
+      </Sheet>
+
+      {/* MODAL: FICHA DETALHADA DA EMPRESA */}
+      <AccountDetailModal
+        accountId={selectedAccountId}
+        isOpen={selectedAccountId !== null}
+        onClose={() => setSelectedAccountId(null)}
+        onAccountUpdated={() => {
+          void loadCompanies(0);
+          void loadContacts(0);
+        }}
+        onOpenDeal={(dealId) => {
+          setSelectedAccountId(null);
+          navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
+        }}
+        onOpenChat={(conversationId) => {
+          setSelectedAccountId(null);
+          setActiveQueue("todos");
+          setSelectedChatId(conversationId);
+          setActiveView("chat");
+        }}
+      />
 
     </section>
   );

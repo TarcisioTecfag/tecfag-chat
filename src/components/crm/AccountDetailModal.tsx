@@ -16,6 +16,7 @@ import {
   Globe,
   FileText,
   SlidersHorizontal,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEditor";
@@ -28,6 +29,11 @@ import {
   getInlineDocumentMismatch,
   validateAccountDocument,
 } from "../../lib/crm/account-validation";
+import { fetchCnpjInfo, type CnpjFullDetails } from "../../lib/valentina/cnpj-service";
+import {
+  extractCnpjDetailsFromAccount,
+  buildAccountAddressFromCnpjDetails,
+} from "../../lib/crm/cnpj-account-mapper";
 
 interface AccountDetailModalProps {
   accountId: string | null;
@@ -96,6 +102,8 @@ export function AccountDetailModal({
   const [email, setEmail] = useState("");
   const [website, setWebsite] = useState("");
   const [notes, setNotes] = useState("");
+  const [cnpjDetails, setCnpjDetails] = useState<CnpjFullDetails>({});
+  const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [originalCustomFields, setOriginalCustomFields] = useState<Record<string, unknown>>({});
 
@@ -123,6 +131,7 @@ export function AccountDetailModal({
       setEmail(data.account.email || "");
       setWebsite(data.account.website || "");
       setNotes(data.account.notes || "");
+      setCnpjDetails(extractCnpjDetailsFromAccount(data.account));
       setCustomFields(data.account.customFields || {});
       setOriginalCustomFields(data.account.customFields || {});
     } catch (err: any) {
@@ -154,6 +163,38 @@ export function AccountDetailModal({
 
   if (!isOpen || !accountId) return null;
 
+  const handleQueryReceita = async () => {
+    const cleanDigits = document.replace(/\D/g, "");
+    if (cleanDigits.length !== 14) {
+      toast.error("Informe um CNPJ válido de 14 dígitos para consultar na Receita Federal.");
+      return;
+    }
+    setIsSearchingCnpj(true);
+    try {
+      const info = await fetchCnpjInfo(cleanDigits);
+      if (!info.found) {
+        toast.warning("CNPJ não encontrado na Receita Federal. Preencha manualmente.");
+        return;
+      }
+      if (info.razaoSocial) setName(info.razaoSocial);
+      if (info.nomeFantasia) setTradeName(info.nomeFantasia);
+      if (info.telefone && !phone) setPhone(maskPhone(info.telefone));
+      if (info.email && !email) setEmail(info.email);
+      setCnpjDetails((prev) => ({
+        ...prev,
+        ...info,
+        consultedAt: new Date().toISOString(),
+      }));
+      toast.success(
+        `Dados da Receita carregados: ${info.razaoSocial || info.nomeFantasia || cleanDigits}. Clique em "Salvar Alterações" para gravar.`
+      );
+    } catch {
+      toast.error("Falha ao consultar Receita Federal.");
+    } finally {
+      setIsSearchingCnpj(false);
+    }
+  };
+
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) {
@@ -182,6 +223,21 @@ export function AccountDetailModal({
           email: email.trim() || null,
           website: website.trim() || null,
           notes: notes.trim() || null,
+          address:
+            type === "company"
+              ? buildAccountAddressFromCnpjDetails(
+                  {
+                    ...cnpjDetails,
+                    razaoSocial: name.trim(),
+                    nomeFantasia: tradeName.trim() || undefined,
+                    cleanCnpj: document.replace(/\D/g, ""),
+                    cnpjFormatted: document.trim(),
+                    telefone: phone ? phone.replace(/\D/g, "") : undefined,
+                    email: email.trim() || undefined,
+                  },
+                  accountData?.account?.address as Record<string, unknown> | undefined
+                )
+              : (accountData?.account?.address as Record<string, unknown> | undefined),
           customFields: changedCustomFieldValues(originalCustomFields, customFields),
         }),
       });
@@ -467,16 +523,34 @@ export function AccountDetailModal({
                           {type === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"}{" "}
                           <span className="text-primary">*</span>
                         </label>
-                        <input
-                          type="text"
-                          value={document}
-                          required
-                          onChange={(e) =>
-                            setDocument(formatAccountDocumentInput(e.target.value, type))
-                          }
-                          placeholder={type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
-                          className={`${UNIFORM_INPUT_CLASS} font-mono`}
-                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={document}
+                            required
+                            onChange={(e) =>
+                              setDocument(formatAccountDocumentInput(e.target.value, type))
+                            }
+                            placeholder={type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
+                            className={`${UNIFORM_INPUT_CLASS} font-mono flex-1`}
+                          />
+                          {type === "company" && (
+                            <button
+                              type="button"
+                              onClick={handleQueryReceita}
+                              disabled={isSearchingCnpj}
+                              className="h-9 px-3 rounded-[8px] border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-bold inline-flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer disabled:opacity-50"
+                              title="Consultar dados na Receita Federal pelo CNPJ"
+                            >
+                              {isSearchingCnpj ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Search className="w-3.5 h-3.5" />
+                              )}
+                              <span>Consultar API</span>
+                            </button>
+                          )}
+                        </div>
                         {(() => {
                           const mismatch = getInlineDocumentMismatch(type, document);
                           if (!mismatch) return null;
@@ -566,6 +640,303 @@ export function AccountDetailModal({
                       />
                     </div>
                   </div>
+
+                  {/* Bloco 1.5: Dados da Receita Federal & Endereço Comercial (Exclusivo PJ) */}
+                  {type === "company" && (
+                    <div className="rounded-[10px] border border-slate-200/90 dark:border-slate-800 bg-card p-4 shadow-2xs space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border/70">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+                            Dados da Receita Federal & Endereço Comercial
+                          </span>
+                          {cnpjDetails.situacaoCadastral && (
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                cnpjDetails.situacaoCadastral.toUpperCase().includes("ATIVA")
+                                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                                  : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                              }`}
+                            >
+                              {cnpjDetails.situacaoCadastral}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleQueryReceita}
+                          disabled={isSearchingCnpj}
+                          className="text-[11px] font-bold text-primary hover:underline inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          {isSearchingCnpj ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Search className="w-3 h-3" />
+                          )}
+                          <span>Atualizar pela Receita Federal</span>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                        <div>
+                          <label className={UNIFORM_LABEL_CLASS}>Situação Cadastral</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.situacaoCadastral || ""}
+                            onChange={(e) =>
+                              setCnpjDetails((prev) => ({
+                                ...prev,
+                                situacaoCadastral: e.target.value,
+                              }))
+                            }
+                            placeholder="Ex: ATIVA"
+                            className={UNIFORM_INPUT_CLASS}
+                          />
+                        </div>
+                        <div>
+                          <label className={UNIFORM_LABEL_CLASS}>Data de Abertura</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.dataAbertura || ""}
+                            onChange={(e) =>
+                              setCnpjDetails((prev) => ({
+                                ...prev,
+                                dataAbertura: e.target.value,
+                              }))
+                            }
+                            placeholder="DD/MM/AAAA ou AAAA-MM-DD"
+                            className={UNIFORM_INPUT_CLASS}
+                          />
+                        </div>
+                        <div>
+                          <label className={UNIFORM_LABEL_CLASS}>Capital Social</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.capitalSocial || ""}
+                            onChange={(e) =>
+                              setCnpjDetails((prev) => ({
+                                ...prev,
+                                capitalSocial: e.target.value,
+                              }))
+                            }
+                            placeholder="R$ 0,00"
+                            className={UNIFORM_INPUT_CLASS}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                        <div>
+                          <label className={UNIFORM_LABEL_CLASS}>Natureza Jurídica</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.naturezaJuridica || ""}
+                            onChange={(e) =>
+                              setCnpjDetails((prev) => ({
+                                ...prev,
+                                naturezaJuridica: e.target.value,
+                              }))
+                            }
+                            placeholder="Sociedade Empresária Limitada..."
+                            className={UNIFORM_INPUT_CLASS}
+                          />
+                        </div>
+                        <div>
+                          <label className={UNIFORM_LABEL_CLASS}>Porte da Empresa</label>
+                          <input
+                            type="text"
+                            value={cnpjDetails.porte || ""}
+                            onChange={(e) =>
+                              setCnpjDetails((prev) => ({
+                                ...prev,
+                                porte: e.target.value,
+                              }))
+                            }
+                            placeholder="ME, EPP, DEMAIS..."
+                            className={UNIFORM_INPUT_CLASS}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className={UNIFORM_LABEL_CLASS}>CNAE / Atividade Principal</label>
+                        <input
+                          type="text"
+                          value={cnpjDetails.atividadePrincipal || ""}
+                          onChange={(e) =>
+                            setCnpjDetails((prev) => ({
+                              ...prev,
+                              atividadePrincipal: e.target.value,
+                            }))
+                          }
+                          placeholder="Descrição da atividade econômica principal"
+                          className={UNIFORM_INPUT_CLASS}
+                        />
+                      </div>
+
+                      <div>
+                        <label className={UNIFORM_LABEL_CLASS}>Atividades Secundárias</label>
+                        <textarea
+                          rows={2}
+                          value={(cnpjDetails.atividadesSecundarias || []).join("\n")}
+                          onChange={(e) =>
+                            setCnpjDetails((prev) => ({
+                              ...prev,
+                              atividadesSecundarias: e.target.value
+                                .split("\n")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            }))
+                          }
+                          placeholder="Uma atividade secundária por linha"
+                          className="w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 outline-none transition-all hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15 resize-y"
+                        />
+                      </div>
+
+                      {/* Sub-bloco Endereço Comercial */}
+                      <div className="pt-2 border-t border-border/60 space-y-3">
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Endereço Comercial
+                        </span>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5">
+                          <div className="md:col-span-3">
+                            <label className={UNIFORM_LABEL_CLASS}>Logradouro</label>
+                            <input
+                              type="text"
+                              value={cnpjDetails.logradouro || ""}
+                              onChange={(e) =>
+                                setCnpjDetails((prev) => ({
+                                  ...prev,
+                                  logradouro: e.target.value,
+                                }))
+                              }
+                              placeholder="Rua, Avenida, Rodovia..."
+                              className={UNIFORM_INPUT_CLASS}
+                            />
+                          </div>
+                          <div>
+                            <label className={UNIFORM_LABEL_CLASS}>Número</label>
+                            <input
+                              type="text"
+                              value={cnpjDetails.numero || ""}
+                              onChange={(e) =>
+                                setCnpjDetails((prev) => ({
+                                  ...prev,
+                                  numero: e.target.value,
+                                }))
+                              }
+                              placeholder="Nº / S/N"
+                              className={UNIFORM_INPUT_CLASS}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                          <div>
+                            <label className={UNIFORM_LABEL_CLASS}>Complemento</label>
+                            <input
+                              type="text"
+                              value={cnpjDetails.complemento || ""}
+                              onChange={(e) =>
+                                setCnpjDetails((prev) => ({
+                                  ...prev,
+                                  complemento: e.target.value,
+                                }))
+                              }
+                              placeholder="Sala, Galpão, Bloco..."
+                              className={UNIFORM_INPUT_CLASS}
+                            />
+                          </div>
+                          <div>
+                            <label className={UNIFORM_LABEL_CLASS}>Bairro</label>
+                            <input
+                              type="text"
+                              value={cnpjDetails.bairro || ""}
+                              onChange={(e) =>
+                                setCnpjDetails((prev) => ({
+                                  ...prev,
+                                  bairro: e.target.value,
+                                }))
+                              }
+                              placeholder="Bairro / Distrito Industrial"
+                              className={UNIFORM_INPUT_CLASS}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5">
+                          <div className="md:col-span-2">
+                            <label className={UNIFORM_LABEL_CLASS}>Cidade / Município</label>
+                            <input
+                              type="text"
+                              value={cnpjDetails.municipio || ""}
+                              onChange={(e) =>
+                                setCnpjDetails((prev) => ({
+                                  ...prev,
+                                  municipio: e.target.value,
+                                }))
+                              }
+                              placeholder="Cidade"
+                              className={UNIFORM_INPUT_CLASS}
+                            />
+                          </div>
+                          <div>
+                            <label className={UNIFORM_LABEL_CLASS}>UF</label>
+                            <input
+                              type="text"
+                              maxLength={2}
+                              value={cnpjDetails.uf || ""}
+                              onChange={(e) =>
+                                setCnpjDetails((prev) => ({
+                                  ...prev,
+                                  uf: e.target.value.toUpperCase(),
+                                }))
+                              }
+                              placeholder="UF"
+                              className={`${UNIFORM_INPUT_CLASS} uppercase`}
+                            />
+                          </div>
+                          <div>
+                            <label className={UNIFORM_LABEL_CLASS}>CEP</label>
+                            <input
+                              type="text"
+                              value={cnpjDetails.cep || ""}
+                              onChange={(e) =>
+                                setCnpjDetails((prev) => ({
+                                  ...prev,
+                                  cep: e.target.value,
+                                }))
+                              }
+                              placeholder="00000-000"
+                              className={`${UNIFORM_INPUT_CLASS} font-mono`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Sub-bloco Quadro Societário */}
+                      <div className="pt-2 border-t border-border/60">
+                        <label className={UNIFORM_LABEL_CLASS}>
+                          Quadro Societário / Administradores (QSA)
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={(cnpjDetails.qsa || []).join("\n")}
+                          onChange={(e) =>
+                            setCnpjDetails((prev) => ({
+                              ...prev,
+                              qsa: e.target.value
+                                .split("\n")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            }))
+                          }
+                          placeholder="Um sócio/administrador por linha"
+                          className="w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 py-2 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 outline-none transition-all hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15 resize-y"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Bloco 2: Campos Personalizados em Grid de 2 Colunas */}
                   <div className="rounded-[10px] border border-slate-200/90 dark:border-slate-800 bg-card p-4 shadow-2xs space-y-3">

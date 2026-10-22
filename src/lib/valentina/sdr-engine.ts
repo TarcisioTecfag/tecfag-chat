@@ -1,8 +1,9 @@
 import { runtimeSingleton } from "../runtime-singleton";
 
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts } from "../../db/schema";
+import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts } from "../../db/schema";
 import { eq, asc, desc, and, gte, ne, sql, isNull } from "drizzle-orm";
+import { buildAccountUpdatePayloadFromCnpjDetails } from "../crm/cnpj-account-mapper";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
@@ -126,6 +127,25 @@ export async function syncContactDataFromTriage(
       updates.cnpjDetails = cnpjDetailsInput;
       if (cnpjDetailsInput.cnpjFormatted && contact.cnpj !== cnpjDetailsInput.cnpjFormatted) {
         updates.cnpj = cnpjDetailsInput.cnpjFormatted;
+      }
+
+      if (contact.accountId) {
+        const [existingAccount] = await db
+          .select()
+          .from(crmAccounts)
+          .where(and(eq(crmAccounts.id, contact.accountId), eq(crmAccounts.tenantId, tenantId)));
+
+        if (existingAccount) {
+          const accountPayload = buildAccountUpdatePayloadFromCnpjDetails(cnpjDetailsInput, existingAccount as any);
+          await db
+            .update(crmAccounts)
+            .set({
+              ...accountPayload,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(crmAccounts.id, contact.accountId), eq(crmAccounts.tenantId, tenantId)));
+          console.log(`[SdrEngine] 🏢 Empresa vinculada ${contact.accountId} atualizada com dados da Receita Federal.`);
+        }
       }
     }
 

@@ -1099,13 +1099,13 @@ export class CrmService {
       const cleanTerm = termInput.trim();
       const term = `%${cleanTerm.toLowerCase()}%`;
       const numOnly = cleanTerm.replace(/\D/g, "");
-      if (numOnly.length >= 8) {
+      if (numOnly.length >= 4) {
         conditions.push(
-          sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(${crmAccounts.tradeName}) LIKE ${term} OR ${crmAccounts.document} LIKE ${`%${numOnly}%`} OR LOWER(${crmAccounts.email}) LIKE ${term})`
+          sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(coalesce(${crmAccounts.tradeName}, '')) LIKE ${term} OR regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') LIKE ${`%${numOnly}%`} OR regexp_replace(coalesce(${crmAccounts.phone}, ''), '[^0-9]', '', 'g') LIKE ${`%${numOnly}%`} OR LOWER(coalesce(${crmAccounts.email}, '')) LIKE ${term} OR LOWER(coalesce(${crmAccounts.segment}, '')) LIKE ${term})`
         );
       } else {
         conditions.push(
-          sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(${crmAccounts.tradeName}) LIKE ${term} OR LOWER(${crmAccounts.document}) LIKE ${term} OR LOWER(${crmAccounts.email}) LIKE ${term})`
+          sql`(LOWER(${crmAccounts.name}) LIKE ${term} OR LOWER(coalesce(${crmAccounts.tradeName}, '')) LIKE ${term} OR LOWER(coalesce(${crmAccounts.document}, '')) LIKE ${term} OR LOWER(coalesce(${crmAccounts.phone}, '')) LIKE ${term} OR LOWER(coalesce(${crmAccounts.email}, '')) LIKE ${term} OR LOWER(coalesce(${crmAccounts.segment}, '')) LIKE ${term})`
         );
       }
     }
@@ -1127,8 +1127,46 @@ export class CrmService {
       .limit(limit)
       .offset(offset);
 
+    const accountIds = accounts.map((a) => a.id);
+    const contactsCountMap = new Map<string, number>();
+    const dealsCountMap = new Map<string, number>();
+
+    if (accountIds.length > 0) {
+      const [contactCounts, dealCounts] = await Promise.all([
+        db
+          .select({
+            accountId: contacts.accountId,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), inArray(contacts.accountId, accountIds)))
+          .groupBy(contacts.accountId),
+        db
+          .select({
+            accountId: crmDeals.accountId,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(crmDeals)
+          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.accountId, accountIds)))
+          .groupBy(crmDeals.accountId),
+      ]);
+
+      for (const row of contactCounts) {
+        if (row.accountId) contactsCountMap.set(row.accountId, row.count);
+      }
+      for (const row of dealCounts) {
+        if (row.accountId) dealsCountMap.set(row.accountId, row.count);
+      }
+    }
+
+    const enrichedAccounts = accounts.map((acc) => ({
+      ...acc,
+      contactsCount: contactsCountMap.get(acc.id) || 0,
+      dealsCount: dealsCountMap.get(acc.id) || 0,
+    }));
+
     return {
-      accounts,
+      accounts: enrichedAccounts,
       total: countResult?.count || 0,
       limit,
       offset,
@@ -1444,7 +1482,12 @@ export class CrmService {
     if (data.email !== undefined) updates.email = data.email?.trim() || null;
     if (data.phone !== undefined) updates.phone = data.phone ? normalizeDocument(data.phone) : null;
     if (data.website !== undefined) updates.website = data.website?.trim() || null;
-    if (data.address !== undefined) updates.address = data.address || {};
+    if (data.address !== undefined) {
+      updates.address = {
+        ...((current.address as Record<string, any>) || {}),
+        ...(data.address || {}),
+      };
+    }
 
     let companyFieldDefs: CustomFieldDefinition[] = [];
     if (data.customFields !== undefined) {
@@ -1516,6 +1559,13 @@ export class CrmService {
         ["city", "Cidade"],
         ["state", "UF"],
         ["zipCode", "CEP"],
+        ["situacaoCadastral", "Situação Cadastral"],
+        ["dataAbertura", "Data de Abertura"],
+        ["capitalSocial", "Capital Social"],
+        ["naturezaJuridica", "Natureza Jurídica"],
+        ["porte", "Porte"],
+        ["atividadePrincipal", "Atividade Principal (CNAE)"],
+        ["qsa", "Quadro de Sócios (QSA)"],
       ];
       for (const [key, label] of addrFields) {
         pushIfChanged(label, prevAddr[key], nextAddr[key]);

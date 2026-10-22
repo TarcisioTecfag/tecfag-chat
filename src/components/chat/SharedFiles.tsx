@@ -9,7 +9,12 @@ import {
 } from "@/components/ui/select";
 import React, { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { fetchCnpjInfo, CnpjFullDetails } from "@/lib/valentina/cnpj-service";
+import { fetchCnpjInfo, CnpjFullDetails, validateCnpj } from "@/lib/valentina/cnpj-service";
+import {
+  extractCnpjDetailsFromAccount,
+  buildAccountUpdatePayloadFromCnpjDetails,
+  buildAccountAddressFromCnpjDetails,
+} from "@/lib/crm/cnpj-account-mapper";
 import { useChat } from "@/hooks/useChatState";
 import { RdCrmCard } from "./RdCrmCard";
 import { ConversationDealsPanel } from "@/components/crm/ConversationDealsPanel";
@@ -368,24 +373,6 @@ export function SharedFiles() {
   const [selectedAccount, setSelectedAccount] = useState<CrmAccountDTO | null>(null);
   const [savingInfo, setSavingInfo] = useState(false);
 
-  useEffect(() => {
-    const contactId = activeChat?.contactId;
-    setLinkedAccount(null);
-    setSelectedAccount(null);
-    setIsEditingInfo(false);
-    if (!contactId) return;
-    const controller = new AbortController();
-    fetch(`/api/contacts/${encodeURIComponent(contactId)}`, { signal: controller.signal })
-      .then((res) => res.ok ? res.json() : null)
-      .then((contact) => {
-        if (!controller.signal.aborted) {
-          setLinkedAccount(contact?.account || null);
-          setSelectedAccount(contact?.account || null);
-        }
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [activeChat?.contactId]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const [editForm, setEditForm] = React.useState({
@@ -400,58 +387,186 @@ export function SharedFiles() {
   const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "idle">("idle");
   const isFirstCnpjRender = React.useRef(true);
 
+  useEffect(() => {
+    const contactId = activeChat?.contactId;
+    setLinkedAccount(null);
+    setSelectedAccount(null);
+    setIsEditingInfo(false);
+    isFirstCnpjRender.current = true;
+    setCnpjDetails({});
+    setAutoSaveStatus("idle");
+    if (!contactId) return;
+    const controller = new AbortController();
+    fetch(`/api/contacts/${encodeURIComponent(contactId)}`, { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((contact) => {
+        if (!controller.signal.aborted) {
+          const acc: CrmAccountDTO | null = contact?.account || null;
+          setLinkedAccount(acc);
+          setSelectedAccount(acc);
+          isFirstCnpjRender.current = true;
+          setCnpjDetails(
+            extractCnpjDetailsFromAccount(
+              acc,
+              contact?.cnpjDetails || (activeChat as any)?.cnpjDetails || null,
+            ),
+          );
+          setAutoSaveStatus("idle");
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [activeChat?.contactId]);
+
+  const persistCnpjDetailsToLinkedAccount = React.useCallback(
+    async (detailsToSave: CnpjFullDetails): Promise<CrmAccountDTO | null> => {
+      if (!activeChat) return null;
+      const contactId = activeChat.contactId || activeChat.id;
+      let targetAccount = linkedAccount;
+
+      // Caso 1: Contato já possui empresa vinculada -> atualiza diretamente essa empresa em crm_accounts
+      if (targetAccount?.id) {
+        const accountPatch = buildAccountUpdatePayloadFromCnpjDetails(detailsToSave, targetAccount);
+        const res = await fetch(`${BACKEND_URL}/api/crm/accounts/${encodeURIComponent(targetAccount.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(accountPatch),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Não foi possível salvar os dados na empresa vinculada.");
+        }
+        const data = await res.json();
+        const updatedAcc: CrmAccountDTO = data.account || { ...targetAccount, ...accountPatch };
+        setLinkedAccount(updatedAcc);
+        setSelectedAccount(updatedAcc);
+
+        // Mantém sincronia secundária no contato para leitores legados
+        fetch(`${BACKEND_URL}/api/contacts/${encodeURIComponent(contactId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cnpjDetails: detailsToSave,
+            ...(detailsToSave.cleanCnpj ? { cnpj: detailsToSave.cleanCnpj } : {}),
+          }),
+        }).catch(() => {});
+
+        (activeChat as any).cnpjDetails = detailsToSave;
+        return updatedAcc;
+      }
+
+      // Caso 2: Contato ainda não possui empresa vinculada, mas foi informado um CNPJ válido
+      const cleanDoc = (detailsToSave.cleanCnpj || detailsToSave.cnpjFormatted || "").replace(/\D/g, "");
+      if (cleanDoc.length === 14 && validateCnpj(cleanDoc)) {
+        // Verifica se já existe empresa com esse CNPJ no tenant
+        const lookupRes = await fetch(
+          `${BACKEND_URL}/api/contacts/account-options?search=${encodeURIComponent(cleanDoc)}`,
+        );
+        const lookupData = lookupRes.ok ? await lookupRes.json().catch(() => ({ accounts: [] })) : { accounts: [] };
+        const existingAcc: CrmAccountDTO | undefined = (lookupData.accounts || []).find(
+          (a: CrmAccountDTO) => (a.document || "").replace(/\D/g, "") === cleanDoc,
+        );
+
+        if (existingAcc) {
+          const accountPatch = buildAccountUpdatePayloadFromCnpjDetails(detailsToSave, existingAcc);
+          const patchRes = await fetch(`${BACKEND_URL}/api/crm/accounts/${encodeURIComponent(existingAcc.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(accountPatch),
+          });
+          if (patchRes.ok) {
+            const patchedData = await patchRes.json();
+            targetAccount = patchedData.account || { ...existingAcc, ...accountPatch };
+          } else {
+            targetAccount = existingAcc;
+          }
+        } else {
+          const companyName = (
+            detailsToSave.razaoSocial ||
+            detailsToSave.nomeFantasia ||
+            activeChat.name ||
+            `Empresa ${cleanDoc}`
+          ).trim();
+          const createPayload = {
+            type: "company" as const,
+            name: companyName,
+            tradeName: detailsToSave.nomeFantasia?.trim() || null,
+            document: cleanDoc,
+            phone: detailsToSave.telefone ? detailsToSave.telefone.replace(/\D/g, "") || null : null,
+            email: detailsToSave.email?.trim().toLowerCase() || null,
+            address: buildAccountAddressFromCnpjDetails(detailsToSave),
+          };
+          const createRes = await fetch(`${BACKEND_URL}/api/crm/accounts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(createPayload),
+          });
+          if (!createRes.ok) {
+            const errData = await createRes.json().catch(() => ({}));
+            throw new Error(errData.error || "Não foi possível criar a empresa com os dados da Receita.");
+          }
+          const createdData = await createRes.json();
+          targetAccount = createdData.account || null;
+        }
+
+        if (targetAccount?.id) {
+          await fetch(`${BACKEND_URL}/api/contacts/${encodeURIComponent(contactId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              accountId: targetAccount.id,
+              accountChangeReason: "Empresa vinculada automaticamente via consulta na Receita Federal",
+              cnpjDetails: detailsToSave,
+              cnpj: cleanDoc,
+            }),
+          });
+          setLinkedAccount(targetAccount);
+          setSelectedAccount(targetAccount);
+          (activeChat as any).cnpjDetails = detailsToSave;
+          return targetAccount;
+        }
+      }
+
+      return null;
+    },
+    [activeChat, linkedAccount],
+  );
+
   const handleSaveCnpjDetails = async () => {
     if (!activeChat) return;
+    if (!linkedAccount && !(cnpjDetails.cleanCnpj || cnpjDetails.cnpjFormatted)) {
+      toast.error("Vincule uma empresa ao contato ou informe um CNPJ válido antes de salvar.");
+      return;
+    }
     setIsSavingCnpj(true);
     try {
-      const contactId = activeChat.contactId || activeChat.id;
-      await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cnpjDetails }),
-      });
+      await persistCnpjDetailsToLinkedAccount(cnpjDetails);
       setAutoSaveStatus("saved");
-    } catch (e) {
-      console.error("Erro ao salvar detalhes do CNPJ:", e);
+      toast.success("Dados da Receita salvos na empresa vinculada!");
+    } catch (e: any) {
+      console.error("Erro ao salvar detalhes do CNPJ na empresa:", e);
+      toast.error(e?.message || "Erro ao salvar dados da Receita na empresa.");
     } finally {
       setIsSavingCnpj(false);
     }
   };
 
-
-  useEffect(() => {
-    isFirstCnpjRender.current = true;
-    if (activeChat) {
-      setCnpjDetails((activeChat as any).cnpjDetails || {});
-      setAutoSaveStatus("idle");
-    }
-  }, [activeChat?.id]);
-
-  // Auto-Save silencioso: salva sozinho no banco 600ms apos digitar
+  // Auto-Save silencioso na empresa vinculada: salva sozinho no banco 600ms após digitar
   useEffect(() => {
     if (isFirstCnpjRender.current) {
       isFirstCnpjRender.current = false;
       return;
     }
     if (!activeChat) return;
+    if (!linkedAccount?.id) return;
 
     setAutoSaveStatus("saving");
     const timer = setTimeout(async () => {
       try {
-        const contactId = activeChat.contactId || activeChat.id;
-        const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cnpjDetails }),
-        });
-        if (res.ok) {
-          (activeChat as any).cnpjDetails = cnpjDetails;
-          setAutoSaveStatus("saved");
-        } else {
-          setAutoSaveStatus("idle");
-        }
+        await persistCnpjDetailsToLinkedAccount(cnpjDetails);
+        setAutoSaveStatus("saved");
       } catch (err) {
-        console.error("Erro no auto-save de cnpjDetails:", err);
+        console.error("Erro no auto-save de cnpjDetails na empresa vinculada:", err);
         setAutoSaveStatus("idle");
       }
     }, 600);
@@ -460,24 +575,44 @@ export function SharedFiles() {
   }, [cnpjDetails]);
 
   const handleQueryCnpjLive = async () => {
-    const cnpjToQuery = activeChat?.cnpj || cnpjDetails.cleanCnpj || cnpjDetails.cnpjFormatted;
+    const cnpjToQuery = (
+      cnpjDetails.cnpjFormatted ||
+      cnpjDetails.cleanCnpj ||
+      linkedAccount?.document ||
+      ""
+    ).trim();
     if (!cnpjToQuery) {
-      toast.error("Informe um CNPJ válido nos dados do cliente para consultar.");
+      toast.error(
+        linkedAccount
+          ? `A empresa vinculada (${linkedAccount.name}) não possui CNPJ cadastrado. Informe o CNPJ abaixo para consultar.`
+          : "Vincule uma empresa ao contato ou informe um CNPJ válido para consultar na Receita Federal.",
+      );
       return;
     }
     setIsSearchingCnpj(true);
+    setAutoSaveStatus("saving");
     try {
       const res = await fetchCnpjInfo(cnpjToQuery);
       if (!res.valid) {
+        setAutoSaveStatus("idle");
         toast.error(res.erro || "CNPJ inválido nos dígitos verificadores.");
       } else if (res.details) {
+        isFirstCnpjRender.current = true;
         setCnpjDetails(res.details);
-        toast.success("Ficha Cadastral da Receita Federal carregada!");
+        const savedAcc = await persistCnpjDetailsToLinkedAccount(res.details);
+        setAutoSaveStatus("saved");
+        toast.success(
+          savedAcc
+            ? `Dados da Receita Federal salvos na empresa "${savedAcc.name}"!`
+            : "Ficha Cadastral da Receita Federal carregada!",
+        );
       } else {
+        setAutoSaveStatus("idle");
         toast.error("Não foi possível retornar dados para este CNPJ.");
       }
-    } catch (err) {
-      toast.error("Erro ao consultar Receita Federal.");
+    } catch (err: any) {
+      setAutoSaveStatus("idle");
+      toast.error(err?.message || "Erro ao consultar Receita Federal.");
     } finally {
       setIsSearchingCnpj(false);
     }
@@ -585,7 +720,21 @@ export function SharedFiles() {
     setSavingInfo(true);
     try {
       await updateClientInfo(activeChat.id, { ...editForm, accountId: selectedAccount?.id || null });
-      setLinkedAccount(selectedAccount);
+      let hydratedAccount = selectedAccount;
+      if (selectedAccount?.id && selectedAccount.address === undefined) {
+        const accRes = await fetch(`/api/contacts/account-options?id=${encodeURIComponent(selectedAccount.id)}`).catch(() => null);
+        if (accRes?.ok) {
+          const accData = await accRes.json().catch(() => null);
+          if (accData?.account) hydratedAccount = accData.account;
+        }
+      }
+      setLinkedAccount(hydratedAccount);
+      setSelectedAccount(hydratedAccount);
+      isFirstCnpjRender.current = true;
+      setCnpjDetails(
+        extractCnpjDetailsFromAccount(hydratedAccount, (activeChat as any)?.cnpjDetails || null),
+      );
+      setAutoSaveStatus("idle");
       setIsEditingInfo(false);
       toast.success("Contato atualizado.");
     } catch (error) {
@@ -1304,16 +1453,21 @@ export function SharedFiles() {
                 /* FICHA CADASTRAL DA RECEITA FEDERAL (100% EDITÁVEL) */
                 <div className="space-y-3 pb-4">
                   <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                    <div className="flex items-center gap-2">
-                      <Building className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
-                        Dados da Receita Federal
-                      </span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Building className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200 block">
+                          Dados da Receita Federal
+                        </span>
+                        <span className="text-[9px] font-semibold text-emerald-700/80 dark:text-emerald-300/80 block truncate">
+                          {linkedAccount ? `Empresa: ${linkedAccount.name}` : "Sem empresa vinculada ao contato"}
+                        </span>
+                      </div>
                     </div>
                     <button
                       onClick={handleQueryCnpjLive}
                       disabled={isSearchingCnpj}
-                      className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition disabled:opacity-50 cursor-pointer shadow-sm"
+                      className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition disabled:opacity-50 cursor-pointer shadow-sm shrink-0"
                     >
                       <Search className="h-3 w-3" />
                       {isSearchingCnpj ? "Consultando..." : "Consultar API"}
@@ -1349,8 +1503,8 @@ export function SharedFiles() {
                         <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">CNPJ</label>
                         <input
                           type="text"
-                          value={cnpjDetails.cnpjFormatted || activeChat?.cnpj || ""}
-                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, cnpjFormatted: e.target.value })}
+                          value={cnpjDetails.cnpjFormatted || (linkedAccount?.document ? formatCNPJ(linkedAccount.document) : "")}
+                          onChange={(e) => setCnpjDetails({ ...cnpjDetails, cnpjFormatted: maskCNPJ(e.target.value), cleanCnpj: e.target.value.replace(/\D/g, "") })}
                           placeholder="00.000.000/0001-00"
                           className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-semibold border border-border focus:ring-1 focus:ring-primary"
                         />
@@ -1713,15 +1867,18 @@ export function SharedFiles() {
             {/* FICHA CADASTRAL DA RECEITA FEDERAL (DIRETAMENTE NA ABA DE ARQUIVOS) */}
             <div className="mt-5 pt-4 border-t border-line space-y-3 pb-6">
               <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                  <div className="flex items-center gap-1.5">
-                    <Building className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                    <div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Building className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <div className="min-w-0">
                       <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200 block">
                         Dados da Receita Federal
                       </span>
+                      <span className="text-[9px] font-semibold text-emerald-700/80 dark:text-emerald-300/80 block truncate">
+                        {linkedAccount ? `Empresa: ${linkedAccount.name}` : "Sem empresa vinculada ao contato"}
+                      </span>
                       {autoSaveStatus === "saving" ? (
                         <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 block animate-pulse">
-                          Salvando alterações...
+                          Salvando na empresa...
                         </span>
                       ) : autoSaveStatus === "saved" ? (
                         <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
@@ -1733,7 +1890,7 @@ export function SharedFiles() {
                 <button
                   onClick={handleQueryCnpjLive}
                   disabled={isSearchingCnpj}
-                  className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition disabled:opacity-50 cursor-pointer shadow-sm"
+                  className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition disabled:opacity-50 cursor-pointer shadow-sm shrink-0"
                 >
                   <Search className="h-3 w-3" />
                   {isSearchingCnpj ? "Consultando..." : "Consultar API"}
@@ -1769,8 +1926,8 @@ export function SharedFiles() {
                     <label className="text-[9px] font-bold text-muted-foreground uppercase block mb-0.5">CNPJ</label>
                     <input
                       type="text"
-                      value={cnpjDetails.cnpjFormatted || activeChat?.cnpj || ""}
-                      onChange={(e) => setCnpjDetails({ ...cnpjDetails, cnpjFormatted: e.target.value })}
+                      value={cnpjDetails.cnpjFormatted || (linkedAccount?.document ? formatCNPJ(linkedAccount.document) : "")}
+                      onChange={(e) => setCnpjDetails({ ...cnpjDetails, cnpjFormatted: maskCNPJ(e.target.value), cleanCnpj: e.target.value.replace(/\D/g, "") })}
                       placeholder="00.000.000/0001-00"
                       className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground font-semibold border border-border focus:ring-1 focus:ring-primary"
                     />

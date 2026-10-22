@@ -528,30 +528,6 @@ export function AdvancedFiltersModal({
     };
   }, [isOpen, companySearch]);
 
-  // Oculta o botão flutuante de conversas enquanto os filtros avançados estiverem abertos
-  useEffect(() => {
-    if (isOpen) {
-      window.dispatchEvent(
-        new CustomEvent("crm:set-chat-widget-suppressed", {
-          detail: { suppressed: true },
-        }),
-      );
-    } else {
-      window.dispatchEvent(
-        new CustomEvent("crm:set-chat-widget-suppressed", {
-          detail: { suppressed: false },
-        }),
-      );
-    }
-    return () => {
-      window.dispatchEvent(
-        new CustomEvent("crm:set-chat-widget-suppressed", {
-          detail: { suppressed: false },
-        }),
-      );
-    };
-  }, [isOpen]);
-
   const update = <K extends keyof AdvancedFiltersState>(key: K, value: AdvancedFiltersState[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
   const toggleEmpty = (value: string) =>

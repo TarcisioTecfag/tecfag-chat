@@ -188,7 +188,34 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             }
           }
 
-          return new Response(JSON.stringify({ success: true, contact: updatedContact }), {
+          let linkedAccount = null;
+          if (updatedContact?.accountId) {
+            const { crmAccounts } = await import("../../../db/schema");
+            const [acc] = await db
+              .select()
+              .from(crmAccounts)
+              .where(and(eq(crmAccounts.id, updatedContact.accountId), eq(crmAccounts.tenantId, session.tenantId)))
+              .limit(1);
+            linkedAccount = acc || null;
+
+            if (linkedAccount && body.cnpjDetails && typeof body.cnpjDetails === "object") {
+              const { buildAccountUpdatePayloadFromCnpjDetails } = await import("../../../lib/crm/cnpj-account-mapper");
+              const { crmService } = await import("../../../lib/crm/crm-service");
+              const accountPatch = buildAccountUpdatePayloadFromCnpjDetails(body.cnpjDetails, linkedAccount as any);
+              try {
+                linkedAccount = await crmService.updateAccount(
+                  session.tenantId,
+                  linkedAccount.id,
+                  accountPatch,
+                  session.operator.id,
+                );
+              } catch (accErr) {
+                console.warn("[PATCH /api/contacts/:contactId] Aviso ao sincronizar cnpjDetails na empresa vinculada:", accErr);
+              }
+            }
+          }
+
+          return new Response(JSON.stringify({ success: true, contact: updatedContact, account: linkedAccount }), {
             headers: { ...CORS, "Content-Type": "application/json" },
           });
         } catch (e: any) {

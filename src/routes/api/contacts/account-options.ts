@@ -22,9 +22,19 @@ export const Route = createFileRoute("/api/contacts/account-options")({
         const url = new URL(request.url);
         const id = url.searchParams.get("id")?.trim();
         const fields = {
-          id: crmAccounts.id, tenantId: crmAccounts.tenantId, type: crmAccounts.type,
-          name: crmAccounts.name, tradeName: crmAccounts.tradeName,
-          document: crmAccounts.document, documentType: crmAccounts.documentType,
+          id: crmAccounts.id,
+          tenantId: crmAccounts.tenantId,
+          type: crmAccounts.type,
+          name: crmAccounts.name,
+          tradeName: crmAccounts.tradeName,
+          segment: crmAccounts.segment,
+          document: crmAccounts.document,
+          documentType: crmAccounts.documentType,
+          email: crmAccounts.email,
+          phone: crmAccounts.phone,
+          website: crmAccounts.website,
+          address: crmAccounts.address,
+          notes: crmAccounts.notes,
         };
         if (id) {
           const [account] = await db.select(fields).from(crmAccounts)

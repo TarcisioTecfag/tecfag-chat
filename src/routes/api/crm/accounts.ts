@@ -26,8 +26,14 @@ export const Route = createFileRoute("/api/crm/accounts")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          const permError = requireCrmPermission(session, "canViewCrm");
-          if (permError) return permError;
+          const canViewViaContacts = Boolean(
+            session.permissions?.views?.contacts ||
+            session.permissions?.chat?.canEditClientInfo
+          );
+          if (!canViewViaContacts) {
+            const permError = requireCrmPermission(session, "canViewCrm");
+            if (permError) return permError;
+          }
 
           const url = new URL(request.url);
           const search = url.searchParams.get("search") || undefined;
@@ -66,8 +72,15 @@ export const Route = createFileRoute("/api/crm/accounts")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          const permError = requireCrmPermission(session, "canCreateDeals");
-          if (permError) return permError;
+          const canCreateViaContacts = Boolean(
+            session.permissions?.contacts?.canCreateContact ||
+            session.permissions?.contacts?.canEditContact ||
+            session.permissions?.chat?.canEditClientInfo
+          );
+          if (!canCreateViaContacts) {
+            const permError = requireCrmPermission(session, "canCreateDeals");
+            if (permError) return permError;
+          }
 
           const body = await request.json();
           if (!body.name || !body.name.trim()) {

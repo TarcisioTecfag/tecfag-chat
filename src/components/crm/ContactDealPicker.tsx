@@ -1,9 +1,12 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
+import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import type { LinkedDealSummary } from "./PhoneContactSuggestions";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { DealStatusBadge, DEAL_STATUS_OPTIONS } from "./deal-status-config";
 import { formatPhoneNumber, formatCNPJ, formatCPF } from "@/lib/utils";
+import { ensureMiniChatBodyEventGuard } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -87,6 +90,7 @@ export interface PipelineOption {
 
 export interface ContactDealContext {
   id?: string | null;
+  contactId?: string | null;
   name?: string;
   phone?: string | null;
   email?: string | null;
@@ -118,7 +122,7 @@ export function isContactDealInputComplete(value?: ContactDealInput | null): boo
 function formatCurrencyBRL(value?: number | string | null): string {
   if (value === null || value === undefined || value === "") return "Sem valor";
   const num = Number(value);
-  if (Number.isNaN(num)) return "Sem valor";
+  if (Number.NaN === num || Number.isNaN(num)) return "Sem valor";
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
 }
 
@@ -143,23 +147,48 @@ function formatDoc(doc?: string | null, type?: string | null): string | null {
  */
 export function ContactDealModal({
   isOpen,
+  open: openProp,
   onClose,
+  onOpenChange,
   value,
   onChange,
+  onSelectDealMeta,
   onConfirm,
   confirmLabel = "Confirmar Negociação",
   saving = false,
+  submitting = false,
   contactContext,
 }: {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  open?: boolean;
+  onClose?: () => void;
+  onOpenChange?: (open: boolean) => void;
   value: ContactDealInput;
   onChange: (value: ContactDealInput, selectedDealMeta?: DealPreviewItem | null) => void;
+  onSelectDealMeta?: (meta: DealPreviewItem | null) => void;
   onConfirm?: (value: ContactDealInput, selectedDealMeta?: DealPreviewItem | null) => void;
   confirmLabel?: string;
   saving?: boolean;
+  submitting?: boolean;
   contactContext?: ContactDealContext;
 }) {
+  const effectiveOpen = Boolean(isOpen ?? openProp);
+  const effectiveSaving = Boolean(saving || submitting);
+  const handleClose = () => {
+    onClose?.();
+    onOpenChange?.(false);
+  };
+  const emitChange = (nextValue: ContactDealInput, meta?: DealPreviewItem | null) => {
+    onChange(nextValue, meta);
+    if (meta !== undefined) {
+      onSelectDealMeta?.(meta);
+    }
+  };
+
+  useEffect(() => {
+    ensureMiniChatBodyEventGuard();
+  }, []);
+
   const [mode, setMode] = useState<"existing" | "new">(value.newDeal ? "new" : "existing");
   const [search, setSearch] = useState("");
   const [pipelineFilter, setPipelineFilter] = useState<string>("all");
@@ -181,7 +210,7 @@ export function ContactDealModal({
 
   // Sincroniza modo quando abre o modal
   useEffect(() => {
-    if (!isOpen) return;
+    if (!effectiveOpen) return;
     if (value.newDeal) {
       setMode("new");
     } else {
@@ -190,11 +219,11 @@ export function ContactDealModal({
         setInspectedDealId(value.dealId);
       }
     }
-  }, [isOpen]);
+  }, [effectiveOpen]);
 
   // Carrega funis e operadores ao abrir
   useEffect(() => {
-    if (!isOpen) return;
+    if (!effectiveOpen) return;
     const controller = new AbortController();
 
     fetch("/api/crm/pipelines", { signal: controller.signal })
@@ -221,13 +250,13 @@ export function ContactDealModal({
       .catch(() => {});
 
     return () => controller.abort();
-  }, [isOpen]);
+  }, [effectiveOpen]);
 
   // Carrega as negociações que JÁ estão vinculadas ao contato (ou empresa/telefone do contato)
   useEffect(() => {
-    if (!isOpen) return;
+    if (!effectiveOpen) return;
     const controller = new AbortController();
-    const contactId = contactContext?.id?.trim();
+    const contactId = (contactContext?.id || contactContext?.contactId)?.trim();
     const accountId = contactContext?.accountId?.trim();
     const contactPhone = (contactContext?.phone || "").replace(/\D/g, "");
     const contactName = (contactContext?.name || "").trim();
@@ -299,7 +328,7 @@ export function ContactDealModal({
           if (collected.length > 0 && !value.dealId && !value.newDeal) {
             const first = collected[0];
             setInspectedDealId(first.id);
-            onChange({ dealId: first.id }, first);
+            emitChange({ dealId: first.id }, first);
           }
         }
       } catch {
@@ -311,8 +340,9 @@ export function ContactDealModal({
 
     return () => controller.abort();
   }, [
-    isOpen,
+    effectiveOpen,
     contactContext?.id,
+    contactContext?.contactId,
     contactContext?.accountId,
     contactContext?.phone,
     contactContext?.name,
@@ -320,7 +350,7 @@ export function ContactDealModal({
 
   // Busca de negociações conforme filtros e pesquisa
   useEffect(() => {
-    if (!isOpen || mode !== "existing") return;
+    if (!effectiveOpen || mode !== "existing") return;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoadingDeals(true);
@@ -361,11 +391,11 @@ export function ContactDealModal({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [isOpen, mode, search, pipelineFilter, statusFilter]);
+  }, [effectiveOpen, mode, search, pipelineFilter, statusFilter]);
 
   // Carrega detalhes completos da negociação inspecionada para a Preview
   useEffect(() => {
-    if (!isOpen || mode !== "existing" || !inspectedDealId) {
+    if (!effectiveOpen || mode !== "existing" || !inspectedDealId) {
       setDetailedDeal(null);
       return;
     }
@@ -386,7 +416,7 @@ export function ContactDealModal({
       });
 
     return () => controller.abort();
-  }, [isOpen, mode, inspectedDealId]);
+  }, [effectiveOpen, mode, inspectedDealId]);
 
   const linkedIdsSet = useMemo(
     () => new Set(contactLinkedDeals.map((d) => d.id)),
@@ -432,7 +462,7 @@ export function ContactDealModal({
 
   const handleSelectDealItem = (deal: DealPreviewItem) => {
     setInspectedDealId(deal.id);
-    onChange({ dealId: deal.id }, deal);
+    emitChange({ dealId: deal.id }, deal);
   };
 
   const handleSwitchToNew = () => {
@@ -441,7 +471,7 @@ export function ContactDealModal({
     const defaultStage = defaultPipeline?.stages?.[0];
     const suggestedTitle =
       contactContext?.accountName?.trim() || contactContext?.name?.trim() || "";
-    onChange(
+    emitChange(
       {
         newDeal: {
           title: draft.title || suggestedTitle,
@@ -467,9 +497,9 @@ export function ContactDealModal({
         activePreviewDeal ||
         null;
       const nextVal: ContactDealInput = { dealId: chosenId };
-      onChange(nextVal, chosenMeta);
+      emitChange(nextVal, chosenMeta);
       if (onConfirm) onConfirm(nextVal, chosenMeta);
-      else onClose();
+      else handleClose();
     } else {
       if (!draft.title.trim()) {
         setError("Informe o título da nova negociação.");
@@ -485,24 +515,27 @@ export function ContactDealModal({
       }
       setError("");
       if (onConfirm) onConfirm(value, null);
-      else onClose();
+      else handleClose();
     }
   };
 
-  if (!isOpen) return null;
+  if (!effectiveOpen) return null;
 
-  return (
-    <div
-      className="fixed inset-0 z-[10010] flex items-center justify-center bg-black/65 backdrop-blur-xs p-3 sm:p-5 animate-in fade-in duration-150"
-      onClick={onClose}
-    >
+  const modalContent = (
+    <DismissableLayerBranch asChild>
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Vincular negociação ao contato e atendimento"
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-border bg-card text-foreground shadow-2xl"
+        data-crm-interactive-portal
+        aria-live="polite"
+        className="fixed inset-0 z-[10020] pointer-events-auto flex items-center justify-center bg-black/65 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in duration-150"
+        onClick={handleClose}
       >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Vincular negociação ao contato e atendimento"
+          onClick={(e) => e.stopPropagation()}
+          className="flex max-h-[92vh] w-[min(1160px,96vw)] max-w-6xl flex-col overflow-hidden rounded-3xl border border-border bg-card text-foreground shadow-2xl"
+        >
         {/* ── HEADER DO MODAL ── */}
         <div className="flex flex-col gap-3 border-b border-border bg-muted/25 px-6 py-4 shrink-0">
           <div className="flex items-start justify-between gap-4">
@@ -522,7 +555,7 @@ export function ContactDealModal({
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
             >
               <X className="h-4 w-4" />
@@ -576,9 +609,9 @@ export function ContactDealModal({
                   setMode("existing");
                   setError("");
                   if (inspectedDealId) {
-                    onChange({ dealId: inspectedDealId }, activePreviewDeal);
+                    emitChange({ dealId: inspectedDealId }, activePreviewDeal);
                   } else {
-                    onChange({});
+                    emitChange({});
                   }
                 }}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition cursor-pointer ${
@@ -633,9 +666,9 @@ export function ContactDealModal({
         {/* ── CORPO DO MODAL ── */}
         {mode === "existing" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            {/* Barra de Pesquisa e Filtros com Selects Estilizados */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 border-b border-border bg-card px-6 py-3 shrink-0">
-              <div className="relative sm:col-span-6">
+            {/* Barra de Pesquisa e Filtros com Selects Estilizados e Espaçosos */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 border-b border-border bg-card px-6 py-3.5 shrink-0">
+              <div className="relative sm:col-span-12 lg:col-span-5">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
@@ -658,7 +691,7 @@ export function ContactDealModal({
               </div>
 
               {/* Filtro por Funil (Radix Select estilizado) */}
-              <div className="sm:col-span-3">
+              <div className="sm:col-span-6 lg:col-span-4">
                 <Select value={pipelineFilter} onValueChange={setPipelineFilter}>
                   <SelectTrigger className="h-9 w-full rounded-xl border-border bg-muted/35 text-xs">
                     <SelectValue placeholder="Todos os funis" />
@@ -677,7 +710,7 @@ export function ContactDealModal({
               </div>
 
               {/* Filtro por Status (Radix Select estilizado) */}
-              <div className="sm:col-span-3">
+              <div className="sm:col-span-6 lg:col-span-3">
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger className="h-9 w-full rounded-xl border-border bg-muted/35 text-xs">
                     <SelectValue placeholder="Todos os status" />
@@ -712,7 +745,7 @@ export function ContactDealModal({
                     <div className="flex items-center justify-between px-1">
                       <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
                         <Sparkles className="h-3 w-3" />
-                        {contactContext?.id
+                        {contactContext?.id || contactContext?.contactId
                           ? "Cards já vinculados a este contato"
                           : "Cards encontrados para este contato"}
                       </span>
@@ -741,14 +774,14 @@ export function ContactDealModal({
                               key={`linked-${deal.id}`}
                               type="button"
                               onClick={() => handleSelectDealItem(deal)}
-                              className={`w-full rounded-2xl border p-3 text-left transition-all cursor-pointer ${
+                              className={`w-full rounded-2xl border p-3.5 text-left transition-all cursor-pointer ${
                                 isSelected
                                   ? "border-primary bg-primary/[0.06] ring-2 ring-primary/25 shadow-sm"
                                   : "border-emerald-500/35 bg-emerald-500/[0.04] hover:border-primary/50 hover:bg-card"
                               }`}
                             >
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="font-extrabold text-xs text-foreground line-clamp-1">
+                              <div className="flex items-start justify-between gap-2.5">
+                                <span className="font-extrabold text-xs text-foreground line-clamp-2 break-words leading-snug">
                                   {deal.title}
                                 </span>
                                 <DealStatusBadge
@@ -758,13 +791,15 @@ export function ContactDealModal({
                                 />
                               </div>
 
-                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
                                 <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-emerald-700 dark:text-emerald-400">
                                   <CheckCircle2 className="h-2.5 w-2.5" />
-                                  {contactContext?.id ? "Já vinculado" : "Sugerido"}
+                                  {contactContext?.id || contactContext?.contactId
+                                    ? "Já vinculado"
+                                    : "Sugerido"}
                                 </span>
-                                <span className="text-[10px] font-semibold text-muted-foreground truncate">
-                                  {pipelineName} • {stageName}
+                                <span className="text-[11px] font-semibold text-muted-foreground">
+                                  {pipelineName} • <strong className="text-foreground/85">{stageName}</strong>
                                 </span>
                               </div>
 
@@ -838,14 +873,14 @@ export function ContactDealModal({
                             key={deal.id}
                             type="button"
                             onClick={() => handleSelectDealItem(deal)}
-                            className={`w-full rounded-2xl border p-3 text-left transition-all cursor-pointer ${
+                            className={`w-full rounded-2xl border p-3.5 text-left transition-all cursor-pointer ${
                               isSelected
                                 ? "border-primary bg-primary/[0.06] ring-2 ring-primary/25 shadow-sm"
                                 : "border-border/80 bg-card hover:border-primary/40 hover:bg-muted/20"
                             }`}
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="font-bold text-xs text-foreground line-clamp-1">
+                            <div className="flex items-start justify-between gap-2.5">
+                              <span className="font-bold text-xs text-foreground line-clamp-2 break-words leading-snug">
                                 {deal.title}
                               </span>
                               <DealStatusBadge
@@ -855,13 +890,13 @@ export function ContactDealModal({
                               />
                             </div>
 
-                            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                               {isAlreadyLinked && (
                                 <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-400">
                                   Já vinculado
                                 </span>
                               )}
-                              <span className="truncate font-medium">
+                              <span className="font-medium">
                                 {pipelineName} • <strong className="text-foreground/85">{stageName}</strong>
                               </span>
                             </div>
@@ -1218,7 +1253,7 @@ export function ContactDealModal({
                     <button
                       type="button"
                       onClick={() =>
-                        onChange({
+                        emitChange({
                           newDeal: {
                             ...draft,
                             title:
@@ -1241,7 +1276,7 @@ export function ContactDealModal({
                   placeholder="Ex: Aquisição de Envasadora — Empresa X"
                   value={draft.title}
                   onChange={(e) =>
-                    onChange({ newDeal: { ...draft, title: e.target.value } })
+                    emitChange({ newDeal: { ...draft, title: e.target.value } })
                   }
                   className="h-10 w-full rounded-xl border border-border bg-muted/35 px-3.5 text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:border-primary focus:bg-card focus:outline-none focus:ring-1 focus:ring-primary"
                   autoFocus
@@ -1259,7 +1294,7 @@ export function ContactDealModal({
                     onValueChange={(newPipelineId) => {
                       const found = pipelines.find((p) => p.id === newPipelineId);
                       const firstStageId = found?.stages?.[0]?.id || "";
-                      onChange({
+                      emitChange({
                         newDeal: {
                           ...draft,
                           pipelineId: newPipelineId,
@@ -1294,7 +1329,7 @@ export function ContactDealModal({
                     value={draft.stageId || undefined}
                     disabled={!draft.pipelineId}
                     onValueChange={(newStageId) =>
-                      onChange({ newDeal: { ...draft, stageId: newStageId } })
+                      emitChange({ newDeal: { ...draft, stageId: newStageId } })
                     }
                   >
                     <SelectTrigger
@@ -1332,7 +1367,7 @@ export function ContactDealModal({
                           key={s.id}
                           type="button"
                           onClick={() =>
-                            onChange({ newDeal: { ...draft, stageId: s.id } })
+                            emitChange({ newDeal: { ...draft, stageId: s.id } })
                           }
                           className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
                             active
@@ -1357,7 +1392,7 @@ export function ContactDealModal({
                     pipelineId={draft.pipelineId}
                     values={draft.customFields || {}}
                     onChange={(customFields) =>
-                      onChange({ newDeal: { ...draft, customFields } })
+                      emitChange({ newDeal: { ...draft, customFields } })
                     }
                     create
                     requiredIds={
@@ -1427,7 +1462,7 @@ export function ContactDealModal({
                 <div className="flex items-center gap-2 truncate">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
                   <span className="text-muted-foreground">Card selecionado:</span>
-                  <strong className="text-foreground truncate max-w-[260px]">
+                  <strong className="text-foreground truncate max-w-[360px]">
                     {activePreviewDeal.title}
                   </strong>
                 </div>
@@ -1440,7 +1475,7 @@ export function ContactDealModal({
               <div className="flex items-center gap-2 truncate">
                 <Plus className="h-4 w-4 text-primary shrink-0" />
                 <span className="text-muted-foreground">Criando card:</span>
-                <strong className="text-foreground truncate max-w-[260px]">
+                <strong className="text-foreground truncate max-w-[360px]">
                   {draft.title.trim() || "Preencha o título, funil e etapa"}
                 </strong>
               </div>
@@ -1450,8 +1485,8 @@ export function ContactDealModal({
           <div className="flex items-center gap-2.5 ml-auto">
             <button
               type="button"
-              onClick={onClose}
-              disabled={saving}
+              onClick={handleClose}
+              disabled={effectiveSaving}
               className="h-10 rounded-xl border border-border bg-card px-4 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
             >
               Voltar
@@ -1459,7 +1494,7 @@ export function ContactDealModal({
             <button
               type="button"
               disabled={
-                saving ||
+                effectiveSaving ||
                 (mode === "existing"
                   ? !(value.dealId || inspectedDealId)
                   : !draft.title.trim() || !draft.pipelineId || !draft.stageId)
@@ -1467,18 +1502,24 @@ export function ContactDealModal({
               onClick={handleConfirm}
               className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-5 text-xs font-extrabold text-primary-foreground shadow-soft hover:opacity-90 transition cursor-pointer disabled:opacity-50"
             >
-              {saving ? (
+              {effectiveSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <CheckCircle2 className="h-4 w-4" />
               )}
-              <span>{saving ? "Salvando..." : confirmLabel}</span>
+              <span>{effectiveSaving ? "Salvando..." : confirmLabel}</span>
             </button>
           </div>
         </div>
+        </div>
       </div>
-    </div>
+    </DismissableLayerBranch>
   );
+
+  if (typeof document !== "undefined" && document.body) {
+    return createPortal(modalContent, document.body);
+  }
+  return modalContent;
 }
 
 /**
