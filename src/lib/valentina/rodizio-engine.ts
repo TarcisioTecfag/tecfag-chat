@@ -104,7 +104,7 @@ export class RodizioEngine {
 
       // Se já existem flowOperators salvos, usamos exclusivamente os configurados
       if (Array.isArray(configData.flowOperators)) {
-        return configData.flowOperators.map((flowOp: FlowOperator) => {
+        const mappedOps: FlowOperator[] = configData.flowOperators.map((flowOp: FlowOperator) => {
           const matchedDbOp = matchDbOp(flowOp);
 
           return {
@@ -125,6 +125,8 @@ export class RodizioEngine {
             recentLeads: flowOp.recentLeads || [],
           };
         });
+        await this.ensureFluxosOperatorsInSectors(tenantId, mappedOps);
+        return mappedOps;
       }
 
       // Consulta não cadastra equipe nem habilita uma operação em implantação.
@@ -163,15 +165,44 @@ export class RodizioEngine {
   }
 
   /**
+   * Sincroniza automaticamente os operadores das Pastas de Fluxos nos setores do tenant
+   * para que o handoff siga 100% a ordem do Rodízio das pastas sem travar por setor ausente.
+   */
+  static async ensureFluxosOperatorsInSectors(tenantId: string, flowOps: FlowOperator[]): Promise<void> {
+    if (getAiPersona(tenantId).triagePolicy !== "industrial" || !flowOps.length) return;
+    try {
+      const flowIds = Array.from(new Set(flowOps.map((op) => op.id).filter(Boolean)));
+      if (!flowIds.length) return;
+      const tenantSectors = await db
+        .select()
+        .from(sectors)
+        .where(eq(sectors.tenantId, tenantId));
+      for (const sec of tenantSectors) {
+        const currentIds = Array.isArray(sec.operatorIds) ? sec.operatorIds : [];
+        const missing = flowIds.filter((id) => !currentIds.includes(id));
+        if (missing.length > 0) {
+          await db
+            .update(sectors)
+            .set({ operatorIds: [...currentIds, ...missing] })
+            .where(and(eq(sectors.tenantId, tenantId), eq(sectors.id, sec.id)));
+        }
+      }
+    } catch {
+      // Silencioso para não afetar consultas do rodízio
+    }
+  }
+
+  /**
    * Salva a lista integral de operadores da escala/fluxo no agentConfigs
    */
   static async saveFlowOperators(tenantId: string, flowOps: FlowOperator[]): Promise<boolean> {
     try {
       if (getAiPersona(tenantId).triagePolicy === "industrial") {
-        await mutateIndustrialRodizio(db, tenantId, (current) => flowOps.map((op) => {
+        const nextOps = await mutateIndustrialRodizio(db, tenantId, (current) => flowOps.map((op) => {
           const previous = current.find((item) => item.id === op.id);
           return previous ? mergeIndustrialOperatorSettings(previous, op) : { ...op, leadsReceivedCount: 0, compensation: 0, recentLeads: [] };
         }));
+        await this.ensureFluxosOperatorsInSectors(tenantId, nextOps);
         return true;
       }
       const existingConfig = await db.query.agentConfigs.findFirst({

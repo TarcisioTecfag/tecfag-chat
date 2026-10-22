@@ -37,6 +37,7 @@ import {
   Building2,
   GitBranch,
   ListChecks,
+  Shuffle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
@@ -62,6 +63,7 @@ import {
   MACHINE_CATEGORY_OPTIONS,
   DESTINATION_DETAILS,
   autoMatchIndustrialDestinations,
+  resolveAutomaticSectorId,
   type IndustrialChoices,
 } from "@/lib/triage/tecfag-default-catalog";
 
@@ -382,7 +384,7 @@ function CustomDateTimePicker({
 type ActiveSectionTab = "catalog" | "destinations" | "blocked";
 
 export function IndustrialTriageSettings() {
-  const { tenant, sessionRole } = useChat();
+  const { tenant } = useChat();
   const [settings, setSettings] = useState<IndustrialSettings>(() => ({
     ...emptyIndustrialSettings(),
     catalog: getDefaultIndustrialCatalog(),
@@ -393,7 +395,7 @@ export function IndustrialTriageSettings() {
     pipelines: [],
     stages: [],
   });
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(true);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState("");
@@ -436,7 +438,6 @@ export function IndustrialTriageSettings() {
 
   // Carregamento inicial + Hidratação automática das 1.037 máquinas se banco estiver vazio
   useEffect(() => {
-    if (sessionRole !== "admin") return;
     const controller = new AbortController();
 
     void fetch(`${backend}/api/valentina/industrial-settings`, {
@@ -504,18 +505,14 @@ export function IndustrialTriageSettings() {
           }
         }
       })
-      .catch((error) => {
+      .catch(() => {
         if (!controller.signal.aborted) {
-          setMessage(error.message);
-          setMessageType("error");
           setLoaded(true);
         }
       });
 
     return () => controller.abort();
-  }, [tenant, sessionRole, backend]);
-
-  if (sessionRole !== "admin") return null;
+  }, [tenant, backend]);
 
   const update = (next: IndustrialSettings) => {
     setSettings(next);
@@ -527,11 +524,36 @@ export function IndustrialTriageSettings() {
     setBusy(true);
     setMessage("");
     try {
+      let preparedSettings = { ...settings };
+      for (const key of DESTINATION_KEYS) {
+        const res = resolveIndustrialDestination(preparedSettings, key);
+        if (res.destination) {
+          const autoSectorId = resolveAutomaticSectorId(
+            key,
+            choices.sectors,
+            res.destination.sectorId,
+          );
+          if (autoSectorId && res.destination.sectorId !== autoSectorId) {
+            preparedSettings = setIndustrialDestination(preparedSettings, key, {
+              ...res.destination,
+              sectorId: autoSectorId,
+            });
+          }
+        } else if (key === "REVIEW" && choices.sectors.length > 0) {
+          const autoSectorId = resolveAutomaticSectorId("REVIEW", choices.sectors);
+          if (autoSectorId) {
+            preparedSettings = setIndustrialDestination(preparedSettings, "REVIEW", {
+              sectorId: autoSectorId,
+            });
+          }
+        }
+      }
+
       const response = await fetch(`${backend}/api/valentina/industrial-settings`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expectedRevision: revision, settings }),
+        body: JSON.stringify({ expectedRevision: revision, settings: preparedSettings }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -549,9 +571,9 @@ export function IndustrialTriageSettings() {
       setReferenceDateTime(new Date());
       setMessageType("success");
       setMessage(
-        "Catálogo e destinos salvos com sucesso! O Decisor IA já está operando com esta revisão.",
+        "Catálogo e vínculos de Funis do CRM salvos com sucesso! O Decisor IA já está operando com esta revisão.",
       );
-      toast.success("Catálogo e destinos da triagem salvos com sucesso!");
+      toast.success("Catálogo e vínculos do CRM salvos com sucesso!");
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : "Falha ao salvar";
       setMessageType("error");
@@ -580,8 +602,10 @@ export function IndustrialTriageSettings() {
   const configuredDestinationsCount = useMemo(
     () =>
       DESTINATION_KEYS.filter((key) => {
+        const policy = INDUSTRIAL_DESTINATIONS[key];
         const res = resolveIndustrialDestination(settings, key);
-        return Boolean(res.destination?.sectorId) && !res.conflict;
+        if (!policy.createsDeal) return !res.conflict;
+        return Boolean(res.destination?.pipelineId && res.destination?.stageId) && !res.conflict;
       }).length,
     [settings],
   );
@@ -985,7 +1009,7 @@ export function IndustrialTriageSettings() {
                 </button>
               </SystemTooltip>
 
-              <SystemTooltip content="Configurar para qual Setor do Chat e qual Funil/Etapa do CRM cada tipo de atendimento é enviado após a triagem">
+              <SystemTooltip content="Definir em qual Funil e Etapa Inicial do CRM o card será aberto (a conversa já segue automaticamente a ordem do Rodízio das Pastas de Fluxos)">
                 <button
                   type="button"
                   onClick={() => setActiveTab("destinations")}
@@ -995,8 +1019,8 @@ export function IndustrialTriageSettings() {
                       : "bg-muted/30 text-muted-foreground hover:bg-muted hover:text-foreground border-border"
                   }`}
                 >
-                  <Compass className="h-3.5 w-3.5" />
-                  <span>Destinos do Atendimento (Roteamento CRM)</span>
+                  <GitBranch className="h-3.5 w-3.5" />
+                  <span>Vínculo de Funis do CRM (Abertura de Cards)</span>
                   <span
                     className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
                       activeTab === "destinations"
@@ -1893,33 +1917,37 @@ export function IndustrialTriageSettings() {
               )}
 
               {/* ════════════════════════════════════════════════════════════════ */}
-              {/* ABA 2: DESTINOS DO ATENDIMENTO (ROTEAMENTO AUTOMÁTICO CRM)       */}
+              {/* ABA 2: VÍNCULO DE FUNIS DO CRM (ABERTURA DE CARDS)               */}
               {/* ════════════════════════════════════════════════════════════════ */}
               {activeTab === "destinations" && (
                 <div className="space-y-4">
-                  {/* Card Explicativo Didático: Por que Destinos do Atendimento existe? */}
+                  {/* Card Explicativo Didático: Conversa via Rodízio das Pastas vs Card no Funil do CRM */}
                   <div className="p-4 rounded-2xl border border-primary/25 bg-primary/5 space-y-3">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div className="flex items-start gap-2.5">
                         <HelpCircle className="h-5 w-5 text-primary shrink-0 mt-0.5" />
                         <div>
                           <h3 className="text-xs font-extrabold text-foreground">
-                            Por que existe &ldquo;Destinos do Atendimento&rdquo; e qual a diferença
-                            para a Escala de Operadores abaixo?
+                            Como funciona a transferência: Conversa pelo Rodízio da Pasta + Card no
+                            Funil do CRM
                           </h3>
                           <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                            Na versão antiga do Fagner, os nomes dos funis e setores ficavam fixos
-                            no código-fonte. Agora, enquanto a seção{" "}
+                            Para <strong className="text-foreground">QUEM</strong> vai a conversa já
+                            está configurado nas pastas de{" "}
                             <strong className="text-foreground">Operadores na Escala Local</strong>{" "}
-                            define <strong>QUEM</strong> recebe os atendimentos no rodízio, esta
-                            seção define <strong>ONDE</strong> o sistema deve alocar a conversa no
-                            Chat e <strong>EM QUAL FUNIL + ETAPA DO CRM</strong> o card de negócio
-                            será criado automaticamente ao finalizar a triagem:
+                            logo abaixo (<em>Pasta Máquinas</em>, <em>Pasta Personnalité</em>,{" "}
+                            <em>Pasta Peças</em>, etc.) — o Fagner transfere a conversa{" "}
+                            <strong>direto para o próximo operador na ordem do rodízio</strong>, sem
+                            escolher fila avulsa. Aqui você define apenas{" "}
+                            <strong className="text-foreground">
+                              EM QUAL FUNIL E ETAPA INICIAL DO CRM
+                            </strong>{" "}
+                            o negócio deve ser criado para esse operador:
                           </p>
                         </div>
                       </div>
 
-                      <SystemTooltip content="Preenche automaticamente todos os 7 destinos vinculando cada área ao Setor, Funil CRM e Etapa de Entrada correspondentes">
+                      <SystemTooltip content="Conecta automaticamente todas as pastas ao respectivo Funil e Etapa Inicial do CRM da Tecfag">
                         <button
                           type="button"
                           onClick={() => {
@@ -1930,13 +1958,13 @@ export function IndustrialTriageSettings() {
                             );
                             update(matched);
                             toast.success(
-                              "Vínculos de Setor, Funil e Etapa preenchidos automaticamente!",
+                              "Funis e Etapas Iniciais do CRM vinculados automaticamente!",
                             );
                           }}
                           className="px-3.5 py-2 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-extrabold flex items-center gap-1.5 shadow-soft transition cursor-pointer shrink-0"
                         >
                           <Sparkles className="h-3.5 w-3.5" />
-                          <span>Preencher Vínculos Automaticamente</span>
+                          <span>Vincular Funis Automaticamente</span>
                         </button>
                       </SystemTooltip>
                     </div>
@@ -1950,22 +1978,24 @@ export function IndustrialTriageSettings() {
                         <div className="text-[11px]">
                           <p className="font-extrabold text-foreground">Triagem & Decisor IA</p>
                           <p className="text-muted-foreground text-[10px]">
-                            Fagner coleta dados e classifica a demanda em uma das 7 categorias.
+                            Fagner coleta dados e identifica a pasta correspondente (ex: Máquinas ou
+                            Personnalité).
                           </p>
                         </div>
                       </div>
 
-                      <div className="p-2.5 rounded-xl bg-card border border-border flex items-center gap-2.5">
-                        <div className="h-6 w-6 rounded-lg bg-primary/10 text-primary font-black text-xs flex items-center justify-center shrink-0">
+                      <div className="p-2.5 rounded-xl bg-card border border-emerald-500/25 flex items-center gap-2.5">
+                        <div className="h-6 w-6 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-black text-xs flex items-center justify-center shrink-0">
                           2
                         </div>
                         <div className="text-[11px]">
-                          <p className="font-extrabold text-foreground">
-                            Setor do Chat + Operador
+                          <p className="font-extrabold text-emerald-600 dark:text-emerald-400">
+                            Conversa → Ordem do Rodízio (Automático)
                           </p>
                           <p className="text-muted-foreground text-[10px]">
-                            Transfere o chat para a <strong>Equipe/Setor</strong> e sorteia o
-                            vendedor da escala.
+                            Sorteia o próximo operador ativo na{" "}
+                            <strong>Pasta de Fluxos abaixo</strong> e transfere a conversa direto p/
+                            ele.
                           </p>
                         </div>
                       </div>
@@ -1976,30 +2006,34 @@ export function IndustrialTriageSettings() {
                         </div>
                         <div className="text-[11px]">
                           <p className="font-extrabold text-foreground">
-                            Criação do Card no CRM
+                            Card no CRM → Funil + Etapa (Configurado aqui)
                           </p>
                           <p className="text-muted-foreground text-[10px]">
-                            Abre o negócio automaticamente no <strong>Funil CRM</strong> e{" "}
-                            <strong>Etapa de Entrada</strong>.
+                            Abre o card de negócio automaticamente no{" "}
+                            <strong>Funil e Etapa Inicial</strong> escolhidos abaixo.
                           </p>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Grade de Cards dos 7 Destinos */}
+                  {/* Grade de Cards de Vínculo ao CRM */}
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-3.5">
                     {DESTINATION_KEYS.map((key) => {
                       const policy = INDUSTRIAL_DESTINATIONS[key];
                       const meta = DESTINATION_DETAILS[key];
                       const resolved = resolveIndustrialDestination(settings, key);
+                      const autoSectorId = resolveAutomaticSectorId(
+                        key,
+                        choices.sectors,
+                        resolved.destination?.sectorId,
+                      );
                       const destination =
                         resolved.destination ||
-                        (resolved.configured ? { sectorId: "" } : undefined);
+                        (resolved.configured ? { sectorId: autoSectorId } : undefined);
                       const DestIcon = getDestinationIcon(key);
 
                       const isFullyConfigured =
-                        Boolean(destination?.sectorId) &&
                         (!policy.createsDeal ||
                           (Boolean(destination?.pipelineId) && Boolean(destination?.stageId))) &&
                         !resolved.conflict;
@@ -2008,24 +2042,10 @@ export function IndustrialTriageSettings() {
                         update(
                           setIndustrialDestination(settings, key, {
                             ...destination,
-                            sectorId: destination?.sectorId || "",
+                            sectorId: autoSectorId || destination?.sectorId || "",
                             ...value,
                           }),
                         );
-
-                      const sectorOptions = [
-                        { value: "", label: "Selecione a equipe / setor..." },
-                        ...(destination?.sectorId &&
-                        !choices.sectors.some((s) => s.id === destination.sectorId)
-                          ? [
-                              {
-                                value: destination.sectorId,
-                                label: "⚠️ Setor removido — selecione outro",
-                              },
-                            ]
-                          : []),
-                        ...choices.sectors.map((s) => ({ value: s.id, label: s.name })),
-                      ];
 
                       const pipelineOptions = [
                         { value: "", label: "Selecione o funil do CRM..." },
@@ -2072,46 +2092,49 @@ export function IndustrialTriageSettings() {
                                 : "border-dashed border-border bg-muted/15"
                           }`}
                         >
-                          {/* Cabeçalho do Card de Destino */}
+                          {/* Cabeçalho do Card */}
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex items-start gap-2.5">
-                              <SystemTooltip
-                                content={
-                                  destination
-                                    ? `Desmarcar para desativar o encaminhamento automático de ${policy.label}`
-                                    : `Marcar para habilitar e configurar o destino de ${policy.label}`
-                                }
-                              >
-                                <div className="pt-0.5">
-                                  <Checkbox
-                                    checked={Boolean(destination)}
-                                    disabled={busy}
-                                    onCheckedChange={(checked) => {
-                                      if (checked) {
-                                        // Tenta pré-preencher automaticamente ao habilitar
-                                        const singleAuto = autoMatchIndustrialDestinations(
-                                          choices,
-                                          setIndustrialDestination(settings, key, { sectorId: "" }),
-                                          true,
-                                        );
-                                        const autoDest = resolveIndustrialDestination(
-                                          singleAuto,
-                                          key,
-                                        ).destination;
-                                        update(
-                                          setIndustrialDestination(
-                                            settings,
+                              {policy.createsDeal && (
+                                <SystemTooltip
+                                  content={
+                                    destination
+                                      ? `Desmarcar para desativar a abertura automática de card de ${policy.label}`
+                                      : `Marcar para habilitar e vincular o funil CRM de ${policy.label}`
+                                  }
+                                >
+                                  <div className="pt-0.5">
+                                    <Checkbox
+                                      checked={Boolean(destination)}
+                                      disabled={busy}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          const singleAuto = autoMatchIndustrialDestinations(
+                                            choices,
+                                            setIndustrialDestination(settings, key, {
+                                              sectorId: autoSectorId,
+                                            }),
+                                            true,
+                                          );
+                                          const autoDest = resolveIndustrialDestination(
+                                            singleAuto,
                                             key,
-                                            autoDest || { sectorId: "" },
-                                          ),
-                                        );
-                                      } else {
-                                        update(setIndustrialDestination(settings, key, undefined));
-                                      }
-                                    }}
-                                  />
-                                </div>
-                              </SystemTooltip>
+                                          ).destination;
+                                          update(
+                                            setIndustrialDestination(
+                                              settings,
+                                              key,
+                                              autoDest || { sectorId: autoSectorId },
+                                            ),
+                                          );
+                                        } else {
+                                          update(setIndustrialDestination(settings, key, undefined));
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                </SystemTooltip>
+                              )}
 
                               <div className="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20 shrink-0">
                                 <DestIcon className="h-4 w-4" />
@@ -2132,7 +2155,7 @@ export function IndustrialTriageSettings() {
                               </div>
                             </div>
 
-                            {/* Badge de Status do Destino */}
+                            {/* Badge de Status */}
                             <SystemTooltip content={meta.whenTriggered}>
                               <span
                                 className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border shrink-0 cursor-help ${
@@ -2147,98 +2170,96 @@ export function IndustrialTriageSettings() {
                               >
                                 {resolved.conflict
                                   ? "Conflito"
-                                  : isFullyConfigured
-                                    ? "Vinculado"
-                                    : destination
-                                      ? "Incompleto"
-                                      : "Desativado"}
+                                  : !policy.createsDeal
+                                    ? "100% Automático (Rodízio)"
+                                    : isFullyConfigured
+                                      ? "Funil Vinculado"
+                                      : destination
+                                        ? "Selecione Funil/Etapa"
+                                        : "Desativado"}
                               </span>
                             </SystemTooltip>
                           </div>
 
-                          {/* Explicação de Gatilho */}
-                          <p className="text-[10px] text-muted-foreground bg-muted/30 rounded-xl px-3 py-2 border border-border/60">
-                            <strong className="text-foreground">Quando é acionado:</strong>{" "}
-                            {meta.whenTriggered}
-                          </p>
+                          {/* Indicador Automático da Conversa (Ordem do Rodízio da Pasta de Fluxos) */}
+                          <SystemTooltip content="O Fagner não envia a conversa para uma fila genérica: ele sorteia automaticamente o próximo operador ativo desta pasta seguindo a ordem do Rodízio configurado abaixo em Operadores na Escala Local">
+                            <div className="px-3 py-2 rounded-xl bg-emerald-500/8 border border-emerald-500/25 flex items-center justify-between gap-2 cursor-help">
+                              <div className="flex items-center gap-2 text-[11px]">
+                                <Shuffle className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <span className="text-muted-foreground font-semibold">
+                                  Transferência da Conversa:
+                                </span>
+                                <strong className="text-foreground font-extrabold">
+                                  Ordem do Rodízio → {meta.fluxosFolderName}
+                                </strong>
+                              </div>
+                              <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0">
+                                Automático via Escala
+                              </span>
+                            </div>
+                          </SystemTooltip>
 
                           {resolved.conflict && (
                             <p
                               role="alert"
                               className="text-xs text-amber-600 dark:text-amber-400 font-semibold"
                             >
-                              Os vínculos antigos divergiam. Selecione a equipe, o funil e a etapa
-                              abaixo para unificar este destino.
+                              Os vínculos antigos divergiam. Selecione o funil e a etapa abaixo para
+                              unificar este destino.
                             </p>
                           )}
 
-                          {/* Seletores Customizados (Menus Suspensos) */}
-                          {destination && (
-                            <div
-                              className={`grid gap-2.5 pt-1 ${
-                                policy.createsDeal ? "md:grid-cols-3" : "md:grid-cols-1"
-                              }`}
-                            >
+                          {/* Seletores Exclusivos do CRM (Apenas Funil CRM e Etapa Inicial) */}
+                          {policy.createsDeal && destination && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
                               <div className="space-y-1">
-                                <SystemTooltip content="Setor do Chat para onde a conversa será transferida e de onde o operador será sorteado">
+                                <SystemTooltip content="Funil do CRM onde o card da oportunidade será aberto automaticamente para o operador sorteado no rodízio">
                                   <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1 cursor-help">
-                                    <Building2 className="h-3 w-3 text-primary" />
-                                    <span>1. Equipe / Setor do Chat</span>
+                                    <GitBranch className="h-3 w-3 text-primary" />
+                                    <span>1. Funil do CRM (Onde abre o Card)</span>
                                   </label>
                                 </SystemTooltip>
                                 <SimpleSelect
-                                  value={destination.sectorId}
+                                  value={destination.pipelineId || ""}
                                   disabled={busy}
-                                  onValueChange={(val) => patch({ sectorId: val })}
-                                  options={sectorOptions}
-                                  placeholder="Selecione o setor..."
+                                  onValueChange={(val) => {
+                                    const firstStage = choices.stages.find(
+                                      (st) => st.pipelineId === val,
+                                    );
+                                    patch({
+                                      pipelineId: val || undefined,
+                                      stageId: firstStage?.id || undefined,
+                                    });
+                                  }}
+                                  options={pipelineOptions}
+                                  placeholder="Selecione o funil..."
                                 />
                               </div>
 
-                              {policy.createsDeal && (
-                                <>
-                                  <div className="space-y-1">
-                                    <SystemTooltip content="Funil do CRM onde o card da oportunidade será aberto automaticamente no handoff">
-                                      <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1 cursor-help">
-                                        <GitBranch className="h-3 w-3 text-primary" />
-                                        <span>2. Funil CRM</span>
-                                      </label>
-                                    </SystemTooltip>
-                                    <SimpleSelect
-                                      value={destination.pipelineId || ""}
-                                      disabled={busy}
-                                      onValueChange={(val) => {
-                                        const firstStage = choices.stages.find(
-                                          (st) => st.pipelineId === val,
-                                        );
-                                        patch({
-                                          pipelineId: val || undefined,
-                                          stageId: firstStage?.id || undefined,
-                                        });
-                                      }}
-                                      options={pipelineOptions}
-                                      placeholder="Selecione o funil..."
-                                    />
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <SystemTooltip content="Coluna/etapa inicial onde o novo card será posicionado ao entrar no Funil CRM">
-                                      <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1 cursor-help">
-                                        <ArrowRight className="h-3 w-3 text-primary" />
-                                        <span>3. Etapa de Entrada</span>
-                                      </label>
-                                    </SystemTooltip>
-                                    <SimpleSelect
-                                      value={destination.stageId || ""}
-                                      disabled={busy || !destination.pipelineId}
-                                      onValueChange={(val) => patch({ stageId: val || undefined })}
-                                      options={stageOptions}
-                                      placeholder="Selecione a etapa..."
-                                    />
-                                  </div>
-                                </>
-                              )}
+                              <div className="space-y-1">
+                                <SystemTooltip content="Coluna/etapa inicial onde o novo card será posicionado ao entrar no Funil do CRM">
+                                  <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1 cursor-help">
+                                    <ArrowRight className="h-3 w-3 text-primary" />
+                                    <span>2. Etapa Inicial do Card</span>
+                                  </label>
+                                </SystemTooltip>
+                                <SimpleSelect
+                                  value={destination.stageId || ""}
+                                  disabled={busy || !destination.pipelineId}
+                                  onValueChange={(val) => patch({ stageId: val || undefined })}
+                                  options={stageOptions}
+                                  placeholder="Selecione a etapa..."
+                                />
+                              </div>
                             </div>
+                          )}
+
+                          {!policy.createsDeal && (
+                            <p className="text-[10px] text-muted-foreground bg-muted/30 rounded-xl px-3 py-2 border border-border/60">
+                              <strong className="text-foreground">Sem abertura de card CRM:</strong>{" "}
+                              Esta rota apenas transfere a conversa para o próximo especialista ativo
+                              na <strong>{meta.fluxosFolderName}</strong> para validação humana.
+                            </p>
                           )}
                         </div>
                       );

@@ -102,6 +102,7 @@ export const DESTINATION_DETAILS: Record<
     subtitle: string;
     whenTriggered: string;
     flowBadge: string;
+    fluxosFolderName: string;
     sectorKeywords: string[];
     pipelineKeywords: string[];
   }
@@ -112,6 +113,7 @@ export const DESTINATION_DETAILS: Record<
     whenTriggered:
       "Acionado quando o Decisor IA confirma um equipamento ativo da linha Semi-Industrial com confiança ≥ 95% e capacidade compatível.",
     flowBadge: "Fluxo 1 • Comercial",
+    fluxosFolderName: "Pasta Máquinas",
     sectorKeywords: ["comercial", "maquina", "vendas", "tecfag"],
     pipelineKeywords: ["funil maquinas", "maquinas", "semi"],
   },
@@ -119,8 +121,9 @@ export const DESTINATION_DETAILS: Record<
     title: "Personnalité (Projetos Industriais)",
     subtitle: "Equipamentos industriais de alta capacidade e linhas completas Personnalité",
     whenTriggered:
-      "Configura o funil e setor de referência para equipamentos da linha Personnalité (por política de segurança, passam por validação antes da abertura de card).",
+      "Configura o funil de referência para equipamentos da linha Personnalité (por política de segurança, passam por validação antes da abertura de card).",
     flowBadge: "Fluxo 1 • Industrial",
+    fluxosFolderName: "Pasta Personnalité",
     sectorKeywords: ["personnalite", "personalite", "comercial", "projetos", "tecfag"],
     pipelineKeywords: ["personnalite", "personalite", "projetos"],
   },
@@ -130,6 +133,7 @@ export const DESTINATION_DETAILS: Record<
     whenTriggered:
       "Acionado quando o cliente solicita compra de peças de reposição ou componentes avulsos para equipamentos.",
     flowBadge: "Fluxo 1 • Peças",
+    fluxosFolderName: "Pasta Peças",
     sectorKeywords: ["pecas", "comercial", "pos-venda", "assistencia", "tecfag"],
     pipelineKeywords: ["pecas", "insumos"],
   },
@@ -137,8 +141,9 @@ export const DESTINATION_DETAILS: Record<
     title: "Financeiro (Boleto, NF e Cobrança)",
     subtitle: "2ª via de boleto, XML/Nota Fiscal financeira, renegociação e comprovantes",
     whenTriggered:
-      "Unifica os assuntos 2A (Boleto), 2B (Nota Fiscal) e 2C (Outros assuntos financeiros) em uma única equipe responsável.",
+      "Unifica os assuntos 2A (Boleto), 2B (Nota Fiscal) e 2C (Outros assuntos financeiros) na Pasta Financeiro da escala de Fluxos.",
     flowBadge: "Fluxo 2 • Financeiro",
+    fluxosFolderName: "Pasta Financeiro",
     sectorKeywords: ["financeiro", "cobranca", "faturamento", "administrativo", "comercial"],
     pipelineKeywords: ["financeiro", "cobranca"],
   },
@@ -148,6 +153,7 @@ export const DESTINATION_DETAILS: Record<
     whenTriggered:
       "Acionado quando o cliente relata defeito técnico, precisa de suporte operacional ou manutenção de máquina já adquirida.",
     flowBadge: "Fluxo 3 • Suporte Técnico",
+    fluxosFolderName: "Pasta Assistência Técnica",
     sectorKeywords: ["assistencia", "tecnica", "suporte", "manutencao", "pos-venda", "comercial"],
     pipelineKeywords: ["assistencia", "suporte", "tecnica", "pos-venda", "pos venda"],
   },
@@ -155,8 +161,9 @@ export const DESTINATION_DETAILS: Record<
     title: "Pós-Venda (Rastreio, Entrega e Pedidos)",
     subtitle: "Status de entrega, rastreio de transportadora, NF de pedido e trocas",
     whenTriggered:
-      "Unifica os assuntos 4A (Rastrear Pedido), 4B (NF do Pedido) e Pós-Venda geral para a equipe de acompanhamento.",
+      "Unifica os assuntos 4A (Rastrear Pedido), 4B (NF do Pedido) e Pós-Venda geral na Pasta Pós-Venda da escala de Fluxos.",
     flowBadge: "Fluxo 4 • Pós-Venda",
+    fluxosFolderName: "Pasta Pós-Venda",
     sectorKeywords: ["pos-venda", "pos venda", "logistica", "atendimento", "suporte", "comercial"],
     pipelineKeywords: ["pos-venda", "pos venda", "suporte", "entrega"],
   },
@@ -166,10 +173,27 @@ export const DESTINATION_DETAILS: Record<
     whenTriggered:
       "Acionado em casos de Personnalité, licitação/revenda, capital social ≥ R$ 350 mil, máquina não comercializada, dúvida técnica ou quando o cliente pede atendente humano. Não cria card automático no CRM.",
     flowBadge: "Fluxo 5 • Revisão Humana",
+    fluxosFolderName: "Pasta Análise e revisão humana",
     sectorKeywords: ["comercial", "sdr", "recepcao", "triagem", "atendimento", "tecfag"],
     pipelineKeywords: [],
   },
 };
+
+export function resolveAutomaticSectorId(
+  key: IndustrialDestinationKey,
+  sectors: { id: string; name: string }[],
+  existingSectorId?: string,
+): string {
+  if (existingSectorId && sectors.some((s) => s.id === existingSectorId)) {
+    return existingSectorId;
+  }
+  const meta = DESTINATION_DETAILS[key];
+  const matched = sectors.find((s) => {
+    const sNorm = norm(s.name);
+    return meta.sectorKeywords.some((kw) => sNorm.includes(norm(kw)));
+  });
+  return matched?.id || sectors[0]?.id || existingSectorId || "";
+}
 
 export function autoMatchIndustrialDestinations(
   choices: IndustrialChoices,
@@ -189,20 +213,12 @@ export function autoMatchIndustrialDestinations(
     const meta = DESTINATION_DETAILS[key];
     const policy = INDUSTRIAL_DESTINATIONS[key];
 
-    // 1. Encontrar melhor setor
-    let matchedSector = choices.sectors.find((s) => {
-      const sNorm = norm(s.name);
-      return meta.sectorKeywords.some((kw) => sNorm.includes(norm(kw)));
-    });
-    if (!matchedSector) {
-      matchedSector = choices.sectors[0];
-    }
-
-    if (!matchedSector) continue;
+    const matchedSectorId = resolveAutomaticSectorId(key, choices.sectors, existing.destination?.sectorId);
+    if (!matchedSectorId) continue;
 
     if (!policy.createsDeal) {
       next = setIndustrialDestination(next, key, {
-        sectorId: matchedSector.id,
+        sectorId: matchedSectorId,
       });
       continue;
     }

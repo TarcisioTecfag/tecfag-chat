@@ -455,7 +455,7 @@ export function FluxosTab() {
 
   return (
     <div className="flex flex-col gap-5 h-full overflow-y-auto scrollbar-thin pr-1 animate-fadeIn pb-12">
-      {tenant && getAiPersona(tenant).triagePolicy === "industrial" && <IndustrialTriageSettings key={tenant} />}
+      {persona.triagePolicy === "industrial" && <IndustrialTriageSettings key={tenant || "tecfag"} />}
       {/* ── HEADER PRINCIPAL ─────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-line pb-4">
         <div>
