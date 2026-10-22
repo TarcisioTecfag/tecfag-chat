@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { SdrFilterState } from "./sdr-kanban-data";
+import { IndustrialTriageHistory } from "./IndustrialTriageHistory";
 
 export interface SdrHeaderControlsProps {
   filterState: SdrFilterState;
@@ -20,6 +21,9 @@ export interface SdrHeaderControlsProps {
   isLoading: boolean;
   personaName: string;
   onVarredura?: () => void;
+  showTriageHistory?: boolean;
+  tenantId?: string;
+  selectedConversationId?: string;
 }
 
 export function SdrHeaderControls({
@@ -29,6 +33,9 @@ export function SdrHeaderControls({
   isLoading,
   personaName,
   onVarredura,
+  showTriageHistory,
+  tenantId,
+  selectedConversationId,
 }: SdrHeaderControlsProps) {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -376,6 +383,15 @@ export function SdrHeaderControls({
           <span className="hidden sm:inline">Varredura</span>
         </button>
       </SystemTooltip>
+
+      {/* ── BOTÃO HISTÓRICO E NOTAS (AO LADO DE VARREDURA) ── */}
+      {showTriageHistory && tenantId && (
+        <IndustrialTriageHistory
+          key={tenantId}
+          tenantId={tenantId}
+          initialConversationId={selectedConversationId}
+        />
+      )}
 
       {/* ── BOTÃO ATUALIZAR ── */}
       <SystemTooltip content="Atualizar conversas e kanban em tempo real">

@@ -17,6 +17,7 @@ import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { MessageReactionPicker } from "./MessageReactionPicker";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
+import { SystemAnnotationBubble } from "./SystemAnnotationBubble";
 import { Message } from "@/lib/mockData";
 import {
   renderTextWithLinks,
@@ -103,7 +104,7 @@ function ChatMessageBubbleComponent({
   onOpenWarningChat,
   onSendWelcomeSuggestion,
 }: ChatMessageBubbleProps) {
-  // ── 1. Mensagens de Sistema ──
+  // ── 1. Mensagens de Sistema (ocultas por padrão no ícone ? discreto) ──
   if (isSystem) {
     return (
       <div key={m.clientMessageId || m.id} className="w-full">
@@ -114,11 +115,12 @@ function ChatMessageBubbleComponent({
             </span>
           </div>
         )}
-        <div className={`flex justify-center ${gap} my-2`}>
-          <span className="rounded-full bg-muted px-4 py-1 text-[10px] font-semibold text-muted-foreground uppercase border border-border">
-            {renderTextWithLinks(m.text)} — {m.time}
-          </span>
-        </div>
+        <SystemAnnotationBubble
+          text={m.text}
+          time={m.time}
+          gap={gap}
+          renderText={(val) => renderTextWithLinks(val)}
+        />
       </div>
     );
   }

@@ -47,6 +47,7 @@ import {
   MessengerLogo,
   WhatsappLogo,
 } from "@/components/chat/ChatList";
+import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
 import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import {
   Dialog,
@@ -2361,14 +2362,14 @@ export function CrmChatWidget() {
                             const isMe = message.side === "out";
                             const isSystem = message.author === "Sistema";
 
-                            // Mensagem de Sistema
+                            // Mensagem de Sistema (oculta por padrão no ícone ? discreto)
                             if (isSystem) {
                               return (
-                                <div key={message.id || i} className="flex justify-center my-2">
-                                  <span className="rounded-full bg-muted/90 border border-border/70 px-3 py-0.5 text-[10px] font-medium text-muted-foreground uppercase shadow-2xs select-none">
-                                    {message.text} · {message.time}
-                                  </span>
-                                </div>
+                                <SystemAnnotationBubble
+                                  key={message.id || i}
+                                  text={message.text}
+                                  time={message.time}
+                                />
                               );
                             }
 

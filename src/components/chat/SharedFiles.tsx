@@ -22,6 +22,7 @@ import { AccountPicker } from "@/components/crm/AccountPicker";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
+import { formatSystemAnnotation } from "@/lib/triage/format-system-annotation";
 import { motion } from "framer-motion";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
@@ -146,9 +147,16 @@ const parseHistoryEvent = (msg: any): HistoryEventInfo => {
     };
   }
 
+  const formatted = formatSystemAnnotation(text);
+  const conciseDescription = formatted.isSingleLine
+    ? formatted.singleLineText
+    : formatted.items.map((item) => `${item.label}: ${item.value}`).join(" · ") ||
+      formatted.alerts.join(" · ") ||
+      formatted.badgeTitle;
+
   return {
-    title: "Mensagem do Sistema",
-    description: text,
+    title: formatted.badgeTitle || "Mensagem do Sistema",
+    description: conciseDescription,
     icon: Shield,
     dotBg: "bg-gray-500",
     iconColor: "text-white",

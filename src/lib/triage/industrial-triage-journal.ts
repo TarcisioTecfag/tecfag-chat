@@ -161,7 +161,7 @@ export function buildJournalEntry(
       JSON.stringify(prior?.collectedData[key]) !== JSON.stringify(snapshot.collectedData[key]),
   );
   const labels = {
-    legacy_summary: "Resumo legado preservado (coleta e notas originais indisponíveis)",
+    legacy_summary: "Resumo legado preservado",
     collection: "Coleta atualizada",
     handoff: "Situação do encaminhamento atualizada",
     archive: "Ciclo de triagem arquivado",
@@ -170,14 +170,29 @@ export function buildJournalEntry(
     human_review: "Dados revisados por operador",
     status: "Situação do ciclo atualizada",
   };
+  const hasExplicitDestField = changedFields.some(
+    (key) => key.trim().toLowerCase() === "setor / funil de destino",
+  );
+  const destChanged = !prior || prior.targetFunnel !== snapshot.targetFunnel;
+  const shouldIncludeDest =
+    Boolean(snapshot.targetFunnel) &&
+    !hasExplicitDestField &&
+    kind !== "archive" &&
+    kind !== "handoff" &&
+    (kind !== "collection" || destChanged || changedFields.length === 0);
+
   const content = [
     labels[kind],
-    ...changedFields.map(
-      (key) =>
-        `${key}: ${!snapshot.collectedData[key] ? "Dado removido" : snapshot.collectedData[key].status === "filled" ? snapshot.collectedData[key].value : "Aguardando confirmação"}`,
-    ),
-    snapshot.targetFunnel ? `Destino: ${snapshot.targetFunnel}` : "",
-    snapshot.needsReview ? "Revisão humana necessária." : "",
+    ...(kind === "archive"
+      ? []
+      : changedFields.map(
+          (key) =>
+            `${key}: ${!snapshot.collectedData[key] ? "Dado removido" : snapshot.collectedData[key].status === "filled" ? snapshot.collectedData[key].value : "Aguardando confirmação"}`,
+        )),
+    shouldIncludeDest ? `Destino: ${snapshot.targetFunnel}` : "",
+    snapshot.needsReview && kind !== "archive" && kind !== "handoff"
+      ? "Revisão humana necessária."
+      : "",
   ]
     .filter(Boolean)
     .join("\n")

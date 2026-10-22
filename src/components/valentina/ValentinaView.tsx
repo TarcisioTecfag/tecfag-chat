@@ -56,6 +56,7 @@ export function ValentinaView() {
   const [sdrFilterState, setSdrFilterState] = useState<SdrFilterState>(DEFAULT_SDR_FILTER_STATE);
   const [sdrRefreshKey, setSdrRefreshKey] = useState(0);
   const [isSdrLoading, setIsSdrLoading] = useState(false);
+  const [sdrSelectedConversationId, setSdrSelectedConversationId] = useState<string | undefined>(undefined);
   const [sdrTargetConversation, setSdrTargetConversation] = useState<{
     conversationId: string;
     leadName?: string;
@@ -158,22 +159,6 @@ export function ValentinaView() {
           {activeTab === "sdr" && (
             <div className="flex items-center gap-2 animate-fadeIn flex-wrap">
               <SystemTooltip
-                content={`${persona.name} responde e qualifica automaticamente todos os contatos que chegam sem responsável.`}
-              >
-                <div
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition-all ${
-                    sdrEnabled
-                      ? "bg-primary-soft text-primary border-primary/30"
-                      : "bg-muted text-muted-foreground border-border"
-                  }`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${sdrEnabled ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
-                  <span className="hidden md:inline">Triagem Automática —</span>
-                  <span>{sdrEnabled ? `${persona.name} SDR Ativo` : `${persona.name} SDR Pausado`}</span>
-                </div>
-              </SystemTooltip>
-
-              <SystemTooltip
                 content={
                   sdrEnabled
                     ? `Clique para pausar ${persona.gender === "female" ? "a" : "o"} ${persona.name} globalmente`
@@ -194,7 +179,7 @@ export function ValentinaView() {
                 </button>
               </SystemTooltip>
 
-              {/* Controles de Busca, Filtros Avançados, Varredura e Atualizar */}
+              {/* Controles de Busca, Filtros Avançados, Varredura, Histórico e notas e Atualizar */}
               <SdrHeaderControls
                 filterState={sdrFilterState}
                 onFilterChange={setSdrFilterState}
@@ -205,6 +190,9 @@ export function ValentinaView() {
                   toast.info(`Varredura ativa: ${persona.name} está monitorando 100% das mensagens recebidas.`);
                   setSdrRefreshKey((k) => k + 1);
                 }}
+                showTriageHistory={persona.triagePolicy === "industrial"}
+                tenantId={tenant || "valem"}
+                selectedConversationId={sdrSelectedConversationId}
               />
 
               <div className="h-4 w-px bg-border mx-0.5" />
@@ -243,7 +231,7 @@ export function ValentinaView() {
       </div>
 
       {/* Tab Content */}
-      <div className={`flex-1 overflow-hidden flex flex-col ${activeTab === "chat" ? "" : activeTab === "sdr" ? "px-4 py-2.5" : "px-5 py-4"}`}>
+      <div className={`flex-1 overflow-hidden flex flex-col ${activeTab === "chat" ? "" : activeTab === "sdr" ? "px-4 py-2" : "px-5 py-4"}`}>
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -261,6 +249,7 @@ export function ValentinaView() {
                 filterState={sdrFilterState}
                 refreshKey={sdrRefreshKey}
                 onLoadingChange={setIsSdrLoading}
+                onSelectedConversationChange={setSdrSelectedConversationId}
                 targetConversation={sdrTargetConversation}
                 onTargetConversationHandled={() => setSdrTargetConversation(null)}
               />

@@ -13,6 +13,7 @@ import {
   historyPageInput,
   historyNextCursor,
 } from "../src/lib/triage/triage-history-pagination.ts";
+import { formatSystemAnnotation } from "../src/lib/triage/format-system-annotation.ts";
 
 const startedAt = "2026-10-10T12:00:00.000Z";
 const flow = {
@@ -83,6 +84,47 @@ describe("notas progressivas de triagem", () => {
   it("recusa snapshot de ciclo inválido", () => {
     assert.equal(readJournalSnapshot({ ...buildJournalSnapshot(flow), cycleId: "outro" }), null);
     assert.equal(readJournalSnapshot(null), null);
+  });
+  it("formata relatórios de triagem de forma objetiva e sem duplicidade de campos ou destino", () => {
+    const rawArchive = [
+      "Ciclo de triagem arquivado",
+      "CNPJ OU CPF: 48391558878",
+      "MÁQUINA / PEÇA / INTERESSE: Nota fiscal",
+      "NOME COMPLETO: Tarcisio Pereira do nascimento",
+      "SETOR / FUNIL DE DESTINO: Financeiro",
+      "Destino: Financeiro",
+      "",
+      "BRIEFING FINAL DA TRIAGEM",
+      "Situação do ciclo: Encaminhamento registrado",
+      "Início: 22/10/2026, 13:14:03 (Brasília)",
+      "Registro do ciclo: 22/10/2026, 13:17:26 (Brasília)",
+      "Destino registrado: Financeiro",
+      "Subfluxo: 2B_NF",
+      "Responsável no encaminhamento: Jessica Pimentel",
+      "Negociação vinculada no encaminhamento: deal-1792685846905-xwik5",
+      "Dados ainda sem revisão humana registrada.",
+      "",
+      "DADOS REGISTRADOS (não comprovam validação cadastral ou titularidade):",
+      "CNPJ OU CPF: 48391558878",
+      "MÁQUINA / PEÇA / INTERESSE: Nota fiscal",
+      "NOME COMPLETO: Tarcisio Pereira do nascimento",
+      "SETOR / FUNIL DE DESTINO: Financeiro",
+    ].join("\n");
+
+    const parsed = formatSystemAnnotation(rawArchive);
+    assert.equal(parsed.badgeTitle, "Ciclo de Triagem Arquivado");
+    assert.equal(parsed.isSingleLine, false);
+    assert.deepEqual(
+      parsed.items.map((item) => [item.label, item.value]),
+      [
+        ["Destino", "Financeiro"],
+        ["Responsável", "Jessica Pimentel"],
+        ["Cliente", "Tarcisio Pereira do nascimento"],
+        ["CPF / CNPJ", "483.915.588-78"],
+        ["Interesse", "Nota fiscal"],
+        ["Período", "13:14 às 13:17"],
+      ],
+    );
   });
 });
 describe("paginação com contexto", () => {

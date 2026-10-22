@@ -27,11 +27,10 @@ export function buildIndustrialBriefing(snapshot: JournalSnapshot) {
     terminal ? "BRIEFING FINAL DA TRIAGEM" : "RESUMO DA TRIAGEM EM ANDAMENTO",
     `Situação do ciclo: ${status}`,
     `Início: ${formatTime(snapshot.startedAt)}`,
-    snapshot.lastInteractionAt
+    snapshot.lastInteractionAt && snapshot.lastInteractionAt !== snapshot.startedAt
       ? `Registro do ciclo: ${formatTime(snapshot.lastInteractionAt)}`
       : "",
-    `Destino registrado: ${snapshot.targetFunnel || "Não definido"}`,
-    snapshot.subflow ? `Subfluxo: ${snapshot.subflow}` : "",
+    snapshot.targetFunnel ? `Destino: ${snapshot.targetFunnel}` : "",
     ...(snapshot.vtexLookup
       ? [
           `CONSULTA VTEX: ${snapshot.vtexLookup.status} · ${formatTime(snapshot.vtexLookup.checkedAt)}`,
@@ -41,12 +40,11 @@ export function buildIndustrialBriefing(snapshot: JournalSnapshot) {
           snapshot.vtexLookup.selectedSkuId
             ? `SKU consultado: ${snapshot.vtexLookup.selectedSkuId}`
             : "",
-          "Consulta de loja não confirma compra ou qualificação comercial.",
         ]
       : []),
     ...(snapshot.siteContext
       ? [
-          "ORIGEM DO SITE (declarada pelo navegador):",
+          "ORIGEM DO SITE:",
           `Página de entrada: ${snapshot.siteContext.entry.url}`,
           `Página no atendimento: ${snapshot.siteContext.page.url}`,
           snapshot.siteContext.entry.referrer
@@ -60,17 +58,16 @@ export function buildIndustrialBriefing(snapshot: JournalSnapshot) {
           snapshot.siteContext.product
             ? `Última consulta explícita de produto: ${snapshot.siteContext.product.name || "Nome não informado"} · ${snapshot.siteContext.product.url}${snapshot.siteContext.product.sku ? ` · SKU informado: ${snapshot.siteContext.product.sku}` : ""}`
             : "",
-          "Navegação e consulta de produto não confirmam compra ou adequação técnica.",
         ]
       : []),
     snapshot.responsible
-      ? `Responsável no encaminhamento: ${snapshot.responsible.name || snapshot.responsible.id}`
-      : "Sem responsável comprovado por recibo neste ciclo.",
+      ? `Responsável: ${snapshot.responsible.name || snapshot.responsible.id}`
+      : "",
     snapshot.dealId
-      ? `Negociação vinculada no encaminhamento: ${snapshot.dealId}`
+      ? ""
       : "Este resumo não comprova criação de negociação.",
     snapshot.needsReview
-      ? "Revisão especializada necessária. A coleta não confirma adequação técnica do produto."
+      ? "Revisão especializada necessária."
       : "",
     snapshot.missingFields.length
       ? `Dados pendentes: ${snapshot.missingFields.map((field) => missingLabels[field] || field).join(", ")}`
@@ -80,11 +77,13 @@ export function buildIndustrialBriefing(snapshot: JournalSnapshot) {
       : "",
     snapshot.humanReview
       ? `Revisão humana: ${snapshot.humanReview.operatorName} · ${formatTime(snapshot.humanReview.reviewedAt)}${snapshot.humanReview.current ? "" : " · A coleta mudou após a revisão"}\nMotivo: ${snapshot.humanReview.reason}`
-      : "Dados ainda sem revisão humana registrada.",
-    "",
-    "DADOS REGISTRADOS (não comprovam validação cadastral ou titularidade):",
+      : "",
     ...Object.entries(snapshot.collectedData)
-      .filter(([key]) => !key.startsWith("_"))
+      .filter(
+        ([key]) =>
+          !key.startsWith("_") &&
+          !(snapshot.targetFunnel && key.trim().toLowerCase() === "setor / funil de destino"),
+      )
       .map(
         ([key, field]) =>
           `${key}: ${field.status === "filled" ? field.value : `Pendente${field.value ? ` — ${field.value}` : ""}`}`,

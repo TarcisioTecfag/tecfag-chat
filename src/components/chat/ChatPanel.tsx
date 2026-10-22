@@ -2726,9 +2726,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const isSystem = m.author === "Sistema";
             const isExpanded = expandedMsgId === m.id;
 
-            // Espaçamento: 3px dentro do grupo, 12px entre grupos, extra para avisos
+            // Espaçamento: 3px dentro do grupo, compacto para anotações de sistema, 12px entre grupos, extra para avisos
             const gap = m.isWarning || (i > 0 && displayed[i - 1].isWarning)
               ? "mt-6"
+              : isSystem && prev?.author === "Sistema"
+              ? "mt-0.5"
+              : isSystem
+              ? "mt-1"
               : prevLinked
               ? "mt-[3px]"
               : i > 0

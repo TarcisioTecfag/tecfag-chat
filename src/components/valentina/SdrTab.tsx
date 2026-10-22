@@ -22,7 +22,6 @@ import { SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
 import type { IndustrialMonitoring } from "@/lib/triage/industrial-monitor";
 import type { AgentMonitoringSummary } from "@/lib/triage/agent-monitor-store";
 import { IndustrialMonitoringPanel } from "./IndustrialMonitoringPanel";
-import { IndustrialTriageHistory } from "./IndustrialTriageHistory";
 
 export interface SdrTriageMessage {
   id?: string;
@@ -512,6 +511,7 @@ export interface SdrTabProps {
   filterState?: SdrFilterState;
   refreshKey?: number;
   onLoadingChange?: (loading: boolean) => void;
+  onSelectedConversationChange?: (conversationId: string | undefined) => void;
   targetConversation?: { conversationId: string; leadName?: string; ts: number } | null;
   onTargetConversationHandled?: () => void;
 }
@@ -522,6 +522,7 @@ export function SdrTab({
   filterState,
   refreshKey,
   onLoadingChange,
+  onSelectedConversationChange,
   targetConversation,
   onTargetConversationHandled,
 }: SdrTabProps = {}) {
@@ -588,6 +589,10 @@ export function SdrTab({
   const [selectedSession, setSelectedSession] = useState<SdrTriageSession | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isChatHighlighted, setIsChatHighlighted] = useState(false);
+
+  useEffect(() => {
+    onSelectedConversationChange?.(selectedSession?.conversationId);
+  }, [selectedSession?.conversationId, onSelectedConversationChange]);
 
   // Ref para rolagem automática do chat para o final (mensagem/imagem mais recente)
   const chatMessagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1085,11 +1090,13 @@ export function SdrTab({
       <div
         ref={mainScrollRef}
         onScroll={handleMainScroll}
-        className="flex flex-col flex-1 h-full overflow-y-auto scrollbar-thin scroll-smooth space-y-4 pr-1"
+        className="flex flex-col flex-1 h-full overflow-y-auto scrollbar-thin scroll-smooth space-y-2.5 pr-1"
       >
         {/* ── PARTE SUPERIOR: KANBAN DE TRIAGEM (ORGANIZADOR DO FUNIL) ────────── */}
-        {persona.triagePolicy === "industrial" && <div className="flex justify-end"><IndustrialTriageHistory key={tenant} tenantId={tenant} initialConversationId={selectedSession?.conversationId} /></div>}
-        <div id="sdr-kanban-section" className="shrink-0 scroll-mt-1">
+        <div
+          id="sdr-kanban-section"
+          className="h-[calc(100%-64px)] min-h-[420px] flex flex-col shrink-0 scroll-mt-1"
+        >
           <SdrKanbanBoard
             sessions={sessions}
             selectedSessionId={selectedSession?.id}

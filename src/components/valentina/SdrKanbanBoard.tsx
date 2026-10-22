@@ -369,7 +369,7 @@ export function SdrKanbanBoard({
   };
 
   return (
-    <div className="relative flex flex-col shrink-0">
+    <div className="relative flex flex-col flex-1 h-full min-h-0 shrink-0">
       {/* ── INDICADOR DISCRETO ESQUERDO (COLUNAS COM CARDS À ESQUERDA FORA DE VISÃO) ── */}
       {offscreenIndicators.left && (
         <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 z-20">
@@ -448,11 +448,11 @@ export function SdrKanbanBoard({
         onScroll={handleBoardScroll}
         onPointerDown={handleBoardPointerDown}
         onWheel={handleBoardWheel}
-        className={`w-full overflow-x-auto overflow-y-hidden pb-3 pt-1 select-none transition-colors ${
+        className={`w-full flex-1 min-h-0 flex flex-col overflow-x-auto overflow-y-hidden pb-2 pt-0.5 select-none transition-colors ${
           isPanning ? "cursor-grabbing" : "cursor-grab"
         } [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full`}
       >
-        <div className="flex items-start gap-3 min-w-max">
+        <div className="flex items-stretch gap-3 min-w-max flex-1 min-h-0 h-full">
           {KANBAN_COLUMNS.map((column) => {
             const ColumnIcon = column.icon;
             const columnSessions = sessionsByColumn[column.key] || [];
@@ -465,11 +465,11 @@ export function SdrKanbanBoard({
                   columnRefs.current[column.key] = el;
                 }}
                 data-kanban-col={column.key}
-                className="w-[260px] shrink-0 flex flex-col bg-muted/15 dark:bg-zinc-900/30 rounded-2xl border border-border/80 overflow-hidden shadow-xs"
+                className="w-[260px] shrink-0 h-full min-h-0 flex flex-col bg-muted/15 dark:bg-zinc-900/30 rounded-2xl border border-border/80 overflow-hidden shadow-xs"
               >
                 {/* Cabeçalho da Coluna */}
                 <div
-                  className={`flex items-center justify-between px-3 py-2.5 border-b border-border/80 ${column.headerBg}`}
+                  className={`flex items-center justify-between px-3 py-2.5 border-b border-border/80 shrink-0 ${column.headerBg}`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <ColumnIcon className="h-3.5 w-3.5 shrink-0" style={{ color: column.accentColor }} />
@@ -488,11 +488,11 @@ export function SdrKanbanBoard({
                 {/* Lista de Cards da Coluna */}
                 <div
                   data-column-card-list="true"
-                  className="p-2.5 flex flex-col gap-2 min-h-[360px] max-h-[520px] overflow-y-auto scrollbar-thin"
+                  className="p-2.5 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto scrollbar-thin"
                 >
                   {columnSessions.length === 0 ? (
                     // Empty State da Coluna
-                    <div className="flex-1 flex flex-col items-center justify-center p-4 text-center border border-dashed border-border/70 rounded-xl bg-card/40 my-auto min-h-[140px]">
+                    <div className="flex-1 flex flex-col items-center justify-center p-4 text-center border border-dashed border-border/70 rounded-xl bg-card/40 min-h-[140px]">
                       <div className="h-8 w-8 rounded-full bg-muted/60 flex items-center justify-center text-muted-foreground mb-2">
                         <ColumnIcon className="h-4 w-4" style={{ color: column.accentColor }} />
                       </div>
