@@ -68,7 +68,7 @@ export interface ChatMessageBubbleProps {
   onToggleReaction: (chatId: string, msgId: string, emoji: string) => void;
   onMediaClick?: (type: "image" | "video", url: string) => void;
   onSaveSticker?: (messageId: string, url: string) => void;
-  onOpenWarningChat?: (clientId: string) => void;
+  onOpenWarningChat?: (clientId: string, clientName?: string) => void;
   onSendWelcomeSuggestion?: (text: string) => void;
 }
 
@@ -573,16 +573,22 @@ function ChatMessageBubbleComponent({
                         "{m.warningMetadata.lastMessage}"
                       </div>
                     )}
-                    {onOpenWarningChat && m.warningMetadata.clientId && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenWarningChat(m.warningMetadata!.clientId)}
-                        className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
-                      >
-                        <span>Abrir Conversa</span>
-                        <ArrowRight className="h-3 w-3" />
-                      </button>
-                    )}
+                    {onOpenWarningChat &&
+                      (m.warningMetadata.clientId || m.warningMetadata.clientName) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenWarningChat(
+                              m.warningMetadata!.clientId,
+                              m.warningMetadata!.clientName,
+                            )
+                          }
+                          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                        >
+                          <span>Abrir Conversa</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </button>
+                      )}
                   </div>
                 )}
 
@@ -621,16 +627,22 @@ function ChatMessageBubbleComponent({
                         <span>{m.warningMetadata.interest}</span>
                       </div>
                     )}
-                    {onOpenWarningChat && m.warningMetadata.clientId && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenWarningChat(m.warningMetadata!.clientId)}
-                        className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
-                      >
-                        <span>Abrir Atendimento</span>
-                        <ArrowRight className="h-3 w-3" />
-                      </button>
-                    )}
+                    {onOpenWarningChat &&
+                      (m.warningMetadata.clientId || m.warningMetadata.clientName) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenWarningChat(
+                              m.warningMetadata!.clientId,
+                              m.warningMetadata!.clientName,
+                            )
+                          }
+                          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                        >
+                          <span>Abrir Atendimento</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </button>
+                      )}
                   </div>
                 )}
 

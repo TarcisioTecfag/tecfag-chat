@@ -1222,18 +1222,32 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   );
 
   const handleOpenWarningChat = useCallback(
-    (clientId: string) => {
-      if (!clientId) return;
-      const target = conversations.find((c) => c.id === clientId);
+    (clientId: string, clientName?: string) => {
+      const cleanId = clientId?.trim() || "";
+      const cleanName = clientName?.trim() || "";
+      if (!cleanId && !cleanName) return;
+
+      const target =
+        (cleanId ? conversations.find((c) => c.id === cleanId) : undefined) ||
+        (cleanName
+          ? conversations.find(
+              (c) =>
+                c.id !== "valentina" &&
+                c.name.trim().toLocaleLowerCase("pt-BR") === cleanName.toLocaleLowerCase("pt-BR"),
+            )
+          : undefined);
+      const resolvedId = target?.id || cleanId;
+      if (!resolvedId) return;
+
       if (target && target.queue && target.queue !== activeQueue && activeQueue !== "todos") {
         setActiveQueue(target.queue);
       }
-      setSelectedChatId(clientId);
-      markAsRead(clientId);
+      setSelectedChatId(resolvedId);
+      markAsRead(resolvedId);
       if (!embedded) setActiveView("chat");
       if (!target) {
-        refreshConversations(clientId).then(() => {
-          setSelectedChatId(clientId);
+        refreshConversations(resolvedId).then(() => {
+          setSelectedChatId(resolvedId);
         });
       }
     },

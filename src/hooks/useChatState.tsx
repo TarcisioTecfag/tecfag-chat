@@ -1445,9 +1445,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (r: any): Message => {
       const personaName = getAiPersona(tenant || "valem").name;
       const meta = r.metadata || {};
+      const rawContent = String(r.content || "");
       const isLeadTransfer = meta.type === "lead_transfer" || meta.warningType === "new_lead";
       const isSlaDelay =
-        meta.type === "sla_alert" || meta.type === "no_response" || meta.warningType === "delay";
+        meta.type === "sla_alert" ||
+        meta.type === "no_response" ||
+        meta.warningType === "delay" ||
+        /^\*?SLA\s+(?:Estourado|em\s+risco)/i.test(rawContent.trim());
       const isOverload =
         meta.type === "operator_overload" || meta.warningType === "overload";
       const isWarning = Boolean(r.isWarning || meta.isWarning || isLeadTransfer || isSlaDelay || isOverload);
@@ -1460,6 +1464,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : r.warningType;
       const targetClientId =
         meta.conversationId || meta.clientId || r.warningMetadata?.clientId || "";
+      const extractedClientName =
+        meta.clientName ||
+        meta.contactName ||
+        r.warningMetadata?.clientName ||
+        (() => {
+          const m = rawContent.match(
+            /O cliente\s+\*?([^*!\n]+?)\*?\s+(?:já passou|está aguardando|aguarda)/i,
+          );
+          return m?.[1]?.trim() || "";
+        })();
       const conversationsList = Array.isArray(meta.conversations)
         ? meta.conversations
         : Array.isArray(meta.relatedConversations)
@@ -1470,13 +1484,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? r.relatedConversations
         : undefined;
       const warningMetadata =
-        warningType && (targetClientId || (conversationsList && conversationsList.length > 0))
+        warningType &&
+        (targetClientId ||
+          extractedClientName ||
+          (conversationsList && conversationsList.length > 0))
           ? {
               clientId: targetClientId || conversationsList?.[0]?.clientId || "",
               clientName:
-                meta.clientName ||
-                meta.contactName ||
-                r.warningMetadata?.clientName ||
+                extractedClientName ||
                 conversationsList?.[0]?.clientName ||
                 "Cliente",
               lastMessage: meta.lastMessage || r.warningMetadata?.lastMessage || undefined,

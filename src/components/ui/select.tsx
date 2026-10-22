@@ -63,12 +63,17 @@ SelectScrollDownButton.displayName = SelectPrimitive.ScrollDownButton.displayNam
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => (
+>(({ className, children, position = "popper", onWheel, ...props }, ref) => (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
+      data-crm-interactive-portal
+      onWheel={(e) => {
+        e.stopPropagation();
+        onWheel?.(e);
+      }}
       className={cn(
-        "relative z-[200] max-h-(--radix-select-content-available-height) min-w-[8rem] overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-card",
+        "relative z-[10100] max-h-(--radix-select-content-available-height) min-w-[8rem] overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-card pointer-events-auto",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",

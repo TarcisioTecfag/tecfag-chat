@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, type Keyboard
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  AlertCircle,
   Archive,
   ArrowLeft,
+  ArrowRight,
   BookOpen,
   Check,
   CheckCheck,
@@ -35,6 +37,8 @@ import {
   Square,
   Trash2,
   User,
+  UserCheck,
+  Users,
   Video as VideoIcon,
   X,
 } from "lucide-react";
@@ -43,12 +47,14 @@ import {
   MessengerLogo,
   WhatsappLogo,
 } from "@/components/chat/ChatList";
+import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  ensureMiniChatBodyEventGuard,
 } from "@/components/ui/dialog";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { useChat } from "@/hooks/useChatState";
@@ -56,6 +62,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
 import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
@@ -94,7 +101,9 @@ function getAvatarBg(name: string, fallback?: string): string {
 
 function previewSnippet(text: string) {
   if (!text) return "Sem mensagens";
-  if (!text.startsWith("[MEDIA:") && !text.startsWith("[LOCAL_MEDIA:")) return text;
+  if (!text.startsWith("[MEDIA:") && !text.startsWith("[LOCAL_MEDIA:")) {
+    return stripNotificationEmojis(text).replace(/\*\*/g, "").replace(/\*/g, "");
+  }
   const type = text.match(/^\[(?:LOCAL_)?MEDIA:([^\]:]+)/)?.[1];
   const labels: Record<string, string> = {
     image: "Imagem",
@@ -1416,6 +1425,11 @@ export function CrmChatWidget() {
     0,
   );
 
+  // Garante guarda de eventos no body (wheel, touchmove, focusin/focusout) para uso simultâneo com modais
+  useEffect(() => {
+    ensureMiniChatBodyEventGuard();
+  }, []);
+
   // Resetar ao trocar de tenant
   useEffect(() => {
     setOpen(false);
@@ -1426,31 +1440,62 @@ export function CrmChatWidget() {
     setSearch("");
   }, [tenant]);
 
-  // Fechar no Escape
+  // Fechar no Escape (respeitando modais abertos em segundo plano)
   useEffect(() => {
     if (!open || !visible) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (transferTargetChat) {
-          setTransferTargetChat(null);
-        } else if (showMetaTemplateModal) {
-          setShowMetaTemplateModal(false);
-        } else if (recordingState !== "idle") {
-          discardRecording();
-        } else if (contextMenu) {
-          setContextMenu(null);
-        } else if (previewImage) {
-          setPreviewImage(null);
-        } else if (view === "thread") {
-          setResolvingThread(null);
-          setView("list");
-        } else {
-          setOpen(false);
-        }
+      if (event.key !== "Escape") return;
+
+      if (transferTargetChat) {
+        event.stopPropagation();
+        setTransferTargetChat(null);
+        return;
+      }
+      if (showMetaTemplateModal) {
+        event.stopPropagation();
+        setShowMetaTemplateModal(false);
+        return;
+      }
+      if (recordingState !== "idle") {
+        event.stopPropagation();
+        discardRecording();
+        return;
+      }
+      if (contextMenu) {
+        event.stopPropagation();
+        setContextMenu(null);
+        return;
+      }
+      if (previewImage) {
+        event.stopPropagation();
+        setPreviewImage(null);
+        return;
+      }
+
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isFocusedInsideMiniChat = Boolean(activeEl?.closest?.("[data-crm-chat-widget]"));
+      const hasOtherOpenDialog = Boolean(
+        document.querySelector('[role="dialog"][data-state="open"], [data-crm-interactive-portal]'),
+      );
+
+      // Se outro modal está aberto e o foco não está no Mini Chat, deixa o Escape atuar apenas no modal
+      if (hasOtherOpenDialog && !isFocusedInsideMiniChat) {
+        return;
+      }
+
+      if (isFocusedInsideMiniChat) {
+        event.stopPropagation();
+      }
+
+      if (view === "thread") {
+        setResolvingThread(null);
+        setView("list");
+      } else {
+        setOpen(false);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [
     open,
     visible,
@@ -1931,6 +1976,44 @@ export function CrmChatWidget() {
     setView("thread");
   };
 
+  const handleOpenWarningChat = (clientId?: string, clientName?: string) => {
+    const cleanId = clientId?.trim() || "";
+    const cleanName = clientName?.trim() || "";
+    if (!cleanId && !cleanName) return;
+
+    const localMatch =
+      (cleanId ? conversations.find((c) => c.id === cleanId) : undefined) ||
+      (cleanName
+        ? conversations.find(
+            (c) =>
+              c.id !== "valentina" &&
+              c.name.trim().toLocaleLowerCase("pt-BR") === cleanName.toLocaleLowerCase("pt-BR"),
+          )
+        : undefined);
+
+    const resolvedId = localMatch?.id || cleanId;
+    if (localMatch && resolvedId) {
+      unarchiveInMiniChat(resolvedId);
+      setOpenedChatIds((prev) => (prev.includes(resolvedId) ? prev : [...prev, resolvedId]));
+      setSelectedChatId(resolvedId);
+      markAsRead(resolvedId);
+      setDraft("");
+      setResolvingThread(null);
+      setView("thread");
+      void refreshConversations(resolvedId).catch(() => {});
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("crm:open-mini-chat", {
+        detail: {
+          conversationId: resolvedId || undefined,
+          name: cleanName || undefined,
+        },
+      }),
+    );
+  };
+
   const metaRestricted =
     selected?.id !== "valentina" &&
     selected?.id !== "__resolving__" &&
@@ -2034,139 +2117,176 @@ export function CrmChatWidget() {
       {/* Lightbox rápido para visualização de imagem enviada/recebida */}
       <AnimatePresence>
         {previewImage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setPreviewImage(null)}
-            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm cursor-zoom-out"
-          >
+          <DismissableLayerBranch asChild>
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-white/20 bg-black/60 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPreviewImage(null)}
+              data-crm-chat-widget
+              aria-live="polite"
+              className="fixed inset-0 z-[10060] pointer-events-auto flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm cursor-zoom-out"
             >
-              <button
-                type="button"
-                onClick={() => setPreviewImage(null)}
-                className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/90 transition-colors"
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-white/20 bg-black/60 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
               >
-                <X className="h-4 w-4" />
-              </button>
-              <img src={previewImage} alt="Visualização ampliada" className="max-h-[85vh] max-w-[85vw] object-contain" />
+                <button
+                  type="button"
+                  onClick={() => setPreviewImage(null)}
+                  className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/90 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <img src={previewImage} alt="Visualização ampliada" className="max-h-[85vh] max-w-[85vw] object-contain" />
+              </motion.div>
             </motion.div>
-          </motion.div>
+          </DismissableLayerBranch>
         )}
       </AnimatePresence>
 
-      <div
-        className={`fixed bottom-0 z-[100] flex flex-col items-end ${
-          isDragging ? "select-none pointer-events-auto" : ""
-        }`}
-        style={{
-          right: `${rightOffset}px`,
-          touchAction: "none",
-        }}
-        data-crm-chat-widget
-      >
-        {/* Janela Flutuante do Chat */}
-        <AnimatePresence>
-          {open && (
-            <motion.section
-              id="crm-chat-window"
-              aria-label="Conversas no CRM"
-              initial={{ opacity: 0, y: 20, scale: 0.97, x: popupShiftX }}
-              animate={{ opacity: 1, y: 0, scale: 1, x: popupShiftX }}
-              exit={{ opacity: 0, y: 20, scale: 0.97, x: popupShiftX }}
-              transition={{
-                duration: 0.22,
-                ease: [0.16, 1, 0.3, 1],
-                x: { duration: isDragging ? 0 : 0.15 },
-              }}
-              className="mb-2 flex h-[min(580px,calc(100dvh-5.5rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/98 shadow-2xl backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/5"
-            >
-              <AnimatePresence mode="wait" initial={false}>
-                {selected ? (
-                  // ══════════════════════════════════════════════════════════════
-                  // TELA DA CONVERSA SELECIONADA (THREAD)
-                  // ══════════════════════════════════════════════════════════════
-                  <motion.div
-                    key="thread-view"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    transition={{ duration: 0.18, ease: "easeOut" }}
-                    className="flex h-full w-full flex-col"
-                  >
-                    {/* Cabeçalho da Conversa */}
-                    <header
-                      onPointerDown={startDrag}
-                      className="flex h-14 shrink-0 items-center justify-between border-b border-border/70 bg-card/95 px-3 backdrop-blur-md cursor-grab active:cursor-grabbing select-none"
-                      title="Arraste para mover o mini chat para a esquerda ou direita"
+      <DismissableLayerBranch asChild>
+        <div
+          className={`fixed bottom-0 z-[10050] pointer-events-auto flex flex-col items-end ${
+            isDragging ? "select-none" : ""
+          }`}
+          style={{
+            right: `${rightOffset}px`,
+            touchAction: "none",
+          }}
+          data-crm-chat-widget
+          aria-live="polite"
+        >
+          {/* Janela Flutuante do Chat */}
+          <AnimatePresence>
+            {open && (
+              <motion.section
+                id="crm-chat-window"
+                tabIndex={-1}
+                aria-label="Conversas no CRM"
+                initial={{ opacity: 0, y: 20, scale: 0.97, x: popupShiftX }}
+                animate={{ opacity: 1, y: 0, scale: 1, x: popupShiftX }}
+                exit={{ opacity: 0, y: 20, scale: 0.97, x: popupShiftX }}
+                transition={{
+                  duration: 0.22,
+                  ease: [0.16, 1, 0.3, 1],
+                  x: { duration: isDragging ? 0 : 0.15 },
+                }}
+                className="mb-2 flex h-[min(580px,calc(100dvh-5.5rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/98 shadow-2xl backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/5 outline-none"
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  {selected ? (
+                    // ══════════════════════════════════════════════════════════════
+                    // TELA DA CONVERSA SELECIONADA (THREAD)
+                    // ══════════════════════════════════════════════════════════════
+                    <motion.div
+                      key="thread-view"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 20 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                      className="flex h-full w-full flex-col"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <SystemTooltip content="Voltar para a lista">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setResolvingThread(null);
-                              setView("list");
-                            }}
-                            aria-label="Voltar às conversas"
-                            className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
-                          >
-                            <ArrowLeft className="h-4 w-4" />
-                          </button>
-                        </SystemTooltip>
+                      {/* Cabeçalho da Conversa */}
+                      <header
+                        onPointerDown={startDrag}
+                        className="flex h-14 shrink-0 items-center justify-between border-b border-border/70 bg-card/95 px-3 backdrop-blur-md cursor-grab active:cursor-grabbing select-none"
+                        title="Arraste para mover o mini chat para a esquerda ou direita"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <SystemTooltip content="Voltar para a lista">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResolvingThread(null);
+                                setView("list");
+                              }}
+                              aria-label="Voltar às conversas"
+                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                            >
+                              <ArrowLeft className="h-4 w-4" />
+                            </button>
+                          </SystemTooltip>
 
-                        {selected.id === "valentina" ? (
-                          <div className="relative shrink-0 select-none">
-                            <AiAvatar
-                              tenantId={tenant}
-                              className="h-9 w-9 rounded-full border border-primary/40 shadow-xs"
+                          {selected.id === "valentina" ? (
+                            <div className="relative shrink-0 select-none">
+                              <AiAvatar
+                                tenantId={tenant}
+                                className="h-9 w-9 rounded-full border border-primary/40 shadow-xs"
+                              />
+                              <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full border border-card bg-primary">
+                                <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                              </span>
+                            </div>
+                          ) : (
+                            <CustomerAvatar
+                              avatar={selected.avatar}
+                              name={selected.name}
+                              initials={selected.initials}
+                              initialsBg={selected.initialsBg}
+                              channel={selected.channel}
+                              size="md"
                             />
-                            <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full border border-card bg-primary">
-                              <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                            </span>
-                          </div>
-                        ) : (
-                          <CustomerAvatar
-                            avatar={selected.avatar}
-                            name={selected.name}
-                            initials={selected.initials}
-                            initialsBg={selected.initialsBg}
-                            channel={selected.channel}
-                            size="md"
-                          />
-                        )}
+                          )}
 
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-bold text-foreground flex items-center gap-1.5">
-                            {selected.id === "valentina" ? (
-                              <>
-                                <span className="text-primary">{aiPersona.name}</span>
-                                <span className="px-1.5 py-0.2 rounded bg-primary text-primary-foreground text-[8px] font-black uppercase tracking-wider">
-                                  IA
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-bold text-foreground flex items-center gap-1.5">
+                              {selected.id === "valentina" ? (
+                                <>
+                                  <span className="text-primary">{aiPersona.name}</span>
+                                  <span className="px-1.5 py-0.2 rounded bg-primary text-primary-foreground text-[8px] font-black uppercase tracking-wider">
+                                    IA
+                                  </span>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (selected.name) {
+                                      void navigator.clipboard?.writeText(selected.name);
+                                      toast.success("Nome copiado!");
+                                    }
+                                  }}
+                                  title="Clique para copiar o nome do cliente"
+                                  className="truncate text-left hover:text-primary transition-colors cursor-pointer"
+                                >
+                                  {selected.name}
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              {selected.id !== "valentina" && selected.phone ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void navigator.clipboard?.writeText(selected.phone);
+                                    toast.success("Telefone copiado!");
+                                  }}
+                                  title="Clique para copiar o telefone"
+                                  className="truncate text-left hover:text-foreground transition-colors cursor-pointer"
+                                >
+                                  {selected.id === "__resolving__"
+                                    ? `${selected.phone} · Preparando atendimento...`
+                                    : `${selected.phone} · Em atendimento`}
+                                </button>
+                              ) : (
+                                <span className="truncate">
+                                  {selected.id === "valentina"
+                                    ? "Assistente Inteligente · Online"
+                                    : selected.id === "__resolving__"
+                                      ? "WhatsApp · Preparando atendimento..."
+                                      : "WhatsApp · Em atendimento"}
                                 </span>
-                              </>
-                            ) : (
-                              selected.name
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            <span className="truncate">
-                              {selected.id === "valentina"
-                                ? "Assistente Inteligente · Online"
-                                : selected.id === "__resolving__"
-                                  ? `${selected.phone || "WhatsApp"} · Preparando atendimento...`
-                                  : `${selected.phone || "WhatsApp"} · Em atendimento`}
-                            </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
                       <div className="flex items-center gap-1">
                         <SystemTooltip content="Abrir no Chat completo">
@@ -2310,20 +2430,70 @@ export function CrmChatWidget() {
                               );
                             }
 
-                            // Mensagem do Cliente (Recebida) com Foto ao Lado
+                            // Mensagem do Cliente / Assistente IA (Recebida) com Foto ao Lado
                             return (
                               <div key={message.id || i} className="flex items-end gap-2 w-full group">
-                                <CustomerAvatar
-                                  avatar={selected.avatar}
-                                  name={selected.name}
-                                  initials={selected.initials}
-                                  initialsBg={selected.initialsBg}
-                                  channel={selected.channel}
-                                  size="xs"
-                                  showChannel={false}
-                                  className="mb-1"
-                                />
-                                <div className="max-w-[85%] rounded-2xl rounded-bl-xs border border-border/80 bg-card px-3.5 py-2.5 text-foreground shadow-xs text-xs leading-relaxed select-text">
+                                {selected.id === "valentina" ? (
+                                  <AiAvatar
+                                    tenantId={tenant}
+                                    className="h-6 w-6 shrink-0 rounded-full border border-border/80 shadow-xs mb-1"
+                                  />
+                                ) : (
+                                  <CustomerAvatar
+                                    avatar={selected.avatar}
+                                    name={selected.name}
+                                    initials={selected.initials}
+                                    initialsBg={selected.initialsBg}
+                                    channel={selected.channel}
+                                    size="xs"
+                                    showChannel={false}
+                                    className="mb-1"
+                                  />
+                                )}
+                                <div
+                                  className={`rounded-2xl rounded-bl-xs ${
+                                    message.isWarning
+                                      ? `w-full max-w-[90%] border border-border/80 border-l-4 ${
+                                          message.warningType === "delay"
+                                            ? "border-l-amber-500"
+                                            : message.warningType === "overload"
+                                            ? "border-l-violet-500"
+                                            : "border-l-primary"
+                                        } bg-card text-foreground text-[11px]`
+                                      : "max-w-[85%] border border-border/80 bg-card text-foreground text-xs"
+                                  } px-3.5 py-2.5 shadow-xs leading-relaxed select-text`}
+                                >
+                                  {message.isWarning && (
+                                    <div
+                                      className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider mb-1.5 select-none ${
+                                        message.warningType === "delay"
+                                          ? "text-amber-600 dark:text-amber-400"
+                                          : message.warningType === "overload"
+                                          ? "text-violet-600 dark:text-violet-400"
+                                          : "text-primary"
+                                      }`}
+                                    >
+                                      {message.warningType === "delay" ? (
+                                        <Clock className="h-3 w-3 shrink-0" />
+                                      ) : message.warningType === "new_lead" ? (
+                                        <UserCheck className="h-3 w-3 shrink-0" />
+                                      ) : message.warningType === "overload" ? (
+                                        <Users className="h-3 w-3 shrink-0" />
+                                      ) : (
+                                        <AlertCircle className="h-3 w-3 shrink-0" />
+                                      )}
+                                      <span>
+                                        {message.warningType === "delay"
+                                          ? `Alerta de SLA · ${aiPersona.name}`
+                                          : message.warningType === "new_lead"
+                                          ? `Novo Lead · ${aiPersona.name}`
+                                          : message.warningType === "overload"
+                                          ? `Atendimentos Ativos · ${aiPersona.name}`
+                                          : `Aviso de ${aiPersona.name}`}
+                                      </span>
+                                    </div>
+                                  )}
+
                                   {resolvedQuotedContent && (
                                     <QuotedMessagePreview
                                       sender={resolvedQuotedSender}
@@ -2333,10 +2503,194 @@ export function CrmChatWidget() {
                                     />
                                   )}
                                   <MiniMediaRenderer
-                                    text={message.text}
+                                    text={
+                                      message.isWarning
+                                        ? stripNotificationEmojis(message.text)
+                                        : message.text
+                                    }
                                     isMe={false}
                                     onImageClick={(url) => setPreviewImage(url)}
                                   />
+
+                                  {/* Card interativo: Atraso de Resposta (SLA) */}
+                                  {message.isWarning &&
+                                    message.warningType === "delay" &&
+                                    message.warningMetadata && (
+                                      <div
+                                        className="mt-2.5 p-2.5 rounded-xl bg-card border border-border/80 shadow-2xs flex flex-col gap-2 cursor-default text-xs"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="text-[11px] font-bold text-foreground">
+                                          Cliente:{" "}
+                                          <span className="text-primary font-black">
+                                            {message.warningMetadata.clientName}
+                                          </span>
+                                        </div>
+                                        {message.warningMetadata.lastMessage && (
+                                          <div className="p-2 rounded-lg bg-muted/65 text-[10px] text-muted-foreground border-l-2 border-primary italic">
+                                            "{message.warningMetadata.lastMessage}"
+                                          </div>
+                                        )}
+                                        {(message.warningMetadata.clientId ||
+                                          message.warningMetadata.clientName) && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleOpenWarningChat(
+                                                message.warningMetadata.clientId,
+                                                message.warningMetadata.clientName,
+                                              )
+                                            }
+                                            className="mt-0.5 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                                          >
+                                            <span>Abrir Conversa</span>
+                                            <ArrowRight className="h-3 w-3" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+
+                                  {/* Card interativo: Novo Cliente (Lead) */}
+                                  {message.isWarning &&
+                                    message.warningType === "new_lead" &&
+                                    message.warningMetadata && (
+                                      <div
+                                        className="mt-2.5 p-2.5 rounded-xl bg-card border border-border/80 shadow-2xs flex flex-col gap-2 cursor-default text-xs"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="text-[11px] font-bold text-foreground flex items-center justify-between gap-2">
+                                          <span>
+                                            Cliente:{" "}
+                                            <span className="text-primary font-black">
+                                              {message.warningMetadata.clientName}
+                                            </span>
+                                          </span>
+                                          {message.warningMetadata.temperature && (
+                                            <span
+                                              className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${
+                                                message.warningMetadata.temperature === "quente"
+                                                  ? "bg-red-500/10 text-red-500 border border-red-500/25"
+                                                  : message.warningMetadata.temperature === "morno"
+                                                    ? "bg-amber-500/10 text-amber-500 border border-amber-500/25"
+                                                    : "bg-blue-500/10 text-blue-500 border border-blue-500/25"
+                                              }`}
+                                            >
+                                              {message.warningMetadata.temperature}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {message.warningMetadata.interest && (
+                                          <div className="text-[10px] text-muted-foreground flex flex-col gap-0.5 bg-muted/40 p-2 rounded-lg">
+                                            <span className="font-semibold text-[8px] uppercase tracking-wider text-muted-foreground">
+                                              Interesse:
+                                            </span>
+                                            <span>{message.warningMetadata.interest}</span>
+                                          </div>
+                                        )}
+                                        {(message.warningMetadata.clientId ||
+                                          message.warningMetadata.clientName) && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleOpenWarningChat(
+                                                message.warningMetadata.clientId,
+                                                message.warningMetadata.clientName,
+                                              )
+                                            }
+                                            className="mt-0.5 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                                          >
+                                            <span>Abrir Atendimento</span>
+                                            <ArrowRight className="h-3 w-3" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+
+                                  {/* Card interativo: Lista de Conversas Citadas (Sobrecarga / Respostas da IA) */}
+                                  {(() => {
+                                    const list =
+                                      message.warningType === "overload" &&
+                                      message.warningMetadata?.conversations?.length
+                                        ? message.warningMetadata.conversations
+                                        : message.relatedConversations?.length
+                                          ? message.relatedConversations
+                                          : null;
+                                    if (!list || list.length === 0) return null;
+
+                                    return (
+                                      <div
+                                        className="mt-2.5 p-2 rounded-xl bg-card/95 border border-border/80 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                                          <span>
+                                            {message.warningType === "overload"
+                                              ? `Atendimentos Ativos (${list.length})`
+                                              : `Conversas Citadas (${list.length})`}
+                                          </span>
+                                          <span className="text-[9px] font-semibold text-primary">
+                                            Clique para abrir
+                                          </span>
+                                        </div>
+                                        <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto pr-0.5 scrollbar-thin">
+                                          {list.map((conv: any) => (
+                                            <div
+                                              key={conv.clientId || conv.clientName}
+                                              className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2 transition"
+                                            >
+                                              <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                  <span className="text-[11px] font-bold text-foreground truncate">
+                                                    {conv.clientName}
+                                                  </span>
+                                                  {conv.company && (
+                                                    <span className="text-[9px] text-muted-foreground truncate">
+                                                      • {conv.company}
+                                                    </span>
+                                                  )}
+                                                  {conv.isWaiting && (
+                                                    <span className="px-1.5 py-0.2 rounded-full text-[8px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                                                      {conv.waitMinutes && conv.waitMinutes > 0
+                                                        ? `Aguardando há ${conv.waitMinutes}min`
+                                                        : "Aguardando resposta"}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {(conv.dealTitle || conv.funnelName) && (
+                                                  <div className="text-[9px] font-semibold text-primary/90 truncate">
+                                                    {[conv.funnelName, conv.dealTitle]
+                                                      .filter(Boolean)
+                                                      .join(" • ")}
+                                                  </div>
+                                                )}
+                                                {conv.lastMessage && (
+                                                  <div className="text-[10px] text-muted-foreground truncate italic">
+                                                    "{conv.lastMessage}"
+                                                  </div>
+                                                )}
+                                              </div>
+                                              {(conv.clientId || conv.clientName) && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    handleOpenWarningChat(
+                                                      conv.clientId,
+                                                      conv.clientName,
+                                                    )
+                                                  }
+                                                  className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                                                >
+                                                  <span>Abrir</span>
+                                                  <ArrowRight className="h-3 w-3" />
+                                                </button>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+
                                   <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-muted-foreground font-medium select-none">
                                     <span>{message.time}</span>
                                   </div>
@@ -2837,7 +3191,8 @@ export function CrmChatWidget() {
             />
           </span>
         </motion.button>
-      </div>
+        </div>
+      </DismissableLayerBranch>
 
       {/* Mini Pop-up de Menu de Contexto (botão direito) */}
       <AnimatePresence>
@@ -2845,61 +3200,65 @@ export function CrmChatWidget() {
           const chat = conversations.find((c) => c.id === contextMenu.chatId);
           if (!chat) return null;
           return (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.1 }}
-              className="fixed z-[99999] min-w-[200px] rounded-xl bg-card border border-border shadow-2xl p-1 text-xs"
-              style={{ top: contextMenu.y, left: contextMenu.x }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  pinChat(chat.id);
-                  setContextMenu(null);
-                }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+            <DismissableLayerBranch asChild>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                data-crm-chat-widget
+                aria-live="polite"
+                className="fixed z-[10060] pointer-events-auto min-w-[200px] rounded-xl bg-card border border-border shadow-2xl p-1 text-xs"
+                style={{ top: contextMenu.y, left: contextMenu.x }}
+                onClick={(e) => e.stopPropagation()}
               >
-                <Pin className="h-3.5 w-3.5 text-primary" />
-                {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  markAsUnread(chat.id);
-                  setContextMenu(null);
-                }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-              >
-                <BookOpen className="h-3.5 w-3.5 text-primary" />
-                Marcar como não lido
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setTransferTargetChat(chat);
-                  setContextMenu(null);
-                }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-              >
-                <Forward className="h-3.5 w-3.5 text-primary" />
-                Transferir atendimento
-              </button>
-              <div className="my-1 border-t border-border/60" />
-              <button
-                type="button"
-                onClick={() => {
-                  archiveFromMiniChat(chat.id);
-                  setContextMenu(null);
-                }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
-              >
-                <Archive className="h-3.5 w-3.5 text-amber-500" />
-                Arquivar do mini chat
-              </button>
-            </motion.div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    pinChat(chat.id);
+                    setContextMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  <Pin className="h-3.5 w-3.5 text-primary" />
+                  {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    markAsUnread(chat.id);
+                    setContextMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  <BookOpen className="h-3.5 w-3.5 text-primary" />
+                  Marcar como não lido
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTransferTargetChat(chat);
+                    setContextMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  <Forward className="h-3.5 w-3.5 text-primary" />
+                  Transferir atendimento
+                </button>
+                <div className="my-1 border-t border-border/60" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    archiveFromMiniChat(chat.id);
+                    setContextMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
+                >
+                  <Archive className="h-3.5 w-3.5 text-amber-500" />
+                  Arquivar do mini chat
+                </button>
+              </motion.div>
+            </DismissableLayerBranch>
           );
         })()}
       </AnimatePresence>
@@ -2914,7 +3273,10 @@ export function CrmChatWidget() {
           }
         }}
       >
-        <DialogContent className="max-w-md p-5 bg-card text-foreground border border-border shadow-2xl">
+        <DialogContent
+          data-crm-chat-widget
+          className="z-[10060] pointer-events-auto max-w-md p-5 bg-card text-foreground border border-border shadow-2xl"
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm font-bold">
               <Forward className="h-4 w-4 text-primary" />
