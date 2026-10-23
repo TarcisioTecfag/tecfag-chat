@@ -10,11 +10,17 @@ import {
   crmStages,
   crmDealProducts,
   crmDealActivities,
+  crmCustomFieldDefinitions,
   agentFlowStates,
 } from "../../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull, asc } from "drizzle-orm";
 import { getAiPersona } from "../ai-persona";
 import { getKnowledgeBaseContext } from "./knowledge-service";
+import {
+  formatCustomFieldLabel,
+  isFilled,
+  parseJsonArray,
+} from "../crm/custom-fields";
 
 export {
   expandPtBrAbbreviationsAndAccents,
@@ -187,6 +193,8 @@ export async function loadConversationRichContext(params: {
               value: crmDeals.value,
               pipelineName: crmPipelines.name,
               stageName: crmStages.name,
+              rating: crmDeals.rating,
+              expectedCloseDate: crmDeals.expectedCloseDate,
               customFields: crmDeals.customFields,
             })
             .from(crmConversationDeals)
@@ -254,13 +262,13 @@ export async function loadConversationRichContext(params: {
 
         if (linkedDeals.length > 0) {
           const primaryDeal = linkedDeals[0];
-          const [dealProducts, dealActivities] = await Promise.all([
+          const [dealProducts, dealActivities, rawCfDefs] = await Promise.all([
             db
               .select({
                 name: crmDealProducts.name,
                 quantity: crmDealProducts.quantity,
                 unitPrice: crmDealProducts.unitPrice,
-                totalPrice: crmDealProducts.totalPrice,
+                totalPrice: crmDealProducts.total,
               })
               .from(crmDealProducts)
               .where(
@@ -269,7 +277,8 @@ export async function loadConversationRichContext(params: {
                   eq(crmDealProducts.dealId, primaryDeal.dealId),
                 ),
               )
-              .limit(6),
+              .limit(6)
+              .catch(() => []),
             db
               .select({
                 type: crmDealActivities.type,
@@ -285,16 +294,59 @@ export async function loadConversationRichContext(params: {
                 ),
               )
               .orderBy(desc(crmDealActivities.createdAt))
-              .limit(4),
+              .limit(4)
+              .catch(() => []),
+            db
+              .select()
+              .from(crmCustomFieldDefinitions)
+              .where(
+                and(
+                  eq(crmCustomFieldDefinitions.tenantId, tenantId),
+                  eq(crmCustomFieldDefinitions.entity, "deal"),
+                  isNull(crmCustomFieldDefinitions.archivedAt),
+                ),
+              )
+              .orderBy(asc(crmCustomFieldDefinitions.sortOrder))
+              .catch(() => []),
           ]);
+
+          const cfDefMap = new Map(
+            rawCfDefs.map((row) => [
+              row.id,
+              {
+                ...row,
+                options: parseJsonArray<{ id: string; label: string }>(row.options),
+                pipelineIds: parseJsonArray<string>(row.pipelineIds),
+              },
+            ]),
+          );
 
           for (const d of linkedDeals) {
             const valFormatted =
               d.value && Number(d.value) > 0
                 ? `R$ ${Number(d.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
                 : "Valor em definição";
+            const cfObj =
+              d.customFields && typeof d.customFields === "object" && !Array.isArray(d.customFields)
+                ? (d.customFields as Record<string, unknown>)
+                : {};
+            const decodedCfItems: string[] = [];
+            for (const [k, v] of Object.entries(cfObj)) {
+              if (!isFilled(v)) continue;
+              const def = cfDefMap.get(k);
+              if (def) {
+                const label = formatCustomFieldLabel(def, v);
+                if (label) decodedCfItems.push(`${def.name}: ${label}`);
+              } else {
+                decodedCfItems.push(`${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`);
+              }
+            }
+            const cfSuffix =
+              decodedCfItems.length > 0 ? ` | Campos Personalizados: ${decodedCfItems.join(" | ")}` : "";
+            const closeSuffix = d.expectedCloseDate ? ` | Prev. Fechamento: ${d.expectedCloseDate}` : "";
+            const ratingSuffix = d.rating && d.rating > 0 ? ` | Qualificação: ${d.rating}/5` : "";
             crmLines.push(
-              `💼 NEGOCIAÇÃO CRM: "${d.title}" | Funil: ${d.pipelineName || "Geral"} → Etapa: ${d.stageName || "Inicial"} | Status: ${d.status} | Valor: ${valFormatted}`,
+              `💼 NEGOCIAÇÃO CRM: "${d.title}" | Funil: ${d.pipelineName || "Geral"} → Etapa: ${d.stageName || "Inicial"} | Status: ${d.status} | Valor: ${valFormatted}${closeSuffix}${ratingSuffix}${cfSuffix}`,
             );
           }
 

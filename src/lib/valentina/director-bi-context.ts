@@ -18,6 +18,11 @@ import { projectIndustrialMonitoring } from "../triage/industrial-monitor";
 import { computeIndustrialTriageProgress } from "../triage/industrial-policy";
 import { RodizioEngine } from "./rodizio-engine";
 import { getKnowledgeBaseContext } from "./knowledge-service";
+import {
+  formatCustomFieldLabel,
+  isFilled,
+  parseJsonArray,
+} from "../crm/custom-fields";
 
 function readCollectedField(cd: Record<string, any> | null | undefined, ...keys: string[]): string | null {
   if (!cd || typeof cd !== "object") return null;
@@ -2030,22 +2035,45 @@ export async function getDirectorBiContext(
               d.title,
               d.value,
               d.status,
+              d.rating,
               d.loss_reason,
+              d.paused_reason,
+              d.expected_close_date,
+              d.custom_fields,
+              d.created_at,
+              d.updated_at,
+              p.name AS pipeline_name,
               s.name AS stage_name,
               op.name AS operator_name,
               acc.name AS account_name,
+              acc.type AS account_type,
               acc.document AS account_cnpj,
-              d.updated_at
+              ct.name AS contact_name,
+              ct.phone AS contact_phone,
+              ct.email AS contact_email,
+              dc.role AS contact_role
             FROM crm_deals d
+            LEFT JOIN crm_pipelines p ON p.id = d.pipeline_id
             LEFT JOIN crm_stages s ON s.id = d.stage_id
             LEFT JOIN operators op ON op.id = d.operator_id
             LEFT JOIN crm_accounts acc ON acc.id = d.account_id
+            LEFT JOIN LATERAL (
+              SELECT contact_id, role
+              FROM crm_deal_contacts
+              WHERE deal_id = d.id AND tenant_id = d.tenant_id
+              ORDER BY is_primary DESC, created_at ASC
+              LIMIT 1
+            ) dc ON true
+            LEFT JOIN contacts ct ON ct.id = dc.contact_id AND ct.tenant_id = d.tenant_id
             WHERE d.tenant_id = ${tenantId}
               AND (
                 d.title ILIKE ANY(${patterns})
                 OR COALESCE(acc.name, '') ILIKE ANY(${patterns})
                 OR COALESCE(acc.document, '') ILIKE ANY(${patterns})
                 OR COALESCE(op.name, '') ILIKE ANY(${patterns})
+                OR COALESCE(ct.name, '') ILIKE ANY(${patterns})
+                OR COALESCE(ct.email, '') ILIKE ANY(${patterns})
+                OR COALESCE(ct.phone, '') ILIKE ANY(${patterns})
               )
             ORDER BY d.updated_at DESC
             LIMIT 8
@@ -2095,10 +2123,46 @@ export async function getDirectorBiContext(
         }
 
         if (matchedDeals.length > 0) {
-          drillLines.push(`• Negociações CRM Encontradas:`);
+          const cfDefsRows = await sqlClient`
+            SELECT id, name, type, entity, options, pipeline_ids
+            FROM crm_custom_field_definitions
+            WHERE tenant_id = ${tenantId} AND archived_at IS NULL
+            ORDER BY sort_order ASC, created_at ASC
+          `.catch(() => []);
+          const cfDefMap = new Map<string, any>();
+          for (const row of cfDefsRows) {
+            cfDefMap.set(row.id, {
+              ...row,
+              options: parseJsonArray<{ id: string; label: string }>(row.options),
+              pipelineIds: parseJsonArray<string>(row.pipeline_ids),
+            });
+          }
+
+          drillLines.push(`• Negociações CRM Encontradas (Ficha Completa com Campos Personalizados):`);
           for (const md of matchedDeals) {
+            const cfObj =
+              md.custom_fields && typeof md.custom_fields === "object" && !Array.isArray(md.custom_fields)
+                ? (md.custom_fields as Record<string, unknown>)
+                : {};
+            const decodedCf: string[] = [];
+            for (const [k, v] of Object.entries(cfObj)) {
+              if (!isFilled(v)) continue;
+              const def = cfDefMap.get(k);
+              if (def) {
+                const label = formatCustomFieldLabel(def, v);
+                if (label) decodedCf.push(`${def.name}: ${label}`);
+              } else {
+                decodedCf.push(`${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`);
+              }
+            }
+            const cfText = decodedCf.length > 0 ? ` | Campos Personalizados: [${decodedCf.join(" | ")}]` : " | Campos Personalizados: [Nenhum]";
+            const contactText = md.contact_name
+              ? ` | Contato: ${md.contact_name} (${md.contact_role || "buyer"}) | Tel: ${md.contact_phone || "s/ tel"} | E-mail: ${md.contact_email || "s/ email"}`
+              : "";
+            const closeText = md.expected_close_date ? ` | Prev. Fechamento: ${md.expected_close_date}` : "";
+            const ratingText = md.rating && Number(md.rating) > 0 ? ` | Avaliação: ${md.rating}/5` : "";
             drillLines.push(
-              `  - Deal "${md.title}" | Conta: ${md.account_name || "N/I"} (${md.account_cnpj || "s/ CNPJ"}) | Valor: ${formatBrl(Number(md.value || 0))} | Status: ${md.status} (Etapa: ${md.stage_name || "N/I"}) | Vendedor: ${md.operator_name || "N/I"}`
+              `  - Deal "${md.title}" | Conta: ${md.account_name || "N/I"} (${md.account_cnpj || "s/ CNPJ"}) | Valor: ${formatBrl(Number(md.value || 0))} | Status: ${md.status} (Funil: ${md.pipeline_name || "Geral"} > Etapa: ${md.stage_name || "N/I"}) | Vendedor: ${md.operator_name || "N/I"}${contactText}${closeText}${ratingText}${cfText}`
             );
           }
         }

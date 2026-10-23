@@ -18,6 +18,14 @@ import {
   crmDealActivities,
   crmDealContacts,
   crmConversationDeals,
+  crmCustomFieldDefinitions,
+  crmDealProducts,
+  crmProposals,
+  crmDealFiles,
+  crmDealQuestionnaires,
+  crmDealEmails,
+  crmDealEvents,
+  crmActivityMessages,
   tasks,
 } from "../../../db/schema";
 import { eq, and, desc, asc, sql, gte, isNull, ne, count, or, inArray, ilike } from "drizzle-orm";
@@ -27,6 +35,14 @@ import { requireSession } from "../../../lib/auth-session";
 import { getCommercialHome } from "../../../lib/commercial/home-service";
 import { getKnowledgeBaseContext } from "../../../lib/valentina/knowledge-service";
 import { getDirectorBiContext } from "../../../lib/valentina/director-bi-context";
+import {
+  fieldAppliesToPipeline,
+  formatCustomFieldLabel,
+  isFilled,
+  parseJsonArray,
+  type CustomFieldDefinition,
+  type CustomFieldEntity,
+} from "../../../lib/crm/custom-fields";
 import {
   buildAgenticThoughtTrace,
   isCasualConversationQuery,
@@ -172,6 +188,14 @@ const STOPWORDS_PT = new Set([
   "liste", "listar", "lista", "completa", "completo", "nome", "carteira", "mensure",
   "mensurar", "mensuracao", "mensuração", "quantidade", "quantas", "quantos", "total", "totais",
   "arquivo", "anexado", "enviado", "foto", "fotos", "imagem", "imagens", "print", "anexo",
+  "que", "informacao", "informacoes", "informação", "informações", "dado", "dados",
+  "dessa", "dessas", "desse", "desses", "dela", "delas", "dele", "deles", "nela", "nelas",
+  "nele", "neles", "nessa", "nessas", "nesse", "nesses", "disse", "falou", "possui",
+  "possuo", "voce", "você", "nao", "não", "sim", "campo", "campos", "customizado",
+  "customizados", "personalizado", "personalizados", "preenchido", "preenchidos",
+  "preenchida", "preenchidas", "registrado", "registrados", "registrada", "registradas",
+  "cadastrado", "cadastrados", "cadastrada", "cadastradas", "card", "cards", "ficha",
+  "historico", "histórico", "detalhe", "detalhes",
 ]);
 
 function stripAttachmentTagsFromQuery(raw?: string): string {
@@ -215,6 +239,120 @@ function normalizeForMatch(value?: string | null): string {
     .trim();
 }
 
+function formatDateTimeBrt(raw?: Date | string | null): string {
+  if (!raw) return "N/A";
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return "N/A";
+  return d.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDateOnlyBrt(raw?: Date | string | null): string {
+  if (!raw) return "N/A";
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return "N/A";
+  return d.toLocaleDateString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatContactRoleLabel(role?: string | null): string {
+  const norm = (role || "buyer").toLowerCase().trim();
+  switch (norm) {
+    case "buyer":
+      return "COMPRADOR";
+    case "decision_maker":
+      return "DECISOR";
+    case "technical":
+      return "TÉCNICO";
+    case "influencer":
+      return "INFLUENCIADOR";
+    case "financial":
+      return "FINANCEIRO";
+    case "user":
+      return "USUÁRIO";
+    default:
+      return norm.toUpperCase() || "COMPRADOR";
+  }
+}
+
+interface DecodedCustomFieldsResult {
+  filled: Array<{ name: string; valueLabel: string; fieldId: string }>;
+  empty: Array<{ name: string; fieldId: string }>;
+  inlineSummary: string;
+}
+
+function decodeCustomFieldsForEntity(
+  allDefs: CustomFieldDefinition[],
+  entityType: CustomFieldEntity,
+  rawCustomFields: unknown,
+  pipelineId?: string | null
+): DecodedCustomFieldsResult {
+  const raw =
+    rawCustomFields && typeof rawCustomFields === "object" && !Array.isArray(rawCustomFields)
+      ? (rawCustomFields as Record<string, unknown>)
+      : {};
+
+  const entityDefs = allDefs.filter((def) => def.entityType === entityType);
+  const applicableDefs =
+    entityType === "deal"
+      ? entityDefs.filter((def) => fieldAppliesToPipeline(def, pipelineId))
+      : entityDefs;
+
+  const filled: Array<{ name: string; valueLabel: string; fieldId: string }> = [];
+  const empty: Array<{ name: string; fieldId: string }> = [];
+  const usedRawKeys = new Set<string>();
+
+  for (const def of applicableDefs) {
+    let val: unknown = undefined;
+    if (Object.prototype.hasOwnProperty.call(raw, def.id) && isFilled(raw[def.id])) {
+      val = raw[def.id];
+      usedRawKeys.add(def.id);
+    } else if (Object.prototype.hasOwnProperty.call(raw, def.name) && isFilled(raw[def.name])) {
+      val = raw[def.name];
+      usedRawKeys.add(def.name);
+    }
+
+    if (isFilled(val)) {
+      const label = formatCustomFieldLabel(def, val) || String(val);
+      filled.push({ name: def.name, valueLabel: label, fieldId: def.id });
+    } else {
+      empty.push({ name: def.name, fieldId: def.id });
+    }
+  }
+
+  // Também decodifica qualquer campo preenchido cuja chave não estava no filtro do pipeline (ou chaves avulsas)
+  const defByIdOrName = new Map<string, CustomFieldDefinition>();
+  for (const def of entityDefs) {
+    defByIdOrName.set(def.id, def);
+    defByIdOrName.set(def.name.toLowerCase(), def);
+  }
+
+  for (const [k, v] of Object.entries(raw)) {
+    if (usedRawKeys.has(k) || !isFilled(v)) continue;
+    const matchedDef = defByIdOrName.get(k) || defByIdOrName.get(k.toLowerCase());
+    if (matchedDef) {
+      const label = formatCustomFieldLabel(matchedDef, v) || String(v);
+      filled.push({ name: matchedDef.name, valueLabel: label, fieldId: matchedDef.id });
+    } else {
+      const label = Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v);
+      filled.push({ name: k, valueLabel: label, fieldId: k });
+    }
+  }
+
+  const inlineSummary = filled.map((f) => `${f.name}: ${f.valueLabel}`).join(" | ");
+  return { filled, empty, inlineSummary };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONTEXTO DO COPILOTO DO VENDEDOR/OPERADOR — Dados exclusivos do próprio operador
 // Usado em: Módulo de Chat (fixado na lista), scope = "operator"
@@ -242,7 +380,8 @@ async function getOperatorContext(
   recentAiContextText?: string,
   onProgress?: (steps: AgenticThoughtStep[], taskTitle: string, finishedTitle: string) => void,
   hasAttachedImage?: boolean,
-  imageFileName?: string
+  imageFileName?: string,
+  recentDealIdsFromHistory?: string[]
 ): Promise<OperatorContextResult> {
   const sections: string[] = [];
   const knownConvMap = new Map<string, RelatedConversationItem>();
@@ -275,7 +414,7 @@ async function getOperatorContext(
   const q = normalizeForMatch(cleanUserQuery);
   const primaryTerms = extractSearchCandidateTerms(cleanUserQuery);
   const isFollowUpRequest =
-    /\b(?:puxe|puxar|detalhe|detalhes|link|botao|abrir|abre|ela|elas|essa|esse|recomende|especifico|fechar\s+hoje|ligar|outra|outras|outro|outros|lista\s+completa|todas|todos)\b/i.test(
+    /\b(?:puxe|puxar|detalhe|detalhes|link|botao|abrir|abre|ela|elas|essa|essas|esse|esses|dela|delas|dele|deles|dessa|dessas|desse|desses|nela|nelas|nele|neles|nessa|nessas|nesse|nesses|recomende|especifico|fechar\s+hoje|ligar|outra|outras|outro|outros|lista\s+completa|todas|todos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|informacao|informacoes|dado|dados|ficha|historico|nota|notas|atividade|atividades|produto|produtos|questionario|arquivo|arquivos|email|comprador|sdr|volume|criado|criada|atualizado|atualizada|fechamento|previsao)\b/i.test(
       q
     );
 
@@ -287,7 +426,7 @@ async function getOperatorContext(
   const isCallOrPhone =
     /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
   const isDealOrCrm =
-    /\b(?:negociac|card|proposta|orcamento|funil|parada|esfriando|aberta|perdida|ganha|pausada|valor|cliente|empresa|fechar|venda|outra|outras|outro|outros|lista|listar|liste|todas|todos|mensur|carteira|quantas|quantos)\b/.test(
+    /\b(?:negociac|card|proposta|orcamento|funil|parada|esfriando|aberta|perdida|ganha|pausada|valor|cliente|empresa|fechar|venda|outra|outras|outro|outros|lista|listar|liste|todas|todos|mensur|carteira|quantas|quantos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|informacao|informacoes|ficha|comprador|sdr|volume|produto|produtos|questionario|arquivo|arquivos|email|cnpj|cpf)\b/.test(
       q
     );
   const isGoalOrMeta = /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
@@ -312,9 +451,9 @@ async function getOperatorContext(
   } else if (isCallOrPhone) {
     taskTitle = "Localizando telefones e preparando ações de ligação";
     finishedTitle = "Telefones e atalhos de discagem localizados";
-  } else if (isDealOrCrm || primaryTerms.length > 0) {
-    taskTitle = "Consultando e mensurando toda a sua carteira de negociações no CRM";
-    finishedTitle = "Mensuração e análise completa da carteira concluída";
+  } else if (isDealOrCrm || isFollowUpRequest || primaryTerms.length > 0) {
+    taskTitle = "Consultando negociações, campos personalizados e ficha completa no CRM";
+    finishedTitle = "Análise completa da carteira e campos do CRM concluída";
   } else if (isGoalOrMeta) {
     taskTitle = "Calculando atingimento da sua meta mensal e ritmo";
     finishedTitle = "Cálculo de meta e pacing comercial concluído";
@@ -423,18 +562,22 @@ async function getOperatorContext(
       }
     }
 
-    // ── 2. NEGOCIAÇÕES (CRM DEALS) — VISIBILIDADE E MENSURAÇÃO 100% DA CARTEIRA (SEM TRAVA DE 60) ──
+    // ── 2. NEGOCIAÇÕES (CRM DEALS) — VISIBILIDADE E MENSURAÇÃO 100% DA CARTEIRA + CAMPOS PERSONALIZADOS ──
+    const enrichedDealByIdMap = new Map<string, any>();
+    let allCustomFieldDefs: CustomFieldDefinition[] = [];
+
     if (shouldRunDeals) {
       const tDeals0 = Date.now();
       try {
-        // Executa em paralelo a leitura de TODAS as negociações do operador + contatos vinculados + conversas vinculadas
-        const [operatorDeals, dcRows, convLinks] = await Promise.all([
+        // Executa em paralelo a leitura de TODAS as negociações do operador + contatos vinculados + conversas vinculadas + definições de campos personalizados
+        const [operatorDeals, dcRows, convLinks, rawCfDefs] = await Promise.all([
           db
             .select({
               id: crmDeals.id,
               title: crmDeals.title,
               status: crmDeals.status,
               value: crmDeals.value,
+              currency: crmDeals.currency,
               stageId: crmDeals.stageId,
               stageName: crmStages.name,
               pipelineId: crmDeals.pipelineId,
@@ -443,13 +586,29 @@ async function getOperatorContext(
               stageCoolingDays: crmStageSettings.coolingDays,
               stageCoolingEnabled: crmStageSettings.coolingEnabled,
               accountId: crmDeals.accountId,
+              accountType: crmAccounts.type,
               accountName: crmAccounts.name,
+              accountTradeName: crmAccounts.tradeName,
+              accountSegment: crmAccounts.segment,
+              accountDocumentType: crmAccounts.documentType,
+              accountDocument: crmAccounts.document,
               accountPhone: crmAccounts.phone,
               accountEmail: crmAccounts.email,
-              accountDocument: crmAccounts.document,
+              accountWebsite: crmAccounts.website,
+              accountAddress: crmAccounts.address,
+              accountCustomFields: crmAccounts.customFields,
+              accountNotes: crmAccounts.notes,
+              source: crmDeals.source,
+              campaign: crmDeals.campaign,
+              rating: crmDeals.rating,
+              lossReason: crmDeals.lossReason,
+              pausedReason: crmDeals.pausedReason,
+              rdDealId: crmDeals.rdDealId,
+              rdDealUrl: crmDeals.rdDealUrl,
               customFields: crmDeals.customFields,
               expectedCloseDate: crmDeals.expectedCloseDate,
               lastActivityAt: crmDeals.lastActivityAt,
+              closedAt: crmDeals.closedAt,
               updatedAt: crmDeals.updatedAt,
               createdAt: crmDeals.createdAt,
             })
@@ -466,10 +625,16 @@ async function getOperatorContext(
           db
             .select({
               dealId: crmDealContacts.dealId,
+              role: crmDealContacts.role,
               isPrimary: crmDealContacts.isPrimary,
               contactId: contacts.id,
               contactName: contacts.name,
               contactPhone: contacts.phone,
+              contactEmail: contacts.email,
+              contactCnpj: contacts.cnpj,
+              contactCpf: contacts.cpf,
+              contactTags: contacts.tags,
+              contactCustomFields: contacts.customFields,
             })
             .from(crmDealContacts)
             .innerJoin(
@@ -500,21 +665,72 @@ async function getOperatorContext(
               )
             )
             .catch(() => []),
+          db
+            .select()
+            .from(crmCustomFieldDefinitions)
+            .where(
+              and(
+                eq(crmCustomFieldDefinitions.tenantId, tenantId),
+                isNull(crmCustomFieldDefinitions.archivedAt)
+              )
+            )
+            .orderBy(asc(crmCustomFieldDefinitions.sortOrder), asc(crmCustomFieldDefinitions.createdAt))
+            .catch(() => []),
         ]);
 
+        allCustomFieldDefs = rawCfDefs.map((row) => ({
+          ...row,
+          options: parseJsonArray<{ id: string; label: string }>(row.options),
+          pipelineIds: parseJsonArray<string>(row.pipelineIds),
+        }));
+
         if (operatorDeals.length > 0) {
-          const dealContactMap = new Map<string, { contactId: string; name: string; phone: string | null }>();
+          interface EnrichedDealContact {
+            contactId: string;
+            name: string;
+            phone: string | null;
+            email: string | null;
+            role: string;
+            roleLabel: string;
+            isPrimary: boolean;
+            cnpj: string | null;
+            cpf: string | null;
+            tags: string[];
+            customFieldsDecoded: DecodedCustomFieldsResult;
+          }
+
+          const dealContactMap = new Map<string, EnrichedDealContact>();
+          const dealAllContactsMap = new Map<string, EnrichedDealContact[]>();
           const dealConvMap = new Map<string, string>();
           const contactConvMap = new Map<string, string>();
 
           for (const row of dcRows) {
+            const decodedContactCf = decodeCustomFieldsForEntity(
+              allCustomFieldDefs,
+              "contact",
+              row.contactCustomFields
+            );
+            const cObj: EnrichedDealContact = {
+              contactId: row.contactId,
+              name: row.contactName,
+              phone: row.contactPhone || null,
+              email: row.contactEmail || null,
+              role: row.role || "buyer",
+              roleLabel: formatContactRoleLabel(row.role),
+              isPrimary: Boolean(row.isPrimary),
+              cnpj: row.contactCnpj || null,
+              cpf: row.contactCpf || null,
+              tags: Array.isArray(row.contactTags) ? row.contactTags : [],
+              customFieldsDecoded: decodedContactCf,
+            };
+
+            const list = dealAllContactsMap.get(row.dealId) || [];
+            list.push(cObj);
+            dealAllContactsMap.set(row.dealId, list);
+
             const existing = dealContactMap.get(row.dealId);
-            if (!existing || row.isPrimary || (!existing.phone && row.contactPhone)) {
-              dealContactMap.set(row.dealId, {
-                contactId: row.contactId,
-                name: row.contactName,
-                phone: row.contactPhone || null,
-              });
+            if (!existing || row.isPrimary || (!existing.phone && row.contactPhone) || (!existing.email && row.contactEmail)) {
+              dealContactMap.set(row.dealId, cObj);
             }
           }
 
@@ -547,6 +763,9 @@ async function getOperatorContext(
           } catch {}
 
           const normRecentAi = normalizeForMatch(recentAiContextText || "");
+          const recentHistoryDealIdSet = new Set(
+            (recentDealIdsFromHistory || []).map((id) => (id || "").trim()).filter(Boolean)
+          );
           const nowMs = Date.now();
           const allEnrichedDeals = operatorDeals.map((d) => {
             const refDate = d.lastActivityAt || d.updatedAt || d.createdAt || new Date();
@@ -560,13 +779,29 @@ async function getOperatorContext(
             const isCoolingCritical = isActiveStatus && daysIdle >= coolingThreshold;
 
             const dc = dealContactMap.get(d.id);
+            const allContacts = dealAllContactsMap.get(d.id) || (dc ? [dc] : []);
             const cfPhone = extractPhoneFromCustomFields(d.customFields);
 
             const contactName = dc?.name || d.accountName || null;
             const contactPhone = dc?.phone || d.accountPhone || cfPhone || null;
+            const contactEmail = dc?.email || d.accountEmail || null;
+            const contactRoleLabel = dc?.roleLabel || "COMPRADOR";
+            const contactIsPrimary = dc ? dc.isPrimary : true;
             const contactId = dc?.contactId || null;
             const conversationId =
               dealConvMap.get(d.id) || (contactId ? contactConvMap.get(contactId) : undefined) || null;
+
+            const dealCustomFieldsDecoded = decodeCustomFieldsForEntity(
+              allCustomFieldDefs,
+              "deal",
+              d.customFields,
+              d.pipelineId
+            );
+            const accountCustomFieldsDecoded = decodeCustomFieldsForEntity(
+              allCustomFieldDefs,
+              "company",
+              d.accountCustomFields
+            );
 
             const numValue = Number(d.value || 0);
             const valueFormatted = numValue > 0 ? formatBrl(numValue) : "R$ 0,00";
@@ -576,10 +811,11 @@ async function getOperatorContext(
             const normAcc = normalizeForMatch(d.accountName || "");
             const normTitle = normalizeForMatch(d.title || "");
             const alreadyMentionedRecently = Boolean(
-              normRecentAi &&
-                ((codeMatch && normRecentAi.includes(codeMatch)) ||
-                  (normAcc.length >= 4 && normRecentAi.includes(normAcc)) ||
-                  (normTitle.length >= 5 && normRecentAi.includes(normTitle)))
+              recentHistoryDealIdSet.has(d.id) ||
+                (normRecentAi &&
+                  ((codeMatch && normRecentAi.includes(codeMatch)) ||
+                    (normAcc.length >= 4 && normRecentAi.includes(normAcc)) ||
+                    (normTitle.length >= 5 && normRecentAi.includes(normTitle))))
             );
 
             const dealItem: RelatedDealItem = {
@@ -600,7 +836,7 @@ async function getOperatorContext(
             };
             knownDealMap.set(d.id, dealItem);
 
-            return {
+            const enrichedObj = {
               ...d,
               numValue,
               daysIdle,
@@ -610,9 +846,18 @@ async function getOperatorContext(
               refDate,
               contactName,
               contactPhone,
+              contactEmail,
+              contactRoleLabel,
+              contactIsPrimary,
+              allContacts,
+              dealCustomFieldsDecoded,
+              accountCustomFieldsDecoded,
+              customFieldsSummary: dealCustomFieldsDecoded.inlineSummary,
               conversationId,
               alreadyMentionedRecently,
             };
+            enrichedDealByIdMap.set(d.id, enrichedObj);
+            return enrichedObj;
           });
 
           // ── MENSURAÇÃO 100% COMPLETA DA CARTEIRA DO OPERADOR ──────────────────
@@ -795,11 +1040,29 @@ async function getOperatorContext(
           );
 
           const formatDealLine = (d: (typeof allEnrichedDeals)[number]) => {
-            const acc = d.accountName && d.accountName !== d.title ? ` (${d.accountName})` : "";
-            const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
-            const closePart = d.expectedCloseDate
-              ? ` | Prev. Fechamento: ${new Date(d.expectedCloseDate).toLocaleDateString("pt-BR")}`
+            const accTypeLabel =
+              d.accountType === "company"
+                ? "PJ"
+                : d.accountType === "person"
+                ? "PF"
+                : "";
+            const acc =
+              d.accountName && d.accountName !== d.title
+                ? ` (${d.accountName}${accTypeLabel ? ` - ${accTypeLabel}` : ""}${d.accountDocument ? ` | Doc: ${d.accountDocument}` : ""})`
+                : "";
+            const contactPart = d.contactName
+              ? ` | Contato: ${d.contactName} [${d.contactRoleLabel}${d.contactIsPrimary ? " Principal" : ""}]`
               : "";
+            const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
+            const emailPart = d.contactEmail ? ` | ✉️ E-mail: ${d.contactEmail}` : "";
+            const closePart = d.expectedCloseDate
+              ? ` | Prev. Fechamento: ${formatDateOnlyBrt(d.expectedCloseDate)}`
+              : "";
+            const datesPart = ` | Criado em: ${formatDateTimeBrt(d.createdAt)} | Atualizado em: ${formatDateTimeBrt(d.updatedAt)}`;
+            const ratingPart = d.rating && d.rating > 0 ? ` | Qualificação: ${d.rating}/5` : "";
+            const cfPart = d.customFieldsSummary
+              ? ` | Campos Personalizados Preenchidos: [${d.customFieldsSummary}]`
+              : " | Campos Personalizados Preenchidos: [Nenhum]";
             const convPart = d.conversationId ? ` | convId: ${d.conversationId}` : "";
             const statusBadge =
               d.status === "paused"
@@ -809,7 +1072,7 @@ async function getOperatorContext(
                 : d.status === "won"
                 ? " [GANHA]"
                 : "";
-            return `  • "${d.title}"${acc}${statusBadge} — ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Funil"} > ${d.stageName || "N/A"} | Parada há: ${d.daysIdle}d${phonePart}${closePart} (dealId: ${d.id}${convPart})`;
+            return `  • "${d.title}"${acc}${statusBadge} — ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Funil"} > ${d.stageName || "N/A"} | Parada há: ${d.daysIdle}d${contactPart}${phonePart}${emailPart}${closePart}${datesPart}${ratingPart}${cfPart} (dealId: ${d.id}${convPart})`;
           };
 
           // Prioriza negociações paradas que AINDA NÃO foram citadas nas últimas mensagens da conversa
@@ -864,7 +1127,7 @@ async function getOperatorContext(
 
           const matchedByQueryPool = poolForQueryFilter.filter((d) => {
             const hay = normalizeForMatch(
-              `${d.title || ""} ${d.accountName || ""} ${d.contactName || ""} ${d.pipelineName || ""} ${d.stageName || ""}`
+              `${d.title || ""} ${d.accountName || ""} ${d.accountTradeName || ""} ${d.accountDocument || ""} ${d.contactName || ""} ${d.contactEmail || ""} ${d.contactPhone || ""} ${d.pipelineName || ""} ${d.stageName || ""} ${d.customFieldsSummary || ""}`
             );
             if (primaryTerms.length > 0 && primaryTerms.some((t) => hay.includes(t))) return true;
             for (const p of sortedPipelines) {
@@ -906,9 +1169,12 @@ async function getOperatorContext(
                   ? " [JÁ CITADA NAS ÚLTIMAS MENSAGENS — NÃO REPITA SE O VENDEDOR PEDIR OUTRAS]"
                   : " [NOVA OPÇÃO — AINDA NÃO CITADA]";
                 const acc = d.accountName ? ` | Cliente/Conta: ${d.accountName}` : "";
+                const contactPart = d.contactName ? ` | Contato: ${d.contactName} (${d.contactRoleLabel})` : "";
                 const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
+                const emailPart = d.contactEmail ? ` | ✉️ E-mail: ${d.contactEmail}` : "";
+                const cfPart = d.customFieldsSummary ? ` | Campos Personalizados: [${d.customFieldsSummary}]` : "";
                 const convPart = d.conversationId ? ` | convId: ${d.conversationId}` : "";
-                return `  • [${badge} — ${d.daysIdle} dia(s) sem movimentação]${recentTag} "${d.title}"${acc} | Valor: ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Geral"} > ${d.stageName || "N/A"}${phonePart} (dealId: ${d.id}${convPart})`;
+                return `  • [${badge} — ${d.daysIdle} dia(s) sem movimentação]${recentTag} "${d.title}"${acc} | Valor: ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Geral"} > ${d.stageName || "N/A"}${contactPart}${phonePart}${emailPart}${cfPart} (dealId: ${d.id}${convPart})`;
               })
               .join("\n");
             sections.push(
@@ -921,10 +1187,10 @@ async function getOperatorContext(
             id: "step-op-deals",
             kind: "analyze",
             actionVerb: "Analisou",
-            targetLabel: "crm_deals & crm_accounts",
+            targetLabel: "crm_deals, crm_accounts & crm_custom_field_definitions",
             scopeTag: `#${activeDeals.length}-ativas • #${allEnrichedDeals.length}-total • ${dealsMs}ms`,
             badgeType: "crm",
-            detailText: `${allEnrichedDeals.length} negociações totais na sua carteira (${openDeals.length} abertas [${formatBrl(totalOpenValue)}], ${pausedDeals.length} pausadas [${formatBrl(totalPausedValue)}], ${wonDeals.length} ganhas e ${lostDeals.length} perdidas em ${sortedPipelines.length} funis) mensuradas no banco em ${dealsMs}ms.`,
+            detailText: `${allEnrichedDeals.length} negociações totais na sua carteira (${openDeals.length} abertas [${formatBrl(totalOpenValue)}], ${pausedDeals.length} pausadas [${formatBrl(totalPausedValue)}], ${wonDeals.length} ganhas, ${lostDeals.length} perdidas e ${allCustomFieldDefs.length} definições de campos personalizados) mensuradas no banco em ${dealsMs}ms.`,
           });
         } else {
           sections.push(`💼 SUAS NEGOCIAÇÕES NO CRM: Você não possui negociações vinculadas ao seu usuário no momento.`);
@@ -1348,68 +1614,373 @@ async function getOperatorContext(
       }
     }
 
-    // ── 5. BUSCA PROFUNDA SOB DEMANDA (NEGOCIAÇÕES DO CRM + CONVERSAS) + GUARDA DE SIGILO ──
+    // ── 5. BUSCA PROFUNDA SOB DEMANDA (FICHA 360º DE NEGOCIAÇÕES DO CRM + CONVERSAS) + GUARDA DE SIGILO ──
     const fallbackAiTerms =
       isFollowUpRequest || primaryTerms.length === 0
         ? extractSearchCandidateTerms(recentAiContextText)
         : [];
-    const searchTerms = Array.from(new Set([...primaryTerms, ...fallbackAiTerms])).slice(0, 6);
+    const searchTerms = Array.from(new Set([...primaryTerms, ...fallbackAiTerms])).slice(0, 8);
+    const hasRecentHistoryDeals = Array.isArray(recentDealIdsFromHistory) && recentDealIdsFromHistory.length > 0;
 
-    if (searchTerms.length > 0 || knownDealMap.size > 0) {
+    if (searchTerms.length > 0 || knownDealMap.size > 0 || hasRecentHistoryDeals) {
       const tDeep0 = Date.now();
       try {
-        const normCombinedContext = normalizeForMatch(`${userQuery || ""} ${isFollowUpRequest ? recentAiContextText || "" : ""}`);
-        const matchedDeals = Array.from(knownDealMap.values()).filter((d) => {
-          const hay = normalizeForMatch(`${d.title || ""} ${d.accountName || ""} ${d.contactName || ""}`);
-          if (!hay) return false;
-          const codeMatch = (d.title || "").match(/\b\d{4,}\b/)?.[0];
-          if (codeMatch && normCombinedContext.includes(codeMatch)) return true;
-          if (d.accountName && d.accountName.length >= 4 && normCombinedContext.includes(normalizeForMatch(d.accountName))) {
-            return true;
+        const normCombinedContext = normalizeForMatch(
+          `${userQuery || ""} ${isFollowUpRequest || primaryTerms.length === 0 ? recentAiContextText || "" : ""}`
+        );
+
+        const matchedDealsMap = new Map<string, RelatedDealItem>();
+
+        // 5.1 Match por código numérico (ex: 0020947 ou 20947), razão social, título, contato, e-mail ou campos personalizados
+        for (const d of knownDealMap.values()) {
+          const enriched = enrichedDealByIdMap.get(d.dealId);
+          const hay = normalizeForMatch(
+            `${d.title || ""} ${d.accountName || ""} ${enriched?.accountTradeName || ""} ${enriched?.accountDocument || ""} ${d.contactName || ""} ${enriched?.contactEmail || ""} ${d.contactPhone || ""} ${enriched?.customFieldsSummary || ""}`
+          );
+          if (!hay) continue;
+
+          const codeRaw = (d.title || "").match(/\b(\d{4,})\b/)?.[1];
+          const codeStripped = codeRaw ? codeRaw.replace(/^0+/, "") : "";
+          if (
+            (codeRaw && normCombinedContext.includes(codeRaw)) ||
+            (codeStripped && codeStripped.length >= 4 && normCombinedContext.includes(codeStripped))
+          ) {
+            matchedDealsMap.set(d.dealId, d);
+            continue;
           }
-          return searchTerms.some((t) => t.length >= 4 && hay.includes(t));
-        });
+
+          if (d.accountName && d.accountName.length >= 4 && normCombinedContext.includes(normalizeForMatch(d.accountName))) {
+            matchedDealsMap.set(d.dealId, d);
+            continue;
+          }
+
+          if (searchTerms.some((t) => t.length >= 3 && hay.includes(t))) {
+            matchedDealsMap.set(d.dealId, d);
+          }
+        }
+
+        // 5.2 Se for uma pergunta de follow-up ("que informações a mais vc possui dela?", "ela tem campo customizado?", "qual o e-mail dele?")
+        // ou se referir às negociações recém-citadas no histórico da conversa, inclui automaticamente os cards em foco!
+        if (
+          (isFollowUpRequest || matchedDealsMap.size === 0) &&
+          (isFollowUpRequest || isDealOrCrm || isCallOrPhone || primaryTerms.length === 0)
+        ) {
+          if (Array.isArray(recentDealIdsFromHistory)) {
+            for (const histDealId of recentDealIdsFromHistory) {
+              const found = knownDealMap.get((histDealId || "").trim());
+              if (found) matchedDealsMap.set(found.dealId, found);
+            }
+          }
+          if (matchedDealsMap.size === 0) {
+            for (const [dealId, enriched] of enrichedDealByIdMap.entries()) {
+              if (enriched?.alreadyMentionedRecently) {
+                const found = knownDealMap.get(dealId);
+                if (found) matchedDealsMap.set(dealId, found);
+              }
+            }
+          }
+        }
+
+        const matchedDeals = Array.from(matchedDealsMap.values());
 
         if (matchedDeals.length > 0) {
           const dealDeepLines: string[] = [];
-          for (const md of matchedDeals.slice(0, 3)) {
-            const acts = await db
-              .select({
-                type: crmDealActivities.type,
-                title: crmDealActivities.title,
-                description: crmDealActivities.description,
-                status: crmDealActivities.status,
-                dueDate: crmDealActivities.dueDate,
-                createdAt: crmDealActivities.createdAt,
-              })
-              .from(crmDealActivities)
-              .where(and(eq(crmDealActivities.tenantId, tenantId), eq(crmDealActivities.dealId, md.dealId)))
-              .orderBy(desc(crmDealActivities.createdAt))
-              .limit(5);
+          for (const md of matchedDeals.slice(0, 4)) {
+            const enriched = enrichedDealByIdMap.get(md.dealId);
 
-            const actSummary =
-              acts.length > 0
-                ? acts
-                    .map((a) => {
-                      const dt = a.createdAt
-                        ? new Date(a.createdAt).toLocaleDateString("pt-BR")
-                        : "";
-                      return `    - [${dt} | ${a.type} | ${a.status}] ${a.title}${a.description ? `: ${a.description.slice(0, 140)}` : ""}`;
+            // Busca em paralelo TODAS as abas e tabelas filhas da negociação no CRM
+            const [acts, dealProducts, dealProposals, dealEvents, dealFiles, dealQuestionnaires, dealEmails] =
+              await Promise.all([
+                db
+                  .select({
+                    id: crmDealActivities.id,
+                    type: crmDealActivities.type,
+                    title: crmDealActivities.title,
+                    description: crmDealActivities.description,
+                    status: crmDealActivities.status,
+                    dueDate: crmDealActivities.dueDate,
+                    completedAt: crmDealActivities.completedAt,
+                    createdAt: crmDealActivities.createdAt,
+                  })
+                  .from(crmDealActivities)
+                  .where(and(eq(crmDealActivities.tenantId, tenantId), eq(crmDealActivities.dealId, md.dealId)))
+                  .orderBy(desc(crmDealActivities.createdAt))
+                  .limit(15)
+                  .catch(() => []),
+                db
+                  .select()
+                  .from(crmDealProducts)
+                  .where(and(eq(crmDealProducts.tenantId, tenantId), eq(crmDealProducts.dealId, md.dealId)))
+                  .orderBy(asc(crmDealProducts.createdAt))
+                  .catch(() => []),
+                db
+                  .select()
+                  .from(crmProposals)
+                  .where(and(eq(crmProposals.tenantId, tenantId), eq(crmProposals.dealId, md.dealId)))
+                  .orderBy(desc(crmProposals.createdAt))
+                  .catch(() => []),
+                db
+                  .select()
+                  .from(crmDealEvents)
+                  .where(and(eq(crmDealEvents.tenantId, tenantId), eq(crmDealEvents.dealId, md.dealId)))
+                  .orderBy(desc(crmDealEvents.createdAt))
+                  .limit(10)
+                  .catch(() => []),
+                db
+                  .select()
+                  .from(crmDealFiles)
+                  .where(and(eq(crmDealFiles.tenantId, tenantId), eq(crmDealFiles.dealId, md.dealId)))
+                  .orderBy(desc(crmDealFiles.createdAt))
+                  .limit(10)
+                  .catch(() => []),
+                db
+                  .select()
+                  .from(crmDealQuestionnaires)
+                  .where(and(eq(crmDealQuestionnaires.tenantId, tenantId), eq(crmDealQuestionnaires.dealId, md.dealId)))
+                  .orderBy(desc(crmDealQuestionnaires.createdAt))
+                  .catch(() => []),
+                db
+                  .select()
+                  .from(crmDealEmails)
+                  .where(and(eq(crmDealEmails.tenantId, tenantId), eq(crmDealEmails.dealId, md.dealId)))
+                  .orderBy(desc(crmDealEmails.createdAt))
+                  .limit(10)
+                  .catch(() => []),
+              ]);
+
+            // Evidências / mensagens vinculadas às atividades (se houver atividades)
+            const actIds = acts.map((a) => a.id);
+            const actMessages =
+              actIds.length > 0
+                ? await db
+                    .select({
+                      activityId: crmActivityMessages.activityId,
+                      content: crmActivityMessages.content,
+                      createdAt: crmActivityMessages.createdAt,
+                    })
+                    .from(crmActivityMessages)
+                    .where(
+                      and(
+                        eq(crmActivityMessages.tenantId, tenantId),
+                        inArray(crmActivityMessages.activityId, actIds)
+                      )
+                    )
+                    .orderBy(desc(crmActivityMessages.createdAt))
+                    .limit(10)
+                    .catch(() => [])
+                : [];
+
+            // 1) Dados gerais e datas da negociação
+            const statusPt =
+              enriched?.status === "open"
+                ? "Em andamento (Aberta)"
+                : enriched?.status === "paused"
+                ? `Pausada${enriched?.pausedReason ? ` (Motivo: ${enriched.pausedReason})` : ""}`
+                : enriched?.status === "won"
+                ? "Ganha / Vendida"
+                : enriched?.status === "lost"
+                ? `Perdida${enriched?.lossReason ? ` (Motivo: ${enriched.lossReason})` : ""}`
+                : md.status || "Em andamento";
+
+            const ratingStr =
+              enriched?.rating && Number(enriched.rating) > 0
+                ? `${enriched.rating}/5 estrelas`
+                : "Sem avaliação de estrelas";
+
+            // 2) Empresa vinculada (crm_accounts)
+            const accTypeStr =
+              enriched?.accountType === "company"
+                ? "Pessoa Jurídica (PJ)"
+                : enriched?.accountType === "person"
+                ? "Pessoa Física (PF)"
+                : "Pessoa Jurídica (PJ)";
+            const accDetails: string[] = [];
+            if (enriched?.accountName) {
+              accDetails.push(`Razão Social / Nome: ${enriched.accountName} | Tipo: ${accTypeStr}`);
+              if (enriched.accountTradeName) accDetails.push(`Nome Fantasia: ${enriched.accountTradeName}`);
+              if (enriched.accountDocument) {
+                accDetails.push(
+                  `${(enriched.accountDocumentType || "CNPJ/CPF").toUpperCase()}: ${enriched.accountDocument}`
+                );
+              }
+              if (enriched.accountSegment) accDetails.push(`Segmento: ${enriched.accountSegment}`);
+              if (enriched.accountPhone) accDetails.push(`Telefone da Empresa: ${enriched.accountPhone}`);
+              if (enriched.accountEmail) accDetails.push(`E-mail da Empresa: ${enriched.accountEmail}`);
+              if (enriched.accountWebsite) accDetails.push(`Website: ${enriched.accountWebsite}`);
+              if (enriched.accountNotes) accDetails.push(`Observações da Empresa: ${enriched.accountNotes}`);
+              if (enriched.accountCustomFieldsDecoded?.filledLines?.length > 0) {
+                accDetails.push(
+                  `Campos Personalizados da Empresa: ${enriched.accountCustomFieldsDecoded.inlineSummary}`
+                );
+              }
+            } else {
+              accDetails.push("Nenhuma empresa vinculada ao card.");
+            }
+
+            // 3) Contatos vinculados (CONTATOS)
+            const contactsList: any[] = enriched?.allContacts || [];
+            const contactsSection =
+              contactsList.length > 0
+                ? contactsList
+                    .map((c, idx) => {
+                      const parts = [
+                        `${idx + 1}. Nome: ${c.name}`,
+                        `Papel: ${c.roleLabel}${c.isPrimary ? " (Contato Principal)" : ""}`,
+                        `Telefone (VigosPhone/WhatsApp): ${c.phone || "Não informado"}`,
+                        `E-mail: ${c.email || "Não informado"}`,
+                      ];
+                      if (c.cnpj) parts.push(`CNPJ: ${c.cnpj}`);
+                      if (c.cpf) parts.push(`CPF: ${c.cpf}`);
+                      if (Array.isArray(c.tags) && c.tags.length > 0) parts.push(`Tags: ${c.tags.join(", ")}`);
+                      if (c.customFieldsDecoded?.inlineSummary) {
+                        parts.push(`Campos Personalizados do Contato: ${c.customFieldsDecoded.inlineSummary}`);
+                      }
+                      return `      - ${parts.join(" | ")}`;
                     })
                     .join("\n")
-                : "    - Nenhuma atividade/nota detalhada registrada no histórico do card.";
+                : `      - Nome: ${md.contactName || "Não informado"} | Telefone: ${md.contactPhone || "Não cadastrado"} | E-mail: ${enriched?.contactEmail || "Não informado"}`;
+
+            // 4) Campos Personalizados da Negociação (CAMPOS PERSONALIZADOS)
+            const cfDecoded: DecodedCustomFieldsResult | undefined = enriched?.dealCustomFieldsDecoded;
+            const filledCfLines =
+              cfDecoded && cfDecoded.filledLines.length > 0
+                ? cfDecoded.filledLines.map((line) => `      - [PREENCHIDO] ${line}`).join("\n")
+                : "      - Nenhum campo personalizado preenchido nesta negociação.";
+            const emptyCfSummary =
+              cfDecoded && cfDecoded.emptyLabels.length > 0
+                ? `      - Campos personalizados em branco / não preenchidos (${cfDecoded.emptyLabels.length}): ${cfDecoded.emptyLabels.join(", ")}`
+                : "";
+
+            // 5) Produtos e Propostas
+            const productsSummary =
+              dealProducts.length > 0
+                ? dealProducts
+                    .map(
+                      (p) =>
+                        `      - Produto: "${p.name}"${p.sku ? ` (SKU: ${p.sku})` : ""} | Qtd: ${p.quantity} | Unitário: ${formatBrl(Number(p.unitPrice || 0))} | Desconto: ${formatBrl(Number(p.discount || 0))} | Total Item: ${formatBrl(Number(p.total || 0))}${p.notes ? ` | Obs: ${p.notes}` : ""}`
+                    )
+                    .join("\n")
+                : "      - Nenhum produto cadastrado na aba Produtos deste card.";
+
+            const proposalsSummary =
+              dealProposals.length > 0
+                ? dealProposals
+                    .map(
+                      (pr) =>
+                        `      - Proposta #${pr.proposalNumber} "${pr.title}" | Status: ${pr.status} | Valor Total: ${formatBrl(Number(pr.total || 0))}${pr.validUntil ? ` | Validade: ${pr.validUntil}` : ""}${pr.notes ? ` | Notas: ${pr.notes.slice(0, 120)}` : ""}`
+                    )
+                    .join("\n")
+                : "      - Nenhuma proposta formal emitida na aba Propostas.";
+
+            // 6) Tarefas, Ligações, Reuniões e Notas do Card
+            const pendingActs = acts.filter((a) => a.status === "pending");
+            const historyActs = acts.filter((a) => a.status !== "pending");
+            const formatActLine = (a: (typeof acts)[number]) => {
+              const dtCreated = formatDateTimeBrt(a.createdAt);
+              const dtDue = a.dueDate ? ` | Prazo: ${formatDateTimeBrt(a.dueDate)}` : "";
+              const dtDone = a.completedAt ? ` | Concluída em: ${formatDateTimeBrt(a.completedAt)}` : "";
+              return `      - [${a.type.toUpperCase()} | Status: ${a.status} | Criada: ${dtCreated}${dtDue}${dtDone}] ${a.title}${a.description ? ` — Detalhes/Nota: ${a.description.slice(0, 250)}` : ""}`;
+            };
+            const pendingActsSummary =
+              pendingActs.length > 0
+                ? pendingActs.map(formatActLine).join("\n")
+                : "      - Nenhuma próxima tarefa pendente agendada para este card.";
+            const historyActsSummary =
+              historyActs.length > 0
+                ? historyActs.map(formatActLine).join("\n")
+                : "      - Nenhuma tarefa concluída ou nota manual registrada na aba Tarefas & Notas.";
+
+            // 7) Questionários, Arquivos, E-mails, Eventos e Evidências
+            const questSummary =
+              dealQuestionnaires.length > 0
+                ? dealQuestionnaires
+                    .map(
+                      (qItem) =>
+                        `      - Questionário "${qItem.title}" | Status: ${qItem.status} (${qItem.filledCount}/${qItem.totalCount} respondidas)`
+                    )
+                    .join("\n")
+                : "      - Nenhum questionário vinculado.";
+
+            const filesSummary =
+              dealFiles.length > 0
+                ? dealFiles
+                    .map(
+                      (f) =>
+                        `      - Arquivo "${f.name}" (Categoria: ${f.category} | Tipo: ${f.mimeType || "arquivo"} | Data: ${formatDateTimeBrt(f.createdAt)})`
+                    )
+                    .join("\n")
+                : "      - Nenhum arquivo anexado na aba Arquivos.";
+
+            const emailsSummary =
+              dealEmails.length > 0
+                ? dealEmails
+                    .map(
+                      (em) =>
+                        `      - [${formatDateTimeBrt(em.sentAt || em.createdAt)} | Status: ${em.status}] Assunto: "${em.subject}" (De: ${em.fromEmail} -> Para: ${em.toEmail})`
+                    )
+                    .join("\n")
+                : "      - Nenhum e-mail registrado na aba E-mail.";
+
+            const eventsSummary =
+              dealEvents.length > 0
+                ? dealEvents
+                    .slice(0, 6)
+                    .map(
+                      (ev) =>
+                        `      - [${formatDateTimeBrt(ev.createdAt)} | Evento: ${ev.type}]${ev.fromStageId || ev.toStageId ? ` Mudança de etapa (${ev.fromStageId || "?"} -> ${ev.toStageId || "?"})` : ""}`
+                    )
+                    .join("\n")
+                : "      - Sem eventos adicionais de movimentação registrados.";
+
+            const evidencesSummary =
+              actMessages.length > 0
+                ? actMessages
+                    .map((am) => `      - [${formatDateTimeBrt(am.createdAt)}] Evidência: "${am.content.slice(0, 180)}"`)
+                    .join("\n")
+                : "      - Nenhuma evidência vinculada.";
 
             dealDeepLines.push(
-              `  📌 Card CRM: "${md.title}" (dealId: ${md.dealId})\n` +
-                `    • Cliente / Empresa: ${md.accountName || md.contactName || "Não informado"}\n` +
-                `    • Contato: ${md.contactName || "Não informado"} | 📞 Telefone (VigosPhone): ${md.contactPhone || "Não cadastrado no card"}\n` +
-                `    • Valor: ${formatBrl(Number(md.value || 0))} | Funil/Etapa: ${md.pipelineName || "Geral"} > ${md.stageName || "N/A"} | Parada há: ${md.daysIdle ?? 0} dia(s)\n` +
-                `    • Conversa WhatsApp vinculada: ${md.conversationId ? `Sim (convId: ${md.conversationId})` : "Sem conversa recente ativa vinculada (inclua em mentionedDealIds para exibir o card unificado com botão do CRM e VigosPhone)"}\n` +
-                `    • Histórico de atividades do card:\n${actSummary}`
+              `  📌 FICHA COMPLETA 360º DO CARD CRM: "${md.title}" (dealId: ${md.dealId})\n` +
+                `    • DADOS GERAIS & DATAS:\n` +
+                `      - Título da Negociação: ${md.title}\n` +
+                `      - Status Atual: ${statusPt}\n` +
+                `      - Funil e Etapa: ${md.pipelineName || "Geral"} > ${md.stageName || "N/A"}\n` +
+                `      - Valor Total: ${formatBrl(Number(md.value || 0))} (${enriched?.currency || "BRL"})\n` +
+                `      - Qualificação / Avaliação (Avaliar): ${ratingStr}\n` +
+                `      - Criado em: ${formatDateTimeBrt(enriched?.createdAt)}\n` +
+                `      - Atualizado em: ${formatDateTimeBrt(enriched?.updatedAt)}\n` +
+                `      - Última atividade registrada: ${formatDateTimeBrt(enriched?.lastActivityAt || enriched?.updatedAt)} (Parada há ${md.daysIdle ?? 0} dia(s))\n` +
+                `      - Previsão de Fechamento: ${formatDateOnlyBrt(enriched?.expectedCloseDate)}\n` +
+                `      - Origem / Fonte: ${enriched?.source || "Não informada"}${enriched?.campaign ? ` | Campanha: ${enriched.campaign}` : ""}${enriched?.rdDealUrl ? ` | Link RD: ${enriched.rdDealUrl}` : ""}\n` +
+                `    • EMPRESA VINCULADA (ABA EMPRESA):\n` +
+                `      - ${accDetails.join("\n      - ")}\n` +
+                `    • CONTATOS VINCULADOS (${contactsList.length || 1} contato(s)):\n` +
+                `${contactsSection}\n` +
+                `    • CAMPOS PERSONALIZADOS DA NEGOCIAÇÃO (${cfDecoded?.filledCount || 0} preenchido(s) de ${cfDecoded?.totalApplicable || 0} campos do funil):\n` +
+                `${filledCfLines}${emptyCfSummary ? `\n${emptyCfSummary}` : ""}\n` +
+                `    • PRODUTOS VINCULADOS (ABA PRODUTOS — ${dealProducts.length}):\n` +
+                `${productsSummary}\n` +
+                `    • PROPOSTAS COMERCIAIS (${dealProposals.length}):\n` +
+                `${proposalsSummary}\n` +
+                `    • PRÓXIMAS TAREFAS AGENDADAS (${pendingActs.length}):\n` +
+                `${pendingActsSummary}\n` +
+                `    • TAREFAS CONCLUÍDAS & NOTAS DO CARD (${historyActs.length}):\n` +
+                `${historyActsSummary}\n` +
+                `    • HISTÓRICO DE EVENTOS (${dealEvents.length}):\n` +
+                `${eventsSummary}\n` +
+                `    • QUESTIONÁRIOS (${dealQuestionnaires.length}):\n` +
+                `${questSummary}\n` +
+                `    • ARQUIVOS ANEXADOS (${dealFiles.length}):\n` +
+                `${filesSummary}\n` +
+                `    • E-MAILS (${dealEmails.length}):\n` +
+                `${emailsSummary}\n` +
+                `    • EVIDÊNCIAS (${actMessages.length}):\n` +
+                `${evidencesSummary}\n` +
+                `    • CONVERSA WHATSAPP VINCULADA: ${md.conversationId ? `Sim (convId: ${md.conversationId})` : "Sem conversa ativa vinculada no WhatsApp no momento (inclua o dealId em mentionedDealIds para exibir o card interativo com botão do CRM e VigosPhone)"}`
             );
           }
           sections.push(
-            `🔍 FICHA DETALHADA DA(S) NEGOCIAÇÃO(ÕES) DO CRM EM FOCO:\n${dealDeepLines.join("\n\n")}`
+            `🔍 FICHA COMPLETA 360º DA(S) NEGOCIAÇÃO(ÕES) DO CRM EM FOCO (TODOS OS CAMPOS PERSONALIZADOS, CONTATOS, EMPRESA, DATAS E ABAS):\n${dealDeepLines.join("\n\n")}`
           );
         }
 
@@ -1566,23 +2137,30 @@ async function getOperatorContext(
               );
             }
           }
+        }
 
-          if (matchedDeals.length > 0 || targetConvs.length > 0 || isThirdPartyBlocked) {
-            const deepMs = Math.max(10, Date.now() - tDeep0);
-            pushRealStep({
-              id: "step-op-deepsearch",
-              kind: "search",
-              actionVerb: "Buscou",
-              targetLabel: `"${(primaryTerms.length > 0 ? primaryTerms : searchTerms).join(", ")}"`,
-              scopeTag: isThirdPartyBlocked
-                ? `#sigilo-rbac • ${deepMs}ms`
-                : `#ficha-detalhada • ${deepMs}ms`,
-              badgeType: "sql",
-              detailText: isThirdPartyBlocked
-                ? `Verificação de titularidade RBAC concluída em ${deepMs}ms (registro pertence a outra carteira).`
-                : `Extração de histórico de atividades e mensagens para "${searchTerms.join(", ")}" concluída em ${deepMs}ms.`,
-            });
-          }
+        if (matchedDeals.length > 0 || isThirdPartyBlocked) {
+          const deepMs = Math.max(10, Date.now() - tDeep0);
+          const targetDesc =
+            matchedDeals.length > 0
+              ? matchedDeals
+                  .slice(0, 2)
+                  .map((d) => d.title)
+                  .join(", ")
+              : (primaryTerms.length > 0 ? primaryTerms : searchTerms).join(", ");
+          pushRealStep({
+            id: "step-op-deepsearch",
+            kind: "search",
+            actionVerb: "Inspecionou",
+            targetLabel: `"${targetDesc.slice(0, 60)}"`,
+            scopeTag: isThirdPartyBlocked
+              ? `#sigilo-rbac • ${deepMs}ms`
+              : `#ficha-360-completa • ${deepMs}ms`,
+            badgeType: "sql",
+            detailText: isThirdPartyBlocked
+              ? `Verificação de titularidade RBAC concluída em ${deepMs}ms (registro pertence a outra carteira).`
+              : `Ficha completa 360º (campos personalizados, contatos, e-mail, empresa, datas, produtos, tarefas e histórico) carregada em ${deepMs}ms.`,
+          });
         }
       } catch (deepErr: any) {
         console.warn("[getOperatorContext] Aviso na busca profunda:", deepErr?.message);
@@ -1857,6 +2435,18 @@ ${
      * **1º Balão (Mensuração Global 100% da Carteira)**: Informe o Total Geral de negociações vinculadas ao nome de ${firstName} e o valor global, detalhando exatamente quantas estão **Em Andamento (Abertas)** + valor em R$ (e quantas possuem valor preenchido vs R$ 0,00), quantas estão **Ganhas**, **Pausadas** e **Perdidas**, além da **Saúde/Aging das Abertas** (quantas ativas <3d, esfriando 3-7d, paradas >7d e >30d).
      * **2º Balão (Mensuração por Funil e Principais Etapas)**: Apresente a distribuição exata por Funil (quantidade de abertas, total e valor em R$ de cada funil, e as principais etapas com mais volume/valor) usando os números reais da seção \`📂 MENSURAÇÃO COMPLETA POR FUNIL E POR ETAPA\`.
      * **3º Balão (Listagem Nominal das Principais Negociações + Cards Interativos)**: Liste nominalmente no texto as principais negociações em aberto (com código, empresa, etapa e valor em R$) e preencha \`"mentionedDealIds"\` com os IDs das negociações listadas no contexto para que o painel interativo rolável de negociações seja exibido logo abaixo.
+
+## VISÃO 360º COMPLETA DE CADA NEGOCIAÇÃO E CAMPOS PERSONALIZADOS DO CRM (PROIBIDO OMITIR DADOS!):
+1. **ACESSO TOTAL AOS CAMPOS PERSONALIZADOS E DADOS DO CARD**:
+   - Você enxerga **100% das informações de cada negociação** tanto no resumo de cada linha (\`Campos Personalizados Preenchidos: [...]\`) quanto na seção \`🔍 FICHA COMPLETA 360º DA(S) NEGOCIAÇÃO(ÕES) DO CRM EM FOCO\`:
+     * **Campos Personalizados da Negociação** (ex: *CLIENTE NOVO?*, *QUALIFICADO POR SDR*, *PROPOSTA NEXT*, *QUAL O PRODUTO FABRICADO?*, *VOLUME DE PRODUÇÃO*, *QUAL O TIPO DE PRODUTO DO CLIENTE*, etc.), sabendo exatamente quais estão preenchidos e quais estão em branco.
+     * **Contatos Vinculados Completos**: Nome, papel/cargo (ex: *COMPRADOR - Contato Principal*), telefone e **e-mail** do contato.
+     * **Empresa Vinculada**: Razão social, tipo (*Pessoa Jurídica - PJ* ou *PF*), CNPJ/documento, segmento e contatos da empresa.
+     * **Datas, Qualificação e Origem**: Data e hora exata de criação (*Criado em*), última atualização (*Atualizado em*), *Previsão de Fechamento*, avaliação em estrelas (*Qualificação: X/5 estrelas*) e origem/campanha.
+     * **Todas as Abas da Negociação**: *Produtos*, *Propostas*, *Próximas tarefas*, *Tarefas & Notas*, *Histórico de Eventos*, *Questionários*, *Arquivos*, *E-mails*, *Evidências* e *Conversas*.
+2. **PROIBIDO DIZER QUE "NÃO HÁ CAMPOS CUSTOMIZADOS" OU QUE "SÓ TEM PREVISÃO DE FECHAMENTO"**:
+   - **JAMAIS** confunda *Previsão de Fechamento* com campo personalizado e **JAMAIS** diga que *"não há outros campos customizados registrados"* quando a negociação tiver campos personalizados listados no contexto!
+   - Quando ${firstName} perguntar *"que informações a mais você possui dela?"*, *"quais os detalhes dessa negociação?"* ou *"ela não tem algum campo customizado preenchido?"*, entregue todos os detalhes reais da Ficha 360º de forma organizada (empresa PJ/PF, contato com papel, telefone e e-mail, datas de criação e atualização, avaliação em estrelas, **todos os campos personalizados preenchidos com nome e valor exato**, quais campos personalizados estão em branco e o status das abas de produtos/tarefas/histórico).
 
 ## ESTILO DE CONVERSA NATURAL (COMO UM COLEGA NO WHATSAPP):
 1. **DIVIDA EM BALÕES CURTOS (1 A 3 FRAGMENTOS)**:
@@ -2513,7 +3103,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               const isBrokenLegacyOperatorReply =
                 row.direction === "from_agent" &&
                 typeof row.content === "string" &&
-                /S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|conjugado,\s*3\s*em\s*1|fita\s+de\s+polipropileno\s+\(PP\)\s+de\s+10\s*mm,\s*13\s*mm|travar\s+com\s+o\s+selo\s+met[aá]lico\s+e\s+cortar\s+a\s+sobra/i.test(
+                /S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|conjugado,\s*3\s*em\s*1|fita\s+de\s+polipropileno\s+\(PP\)\s+de\s+10\s*mm,\s*13\s*mm|travar\s+com\s+o\s+selo\s+met[aá]lico\s+e\s+cortar\s+a\s+sobra|Fora\s+esse,\s+n[aã]o\s+h[aá]\s+outros\s+campos\s+customizados\s+registrados|Fora\s+isso,\s+n[aã]o\s+h[aá]\s+nenhuma\s+outra\s+nota\s+ou\s+atividade\s+detalhada\s+no\s+hist[oó]rico\s+do\s+card/i.test(
                   row.content
                 );
               if (isBrokenLegacyOperatorReply) {
@@ -2762,7 +3352,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           });
 
           const isLegacyRefusal = (txt: string) =>
-            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa|S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp/i.test(
+            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa|S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|Fora\s+esse,\s+n[aã]o\s+h[aá]\s+outros\s+campos\s+customizados\s+registrados|Fora\s+isso,\s+n[aã]o\s+h[aá]\s+nenhuma\s+outra\s+nota\s+ou\s+atividade\s+detalhada\s+no\s+hist[oó]rico\s+do\s+card/i.test(
               txt || ""
             );
 
@@ -2790,12 +3380,34 @@ export const Route = createFileRoute("/api/valentina/messages")({
               .join("\n");
           }
 
-          // Texto recente da conversa (últimas 4 mensagens cronológicas) para resolver follow-ups como "puxe por favor" ou "qual o telefone dela?"
+          // Texto recente da conversa (últimas 6 mensagens cronológicas) + dealIds das mensagens recentes para resolver follow-ups como "puxe por favor", "que informações a mais vc possui dela?" ou "ela não tem algum campo customizado preenchido?"
           const recentAiContextText = chronologicalRecentRows
             .filter((r) => !(r.direction === "from_agent" && isLegacyRefusal(r.content || "")))
-            .slice(-4)
+            .slice(-6)
             .map((r) => r.content || "")
             .join("\n");
+
+          const recentDealIdsFromHistory: string[] = [];
+          for (const r of [...chronologicalRecentRows].reverse().slice(0, 8)) {
+            const meta: any =
+              typeof r.metadata === "string"
+                ? (() => {
+                    try {
+                      return JSON.parse(r.metadata);
+                    } catch {
+                      return {};
+                    }
+                  })()
+                : r.metadata || {};
+            if (Array.isArray(meta?.relatedDeals)) {
+              for (const rd of meta.relatedDeals) {
+                const dId = rd?.dealId || rd?.id;
+                if (typeof dId === "string" && dId.trim() && !recentDealIdsFromHistory.includes(dId.trim())) {
+                  recentDealIdsFromHistory.push(dId.trim());
+                }
+              }
+            }
+          }
 
           // ── Salva mensagem(ns) do usuário no banco (suportando lote do debounce de 8s) ──
           const defaultStoredUserText =
@@ -2962,7 +3574,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 broadcastLiveProgress(liveTaskTitle);
               },
               hasAttachedImage,
-              effectiveImageFileName
+              effectiveImageFileName,
+              recentDealIdsFromHistory
             );
             liveTaskTitle = operatorContextResult.taskTitle;
             liveFinishedTitle = operatorContextResult.finishedTitle;
