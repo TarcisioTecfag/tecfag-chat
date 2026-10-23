@@ -55,7 +55,7 @@ export function getAccessibleModulesList({
 
   const decorativeItems: ViewId[] = [
     ...(tenant === "tecfag" && sessionRole === "admin"
-      ? (["commercialManagement", "commercialBi"] as ViewId[])
+      ? (["commercialManagement"] as ViewId[])
       : []),
     "valentina",
     "ligacoes",

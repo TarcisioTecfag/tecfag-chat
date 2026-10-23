@@ -55,7 +55,6 @@ export function Sidebar() {
   const decorativeItems = [
     ...(tenant === "tecfag" && sessionRole === "admin" ? [
       { id: "commercialManagement", icon: BriefcaseBusiness, label: "Gestão Comercial", isAvailable: true },
-      { id: "commercialBi", icon: BarChart2, label: "War Room", isAvailable: true },
     ] : []),
     { id: "valentina", icon: Bot,      label: persona.name,          isAvailable: true },
     { id: "ligacoes",  icon: PhoneCall, label: "Ligações",           isAvailable: true },
@@ -250,7 +249,9 @@ export function Sidebar() {
             {decorativeItems.map((item, index) => {
               const Icon = item.icon;
               if (item.isAvailable) {
-                const isActive = activeView === item.id;
+                const isActive =
+                  activeView === item.id ||
+                  (item.id === "commercialManagement" && activeView === "commercialBi");
                 return (
                   <motion.button
                     key={index}

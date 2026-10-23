@@ -15,7 +15,7 @@ describe("Navegação Ergonômica por Teclado (Módulos e Abas)", () => {
     expect(modules).toContain("crm");
     expect(modules).toContain("tasks");
     expect(modules).toContain("commercialManagement");
-    expect(modules).toContain("commercialBi");
+    expect(modules).not.toContain("commercialBi");
 
     // Início deve ser o primeiro módulo no Tecfag
     expect(modules[0]).toBe("commercialHome");
