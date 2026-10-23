@@ -56,8 +56,9 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
             if (session.operator.role !== "admin" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
             const state = await db.transaction(tx => getDealContext(tx, tenantId, conversationId, session.operator.id));
             const eligibleCount = state.deals.filter(deal => deal.status === "open" && deal.isLinked && canReadCrmDeal(session, deal)).length;
+            const hasLinkedInState = state.deals.some(deal => deal.isLinked);
             return Response.json({
-              dealRequired: !await conversationHasDeal(db, tenantId, conversationId, conv.contactId),
+              dealRequired: hasLinkedInState ? false : !await conversationHasDeal(db, tenantId, conversationId, conv.contactId),
               currentDealRequired: !state.context.currentDealId && eligibleCount > 0 && conv.queueState === "meus" && conv.operatorId === session.operator.id,
               eligibleCount,
             }, { headers: { "Cache-Control": "no-store" } });

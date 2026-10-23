@@ -1008,7 +1008,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     : null;
 
   const [text, setText] = useState("");
-  const [metaWindow, setMetaWindow] = useState<{ open: boolean; expiresAt: string | null } | null>(null);
+  const metaWindowCacheRef = useRef<Map<string, { open: boolean; expiresAt: string | null }>>(
+    new Map(),
+  );
+  const [metaWindowState, setMetaWindowState] = useState<{
+    chatId: string | null;
+    window: { open: boolean; expiresAt: string | null } | null;
+  }>({ chatId: null, window: null });
   const currentMetaChatIdRef = useRef<string | null>(null);
   const [metaTemplates, setMetaTemplates] = useState<ApprovedMetaTemplate[]>([]);
   const [metaTemplateCustomGroups, setMetaTemplateCustomGroups] = useState<string[]>([]);
@@ -1033,29 +1039,41 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const isMetaWhatsappChat =
     !isAiChat && activeProvider === "meta" && activeChat?.channel === "whatsapp";
 
+  const metaWindow =
+    isMetaWhatsappChat && activeChat?.id
+      ? metaWindowState.chatId === activeChat.id
+        ? metaWindowState.window
+        : (metaWindowCacheRef.current.get(activeChat.id) ?? null)
+      : null;
+
   useEffect(() => {
     if (!isMetaWhatsappChat || !activeChat?.id) {
       setShowMetaTemplateModal(false);
-      setMetaWindow(null);
+      setMetaWindowState({ chatId: null, window: null });
       currentMetaChatIdRef.current = null;
       return;
     }
-    // Apenas redefine o estado ao alternar para uma conversa diferente
-    if (currentMetaChatIdRef.current !== activeChat.id) {
-      currentMetaChatIdRef.current = activeChat.id;
+    const chatId = activeChat.id;
+    // Apenas redefine o modal ao alternar para uma conversa diferente, preservando o cache da janela 24h
+    if (currentMetaChatIdRef.current !== chatId) {
+      currentMetaChatIdRef.current = chatId;
       setShowMetaTemplateModal(false);
-      setMetaWindow(null);
+      setMetaWindowState({
+        chatId,
+        window: metaWindowCacheRef.current.get(chatId) ?? null,
+      });
     }
     let cancelled = false;
     const refresh = () =>
       fetch(
-        `${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}`,
+        `${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(chatId)}`,
         { credentials: "include", cache: "no-store" },
       )
         .then((response) => (response.ok ? response.json() : null))
         .then((data) => {
           if (!cancelled && data?.window) {
-            setMetaWindow(data.window);
+            metaWindowCacheRef.current.set(chatId, data.window);
+            setMetaWindowState({ chatId, window: data.window });
             if (data.window.open) {
               setShowMetaTemplateModal(false);
             }
@@ -1069,14 +1087,18 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const loadMetaTemplates = async () => {
     if (!activeChat || !isMetaWhatsappChat) return;
+    const chatId = activeChat.id;
     setMetaTemplatesLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(activeChat.id)}&templates=1`, { credentials: "include" });
+      const response = await fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(chatId)}&templates=1`, { credentials: "include" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao carregar templates da Meta");
       setMetaTemplates((data.templates || []).filter((item: { supported: boolean }) => item.supported));
       setMetaTemplateCustomGroups(Array.isArray(data.customGroups) ? data.customGroups : []);
-      setMetaWindow(data.window || null);
+      if (data.window) {
+        metaWindowCacheRef.current.set(chatId, data.window);
+      }
+      setMetaWindowState({ chatId, window: data.window || null });
     } catch (error: any) {
       toast.error(error.message || "Falha ao consultar templates aprovados");
     } finally {

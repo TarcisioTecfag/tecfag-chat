@@ -143,10 +143,18 @@ export async function resolveRelatedContactIds(
     const seedDealIds = [
       ...new Set([...directDealRows, ...convDealRows].map((r) => r.dealId).filter(Boolean)),
     ];
-    if (seedDealIds.length > 0) {
+    if (seedDealIds.length > 0 && baseContact) {
+      const normBaseName = (baseContact.name || "").trim().toLowerCase();
       const coParticipants = await reader
-        .select({ contactId: crmDealContacts.contactId })
+        .select({
+          contactId: crmDealContacts.contactId,
+          name: contacts.name,
+        })
         .from(crmDealContacts)
+        .innerJoin(
+          contacts,
+          and(eq(contacts.tenantId, tenantId), eq(contacts.id, crmDealContacts.contactId)),
+        )
         .where(
           and(
             eq(crmDealContacts.tenantId, tenantId),
@@ -154,7 +162,11 @@ export async function resolveRelatedContactIds(
           ),
         );
       for (const p of coParticipants) {
-        if (p.contactId) relatedIds.add(p.contactId);
+        if (!p.contactId) continue;
+        const normCandidateName = (p.name || "").trim().toLowerCase();
+        if (normBaseName && normCandidateName && normBaseName === normCandidateName) {
+          relatedIds.add(p.contactId);
+        }
       }
     }
   } catch {

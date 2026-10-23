@@ -3,7 +3,9 @@ import { useChat } from "@/hooks/useChatState";
 import { toast } from "sonner";
 import { isCurrentDealEligible } from "@/lib/crm/conversation-deal-policy";
 import {
+  cachedDealContext,
   fetchDealContext,
+  markConversationDealSatisfied,
   type ConversationDealContext as Context,
 } from "@/lib/crm/conversation-deal-client";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,7 +23,10 @@ import {
 export function useConversationDealContext(conversationId?: string) {
   const { tenant, currentOperatorId } = useChat();
   const requestKey = JSON.stringify([tenant, currentOperatorId, conversationId]);
-  const [state, setState] = useState<{ id: string; data?: Context; error?: string }>({ id: "" });
+  const [state, setState] = useState<{ id: string; data?: Context; error?: string }>(() => {
+    const cached = cachedDealContext(tenant, currentOperatorId, conversationId);
+    return cached ? { id: requestKey, data: cached } : { id: "" };
+  });
   const refresh = useCallback(async () => {
     if (!conversationId || conversationId === "valentina" || !tenant || !currentOperatorId) return;
     try {
@@ -29,6 +34,11 @@ export function useConversationDealContext(conversationId?: string) {
       setState({ id: requestKey, data });
       return data;
     } catch (error) {
+      const fallback = cachedDealContext(tenant, currentOperatorId, conversationId);
+      if (fallback) {
+        setState({ id: requestKey, data: fallback });
+        return fallback;
+      }
       setState({
         id: requestKey,
         error: error instanceof Error ? error.message : "Falha ao carregar negociação.",
@@ -36,6 +46,10 @@ export function useConversationDealContext(conversationId?: string) {
     }
   }, [conversationId, tenant, currentOperatorId, requestKey]);
   useEffect(() => {
+    const cached = cachedDealContext(tenant, currentOperatorId, conversationId);
+    if (cached) {
+      setState({ id: requestKey, data: cached });
+    }
     void refresh();
     const timer = window.setInterval(refresh, 15000);
     window.addEventListener("crm-deals-changed", refresh);
@@ -45,9 +59,12 @@ export function useConversationDealContext(conversationId?: string) {
       window.removeEventListener("crm-deals-changed", refresh);
       window.removeEventListener("conversation-deal-context-changed", refresh);
     };
-  }, [refresh]);
+  }, [refresh, tenant, currentOperatorId, conversationId, requestKey]);
   return {
-    data: state.id === requestKey ? state.data : undefined,
+    data:
+      state.id === requestKey
+        ? state.data
+        : cachedDealContext(tenant, currentOperatorId, conversationId),
     error: state.id === requestKey ? state.error : undefined,
     refresh,
   };
@@ -123,8 +140,10 @@ export function ConversationDealContext({
       );
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Falha ao selecionar negociação.");
-      await refresh();
+      markConversationDealSatisfied(conversationId);
       onSelected?.(result.version);
+      window.dispatchEvent(new Event("conversation-deal-context-changed"));
+      await refresh();
       window.dispatchEvent(new Event("conversation-deal-context-changed"));
       toast.success("As próximas ações serão registradas na negociação selecionada.");
     } catch (err) {

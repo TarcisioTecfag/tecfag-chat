@@ -43,8 +43,22 @@ import {
 } from "./CustomFieldsEditor";
 import { normalizePipelineId } from "@/lib/crm/custom-fields";
 import { ConversationDealContext, useConversationDealContext } from "./ConversationDealContext";
-import { fetchDealContext } from "@/lib/crm/conversation-deal-client";
+import { fetchDealContext, markConversationDealSatisfied } from "@/lib/crm/conversation-deal-client";
 import { sortContactDeals } from "@/lib/crm/conversation-deal-policy";
+
+const conversationDealsCache = new Map<
+  string,
+  {
+    deals: any[];
+    customFieldDefinitions: CustomFieldDef[];
+    contact: {
+      id: string;
+      name: string;
+      accountId: string | null;
+      accountName: string | null;
+    } | null;
+  }
+>();
 
 interface ConversationDealsPanelProps {
   conversationId: string;
@@ -210,9 +224,12 @@ export function ConversationDealsPanel({
   const dealContext = useConversationDealContext(conversationId);
   const currentDealId = dealContext.data?.currentDeal?.id || null;
 
-  const [loading, setLoading] = useState(true);
-  const [deals, setDeals] = useState<any[]>([]);
-  const [customFieldDefinitions, setCustomFieldDefinitions] = useState<CustomFieldDef[]>([]);
+  const cachedEntry = conversationDealsCache.get(conversationId);
+  const [loading, setLoading] = useState(!cachedEntry);
+  const [deals, setDeals] = useState<any[]>(cachedEntry?.deals || []);
+  const [customFieldDefinitions, setCustomFieldDefinitions] = useState<CustomFieldDef[]>(
+    cachedEntry?.customFieldDefinitions || []
+  );
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isLinkingOpen, setIsLinkingOpen] = useState(false);
   const [selectingDealId, setSelectingDealId] = useState<string | null>(null);
@@ -247,7 +264,7 @@ export function ConversationDealsPanel({
     name: string;
     accountId: string | null;
     accountName: string | null;
-  } | null>(null);
+  } | null>(cachedEntry?.contact || null);
 
   // Carrega pipelines e operadores
   useEffect(() => {
@@ -269,18 +286,21 @@ export function ConversationDealsPanel({
   // Carrega negócios vinculados a esta conversa
   const fetchLinkedDeals = useCallback(async (notify = false, background = false) => {
     if (!conversationId) return;
-    if (!background) setLoading(true);
+    const existingCache = conversationDealsCache.get(conversationId);
+    if (!background && !existingCache) setLoading(true);
     try {
       const res = await fetch(`/api/chats/${conversationId}/deals`);
       if (!res.ok) throw new Error("Erro ao carregar negociações da conversa.");
       const data = await res.json();
       if (conversationRef.current !== conversationId) return;
-      const loadedDeals = Array.isArray(data?.deals) ? data.deals : [];
-      setDeals(sortContactDeals(loadedDeals));
+      const loadedDeals = sortContactDeals(Array.isArray(data?.deals) ? data.deals : []);
+      setDeals(loadedDeals);
       if (notify) window.dispatchEvent(new Event("crm-deals-changed"));
 
+      let normalizedDefs = existingCache?.customFieldDefinitions || [];
       if (data?.customFieldDefinitions) {
-        setCustomFieldDefinitions(normalizeCustomFieldDefs(data.customFieldDefinitions));
+        normalizedDefs = normalizeCustomFieldDefs(data.customFieldDefinitions);
+        setCustomFieldDefinitions(normalizedDefs);
       } else {
         // Fallback para buscar definições
         fetch("/api/crm/custom-fields?entity=deal")
@@ -292,6 +312,12 @@ export function ConversationDealsPanel({
       if (data?.contact) {
         setContactInfo(data.contact);
       }
+
+      conversationDealsCache.set(conversationId, {
+        deals: loadedDeals,
+        customFieldDefinitions: normalizedDefs,
+        contact: data?.contact || existingCache?.contact || null,
+      });
 
       // Se houver apenas 1 negócio, expande-o automaticamente
       if (loadedDeals.length === 1 && loadedDeals[0]?.id) {
@@ -305,7 +331,16 @@ export function ConversationDealsPanel({
   }, [conversationId]);
 
   useEffect(() => {
-    void fetchLinkedDeals();
+    const cached = conversationDealsCache.get(conversationId);
+    if (cached) {
+      setDeals(cached.deals);
+      setCustomFieldDefinitions(cached.customFieldDefinitions);
+      setContactInfo(cached.contact);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    void fetchLinkedDeals(false, Boolean(cached));
     const refresh = () => { void fetchLinkedDeals(false, true); };
     const timer = window.setInterval(refresh, 15000);
     window.addEventListener("crm-deals-changed", refresh);
@@ -315,7 +350,7 @@ export function ConversationDealsPanel({
       window.removeEventListener("crm-deals-changed", refresh);
       window.removeEventListener("conversation-deal-context-changed", refresh);
     };
-  }, [fetchLinkedDeals]);
+  }, [conversationId, fetchLinkedDeals]);
 
   // Alterna expansão de campos personalizados do deal
   const toggleExpand = (dealId: string) => {
@@ -563,8 +598,9 @@ export function ConversationDealsPanel({
         }
       }
 
-      await Promise.all([fetchLinkedDeals(true, true), dealContext.refresh()]);
+      markConversationDealSatisfied(conversationId);
       window.dispatchEvent(new Event("conversation-deal-context-changed"));
+      await Promise.all([fetchLinkedDeals(true, true), dealContext.refresh()]);
       window.dispatchEvent(new Event("crm-deals-changed"));
       toast.success("As próximas ações serão registradas na negociação selecionada.");
     } catch (e: any) {
@@ -1333,6 +1369,7 @@ export function ConversationDealsPanel({
               const res = await fetch(`/api/chats/${encodeURIComponent(conversationId)}/deal-context`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dealId: newDeal.id, expectedVersion: context.version }) });
               const data = await res.json();
               if (!res.ok) throw new Error(data.error || "Não foi possível selecionar o card criado.");
+              markConversationDealSatisfied(conversationId);
             } catch (error) { toast.error(`Card criado. ${error instanceof Error ? error.message : "Selecione a negociação atual no atendimento."}`); }
           }
           window.dispatchEvent(new Event("conversation-deal-context-changed"));

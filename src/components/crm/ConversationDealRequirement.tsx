@@ -1,34 +1,52 @@
 import { useEffect, useState } from "react";
 import { ConversationDealsPanel } from "./ConversationDealsPanel";
+import {
+  cachedDealRequirement,
+  fetchDealRequirement,
+  type ConversationDealRequirementState,
+} from "@/lib/crm/conversation-deal-client";
 
 export function useConversationDealRequirement(conversationId?: string) {
-  const [state, setState] = useState({ id: "", pending: true, currentRequired: false, error: "" });
+  const [state, setState] = useState<ConversationDealRequirementState>(
+    () =>
+      cachedDealRequirement(conversationId) || {
+        id: "",
+        pending: false,
+        currentRequired: false,
+        error: "",
+      },
+  );
   useEffect(() => {
     if (!conversationId || conversationId === "valentina") return;
-    const controller = new AbortController();
+    let cancelled = false;
+    const cached = cachedDealRequirement(conversationId);
+    if (cached) {
+      setState(cached);
+    }
     const refresh = async () => {
+      const latestCached = cachedDealRequirement(conversationId);
+      if (latestCached && !cancelled) {
+        setState(latestCached);
+      }
       try {
-        const res = await fetch(
-          `/api/chats/${encodeURIComponent(conversationId)}/deals?statusOnly=1`,
-          { signal: controller.signal },
-        );
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Não foi possível verificar a negociação.");
-        if (!controller.signal.aborted)
-          setState({
-            id: conversationId,
-            pending: data.dealRequired !== false || data.currentDealRequired === true,
-            currentRequired: data.currentDealRequired === true,
-            error: "",
-          });
+        const nextState = await fetchDealRequirement(conversationId);
+        if (!cancelled) {
+          setState(nextState);
+        }
       } catch (e) {
-        if (!controller.signal.aborted)
-          setState({
-            id: conversationId,
-            pending: true,
-            currentRequired: false,
-            error: e instanceof Error ? e.message : "Falha ao verificar negociação.",
-          });
+        if (!cancelled) {
+          const fallback = cachedDealRequirement(conversationId);
+          if (fallback && !fallback.pending) {
+            setState(fallback);
+          } else {
+            setState({
+              id: conversationId,
+              pending: true,
+              currentRequired: false,
+              error: e instanceof Error ? e.message : "Falha ao verificar negociação.",
+            });
+          }
+        }
       }
     };
     void refresh();
@@ -36,7 +54,7 @@ export function useConversationDealRequirement(conversationId?: string) {
     window.addEventListener("crm-deals-changed", refresh);
     window.addEventListener("conversation-deal-context-changed", refresh);
     return () => {
-      controller.abort();
+      cancelled = true;
       window.clearInterval(timer);
       window.removeEventListener("crm-deals-changed", refresh);
       window.removeEventListener("conversation-deal-context-changed", refresh);
@@ -44,7 +62,10 @@ export function useConversationDealRequirement(conversationId?: string) {
   }, [conversationId]);
   if (!conversationId || conversationId === "valentina")
     return { pending: false, currentRequired: false, error: "" };
-  return state.id === conversationId ? state : { pending: true, currentRequired: false, error: "" };
+  if (state.id === conversationId) return state;
+  const cached = cachedDealRequirement(conversationId);
+  if (cached) return cached;
+  return { pending: false, currentRequired: false, error: "" };
 }
 
 export function ConversationDealRequirement({
