@@ -352,7 +352,8 @@ export function VoiceScoreModule({ activeScreen, onScreenChange }: VoiceScoreMod
         if (revision !== this.revision) return;
         update();
         if (resetScroll) {
-          const scrollHost = this.root.closest(".voice-score-scroll-host") as HTMLElement | null;
+          const scrollHost = (this.root.querySelector(".voice-score-scroll-host") ||
+            this.root.closest(".voice-score-scroll-host")) as HTMLElement | null;
           if (scrollHost) scrollHost.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
         }
         this.main.removeAttribute("aria-busy");
@@ -2677,29 +2678,6 @@ export function VoiceScoreModule({ activeScreen, onScreenChange }: VoiceScoreMod
     root.addEventListener("click", onRootClick);
     root.addEventListener("input", onRootInput);
 
-    const fullscreenBtn = $("#preview-fullscreen");
-    const onFullscreenClick = async () => {
-      try {
-        if (document.fullscreenElement) await document.exitFullscreen();
-        else await root.requestFullscreen();
-      } catch {
-        if (fullscreenBtn) fullscreenBtn.textContent = "Use F11";
-      }
-    };
-    fullscreenBtn?.addEventListener("click", onFullscreenClick);
-
-    const onFullscreenChange = () => {
-      const button = $("#preview-fullscreen");
-      if (!button) return;
-      const isFs = Boolean(document.fullscreenElement);
-      button.innerHTML = isFs
-        ? `${icon("minimize-2")} <span>Sair da tela cheia</span>`
-        : `${icon("maximize-2")} <span>Tela cheia</span>`;
-      button.setAttribute("aria-label", isFs ? "Sair da tela cheia" : "Abrir prévia em tela cheia");
-      icons();
-    };
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-
     let previousWidth = 0;
     const resizeObs = new ResizeObserver((entries) => {
       const width = entries[0].contentRect.width;
@@ -2730,8 +2708,6 @@ export function VoiceScoreModule({ activeScreen, onScreenChange }: VoiceScoreMod
       window.removeEventListener("resize", onScrollOrResize);
       document.removeEventListener("click", closeAllPopovers);
       document.removeEventListener("keydown", onKeyDownClose);
-      document.removeEventListener("fullscreenchange", onFullscreenChange);
-      fullscreenBtn?.removeEventListener("click", onFullscreenClick);
       tooltipEl.remove();
       for (const rec of recordings.values()) {
         URL.revokeObjectURL(rec.url);
@@ -2744,67 +2720,43 @@ export function VoiceScoreModule({ activeScreen, onScreenChange }: VoiceScoreMod
   }, [activeScreen]);
 
   return (
-    <div className="voice-score-scroll-host flex-1 overflow-y-auto overflow-x-hidden">
-      <div
-        ref={rootRef}
-        id="tecfag-performance"
-        data-appearance="dark"
-        aria-label="Tecfag Chat, módulo de qualidade das ligações"
-      >
-        <div className="vp-workspace">
-          <header className="vp-appbar">
-            <div className="vp-appbar-inner">
-              <div className="vp-appbar-left">
-                <div className="vp-appbar-breadcrumb">
-                  <strong>Tecfag Chat</strong>
-                  <span className="vp-appbar-slash">/</span>
-                  <span>Ligações</span>
-                  <span id="vp-breadcrumb" />
-                </div>
-                <div className="vp-appbar-heading">
-                  <span className="vp-eyebrow">QUALIDADE DAS LIGAÇÕES</span>
-                  <div className="vp-appbar-title-group">
-                    <h1 className="vp-appbar-title">
-                      Performance comercial<span>.</span>
-                    </h1>
-                    <span
-                      className="vp-method"
-                      data-tooltip="Metodologia SPICED: Situação, Dor, Impacto, Evento Crítico e Decisão"
-                    >
-                      <i data-lucide="scan-line" aria-hidden="true" />
-                      SPICED
-                    </span>
-                  </div>
-                  <p className="vp-appbar-subtitle">Uma visão clara de quem evolui e de onde atuar.</p>
-                </div>
-              </div>
-              <div className="vp-appbar-right">
-                <div className="vx-header-actions">
-                  <span
-                    className="vp-preview"
-                    data-tooltip="Dados demonstrativos de ligações e métricas de diagnóstico"
-                  >
-                    <b />
-                    Prévia · avaliações demonstrativas
-                  </span>
-                  <button
-                    id="preview-fullscreen"
-                    type="button"
-                    className="vx-fullscreen"
-                    aria-label="Abrir prévia em tela cheia"
-                    data-tooltip="Alternar modo tela cheia"
-                  >
-                    <i data-lucide="maximize-2" aria-hidden="true" />
-                    <span>Tela cheia</span>
-                  </button>
-                </div>
-                <div id="vp-appbar-controls" className="vp-appbar-controls" />
-              </div>
+    <div
+      ref={rootRef}
+      id="tecfag-performance"
+      data-appearance="dark"
+      aria-label="Tecfag Chat, módulo de qualidade das ligações"
+      className="flex flex-col flex-1 min-h-0 overflow-hidden"
+    >
+      <header className="vp-appbar shrink-0">
+        <div className="vp-appbar-inner">
+          <div className="vp-appbar-left">
+            <span className="vp-eyebrow">Qualidade das Ligações</span>
+            <div className="vp-appbar-title-group">
+              <h1 className="vp-appbar-title">
+                <i data-lucide="chart-no-axes-combined" className="vp-appbar-title-icon" aria-hidden="true" />
+                Performance Comercial
+              </h1>
+              <span
+                className="vp-method"
+                data-tooltip="Metodologia SPICED: Situação, Dor, Impacto, Evento Crítico e Decisão"
+              >
+                <i data-lucide="scan-line" aria-hidden="true" />
+                SPICED
+              </span>
+              <span id="vp-breadcrumb" className="vp-appbar-breadcrumb-inline" />
             </div>
-          </header>
+          </div>
+          <div className="vp-appbar-right">
+            <div id="vp-appbar-controls" className="vp-appbar-controls" />
+          </div>
+        </div>
+      </header>
+      <div className="voice-score-scroll-host flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+        <div className="vp-workspace">
           <main className="vp-main" id="vp-content" />
         </div>
       </div>
     </div>
   );
 }
+
