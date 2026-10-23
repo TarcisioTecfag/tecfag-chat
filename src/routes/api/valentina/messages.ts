@@ -169,11 +169,24 @@ const STOPWORDS_PT = new Set([
   "aberta", "abertas", "aberto", "abertos", "pendente", "pendentes", "agenda", "agendada",
   "agendadas", "agendado", "agendados", "mes", "mês", "semana", "dia", "valor", "proposta",
   "outra", "outras", "outro", "outros", "mais", "algum", "alguma", "alguns", "algumas",
+  "liste", "listar", "lista", "completa", "completo", "nome", "carteira", "mensure",
+  "mensurar", "mensuracao", "mensuração", "quantidade", "quantas", "quantos", "total", "totais",
+  "arquivo", "anexado", "enviado", "foto", "fotos", "imagem", "imagens", "print", "anexo",
 ]);
 
+function stripAttachmentTagsFromQuery(raw?: string): string {
+  if (!raw) return "";
+  return raw
+    .replace(/\[LOCAL_MEDIA:[^\]]+\]/gi, " ")
+    .replace(/\[Arquivo\s+(?:anexado|enviado):\s*[^\]]+\]/gi, " ")
+    .replace(/\[Imagem\s+enviada:\s*[^\]]+\]/gi, " ")
+    .trim();
+}
+
 function extractSearchCandidateTerms(userQuery?: string): string[] {
-  if (!userQuery || !userQuery.trim()) return [];
-  return userQuery
+  const cleaned = stripAttachmentTagsFromQuery(userQuery);
+  if (!cleaned) return [];
+  return cleaned
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
@@ -227,7 +240,9 @@ async function getOperatorContext(
   operatorEmail?: string | null,
   userQuery?: string,
   recentAiContextText?: string,
-  onProgress?: (steps: AgenticThoughtStep[], taskTitle: string, finishedTitle: string) => void
+  onProgress?: (steps: AgenticThoughtStep[], taskTitle: string, finishedTitle: string) => void,
+  hasAttachedImage?: boolean,
+  imageFileName?: string
 ): Promise<OperatorContextResult> {
   const sections: string[] = [];
   const knownConvMap = new Map<string, RelatedConversationItem>();
@@ -238,7 +253,8 @@ async function getOperatorContext(
   const executedSteps: AgenticThoughtStep[] = [];
   let isThirdPartyBlocked = false;
 
-  const isCasual = isCasualConversationQuery(userQuery || "");
+  const cleanUserQuery = stripAttachmentTagsFromQuery(userQuery || "");
+  const isCasual = !hasAttachedImage && isCasualConversationQuery(cleanUserQuery);
   if (isCasual) {
     return {
       contextText:
@@ -256,10 +272,10 @@ async function getOperatorContext(
     };
   }
 
-  const q = normalizeForMatch(userQuery || "");
-  const primaryTerms = extractSearchCandidateTerms(userQuery);
+  const q = normalizeForMatch(cleanUserQuery);
+  const primaryTerms = extractSearchCandidateTerms(cleanUserQuery);
   const isFollowUpRequest =
-    /\b(?:puxe|puxar|detalhe|detalhes|link|botao|abrir|abre|ela|elas|essa|esse|recomende|especifico|fechar\s+hoje|ligar|outra|outras|outro|outros)\b/i.test(
+    /\b(?:puxe|puxar|detalhe|detalhes|link|botao|abrir|abre|ela|elas|essa|esse|recomende|especifico|fechar\s+hoje|ligar|outra|outras|outro|outros|lista\s+completa|todas|todos)\b/i.test(
       q
     );
 
@@ -271,7 +287,7 @@ async function getOperatorContext(
   const isCallOrPhone =
     /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
   const isDealOrCrm =
-    /\b(?:negociac|card|proposta|orcamento|funil|parada|esfriando|aberta|valor|cliente|empresa|fechar|venda|outra|outras|outro|outros)\b/.test(
+    /\b(?:negociac|card|proposta|orcamento|funil|parada|esfriando|aberta|perdida|ganha|pausada|valor|cliente|empresa|fechar|venda|outra|outras|outro|outros|lista|listar|liste|todas|todos|mensur|carteira|quantas|quantos)\b/.test(
       q
     );
   const isGoalOrMeta = /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
@@ -282,19 +298,23 @@ async function getOperatorContext(
     );
   const isMetricsQuery = /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
   const isKbQuery =
-    /\b(?:maquina|maquinas|equipamento|modelo|especificac|catalogo|voltagem|potencia|seladora|envasadora|rotuladora|datador|empacotadora|valvula|frasco|pote|tampa)\b/.test(
+    Boolean(hasAttachedImage) ||
+    /\b(?:maquina|maquinas|equipamento|modelo|especificac|catalogo|voltagem|potencia|seladora|envasadora|rotuladora|datador|empacotadora|valvula|frasco|pote|tampa|alicate|arqueadora|arqueacao|fita|peca)\b/.test(
       q
     );
 
   let taskTitle = "Consultando dados da sua operação";
   let finishedTitle = "Consulta comercial concluída";
 
-  if (isCallOrPhone) {
+  if (hasAttachedImage && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta) {
+    taskTitle = "Inspecionando visualmente a foto enviada e consultando catálogo técnico";
+    finishedTitle = "Inspeção visual e consulta técnica concluídas";
+  } else if (isCallOrPhone) {
     taskTitle = "Localizando telefones e preparando ações de ligação";
     finishedTitle = "Telefones e atalhos de discagem localizados";
   } else if (isDealOrCrm || primaryTerms.length > 0) {
-    taskTitle = "Consultando negociações da sua carteira no CRM";
-    finishedTitle = "Análise das negociações do CRM concluída";
+    taskTitle = "Consultando e mensurando toda a sua carteira de negociações no CRM";
+    finishedTitle = "Mensuração e análise completa da carteira concluída";
   } else if (isGoalOrMeta) {
     taskTitle = "Calculando atingimento da sua meta mensal e ritmo";
     finishedTitle = "Cálculo de meta e pacing comercial concluído";
@@ -307,15 +327,16 @@ async function getOperatorContext(
   }
 
   const shouldRunGoals =
-    isOverviewOrGeneral || isGoalOrMeta || (!isCallOrPhone && !isWaitingChat && !isTaskOrAgenda && primaryTerms.length === 0);
+    !hasAttachedImage &&
+    (isOverviewOrGeneral || isGoalOrMeta || (!isCallOrPhone && !isWaitingChat && !isTaskOrAgenda && primaryTerms.length === 0));
   const shouldRunDeals =
-    isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || primaryTerms.length > 0 || !isWaitingChat;
+    isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || (!hasAttachedImage && (primaryTerms.length > 0 || !isWaitingChat));
   const shouldRunTasks =
     isOverviewOrGeneral || isTaskOrAgenda || isCallOrPhone;
   const shouldRunChats =
-    isOverviewOrGeneral || isWaitingChat || isCallOrPhone || primaryTerms.length > 0 || isFollowUpRequest;
+    isOverviewOrGeneral || isWaitingChat || isCallOrPhone || (!hasAttachedImage && primaryTerms.length > 0) || isFollowUpRequest;
   const shouldRunMetrics = isOverviewOrGeneral || isMetricsQuery;
-  const shouldRunKb = isKbQuery;
+  const shouldRunKb = isKbQuery || Boolean(hasAttachedImage);
 
   const pushRealStep = (step: AgenticThoughtStep) => {
     executedSteps.push(step);
@@ -326,9 +347,13 @@ async function getOperatorContext(
     id: "step-op-thought-1",
     kind: "thought",
     actionVerb: "Pensou por 1s",
-    targetLabel: "Selecionando consultas necessárias para responder à sua pergunta",
+    targetLabel: hasAttachedImage
+      ? "Preparando análise visual multimodal da foto e busca no catálogo técnico"
+      : "Selecionando consultas necessárias para responder à sua pergunta",
     durationSeconds: 1,
-    detailText: `Analisando "${(userQuery || "").slice(0, 80)}" para consultar apenas as tabelas relevantes da sua carteira.`,
+    detailText: hasAttachedImage
+      ? `Iniciando leitura óptica da imagem${imageFileName ? ` ("${imageFileName}")` : ""} e verificação na Base de Conhecimento.`
+      : `Analisando "${(cleanUserQuery || userQuery || "").slice(0, 80)}" para consultar e mensurar todas as tabelas relevantes da sua carteira.`,
   });
 
   try {
@@ -398,220 +423,148 @@ async function getOperatorContext(
       }
     }
 
-    // ── 2. NEGOCIAÇÕES (CRM DEALS) ABERTAS & NEGOCIAÇÕES PARADAS / ESFRIANDO ──
+    // ── 2. NEGOCIAÇÕES (CRM DEALS) — VISIBILIDADE E MENSURAÇÃO 100% DA CARTEIRA (SEM TRAVA DE 60) ──
     if (shouldRunDeals) {
       const tDeals0 = Date.now();
       try {
-        const operatorDeals = await db
-          .select({
-            id: crmDeals.id,
-            title: crmDeals.title,
-            status: crmDeals.status,
-            value: crmDeals.value,
-            stageId: crmDeals.stageId,
-            stageName: crmStages.name,
-            pipelineId: crmDeals.pipelineId,
-            pipelineName: crmPipelines.name,
-            pipelineCoolingDays: crmPipelines.coolingDays,
-            stageCoolingDays: crmStageSettings.coolingDays,
-            stageCoolingEnabled: crmStageSettings.coolingEnabled,
-            accountId: crmDeals.accountId,
-            accountName: crmAccounts.name,
-            accountPhone: crmAccounts.phone,
-            accountEmail: crmAccounts.email,
-            accountDocument: crmAccounts.document,
-            customFields: crmDeals.customFields,
-            expectedCloseDate: crmDeals.expectedCloseDate,
-            lastActivityAt: crmDeals.lastActivityAt,
-            updatedAt: crmDeals.updatedAt,
-            createdAt: crmDeals.createdAt,
-          })
-          .from(crmDeals)
-          .leftJoin(crmStages, and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId)))
-          .leftJoin(crmPipelines, and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId)))
-          .leftJoin(crmAccounts, and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)))
-          .leftJoin(
-            crmStageSettings,
-            and(eq(crmStageSettings.stageId, crmDeals.stageId), eq(crmStageSettings.tenantId, tenantId))
-          )
-          .where(
-            and(
-              eq(crmDeals.tenantId, tenantId),
-              eq(crmDeals.operatorId, operatorId),
-              inArray(crmDeals.status, ["open", "paused"])
+        // Executa em paralelo a leitura de TODAS as negociações do operador + contatos vinculados + conversas vinculadas
+        const [operatorDeals, dcRows, convLinks] = await Promise.all([
+          db
+            .select({
+              id: crmDeals.id,
+              title: crmDeals.title,
+              status: crmDeals.status,
+              value: crmDeals.value,
+              stageId: crmDeals.stageId,
+              stageName: crmStages.name,
+              pipelineId: crmDeals.pipelineId,
+              pipelineName: crmPipelines.name,
+              pipelineCoolingDays: crmPipelines.coolingDays,
+              stageCoolingDays: crmStageSettings.coolingDays,
+              stageCoolingEnabled: crmStageSettings.coolingEnabled,
+              accountId: crmDeals.accountId,
+              accountName: crmAccounts.name,
+              accountPhone: crmAccounts.phone,
+              accountEmail: crmAccounts.email,
+              accountDocument: crmAccounts.document,
+              customFields: crmDeals.customFields,
+              expectedCloseDate: crmDeals.expectedCloseDate,
+              lastActivityAt: crmDeals.lastActivityAt,
+              updatedAt: crmDeals.updatedAt,
+              createdAt: crmDeals.createdAt,
+            })
+            .from(crmDeals)
+            .leftJoin(crmStages, and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId)))
+            .leftJoin(crmPipelines, and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId)))
+            .leftJoin(crmAccounts, and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)))
+            .leftJoin(
+              crmStageSettings,
+              and(eq(crmStageSettings.stageId, crmDeals.stageId), eq(crmStageSettings.tenantId, tenantId))
             )
-          )
-          .orderBy(desc(crmDeals.updatedAt))
-          .limit(60);
+            .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.operatorId, operatorId)))
+            .orderBy(desc(crmDeals.updatedAt)),
+          db
+            .select({
+              dealId: crmDealContacts.dealId,
+              isPrimary: crmDealContacts.isPrimary,
+              contactId: contacts.id,
+              contactName: contacts.name,
+              contactPhone: contacts.phone,
+            })
+            .from(crmDealContacts)
+            .innerJoin(
+              crmDeals,
+              and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId))
+            )
+            .innerJoin(
+              contacts,
+              and(eq(contacts.id, crmDealContacts.contactId), eq(contacts.tenantId, tenantId))
+            )
+            .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDeals.operatorId, operatorId)))
+            .catch(() => []),
+          db
+            .select({
+              dealId: crmConversationDeals.dealId,
+              conversationId: crmConversationDeals.conversationId,
+            })
+            .from(crmConversationDeals)
+            .innerJoin(
+              crmDeals,
+              and(eq(crmDeals.id, crmConversationDeals.dealId), eq(crmDeals.tenantId, tenantId))
+            )
+            .where(
+              and(
+                eq(crmConversationDeals.tenantId, tenantId),
+                eq(crmDeals.operatorId, operatorId),
+                eq(crmConversationDeals.isActive, true)
+              )
+            )
+            .catch(() => []),
+        ]);
 
         if (operatorDeals.length > 0) {
-          const dealIds = operatorDeals.map((d) => d.id);
-          const accountIds = Array.from(
-            new Set(operatorDeals.map((d) => d.accountId).filter((v): v is string => Boolean(v)))
-          );
-
           const dealContactMap = new Map<string, { contactId: string; name: string; phone: string | null }>();
-          const accountContactMap = new Map<string, { contactId: string; name: string; phone: string | null }>();
           const dealConvMap = new Map<string, string>();
           const contactConvMap = new Map<string, string>();
 
-          try {
-            const dcRows = await db
-              .select({
-                dealId: crmDealContacts.dealId,
-                isPrimary: crmDealContacts.isPrimary,
-                contactId: contacts.id,
-                contactName: contacts.name,
-                contactPhone: contacts.phone,
-              })
-              .from(crmDealContacts)
-              .innerJoin(contacts, and(eq(contacts.id, crmDealContacts.contactId), eq(contacts.tenantId, tenantId)))
-              .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, dealIds)));
-
-            for (const row of dcRows) {
-              const existing = dealContactMap.get(row.dealId);
-              if (!existing || row.isPrimary || (!existing.phone && row.contactPhone)) {
-                dealContactMap.set(row.dealId, {
-                  contactId: row.contactId,
-                  name: row.contactName,
-                  phone: row.contactPhone || null,
-                });
-              }
+          for (const row of dcRows) {
+            const existing = dealContactMap.get(row.dealId);
+            if (!existing || row.isPrimary || (!existing.phone && row.contactPhone)) {
+              dealContactMap.set(row.dealId, {
+                contactId: row.contactId,
+                name: row.contactName,
+                phone: row.contactPhone || null,
+              });
             }
-          } catch {}
-
-          if (accountIds.length > 0) {
-            try {
-              const accContacts = await db
-                .select({
-                  id: contacts.id,
-                  accountId: contacts.accountId,
-                  name: contacts.name,
-                  phone: contacts.phone,
-                })
-                .from(contacts)
-                .where(and(eq(contacts.tenantId, tenantId), inArray(contacts.accountId, accountIds)));
-
-              for (const c of accContacts) {
-                if (!c.accountId) continue;
-                const existing = accountContactMap.get(c.accountId);
-                if (!existing || (!existing.phone && c.phone)) {
-                  accountContactMap.set(c.accountId, {
-                    contactId: c.id,
-                    name: c.name,
-                    phone: c.phone || null,
-                  });
-                }
-              }
-            } catch {}
           }
 
+          for (const cl of convLinks) {
+            if (!dealConvMap.has(cl.dealId)) {
+              dealConvMap.set(cl.dealId, cl.conversationId);
+            }
+          }
+
+          // Busca conversas ativas do próprio operador para mapear contactId -> conversationId rapidamente
           try {
-            const convLinks = await db
+            const cConvs = await db
               .select({
-                dealId: crmConversationDeals.dealId,
-                conversationId: crmConversationDeals.conversationId,
+                id: conversations.id,
+                contactId: conversations.contactId,
               })
-              .from(crmConversationDeals)
+              .from(conversations)
               .where(
                 and(
-                  eq(crmConversationDeals.tenantId, tenantId),
-                  inArray(crmConversationDeals.dealId, dealIds),
-                  eq(crmConversationDeals.isActive, true)
+                  eq(conversations.tenantId, tenantId),
+                  eq(conversations.operatorId, operatorId)
                 )
-              );
-            for (const cl of convLinks) {
-              if (!dealConvMap.has(cl.dealId)) {
-                dealConvMap.set(cl.dealId, cl.conversationId);
+              )
+              .orderBy(desc(conversations.lastMessageTime));
+            for (const cc of cConvs) {
+              if (!contactConvMap.has(cc.contactId)) {
+                contactConvMap.set(cc.contactId, cc.id);
               }
             }
           } catch {}
-
-          const allResolvedContactIds = Array.from(
-            new Set([
-              ...Array.from(dealContactMap.values()).map((v) => v.contactId),
-              ...Array.from(accountContactMap.values()).map((v) => v.contactId),
-            ])
-          );
-          if (allResolvedContactIds.length > 0) {
-            try {
-              const cConvs = await db
-                .select({
-                  id: conversations.id,
-                  contactId: conversations.contactId,
-                })
-                .from(conversations)
-                .where(
-                  and(
-                    eq(conversations.tenantId, tenantId),
-                    inArray(conversations.contactId, allResolvedContactIds)
-                  )
-                )
-                .orderBy(desc(conversations.lastMessageTime));
-              for (const cc of cConvs) {
-                if (!contactConvMap.has(cc.contactId)) {
-                  contactConvMap.set(cc.contactId, cc.id);
-                }
-              }
-            } catch {}
-          }
-
-          const dealsMissingPhoneNames = operatorDeals
-            .filter((d) => {
-              const dc = dealContactMap.get(d.id);
-              const ac = d.accountId ? accountContactMap.get(d.accountId) : undefined;
-              return !dc?.phone && !ac?.phone && !d.accountPhone && d.accountName;
-            })
-            .map((d) => d.accountName!)
-            .slice(0, 20);
-
-          const namePhoneFallbackMap = new Map<string, { contactId: string; phone: string }>();
-          if (dealsMissingPhoneNames.length > 0) {
-            try {
-              const nameMatchedContacts = await db
-                .select({
-                  id: contacts.id,
-                  name: contacts.name,
-                  phone: contacts.phone,
-                })
-                .from(contacts)
-                .where(
-                  and(
-                    eq(contacts.tenantId, tenantId),
-                    inArray(contacts.name, dealsMissingPhoneNames)
-                  )
-                );
-              for (const nm of nameMatchedContacts) {
-                if (nm.phone) {
-                  namePhoneFallbackMap.set(nm.name.toLowerCase(), {
-                    contactId: nm.id,
-                    phone: nm.phone,
-                  });
-                }
-              }
-            } catch {}
-          }
 
           const normRecentAi = normalizeForMatch(recentAiContextText || "");
           const nowMs = Date.now();
-          const enrichedDeals = operatorDeals.map((d) => {
+          const allEnrichedDeals = operatorDeals.map((d) => {
             const refDate = d.lastActivityAt || d.updatedAt || d.createdAt || new Date();
             const daysIdle = Math.max(0, Math.floor((nowMs - new Date(refDate).getTime()) / 86_400_000));
             const coolingThreshold =
               d.stageCoolingEnabled !== false && d.stageCoolingDays
                 ? d.stageCoolingDays
                 : d.pipelineCoolingDays || 3;
-            const isStalled = daysIdle >= Math.min(3, coolingThreshold);
-            const isCoolingCritical = daysIdle >= coolingThreshold;
+            const isActiveStatus = d.status === "open" || d.status === "paused";
+            const isStalled = isActiveStatus && daysIdle >= Math.min(3, coolingThreshold);
+            const isCoolingCritical = isActiveStatus && daysIdle >= coolingThreshold;
 
             const dc = dealContactMap.get(d.id);
-            const ac = d.accountId ? accountContactMap.get(d.accountId) : undefined;
-            const nameFallback = d.accountName ? namePhoneFallbackMap.get(d.accountName.toLowerCase()) : undefined;
             const cfPhone = extractPhoneFromCustomFields(d.customFields);
 
-            const contactName = dc?.name || ac?.name || d.accountName || null;
-            const contactPhone = dc?.phone || ac?.phone || d.accountPhone || nameFallback?.phone || cfPhone || null;
-            const contactId = dc?.contactId || ac?.contactId || nameFallback?.contactId || null;
+            const contactName = dc?.name || d.accountName || null;
+            const contactPhone = dc?.phone || d.accountPhone || cfPhone || null;
+            const contactId = dc?.contactId || null;
             const conversationId =
               dealConvMap.get(d.id) || (contactId ? contactConvMap.get(contactId) : undefined) || null;
 
@@ -662,60 +615,306 @@ async function getOperatorContext(
             };
           });
 
-          // Prioriza negociações paradas que AINDA NÃO foram citadas nas últimas mensagens da conversa, evitando repetir sempre a mesma (ex: BOLOS & BOLOS)
-          const stalledDeals = enrichedDeals
+          // ── MENSURAÇÃO 100% COMPLETA DA CARTEIRA DO OPERADOR ──────────────────
+          const openDeals = allEnrichedDeals.filter((d) => d.status === "open");
+          const pausedDeals = allEnrichedDeals.filter((d) => d.status === "paused");
+          const activeDeals = allEnrichedDeals.filter((d) => d.status === "open" || d.status === "paused");
+          const wonDeals = allEnrichedDeals.filter((d) => d.status === "won");
+          const lostDeals = allEnrichedDeals.filter((d) => d.status === "lost");
+
+          const sumVal = (arr: typeof allEnrichedDeals) => arr.reduce((acc, x) => acc + x.numValue, 0);
+          const totalPortfolioValue = sumVal(allEnrichedDeals);
+          const totalOpenValue = sumVal(openDeals);
+          const totalPausedValue = sumVal(pausedDeals);
+          const totalActiveValue = sumVal(activeDeals);
+          const totalWonValue = sumVal(wonDeals);
+          const totalLostValue = sumVal(lostDeals);
+
+          const pricedActiveDeals = activeDeals.filter((d) => d.numValue > 0);
+          const zeroValueActiveDeals = activeDeals.filter((d) => d.numValue <= 0);
+          const avgPricedTicket =
+            pricedActiveDeals.length > 0 ? totalActiveValue / pricedActiveDeals.length : 0;
+
+          // Faixas de inatividade (Aging) das negociações ativas
+          const freshActive = activeDeals.filter((d) => d.daysIdle <= 2);
+          const idle3to7 = activeDeals.filter((d) => d.daysIdle >= 3 && d.daysIdle <= 7);
+          const idle8to30 = activeDeals.filter((d) => d.daysIdle >= 8 && d.daysIdle <= 30);
+          const idleOver30 = activeDeals.filter((d) => d.daysIdle > 30);
+
+          // Desdobramento completo por Funil (Pipeline) e Etapa (Stage)
+          interface StageStats {
+            stageName: string;
+            openCount: number;
+            pausedCount: number;
+            activeCount: number;
+            activeValue: number;
+            pricedActiveCount: number;
+            stalledCount: number;
+            wonCount: number;
+            wonValue: number;
+            lostCount: number;
+            lostValue: number;
+          }
+          interface PipelineStats {
+            pipelineName: string;
+            totalCount: number;
+            openCount: number;
+            pausedCount: number;
+            activeCount: number;
+            activeValue: number;
+            stalledCount: number;
+            wonCount: number;
+            wonValue: number;
+            lostCount: number;
+            lostValue: number;
+            stages: Map<string, StageStats>;
+          }
+
+          const pipelineStatsMap = new Map<string, PipelineStats>();
+          for (const d of allEnrichedDeals) {
+            const pName = d.pipelineName || "Funil Geral";
+            const sName = d.stageName || "Sem Etapa";
+            let pStat = pipelineStatsMap.get(pName);
+            if (!pStat) {
+              pStat = {
+                pipelineName: pName,
+                totalCount: 0,
+                openCount: 0,
+                pausedCount: 0,
+                activeCount: 0,
+                activeValue: 0,
+                stalledCount: 0,
+                wonCount: 0,
+                wonValue: 0,
+                lostCount: 0,
+                lostValue: 0,
+                stages: new Map<string, StageStats>(),
+              };
+              pipelineStatsMap.set(pName, pStat);
+            }
+            pStat.totalCount++;
+            let sStat = pStat.stages.get(sName);
+            if (!sStat) {
+              sStat = {
+                stageName: sName,
+                openCount: 0,
+                pausedCount: 0,
+                activeCount: 0,
+                activeValue: 0,
+                pricedActiveCount: 0,
+                stalledCount: 0,
+                wonCount: 0,
+                wonValue: 0,
+                lostCount: 0,
+                lostValue: 0,
+              };
+              pStat.stages.set(sName, sStat);
+            }
+
+            if (d.status === "open") {
+              pStat.openCount++;
+              pStat.activeCount++;
+              pStat.activeValue += d.numValue;
+              sStat.openCount++;
+              sStat.activeCount++;
+              sStat.activeValue += d.numValue;
+              if (d.numValue > 0) sStat.pricedActiveCount++;
+              if (d.isStalled) {
+                pStat.stalledCount++;
+                sStat.stalledCount++;
+              }
+            } else if (d.status === "paused") {
+              pStat.pausedCount++;
+              pStat.activeCount++;
+              pStat.activeValue += d.numValue;
+              sStat.pausedCount++;
+              sStat.activeCount++;
+              sStat.activeValue += d.numValue;
+              if (d.numValue > 0) sStat.pricedActiveCount++;
+              if (d.isStalled) {
+                pStat.stalledCount++;
+                sStat.stalledCount++;
+              }
+            } else if (d.status === "won") {
+              pStat.wonCount++;
+              pStat.wonValue += d.numValue;
+              sStat.wonCount++;
+              sStat.wonValue += d.numValue;
+            } else if (d.status === "lost") {
+              pStat.lostCount++;
+              pStat.lostValue += d.numValue;
+              sStat.lostCount++;
+              sStat.lostValue += d.numValue;
+            }
+          }
+
+          const sortedPipelines = Array.from(pipelineStatsMap.values()).sort(
+            (a, b) => b.activeCount - a.activeCount || b.activeValue - a.activeValue || b.totalCount - a.totalCount
+          );
+
+          const funnelBreakdownLines = sortedPipelines
+            .map((p) => {
+              const stageLines = Array.from(p.stages.values())
+                .sort((a, b) => b.activeCount - a.activeCount || b.activeValue - a.activeValue || b.lostCount - a.lostCount)
+                .map((s) => {
+                  const parts: string[] = [];
+                  if (s.activeCount > 0) {
+                    parts.push(
+                      `${s.activeCount} ativa(s)${s.pausedCount > 0 ? ` (${s.openCount} abertas + ${s.pausedCount} pausadas)` : ""} somando ${formatBrl(s.activeValue)} [${s.pricedActiveCount} c/ valor > R$ 0 | ${s.stalledCount} paradas >=3d]`
+                    );
+                  }
+                  if (s.wonCount > 0) parts.push(`${s.wonCount} ganha(s) (${formatBrl(s.wonValue)})`);
+                  if (s.lostCount > 0) parts.push(`${s.lostCount} perdida(s) (${formatBrl(s.lostValue)})`);
+                  return `      - Etapa "${s.stageName}": ${parts.join(" | ")}`;
+                })
+                .join("\n");
+
+              return (
+                `  • FUNIL "${p.pipelineName}": ${p.activeCount} ativas (${p.openCount} abertas + ${p.pausedCount} pausadas = ${formatBrl(p.activeValue)}) | Paradas >=3d: ${p.stalledCount} | Ganhas: ${p.wonCount} (${formatBrl(p.wonValue)}) | Perdidas: ${p.lostCount} (${formatBrl(p.lostValue)}) | Total histórico no funil: ${p.totalCount}\n` +
+                stageLines
+              );
+            })
+            .join("\n");
+
+          sections.push(
+            `📊 RAIO-X E MENSURAÇÃO 100% COMPLETA DA SUA CARTEIRA NO CRM (TODAS AS ${allEnrichedDeals.length} NEGOCIAÇÕES EM SEU NOME — SEM LIMITE DE 60):\n` +
+              `  • Total Geral de Negociações em seu nome: ${allEnrichedDeals.length} negociações somando ${formatBrl(totalPortfolioValue)}\n` +
+              `  • Negociações EM ABERTO (status open): ${openDeals.length} negociações somando ${formatBrl(totalOpenValue)}\n` +
+              `  • Negociações PAUSADAS (status paused): ${pausedDeals.length} negociações somando ${formatBrl(totalPausedValue)}\n` +
+              `  • TOTAL ATIVAS NO PIPELINE (abertas + pausadas): ${activeDeals.length} negociações somando ${formatBrl(totalActiveValue)}\n` +
+              `    - Com valor de proposta preenchido (> R$ 0): ${pricedActiveDeals.length} negociações (Ticket Médio: ${formatBrl(avgPricedTicket)})\n` +
+              `    - Sem valor preenchido (R$ 0,00 / em qualificação ou suporte): ${zeroValueActiveDeals.length} negociações\n` +
+              `  • Negociações GANHAS (status won): ${wonDeals.length} negociações somando ${formatBrl(totalWonValue)}\n` +
+              `  • Negociações PERDIDAS (status lost): ${lostDeals.length} negociações somando ${formatBrl(totalLostValue)}\n` +
+              `  • SAÚDE E TEMPO DE INATIVIDADE DAS ${activeDeals.length} NEGOCIAÇÕES ATIVAS:\n` +
+              `    - Em dia (0 a 2 dias sem interação): ${freshActive.length} negociações (${formatBrl(sumVal(freshActive))})\n` +
+              `    - Atenção (3 a 7 dias sem interação): ${idle3to7.length} negociações (${formatBrl(sumVal(idle3to7))})\n` +
+              `    - Esfriando (8 a 30 dias sem interação): ${idle8to30.length} negociações (${formatBrl(sumVal(idle8to30))})\n` +
+              `    - Críticas / Congeladas (+30 dias sem interação): ${idleOver30.length} negociações (${formatBrl(sumVal(idleOver30))})\n\n` +
+              `📂 MENSURAÇÃO COMPLETA POR FUNIL E POR ETAPA (${sortedPipelines.length} funis na sua carteira):\n${funnelBreakdownLines}`
+          );
+
+          const formatDealLine = (d: (typeof allEnrichedDeals)[number]) => {
+            const acc = d.accountName && d.accountName !== d.title ? ` (${d.accountName})` : "";
+            const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
+            const closePart = d.expectedCloseDate
+              ? ` | Prev. Fechamento: ${new Date(d.expectedCloseDate).toLocaleDateString("pt-BR")}`
+              : "";
+            const convPart = d.conversationId ? ` | convId: ${d.conversationId}` : "";
+            const statusBadge =
+              d.status === "paused"
+                ? " [PAUSADA]"
+                : d.status === "lost"
+                ? " [PERDIDA]"
+                : d.status === "won"
+                ? " [GANHA]"
+                : "";
+            return `  • "${d.title}"${acc}${statusBadge} — ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Funil"} > ${d.stageName || "N/A"} | Parada há: ${d.daysIdle}d${phonePart}${closePart} (dealId: ${d.id}${convPart})`;
+          };
+
+          // Prioriza negociações paradas que AINDA NÃO foram citadas nas últimas mensagens da conversa
+          const stalledDeals = activeDeals
             .filter((d) => d.isStalled)
             .sort((a, b) => {
               if (a.alreadyMentionedRecently !== b.alreadyMentionedRecently) {
                 return a.alreadyMentionedRecently ? 1 : -1;
               }
-              return b.daysIdle - a.daysIdle || b.numValue - a.numValue;
+              return b.numValue - a.numValue || b.daysIdle - a.daysIdle;
             });
+
+          // 1) Ranking das Top 30 Negociações Ativas de Maior Valor (> R$ 0)
+          const topByValueDeals = [...pricedActiveDeals]
+            .sort((a, b) => b.numValue - a.numValue)
+            .slice(0, 30);
+          if (topByValueDeals.length > 0) {
+            sections.push(
+              `💰 TOP ${topByValueDeals.length} NEGOCIAÇÕES ATIVAS DE MAIOR VALOR NA SUA CARTEIRA (de ${pricedActiveDeals.length} precificadas):\n` +
+                topByValueDeals.map(formatDealLine).join("\n")
+            );
+          }
+
+          // 2) Negociações em Etapas Quentes (Fechamento, Proposta Enviada, Escopo, Qualificado, Abordagem)
+          const hotStageDeals = activeDeals
+            .filter((d) =>
+              /fechamento|proposta|escopo|qualificad|abordagem|prospec/i.test(
+                `${d.stageName || ""} ${d.pipelineName || ""}`
+              )
+            )
+            .sort((a, b) => b.numValue - a.numValue || a.daysIdle - b.daysIdle)
+            .slice(0, 30);
+          if (hotStageDeals.length > 0) {
+            sections.push(
+              `🔥 NEGOCIAÇÕES EM ETAPAS QUENTES (FECHAMENTO / PROPOSTA ENVIADA / ESCOPO / QUALIFICADO — Top ${hotStageDeals.length}):\n` +
+                hotStageDeals.map(formatDealLine).join("\n")
+            );
+          }
+
+          // 3) Se o operador filtrou por funil, etapa, status ou palavra-chave específica na pergunta
+          const asksLost = /\b(?:perdida|perdidas|perdido|perdidos)\b/.test(q);
+          const asksWon = /\b(?:ganha|ganhas|ganho|ganhos|fechada|fechadas)\b/.test(q);
+          const asksPaused = /\b(?:pausada|pausadas|pausado|pausados)\b/.test(q);
+
+          const poolForQueryFilter = asksLost
+            ? lostDeals
+            : asksWon
+            ? wonDeals
+            : asksPaused
+            ? pausedDeals
+            : activeDeals;
+
+          const matchedByQueryPool = poolForQueryFilter.filter((d) => {
+            const hay = normalizeForMatch(
+              `${d.title || ""} ${d.accountName || ""} ${d.contactName || ""} ${d.pipelineName || ""} ${d.stageName || ""}`
+            );
+            if (primaryTerms.length > 0 && primaryTerms.some((t) => hay.includes(t))) return true;
+            for (const p of sortedPipelines) {
+              const pNorm = normalizeForMatch(p.pipelineName).replace(/^funil\s+/, "");
+              if (pNorm.length >= 3 && q.includes(pNorm) && d.pipelineName === p.pipelineName) {
+                return true;
+              }
+            }
+            return false;
+          });
+
+          if (matchedByQueryPool.length > 0) {
+            const sortedMatched = [...matchedByQueryPool]
+              .sort((a, b) => b.numValue - a.numValue || a.daysIdle - b.daysIdle)
+              .slice(0, 50);
+            sections.push(
+              `🎯 NEGOCIAÇÕES DA SUA CARTEIRA QUE CORRESPONDEM ESPECIFICAMENTE AO FILTRO DA PERGUNTA (${matchedByQueryPool.length} encontradas — exibindo até 50):\n` +
+                sortedMatched.map(formatDealLine).join("\n")
+            );
+          }
+
+          // 4) As 30 Negociações Ativas Mais Recentes / Movimentadas Recentemente
+          const recentActiveLines = activeDeals.slice(0, 30).map(formatDealLine).join("\n");
+          sections.push(
+            `💼 NEGOCIAÇÕES ATIVAS MAIS RECENTES DA SUA CARTEIRA (exibindo as 30 mais recentes de ${activeDeals.length} ativas e ${allEnrichedDeals.length} totais):\n${recentActiveLines}`
+          );
 
           const asksAboutStalledOrDeals =
             isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest;
 
-          if (asksAboutStalledOrDeals) {
-            if (stalledDeals.length > 0) {
-              const stalledLines = stalledDeals
-                .slice(0, 15)
-                .map((d) => {
-                  const badge = d.isCoolingCritical
-                    ? "❄️ ESFRIANDO / PARADA CRÍTICA"
-                    : "⚠️ SEM INTERAÇÃO RECENTE";
-                  const recentTag = d.alreadyMentionedRecently
-                    ? " [JÁ CITADA NAS ÚLTIMAS MENSAGENS — NÃO REPITA SE O VENDEDOR PEDIR OUTRAS]"
-                    : " [NOVA OPÇÃO — AINDA NÃO CITADA]";
-                  const acc = d.accountName ? ` | Cliente/Conta: ${d.accountName}` : "";
-                  const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
-                  const convPart = d.conversationId ? ` | convId: ${d.conversationId}` : "";
-                  return `  • [${badge} — ${d.daysIdle} dia(s) sem movimentação]${recentTag} "${d.title}"${acc} | Valor: ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Geral"} > ${d.stageName || "N/A"}${phonePart} (dealId: ${d.id}${convPart})`;
-                })
-                .join("\n");
-              sections.push(
-                `❄️ SUAS NEGOCIAÇÕES PARADAS / ESFRIANDO (${stalledDeals.length} de ${enrichedDeals.length} abertas — USE APENAS SE O VENDEDOR PERGUNTAR SOBRE NEGOCIAÇÕES, PRIORIDADES OU FOLLOW-UP):\n${stalledLines}`
-              );
-            } else {
-              sections.push(
-                `❄️ NEGOCIAÇÕES PARADAS / ESFRIANDO: Parabéns! Nenhuma das suas ${enrichedDeals.length} negociações abertas está parada há 3+ dias.`
-              );
-            }
+          if (asksAboutStalledOrDeals && stalledDeals.length > 0) {
+            const stalledLines = stalledDeals
+              .slice(0, 20)
+              .map((d) => {
+                const badge = d.isCoolingCritical
+                  ? "❄️ ESFRIANDO / PARADA CRÍTICA"
+                  : "⚠️ SEM INTERAÇÃO RECENTE";
+                const recentTag = d.alreadyMentionedRecently
+                  ? " [JÁ CITADA NAS ÚLTIMAS MENSAGENS — NÃO REPITA SE O VENDEDOR PEDIR OUTRAS]"
+                  : " [NOVA OPÇÃO — AINDA NÃO CITADA]";
+                const acc = d.accountName ? ` | Cliente/Conta: ${d.accountName}` : "";
+                const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
+                const convPart = d.conversationId ? ` | convId: ${d.conversationId}` : "";
+                return `  • [${badge} — ${d.daysIdle} dia(s) sem movimentação]${recentTag} "${d.title}"${acc} | Valor: ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Geral"} > ${d.stageName || "N/A"}${phonePart} (dealId: ${d.id}${convPart})`;
+              })
+              .join("\n");
+            sections.push(
+              `❄️ AMOSTRA DE NEGOCIAÇÕES PARADAS / ESFRIANDO COM MAIOR PRIORIDADE (${stalledDeals.length} paradas de ${activeDeals.length} ativas):\n${stalledLines}`
+            );
           }
-
-          const activeDealLines = enrichedDeals
-            .slice(0, 25)
-            .map((d) => {
-              const acc = d.accountName ? ` (${d.accountName})` : "";
-              const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
-              const closePart = d.expectedCloseDate
-                ? ` | Prev. Fechamento: ${new Date(d.expectedCloseDate).toLocaleDateString("pt-BR")}`
-                : "";
-              const convPart = d.conversationId ? ` | convId: ${d.conversationId}` : "";
-              const recentTag = d.alreadyMentionedRecently ? " [JÁ CITADA RECENTEMENTE]" : "";
-              return `  • "${d.title}"${acc}${recentTag} — ${formatBrl(d.numValue)} | Etapa: ${d.stageName || "N/A"} (${d.pipelineName || "Funil"}) | Parada há: ${d.daysIdle}d${phonePart}${closePart}${d.status === "paused" ? " [PAUSADA]" : ""} (dealId: ${d.id}${convPart})`;
-            })
-            .join("\n");
-          sections.push(`💼 SUAS NEGOCIAÇÕES EM ABERTO NO CRM (${enrichedDeals.length}):\n${activeDealLines}`);
 
           const dealsMs = Math.max(15, Date.now() - tDeals0);
           pushRealStep({
@@ -723,12 +922,12 @@ async function getOperatorContext(
             kind: "analyze",
             actionVerb: "Analisou",
             targetLabel: "crm_deals & crm_accounts",
-            scopeTag: `#${enrichedDeals.length}-negociacoes • ${dealsMs}ms`,
+            scopeTag: `#${activeDeals.length}-ativas • #${allEnrichedDeals.length}-total • ${dealsMs}ms`,
             badgeType: "crm",
-            detailText: `${enrichedDeals.length} negociações abertas (${stalledDeals.length} paradas/esfriando) e contatos vinculados inspecionados no banco em ${dealsMs}ms.`,
+            detailText: `${allEnrichedDeals.length} negociações totais na sua carteira (${openDeals.length} abertas [${formatBrl(totalOpenValue)}], ${pausedDeals.length} pausadas [${formatBrl(totalPausedValue)}], ${wonDeals.length} ganhas e ${lostDeals.length} perdidas em ${sortedPipelines.length} funis) mensuradas no banco em ${dealsMs}ms.`,
           });
         } else {
-          sections.push(`💼 SUAS NEGOCIAÇÕES NO CRM: Você não possui negociações abertas vinculadas ao seu usuário no momento.`);
+          sections.push(`💼 SUAS NEGOCIAÇÕES NO CRM: Você não possui negociações vinculadas ao seu usuário no momento.`);
           const dealsMs = Math.max(10, Date.now() - tDeals0);
           pushRealStep({
             id: "step-op-deals",
@@ -737,7 +936,7 @@ async function getOperatorContext(
             targetLabel: "crm_deals",
             scopeTag: `#0-negociacoes • ${dealsMs}ms`,
             badgeType: "crm",
-            detailText: `Consulta concluída em ${dealsMs}ms — 0 negociações abertas encontradas.`,
+            detailText: `Consulta concluída em ${dealsMs}ms — 0 negociações encontradas.`,
           });
         }
       } catch (dealErr: any) {
@@ -1313,8 +1512,13 @@ async function getOperatorContext(
             sections.push(`🔍 HISTÓRICO DETALHADO DO(S) CLIENTE(S) CONSULTADO(S):\n${deepDetails.join("\n\n")}`);
           }
 
-          // 5.3 Guarda de Sigilo: Verifica se o termo buscado pertence a OUTRO operador
-          if (targetConvs.length === 0 && matchedDeals.length === 0 && primaryTerms.length > 0) {
+          // 5.3 Guarda de Sigilo: Verifica se o termo buscado pertence a OUTRO operador (apenas quando não é envio puro de imagem)
+          if (
+            !hasAttachedImage &&
+            targetConvs.length === 0 &&
+            matchedDeals.length === 0 &&
+            primaryTerms.length > 0
+          ) {
             const dealLikeFilters = primaryTerms.map((t) => ilike(crmDeals.title, `%${t}%`));
             const thirdPartyDeals = await db
               .select({
@@ -1430,7 +1634,14 @@ async function getOperatorContext(
     if (shouldRunKb) {
       const tKb0 = Date.now();
       try {
-        const kbContext = await getKnowledgeBaseContext(tenantId, userQuery);
+        const kbQuery = [
+          cleanUserQuery,
+          imageFileName ? imageFileName.replace(/\.[a-z0-9]{2,5}$/i, "") : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        const kbContext = await getKnowledgeBaseContext(tenantId, kbQuery || userQuery);
         if (kbContext) {
           sections.push(kbContext);
           const kbMs = Math.max(10, Date.now() - tKb0);
@@ -1518,7 +1729,9 @@ function buildSupervisorPrompt(
   operationalContext: string,
   fileContext: string,
   chatHistoryText: string,
-  userMessage: string
+  userMessage: string,
+  hasAttachedImage?: boolean,
+  imageFileName?: string
 ): string {
   const genderRole =
     persona.gender === "male"
@@ -1549,7 +1762,13 @@ Você está conversando diretamente com "${operatorName}" (Diretoria / Gestão E
    - **PROIBIÇÃO ABSOLUTA DE ALUCINAÇÃO (FIDELIDADE 100% AO DOSSIÊ)**: Você SÓ pode citar nomes de operadores/vendedores, nomes de clientes/empresas, CNPJs, valores em R$ e quantidades que estejam **literalmente escritos** no dossiê abaixo (\`DADOS REAIS DA OPERAÇÃO AGORA\`). **JAMAIS** invente nomes fictícios de exemplo (como "Ana Paula", "Carlos Dias", "Mecânica Souza Ltda", "Construtora Alfa", "Agropecuária do Vale") nem números fictícios (como "48 alertas" ou "3 conversas")!
    - Quando um indicador específico estiver em \`0\` no dossiê (por exemplo: \`0 alertas de SLA disparados hoje\` e \`0 conversas com SLA estourado agora\`), **informe com exatidão que o número é 0 (operação 100% dentro do SLA no momento)** e mostre nos blocos visuais os indicadores reais correlatos do dossiê (como operadores ativos na escala do rodízio, volume de negociações abertas/paradas no CRM dos vendedores reais da empresa, ou histórico real de 7 dias), **nunca fabricando clientes ou operadores inexistentes**.
    - **PROIBIÇÃO ABSOLUTA DE EMOJIS**: O sistema utiliza exclusivamente ícones vetoriais nativos na interface. **JAMAIS** inclua emojis no texto das suas respostas ou dentro dos blocos.
-
+${
+  hasAttachedImage
+    ? `\n4. **ANÁLISE VISUAL MULTIMODAL DE IMAGEM / FOTO ANEXADA**:
+   - O gestor enviou uma imagem real anexada nesta mensagem${imageFileName ? ` (referência: "${imageFileName}")` : ""}.
+   - Analise diretamente os pixels da imagem enviada com máxima precisão e fidelidade visual, sem inventar especificações ou dados que não estejam visíveis na foto ou no dossiê.\n`
+    : ""
+}
 3. **USO OBRIGATRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\` COM DADOS 100% REAIS DO DOSSIÊ)**:
    - Sempre que a pergunta envolver métricas, comparativos, rankings, funil, relatórios ou objeções, enriqueça sua resposta com **1 ou 2 blocos visuais** dentro do array \`"blocks"\` usando **exclusivamente** os números e nomes reais do dossiê:
      * **Perguntas sobre TMA**: Traga a análise executiva em \`"text"\` + um \`InsightBlock\` (com os valores reais do dossiê de TMA Hoje, 7d, 30d e Pós-SDR) + um \`ChartBlock\` (\`"bar"\`, unit \`"min"\` ou \`"s"\`) se houver operadores com TMA medido (se todos estiverem em 0/N/A, use um \`ReportBlock\` com os operadores reais da equipe e seu status atual).
@@ -1593,7 +1812,9 @@ function buildColeaguePrompt(
   fileContext: string,
   chatHistoryText: string,
   userMessage: string,
-  alreadyTalkingToday: boolean
+  alreadyTalkingToday: boolean,
+  hasAttachedImage?: boolean,
+  imageFileName?: string
 ): string {
   const isMale = persona.gender === "male";
   const colleagueRole = isMale ? "colega de equipe e copiloto comercial" : "colega de equipe e copiloto comercial";
@@ -1611,13 +1832,36 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
 2. **Metas e Ritmo Comercial**: Quanto falta para bater a meta do mês, quanto já vendeu, qual a meta diária necessária e quantos dias úteis restam.
 3. **Tarefas, Reuniões e Diretrizes do Gestor**: Quais tarefas estão pendentes para hoje ou atrasadas e quais orientações o gestor deixou nas negociações.
 4. **Ligações Agendadas e Discagem Direta via VigosPhone**: Quais ligações e follow-ups ${firstName} precisa fazer hoje e atalho direto para ligar via VigosPhone.
-5. **Negociações (CRM) Abertas, Histórico de Atividades e Negociações Paradas/Esfriando**: Quais orçamentos/deals estão em aberto, histórico detalhado de anotações/atividades de cada card, telefone do contato e quais estão parados há 3+ dias sem interação.
-6. **Dúvidas Técnicas de Produtos/Máquinas**: Especificações técnicas do catálogo da ${persona.company} para ajudar ${firstName} a responder rápido ao cliente.
+5. **MENSURAÇÃO 100% COMPLETA DA CARTEIRA E LISTAGEM DE NEGOCIAÇÕES (CRM)**: Você enxerga **100% de todas as negociações** de ${firstName} no CRM (sem nenhum limite de 60 registros — você vê todas as milhares de negociações: abertas, ganhas, pausadas e perdidas, além da mensuração matemática completa por status, por faixa de valor, por tempo sem interação/aging e por cada Funil e Etapa).
+6. **Análise Visual de Fotos/Imagens e Dúvidas Técnicas de Produtos/Máquinas**: Inspeção visual real de fotos de máquinas, ferramentas, peças ou prints enviados por ${firstName} + especificações técnicas do catálogo da ${persona.company}.
+${
+  hasAttachedImage
+    ? `
+## ANÁLISE VISUAL DE IMAGEM / FOTO ENVIADA PELO VENDEDOR (MODO MULTIMODAL ATIVO):
+1. **INSPEÇÃO VISUAL REAL DOS PIXELS DA FOTO**:
+   - ${firstName} acabou de enviar uma **IMAGEM / FOTO REAL** anexada nesta mensagem${imageFileName ? ` (nome de referência do arquivo: "${imageFileName}")` : ""}.
+   - Os pixels reais da imagem estão anexados diretamente na entrada multimodal desta chamada. **INSPECIONE VISUALMENTE A IMAGEM COM ATENÇÃO TOTAL!**
+2. **REGRA INVIOLÁVEL CONTRA ALUCINAÇÃO E MENTIRA**:
+   - Descreva e responda com base no que **REALMENTE APARECE VISUALMENTE NA FOTO** (ex: formato físico do equipamento/ferramenta, mecanismo de acionamento/alavancas, cor, material da estrutura, painel, rótulos visíveis na peça ou texto visível em um print) combinado com os dados oficiais da seção \`📚 CATÁLOGO / BASE DE CONHECIMENTO\` (quando o item constar no catálogo abaixo).
+   - **PROIBIDO INVENTAR OU CHUTAR ESPECIFICAÇÕES TÉCNICAS**: Se um dado técnico específico (como voltagem, potência em W, largura/espessura exata de fita em mm, peso exato em kg, capacidade produtiva ou preço) **NÃO estiver visível na foto** e **NÃO constar na Base de Conhecimento abaixo**, **JAMAIS invente números ou especificações!** Descreva com precisão o equipamento/ferramenta que você está vendo na foto, explique sua aplicação prática real e informe com transparência quais medidas/especificações exatas não estão visíveis na imagem e precisam ser conferidas na ficha técnica.
+   - **NÃO EMPURRE CARDS DE CRM**: Como o foco é a análise da foto enviada, mantenha \`"mentionedDealIds": []\`, \`"suggestedCallDealIds": []\` e \`"mentionedConversationIds": []\` vazios, a menos que ${firstName} tenha pedido explicitamente uma negociação junto com a foto.
+`
+    : ""
+}
+## REGRA INVIOLÁVEL DE MENSURAÇÃO E LISTAGEM (PROIBIDO ENROLAR OU PEDIR CONFIRMAÇÃO!):
+1. **PROIBIDO DIZER "60 NEGOCIAÇÕES"**:
+   - Você tem acesso à totalidade absoluta da carteira de ${firstName} na seção \`📊 RAIO-X E MENSURAÇÃO 100% COMPLETA DA SUA CARTEIRA NO CRM\`. **JAMAIS** diga que existem apenas 60 negociações! Use sempre os números exatos do Raio-X (ex: total geral da carteira, total de abertas, pausadas, ganhas e perdidas).
+2. **PROIBIDO ENROLAR, PEDIR CONFIRMAÇÃO OU PERGUNTAR "COMO PREFERE VER?"**:
+   - **JAMAIS** responda frases evasivas como *"Tem certeza que quer que eu liste todas?"*, *"Quer mesmo que eu mande tudo?"*, *"A lista completa vai ficar gigante aqui no WhatsApp. Que tal eu filtrar pra você? Como você prefere ver?"* ou *"Prefere que eu filtre por funil ou valor?"*.
+   - Sempre que ${firstName} pedir para **listar todas as negociações, ver a lista completa, saber quantas negociações tem ou mensurar a carteira**, **ENTREGUE OS DADOS IMEDIATAMENTE NA MESMA RESPOSTA** divididos em 3 balões objetivos:
+     * **1º Balão (Mensuração Global 100% da Carteira)**: Informe o Total Geral de negociações vinculadas ao nome de ${firstName} e o valor global, detalhando exatamente quantas estão **Em Andamento (Abertas)** + valor em R$ (e quantas possuem valor preenchido vs R$ 0,00), quantas estão **Ganhas**, **Pausadas** e **Perdidas**, além da **Saúde/Aging das Abertas** (quantas ativas <3d, esfriando 3-7d, paradas >7d e >30d).
+     * **2º Balão (Mensuração por Funil e Principais Etapas)**: Apresente a distribuição exata por Funil (quantidade de abertas, total e valor em R$ de cada funil, e as principais etapas com mais volume/valor) usando os números reais da seção \`📂 MENSURAÇÃO COMPLETA POR FUNIL E POR ETAPA\`.
+     * **3º Balão (Listagem Nominal das Principais Negociações + Cards Interativos)**: Liste nominalmente no texto as principais negociações em aberto (com código, empresa, etapa e valor em R$) e preencha \`"mentionedDealIds"\` com os IDs das negociações listadas no contexto para que o painel interativo rolável de negociações seja exibido logo abaixo.
 
 ## ESTILO DE CONVERSA NATURAL (COMO UM COLEGA NO WHATSAPP):
 1. **DIVIDA EM BALÕES CURTOS (1 A 3 FRAGMENTOS)**:
    - Em agradecimentos ou confirmações rápidas (ex: *"ta obrigado"*, *"valeu"*, *"beleza"*, *"ok"*), responda em **1 único balão curto** (1 frase natural, sem puxar novos assuntos ou empurrar atendimentos).
-   - Em consultas comerciais, quebre sua resposta em **2 a 3 balões curtos** dentro do array \`"fragments"\` (cada balão com 1 a 3 frases curtas).
+   - Em consultas comerciais, quebre sua resposta em **2 a 3 balões** dentro do array \`"fragments"\`.
 2. **PROIBIDO CUMPRIMENTAR TODA HORA**:
    - ${
      alreadyTalkingToday
@@ -1628,7 +1872,6 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
    - **NUNCA** empurre negociações paradas, leads ou sugestões de ligação se ${firstName} não perguntou por indicações/prioridades agora.
    - Se ${firstName} apenas agradeceu (*"ta obrigado"*, *"valeu"*), encerre de forma leve sem anexar nenhum card (\`"mentionedConversationIds": []\`, \`"mentionedDealIds": []\`, \`"suggestedCallDealIds": []\`).
    - Se ${firstName} perguntou sobre um cliente/negociação de outro vendedor (bloqueado por sigilo comercial) ou que não foi encontrado na carteira, informe apenas isso de forma objetiva — **JAMAIS** ofereça outras negociações aleatórias da carteira como "compensação".
-   - **PROIBIDO REPETIR INDICAÇÕES**: Olhe o \`HISTÓRICO RECENTE DA CONVERSA\`. Se você já sugeriu determinados clientes/negociações (ex: nas mensagens anteriores de hoje), **NÃO volte a oferecer os mesmos clientes** a menos que ${firstName} pergunte especificamente por eles pelo nome.
 4. **PROIBIDO USAR EMOJIS E PROIBIDO REPETIR BORDÕES**:
    - **PROIBIÇÃO ABSOLUTA DE EMOJIS**: O sistema utiliza exclusivamente ícones nativos na interface. **JAMAIS** inclua emojis em nenhuma mensagem!
    - **NUNCA** use as palavras **"parceiro"**, **"parceira"**, **"campeão"**, **"fera"**, **"chefe"**, **"meu caro"** ou **"amigo"**.
@@ -1637,9 +1880,9 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
 5. **FORMATAÇÃO LIMPA DE WHATSAPP (PROIBIDO USAR CRASE / BACKTICKS \` \`)**:
    - **JAMAIS** use crases (\`0017418\`) para destacar códigos ou nomes. Use apenas negrito simples do WhatsApp (\`*0017418*\` ou \`**0017418**\`).
    - **JAMAIS** escreva \`[ID: ...]\`, \`[dealId: ...]\` ou \`[convId: ...]\` no texto visível de \`"text"\`. Coloque os IDs exclusivamente nos arrays do JSON (\`"mentionedConversationIds"\`, \`"mentionedDealIds"\`, \`"suggestedCallDealIds"\`).
-6. **CARDS UNIFICADOS E SEM DUPLICIDADE (MÁXIMO 1 A 3 CARDS RELEVANTES)**:
+6. **CARDS UNIFICADOS DE NEGOCIAÇÕES (\`"mentionedDealIds"\`)**:
    - Cada Card de Negociação em \`"mentionedDealIds"\` **já possui embutidos** o telefone do cliente, o botão de discagem direta no VigosPhone, o atalho da conversa no WhatsApp e o botão **"Abrir CRM →"**.
-   - Portanto, quando citar uma negociação do CRM (\`[dealId: ...]\`), coloque o ID **APENAS em \`"mentionedDealIds"\`** (limite-se às 1 a 3 negociações realmente citadas no seu texto; nunca despeje 6 cards de uma vez).
+   - Quando citar uma negociação específica, coloque o ID em \`"mentionedDealIds"\`. Quando ${firstName} pedir uma lista ampla/completa de negociações, inclua em \`"mentionedDealIds"\` até 20 IDs relevantes (o sistema completará automaticamente a lista interativa rolável).
    - Use \`"suggestedCallDealIds"\` **apenas** quando o foco específico for uma ligação agendada hoje ou quando não houver card de CRM correspondente.
    - Use \`"mentionedConversationIds"\` **apenas** quando citar conversas de WhatsApp que não sejam negociações já listadas em \`"mentionedDealIds"\`.
 
@@ -1752,21 +1995,21 @@ function splitIntoNaturalFragments(
       continue;
     }
 
-    // Divide por quebras de parágrafo duplas se o balão for longo (> 180 chars) ou se só veio 1 balão com vários parágrafos
+    // Divide por quebras de parágrafo duplas se o balão for longo (> 260 chars) ou se só veio 1 balão com vários parágrafos
     const paragraphs = frag.text
       .split(/\n{2,}/)
       .map((p) => p.trim())
       .filter(Boolean);
 
-    if (paragraphs.length > 1 && (cleanedInput.length === 1 || frag.text.length > 180)) {
+    if (paragraphs.length > 1 && (cleanedInput.length === 1 || frag.text.length > 260)) {
       for (const p of paragraphs) {
         finalBubbles.push({
           text: p,
           delay: finalBubbles.length * 650,
         });
       }
-    } else if (cleanedInput.length === 1 && frag.text.length > 220) {
-      // Se veio 1 bloco só sem \n\n mas com várias frases longas, divide em 2 ou 3 balões por frases
+    } else if (cleanedInput.length === 1 && frag.text.length > 260 && !frag.text.includes("\n")) {
+      // Se veio 1 bloco só sem quebras de linha mas com várias frases longas, divide em 2 balões por frases
       const sentences = frag.text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [frag.text];
       if (sentences.length >= 2) {
         const mid = Math.ceil(sentences.length / 2);
@@ -1825,9 +2068,17 @@ function resolveRelatedDeals(
   const selectedMap = new Map<string, RelatedDealItem>();
   const byId = new Map(ctx.knownDeals.map((d) => [d.dealId, d]));
 
-  // 1. Negociações citadas nominalmente ou por código numérico no texto da resposta da IA
+  // 1. IDs explicitamente retornados pela IA em mentionedDealIds ou suggestedCallDealIds (prioridade máxima)
+  for (const id of [...mentionedDealIds, ...suggestedCallDealIds]) {
+    const cleanId = (id || "").trim();
+    const found = byId.get(cleanId);
+    if (found) selectedMap.set(found.dealId, found);
+  }
+
+  // 2. Negociações citadas nominalmente ou por código numérico no texto da resposta da IA
   const normReply = normalizeForMatch(fullReplyText);
   for (const deal of ctx.knownDeals) {
+    if (selectedMap.size >= 50) break;
     const titleNorm = normalizeForMatch(deal.title || "");
     const companyNorm = normalizeForMatch(deal.company || "");
     const codeMatch = (deal.title || "").match(/\b(\d{4,})\b/);
@@ -1842,17 +2093,70 @@ function resolveRelatedDeals(
     }
   }
 
-  // 2. IDs explicitamente retornados pela IA em mentionedDealIds ou suggestedCallDealIds
-  for (const id of [...mentionedDealIds, ...suggestedCallDealIds]) {
-    const cleanId = (id || "").trim();
-    const found = byId.get(cleanId);
-    if (found) selectedMap.set(found.dealId, found);
+  // 3. Detecta se o operador pediu listagem completa/ampla ou plural de negociações
+  const asksFullOrBroadList =
+    /\b(?:todas|todos|tudo|lista\s+completa|listar|liste|minhas\s+negocia[çc][oõ]es|meus\s+cards|mensur[aeo]|mensura[çc][aã]o|carteira\s+completa|pipeline\s+completo|funil|etapa)\b/i.test(
+      userText
+    );
+  const asksPluralList =
+    /\b(?:quais|lista|paradas|parados|abertas|abertos|maiores|propostas|or[çc]amentos|negocia[çc][oõ]es)\b/i.test(
+      userText
+    );
+
+  // Se o operador pediu a lista completa / todas as negociações, preenche até 50 cards interativos
+  // priorizando o filtro da pergunta (ex: funil/etapa/termo) ou as principais negociações da carteira
+  if (asksFullOrBroadList && selectedMap.size < 50) {
+    const queryTerms = normalizeForMatch(userText)
+      .split(/\s+/)
+      .filter(
+        (w) =>
+          w.length >= 3 &&
+          !STOPWORDS_PT.has(w) &&
+          ![
+            "todas",
+            "todos",
+            "tudo",
+            "lista",
+            "listar",
+            "liste",
+            "completa",
+            "completo",
+            "minhas",
+            "meus",
+            "meu",
+            "nome",
+            "estao",
+            "estão",
+            "negociacoes",
+            "negociacao",
+            "cards",
+            "card",
+            "carteira",
+            "quero",
+            "ver",
+            "mostrar",
+            "mostre",
+            "mensurar",
+            "mensure",
+          ].includes(w)
+      );
+
+    const candidateDeals =
+      queryTerms.length > 0
+        ? ctx.knownDeals.filter((d) => {
+            const hay = normalizeForMatch(`${d.title} ${d.company || ""} ${d.stageLabel} ${d.contactName || ""}`);
+            return queryTerms.some((t) => hay.includes(t));
+          })
+        : ctx.knownDeals;
+
+    const poolToUse = candidateDeals.length > 0 ? candidateDeals : ctx.knownDeals;
+    for (const deal of poolToUse) {
+      if (selectedMap.size >= 50) break;
+      selectedMap.set(deal.dealId, deal);
+    }
   }
 
-  // Limita a no máximo 2 cards (ou 3 quando o usuário pediu lista/plural explicitamente) para evitar poluição visual
-  const asksPluralList = /\b(?:quais|todos|todas|lista|listar|paradas|parados|abertas|abertos)\b/i.test(userText);
-  const maxDeals = asksPluralList ? 3 : 2;
-
+  const maxDeals = asksFullOrBroadList ? 50 : asksPluralList ? 15 : 3;
   return Array.from(selectedMap.values()).slice(0, maxDeals);
 }
 
@@ -2206,6 +2510,17 @@ export const Route = createFileRoute("/api/valentina/messages")({
                     })()
                   : row.metadata || {};
 
+              const isBrokenLegacyOperatorReply =
+                row.direction === "from_agent" &&
+                typeof row.content === "string" &&
+                /S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|conjugado,\s*3\s*em\s*1|fita\s+de\s+polipropileno\s+\(PP\)\s+de\s+10\s*mm,\s*13\s*mm|travar\s+com\s+o\s+selo\s+met[aá]lico\s+e\s+cortar\s+a\s+sobra/i.test(
+                  row.content
+                );
+              if (isBrokenLegacyOperatorReply) {
+                duplicateIdsToDelete.push(row.id);
+                continue;
+              }
+
               const isOverload =
                 meta?.type === "operator_overload" ||
                 meta?.warningType === "overload" ||
@@ -2325,9 +2640,11 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const body = await request.json();
           const {
             content,
+            batchedUserMessages,
             scope = "operator",
             attachment,
             imageBase64,
+            imageFileName,
             knowledgeBase,
             threadHistory,
           } = body;
@@ -2338,6 +2655,29 @@ export const Route = createFileRoute("/api/valentina/messages")({
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+
+          // Se um anexo for imagem (.jpg/.jpeg/.png/.webp/.gif ou image/*) e imageBase64 não veio separado, promove automaticamente para imageBase64
+          const isAttachmentImage = Boolean(
+            attachment?.base64 &&
+              ((typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("image/")) ||
+                (typeof attachment.name === "string" && /\.(?:jpg|jpeg|png|webp|gif|bmp)$/i.test(attachment.name)))
+          );
+          const effectiveImageBase64: string | undefined =
+            typeof imageBase64 === "string" && imageBase64.trim()
+              ? imageBase64.trim()
+              : isAttachmentImage
+              ? attachment.base64.startsWith("data:")
+                ? attachment.base64
+                : `data:${attachment.mimeType || "image/jpeg"};base64,${attachment.base64}`
+              : undefined;
+          const effectiveImageFileName: string | undefined =
+            (typeof imageFileName === "string" && imageFileName.trim()) ||
+            (isAttachmentImage && typeof attachment?.name === "string" ? attachment.name : undefined) ||
+            (typeof content === "string"
+              ? content.match(/\[Arquivo\s+(?:anexado|enviado):\s*([^\]]+)\]/i)?.[1]?.trim()
+              : undefined);
+          const effectiveAttachment = isAttachmentImage ? undefined : attachment;
+          const hasAttachedImage = Boolean(effectiveImageBase64);
 
           // ── Detecta se é Supervisora/Diretoria ou Copiloto do Vendedor ─────
           // scope "admin" → Diretoria / Supervisora (Módulo IA Gestão)
@@ -2387,7 +2727,12 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const operatorName = session.operator.name || await getOperatorName(operatorId);
           const operatorEmail = (session.operator as any).email || null;
           const contextTenantId = tenantId;
-          const userText = (content || "").trim() || `[Arquivo enviado: ${attachment?.name ?? "imagem"}]`;
+          const rawContentTrimmed = stripAttachmentTagsFromQuery((content || "").trim());
+          const userText =
+            rawContentTrimmed ||
+            (hasAttachedImage
+              ? `Analise visualmente a foto enviada${effectiveImageFileName ? ` (${effectiveImageFileName})` : ""} e me dê os detalhes do que aparece nela.`
+              : `[Arquivo enviado: ${effectiveAttachment?.name ?? "documento"}]`);
 
           // ── Busca histórico recente da conversa antes de inserir a nova ─────
           const recentChatRows = await db
@@ -2417,7 +2762,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           });
 
           const isLegacyRefusal = (txt: string) =>
-            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa/i.test(
+            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa|S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp/i.test(
               txt || ""
             );
 
@@ -2436,7 +2781,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               .join("\n");
           } else {
             chatHistoryText = chronologicalRecentRows
-              .filter((r) => !(useManagerContext && r.direction === "from_agent" && isLegacyRefusal(r.content || "")))
+              .filter((r) => !(r.direction === "from_agent" && isLegacyRefusal(r.content || "")))
               .map((r) => {
                 const speaker = r.direction === "to_agent" ? operatorName : persona.name;
                 const timeTag = formatHistoryTimeTag(r.createdAt);
@@ -2447,38 +2792,74 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
           // Texto recente da conversa (últimas 4 mensagens cronológicas) para resolver follow-ups como "puxe por favor" ou "qual o telefone dela?"
           const recentAiContextText = chronologicalRecentRows
+            .filter((r) => !(r.direction === "from_agent" && isLegacyRefusal(r.content || "")))
             .slice(-4)
             .map((r) => r.content || "")
             .join("\n");
 
-          // ── Salva mensagem do usuário no banco ─────────────────────────────
-          const userMsgId = `val-msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-          await db.insert(internalMessages).values({
-            id: userMsgId,
-            tenantId,
-            operatorId,
-            direction: "to_agent",
-            agentType: "supervisor",
-            content: userText,
-            metadata: {
-              isChat: true,
-              scope,
-              knowledgeBase: knowledgeBase || tenantId,
-              attachedFileInfo: attachment ? { name: attachment.name, mimeType: attachment.mimeType } : undefined,
-              attachedImageInfo: imageBase64 ? { name: "Imagem", dataUrl: imageBase64 } : undefined,
-            },
-            read: 1,
-            createdAt: now,
-          });
+          // ── Salva mensagem(ns) do usuário no banco (suportando lote do debounce de 8s) ──
+          const defaultStoredUserText =
+            (content || "").trim() ||
+            (hasAttachedImage
+              ? `[Arquivo anexado: ${effectiveImageFileName || "Foto.jpg"}]`
+              : `[Arquivo enviado: ${effectiveAttachment?.name ?? "documento"}]`);
+          const cleanBatchedTexts: string[] =
+            Array.isArray(batchedUserMessages) && batchedUserMessages.length > 0
+              ? batchedUserMessages.map((m: any) => String(m || "").trim()).filter(Boolean)
+              : [defaultStoredUserText];
+          if (cleanBatchedTexts.length === 0) cleanBatchedTexts.push(defaultStoredUserText);
+
+          const savedUserMessages: { id: string; content: string; direction: "to_agent"; createdAt: Date }[] = [];
+          for (let bIdx = 0; bIdx < cleanBatchedTexts.length; bIdx++) {
+            const msgText = cleanBatchedTexts[bIdx];
+            const isLastInBatch = bIdx === cleanBatchedTexts.length - 1;
+            const msgId = `val-msg-${Date.now()}-${bIdx}-${Math.random().toString(36).slice(2, 7)}`;
+            const msgCreatedAt = new Date(now.getTime() + bIdx * 10);
+
+            await db.insert(internalMessages).values({
+              id: msgId,
+              tenantId,
+              operatorId,
+              direction: "to_agent",
+              agentType: "supervisor",
+              content: msgText,
+              metadata: {
+                isChat: true,
+                scope,
+                knowledgeBase: knowledgeBase || tenantId,
+                attachedFileInfo:
+                  isLastInBatch && effectiveAttachment
+                    ? { name: effectiveAttachment.name, mimeType: effectiveAttachment.mimeType }
+                    : undefined,
+                attachedImageInfo:
+                  isLastInBatch && effectiveImageBase64
+                    ? { name: effectiveImageFileName || "Imagem.jpg", dataUrl: effectiveImageBase64 }
+                    : undefined,
+              },
+              read: 1,
+              createdAt: msgCreatedAt,
+            });
+            savedUserMessages.push({
+              id: msgId,
+              content: msgText,
+              direction: "to_agent",
+              createdAt: msgCreatedAt,
+            });
+          }
+          const userMsgId = savedUserMessages[savedUserMessages.length - 1].id;
 
           // ── Contexto e extração de arquivo com Telemetria Real-Time SSE ────
           const requestStartedMs = Date.now();
           const liveExecutedSteps: AgenticThoughtStep[] = [];
           let liveTaskTitle = useManagerContext
             ? "Compilando dossiê executivo 360º da operação"
+            : hasAttachedImage
+            ? "Inspecionando visualmente a foto enviada"
             : "Analisando solicitação comercial";
           let liveFinishedTitle = useManagerContext
             ? "Dossiê executivo 360º compilado"
+            : hasAttachedImage
+            ? "Inspeção visual concluída"
             : "Consulta comercial concluída";
 
           const broadcastLiveProgress = (customTitle?: string, extraPreviewStep?: AgenticThoughtStep) => {
@@ -2497,32 +2878,36 @@ export const Route = createFileRoute("/api/valentina/messages")({
           };
 
           let fileContext = "";
-          if (attachment?.base64 && attachment?.name) {
+          if (effectiveAttachment?.base64 && effectiveAttachment?.name) {
             const tFile0 = Date.now();
-            const extracted = await extractFileText(attachment.name, attachment.mimeType || "", attachment.base64);
-            fileContext = `\n\nARQUIVO ANEXADO PELO USUÁRIO: "${attachment.name}"\n${extracted}`;
+            const extracted = await extractFileText(
+              effectiveAttachment.name,
+              effectiveAttachment.mimeType || "",
+              effectiveAttachment.base64
+            );
+            fileContext = `\n\nARQUIVO ANEXADO PELO USUÁRIO: "${effectiveAttachment.name}"\n${extracted}`;
             const fileMs = Math.max(8, Date.now() - tFile0);
             liveExecutedSteps.push({
               id: "step-attachment-extract",
               kind: "read",
               actionVerb: "Leu",
-              targetLabel: attachment.name,
+              targetLabel: effectiveAttachment.name,
               scopeTag: `#anexo • ${fileMs}ms`,
               badgeType: "file",
-              detailText: `Extração de conteúdo do arquivo "${attachment.name}" concluída em ${fileMs}ms.`,
+              detailText: `Extração de conteúdo do arquivo "${effectiveAttachment.name}" concluída em ${fileMs}ms.`,
             });
             broadcastLiveProgress();
           }
 
-          if (imageBase64) {
+          if (effectiveImageBase64) {
             liveExecutedSteps.push({
               id: "step-image-inline",
               kind: "read",
               actionVerb: "Inspecionou",
-              targetLabel: "imagem anexada",
+              targetLabel: effectiveImageFileName || "foto anexada",
               scopeTag: "#multimodal-vision",
               badgeType: "vision",
-              detailText: "Imagem codificada para inspeção visual multimodal no Vertex AI.",
+              detailText: `Foto "${effectiveImageFileName || "imagem"}" decodificada em alta resolução para inspeção visual multimodal no Vertex AI.`,
             });
             broadcastLiveProgress();
           }
@@ -2575,7 +2960,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 liveExecutedSteps.length = 0;
                 liveExecutedSteps.push(...nonOpSteps, ...validIncomingSteps);
                 broadcastLiveProgress(liveTaskTitle);
-              }
+              },
+              hasAttachedImage,
+              effectiveImageFileName
             );
             liveTaskTitle = operatorContextResult.taskTitle;
             liveFinishedTitle = operatorContextResult.finishedTitle;
@@ -2596,7 +2983,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 managerContextText,
                 fileContext,
                 chatHistoryText,
-                userText
+                userText,
+                hasAttachedImage,
+                effectiveImageFileName
               )
             : buildColeaguePrompt(
                 persona,
@@ -2605,7 +2994,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 fileContext,
                 chatHistoryText,
                 userText,
-                alreadyTalkingToday
+                alreadyTalkingToday,
+                hasAttachedImage,
+                effectiveImageFileName
               );
 
           // ── Feature key para rastreamento de custos ─────────────────────────
@@ -2620,7 +3011,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
           // Para interações casuais/curtas ("ta obrigado", "valeu", "ok") sem anexo, usa gemini-2.5-flash para resposta quase instantânea
           const isFastCasual = Boolean(
-            !useManagerContext && operatorContextResult?.isCasual && !imageBase64 && !attachment
+            !useManagerContext && operatorContextResult?.isCasual && !effectiveImageBase64 && !effectiveAttachment
           );
           const selectedModel = isFastCasual ? "gemini-2.5-flash" : "gemini-2.5-pro";
 
@@ -2639,13 +3030,13 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
             if (vertexAi.isReady()) {
               let promptInput: string | MultimodalPart[] = systemPrompt;
-              if (imageBase64 && typeof imageBase64 === "string") {
-                const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
+              if (effectiveImageBase64 && typeof effectiveImageBase64 === "string") {
+                const match = effectiveImageBase64.match(/^data:([^;]+);base64,(.+)$/);
                 const mimeType = match ? match[1] : "image/jpeg";
-                const rawB64 = match ? match[2] : imageBase64;
+                const rawB64 = match ? match[2] : effectiveImageBase64;
                 promptInput = [
-                  { text: systemPrompt },
                   { inlineData: { mimeType, data: rawB64 } },
+                  { text: systemPrompt },
                 ];
               }
 
@@ -2821,6 +3212,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             JSON.stringify({
               success: true,
               userMessage: { id: userMsgId, content: userText, direction: "to_agent", createdAt: now },
+              userMessages: savedUserMessages,
               thoughtTrace,
               fragments: savedFragments.map((f, i) => ({
                 ...f,

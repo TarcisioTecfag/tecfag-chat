@@ -388,10 +388,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [operatorTypingStatus, setOperatorTypingStatus] = useState<Record<string, { operatorId: string; operatorName: string; timestamp: number } | null>>({});
   const [isValentinaTyping, setIsValentinaTyping] = useState(false);
   const [valentinaThoughtTrace, setValentinaThoughtTrace] = useState<AgenticThoughtTraceData | null>(null);
-  // Ref para controle de cancelamento da resposta da Valentina
-  // Cada nova mensagem incrementa a geração e aborta o fetch anterior
+  // Ref para controle de cancelamento e debounce natural de 8s da resposta do Fagner/Valentina
+  // Cada nova mensagem reseta o timer de 8s e acumula os envios antes de iniciar a animação e o fetch
   const valentinaPendingRef = useRef<{ controller: AbortController; generation: number } | null>(null);
   const valentinaGenerationRef = useRef(0);
+  const valentinaDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const valentinaQueuedInputsRef = useRef<
+    Array<{
+      tempUserMsgId: string;
+      text: string;
+      displayUserText: string;
+      nowISO: string;
+      firstAttachment: File | null;
+    }>
+  >([]);
 
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [accessGroups, setAccessGroups] = useState<AccessGroup[]>([]);
@@ -1623,10 +1633,34 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const parsedDate = r.createdAt ? new Date(r.createdAt) : new Date();
       const validDate = !isNaN(parsedDate.getTime()) ? parsedDate : new Date();
 
+      let displayContent = rawContent;
+      if (meta.attachedImageInfo?.dataUrl && !rawContent.startsWith("[LOCAL_MEDIA:")) {
+        const imgName =
+          meta.attachedImageInfo.name || meta.attachedFileInfo?.name || "Imagem.jpg";
+        const mediaTag = `[LOCAL_MEDIA:image:${meta.attachedImageInfo.dataUrl}:${imgName}]`;
+        const cleanCaption = rawContent
+          .replace(/^\[(?:Arquivo|Imagem)\s+(?:anexad[oa]|enviad[oa])[^\]]*\]\s*/i, "")
+          .trim();
+        displayContent = cleanCaption ? `${mediaTag}\n${cleanCaption}` : mediaTag;
+      } else if (!rawContent.startsWith("[LOCAL_MEDIA:")) {
+        const legacyImgMatch = rawContent
+          .trim()
+          .match(
+            /^\[(?:Arquivo|Imagem)\s+(?:anexad[oa]|enviad[oa])[^:]*:\s*([^\]]+\.(?:jpe?g|png|webp|gif|bmp))\](?:\s*\n?([\s\S]*))?$/i
+          );
+        if (legacyImgMatch) {
+          const fName = legacyImgMatch[1].trim();
+          const caption = (legacyImgMatch[2] || "").trim();
+          const fallbackUrl = `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(fName)}`;
+          const mediaTag = `[LOCAL_MEDIA:image:${fallbackUrl}:${fName}]`;
+          displayContent = caption ? `${mediaTag}\n${caption}` : mediaTag;
+        }
+      }
+
       return {
         id: r.id,
         author: r.direction === "to_agent" ? "Você" : personaName,
-        text: r.content,
+        text: displayContent,
         time: validDate.toLocaleTimeString("pt-BR", {
           hour: "2-digit",
           minute: "2-digit",
@@ -1751,6 +1785,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const nowISO = nowDate.toISOString();
       const firstAttachment = attachments && attachments.length > 0 ? attachments[0] : null;
+      const isImageFile = Boolean(
+        firstAttachment &&
+          ((firstAttachment.type || "").startsWith("image/") ||
+            /\.(jpe?g|png|gif|webp|bmp)$/i.test(firstAttachment.name || ""))
+      );
+
+      let bubbleMediaText = "";
+      if (firstAttachment) {
+        const mime = firstAttachment.type || (isImageFile ? "image/jpeg" : "application/octet-stream");
+        let mediaType = "document";
+        if (isImageFile || mime.startsWith("image/")) mediaType = "image";
+        else if (mime.startsWith("video/")) mediaType = "video";
+        else if (mime.startsWith("audio/")) mediaType = "audio";
+
+        const localPreviewUrl = URL.createObjectURL(firstAttachment);
+        const mediaTag = `[LOCAL_MEDIA:${mediaType}:${localPreviewUrl}:${firstAttachment.name || "Imagem.jpg"}]`;
+        bubbleMediaText = text.trim() ? `${mediaTag}\n${text.trim()}` : mediaTag;
+      }
+
       const displayUserText =
         text.trim() || (firstAttachment ? `[Arquivo anexado: ${firstAttachment.name}]` : "");
 
@@ -1758,7 +1811,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userMsg: Message = {
         id: tempUserMsgId,
         author: "Você",
-        text: displayUserText,
+        text: bubbleMediaText || displayUserText,
         time: now,
         date: nowDateStr,
         sentAtISO: nowISO,
@@ -1771,7 +1824,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       valentinaHistoryRef.current = [...valentinaHistoryRef.current, userMsg];
 
-      // Adicionar mensagem do operador imediatamente
+      // Adicionar mensagem do operador imediatamente (exibindo a foto real no balão!)
       setConversations((prev) =>
         prev.map((c) => {
           if (c.id === "valentina") {
@@ -1785,407 +1838,497 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
       );
 
-      // ── Valentina: cancela a chamada anterior antes de iniciar nova ──────────
+      // ── Valentina/Fagner: cancela chamada anterior e reseta o delay de 8s ─────
       if (valentinaPendingRef.current) {
         valentinaPendingRef.current.controller.abort();
+        valentinaPendingRef.current = null;
       }
+      if (valentinaDebounceTimerRef.current) {
+        clearTimeout(valentinaDebounceTimerRef.current);
+        valentinaDebounceTimerRef.current = null;
+      }
+
       const myGeneration = ++valentinaGenerationRef.current;
-      const controller = new AbortController();
-      valentinaPendingRef.current = { controller, generation: myGeneration };
+      // Enquanto aguarda os 8 segundos para ver se o operador vai digitar mais mensagens,
+      // mantém a animação recolhida/oculta para ficar 100% natural como conversa humana
+      setValentinaThoughtTrace(null);
+      setIsValentinaTyping(false);
 
-      // Chamar API real /api/valentina/messages (com signal de cancelamento)
-      (async () => {
-        const currentPersona = getAiPersona(tenant || "valem");
-        const isCasualMsg =
-          !firstAttachment && isCasualConversationQuery(displayUserText);
-        const initialTrace: AgenticThoughtTraceData = {
-          taskTitle: isCasualMsg
-            ? "Respondendo mensagem"
-            : `Analisando solicitação para ${currentPersona.name}`,
-          finishedTitle: isCasualMsg ? "Resposta direta enviada" : "Consulta concluída",
-          totalDurationSeconds: 1,
-          scope: "operator",
-          isRealTimeStream: true,
-          steps: [
-            {
-              id: "step-init",
-              kind: "thought",
-              actionVerb: "Pensou por 1s",
-              targetLabel: isCasualMsg
-                ? "Reconhecendo mensagem rápida sem necessidade de varrer tabelas"
-                : "Interpretando sua pergunta e selecionando consultas reais no servidor",
-              detailText: `Iniciando processamento real de "${displayUserText.slice(0, 70)}".`,
-            },
-          ],
-        };
-        setValentinaThoughtTrace(initialTrace);
-        setIsValentinaTyping(true);
-        try {
-          let attachmentPayload: { name: string; mimeType: string; base64: string } | undefined;
-          let imageBase64Payload: string | undefined;
+      valentinaQueuedInputsRef.current.push({
+        tempUserMsgId,
+        text,
+        displayUserText,
+        nowISO,
+        firstAttachment,
+      });
 
-          if (firstAttachment) {
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(String(reader.result || ""));
-              reader.onerror = () => reject(reader.error);
-              reader.readAsDataURL(firstAttachment);
-            });
-            if (firstAttachment.type.startsWith("image/")) {
-              imageBase64Payload = dataUrl;
-            } else {
-              const base64Part = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
-              attachmentPayload = {
-                name: firstAttachment.name,
-                mimeType: firstAttachment.type || "application/octet-stream",
-                base64: base64Part,
-              };
-            }
-          }
+      valentinaDebounceTimerRef.current = setTimeout(() => {
+        valentinaDebounceTimerRef.current = null;
+        if (valentinaGenerationRef.current !== myGeneration) return;
 
-          const res = await fetch("/api/valentina/messages", {
-            method: "POST",
-            signal: controller.signal,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              tenantId: tenant,
-              operatorId: currentOperatorId,
-              content: text,
-              scope: "operator",
-              ...(attachmentPayload ? { attachment: attachmentPayload } : {}),
-              ...(imageBase64Payload ? { imageBase64: imageBase64Payload } : {}),
-            }),
-          });
+        const batch = [...valentinaQueuedInputsRef.current];
+        valentinaQueuedInputsRef.current = [];
+        if (batch.length === 0) return;
 
-          // Se uma nova mensagem foi enviada enquanto aguardávamos, descartar esta resposta
-          if (valentinaGenerationRef.current !== myGeneration) return;
+        const combinedText = batch
+          .map((b) => b.text.trim())
+          .filter(Boolean)
+          .join("\n");
+        const combinedDisplayUserText = batch
+          .map((b) => b.displayUserText.trim())
+          .filter(Boolean)
+          .join(" • ");
+        const batchAttachment =
+          [...batch].reverse().find((b) => b.firstAttachment)?.firstAttachment || null;
+        const batchedUserMessages = batch.map((b) => ({
+          tempId: b.tempUserMsgId,
+          content: b.displayUserText,
+          createdAt: b.nowISO,
+        }));
 
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json();
+        const controller = new AbortController();
+        valentinaPendingRef.current = { controller, generation: myGeneration };
 
-          // Sincroniza o ID e data da mensagem do operador salva no servidor
-          if (data?.userMessage?.id) {
-            const serverUserDate = data.userMessage.createdAt
-              ? new Date(data.userMessage.createdAt)
-              : nowDate;
-            const validServerUserDate = !isNaN(serverUserDate.getTime()) ? serverUserDate : nowDate;
-            const syncedISO = validServerUserDate.toISOString();
-            const syncedDateStr = validServerUserDate.toLocaleDateString("pt-BR", {
-              timeZone: "America/Sao_Paulo",
-            });
-            valentinaHistoryRef.current = valentinaHistoryRef.current.map((m) =>
-              m.id === tempUserMsgId
-                ? { ...m, id: data.userMessage.id, sentAtISO: syncedISO, date: syncedDateStr }
-                : m
-            );
-            setConversations((prev) =>
-              prev.map((c) =>
-                c.id === "valentina"
-                  ? {
-                      ...c,
-                      messages: c.messages.map((m) =>
-                        m.id === tempUserMsgId
-                          ? { ...m, id: data.userMessage.id, sentAtISO: syncedISO, date: syncedDateStr }
-                          : m
-                      ),
-                    }
-                  : c
-              )
-            );
-          }
+        // Chamar API real /api/valentina/messages após os 8s naturais (com signal de cancelamento)
+        (async () => {
+          const currentPersona = getAiPersona(tenantRef.current || tenant || "valem");
+          const isCasualMsg =
+            !batchAttachment && isCasualConversationQuery(combinedDisplayUserText);
+          const initialTrace: AgenticThoughtTraceData = {
+            taskTitle: batchAttachment
+              ? `Inspecionando imagem anexada (${batchAttachment.name})`
+              : isCasualMsg
+              ? "Respondendo mensagem"
+              : `Analisando solicitação para ${currentPersona.name}`,
+            finishedTitle: batchAttachment
+              ? "Análise visual concluída"
+              : isCasualMsg
+              ? "Resposta direta enviada"
+              : "Consulta concluída",
+            totalDurationSeconds: 1,
+            scope: "operator",
+            isRealTimeStream: true,
+            steps: [
+              {
+                id: "step-init",
+                kind: "thought",
+                actionVerb: "Pensou por 1s",
+                targetLabel: batchAttachment
+                  ? `Carregando imagem "${batchAttachment.name}" para inspeção visual multimodal`
+                  : isCasualMsg
+                  ? "Reconhecendo mensagem rápida sem necessidade de varrer tabelas"
+                  : "Interpretando sua pergunta e selecionando consultas reais no servidor",
+                detailText: `Iniciando processamento real de "${combinedDisplayUserText.slice(0, 80)}".`,
+              },
+            ],
+          };
+          setValentinaThoughtTrace(initialTrace);
+          setIsValentinaTyping(true);
+          try {
+            let attachmentPayload: { name: string; mimeType: string; base64: string } | undefined;
+            let imageBase64Payload: string | undefined;
+            let imageFileNamePayload: string | undefined;
 
-          // Processar fragmentos com delays incrementais para simular digitação
-          const fragments = data.fragments || [];
-          const alerts = data.alerts || [];
-          const resolvedTrace: AgenticThoughtTraceData =
-            data.thoughtTrace || fragments[0]?.thoughtTrace || initialTrace;
-          const combinedPreviewText = fragments
-            .map((f: any) => f.content || f.text || "")
-            .filter(Boolean)
-            .join(" ");
-          let hasNotifiedOutOfChat = false;
-
-          for (let i = 0; i < fragments.length; i++) {
-            // Verificar cancelamento antes de cada fragmento
-            if (valentinaGenerationRef.current !== myGeneration) return;
-
-            const frag = fragments[i];
-            const stepDelay =
-              i === 0 ? 150 : Math.min(Math.max(Number(frag.delay) || 680, 480), 1100);
-
-            // Aguardar delay cancelável — rejeita se o sinal foi abortado
-            await new Promise<void>((resolve, reject) => {
-              const timer = setTimeout(resolve, stepDelay);
-              controller.signal.addEventListener("abort", () => {
-                clearTimeout(timer);
-                reject(new DOMException("Aborted", "AbortError"));
-              }, { once: true });
-            });
-
-            // Verificar cancelamento novamente após o delay
-            if (valentinaGenerationRef.current !== myGeneration) return;
-
-            if (i === 0) {
-              setValentinaThoughtTrace(null);
-              setIsValentinaTyping(false);
+            if (batchAttachment) {
+              const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ""));
+                reader.onerror = () => reject(reader.error);
+                reader.readAsDataURL(batchAttachment);
+              });
+              const isBatchImg =
+                (batchAttachment.type || "").startsWith("image/") ||
+                /\.(jpe?g|png|gif|webp|bmp)$/i.test(batchAttachment.name || "");
+              if (isBatchImg) {
+                imageBase64Payload = dataUrl;
+                imageFileNamePayload = batchAttachment.name || "Imagem.jpg";
+              } else {
+                const base64Part = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+                attachmentPayload = {
+                  name: batchAttachment.name,
+                  mimeType: batchAttachment.type || "application/octet-stream",
+                  base64: base64Part,
+                };
+              }
             }
 
-            const fragDateObj = frag.createdAt ? new Date(frag.createdAt) : new Date();
-            const validFragDate = !isNaN(fragDateObj.getTime()) ? fragDateObj : new Date();
-            const respTime = validFragDate.toLocaleTimeString("pt-BR", {
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZone: "America/Sao_Paulo",
+            const res = await fetch("/api/valentina/messages", {
+              method: "POST",
+              signal: controller.signal,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tenantId: tenantRef.current || tenant,
+                operatorId: currentOperatorIdRef.current || currentOperatorId,
+                content: combinedText || combinedDisplayUserText,
+                batchedUserMessages,
+                scope: "operator",
+                ...(attachmentPayload ? { attachment: attachmentPayload } : {}),
+                ...(imageBase64Payload
+                  ? { imageBase64: imageBase64Payload, imageFileName: imageFileNamePayload }
+                  : {}),
+              }),
             });
-            const respDateStr = validFragDate.toLocaleDateString("pt-BR", {
-              timeZone: "America/Sao_Paulo",
-            });
-            const valentinaMsg: Message = {
-              id: frag.id || `msg-val-${Date.now()}-${i}`,
-              author: currentPersona.name,
-              text: frag.content || frag.text || "",
-              time: respTime,
-              date: respDateStr,
-              sentAtISO: validFragDate.toISOString(),
-              side: "in",
-              isInternalNote: false,
-              ...(i === 0 ? { thoughtTrace: frag.thoughtTrace || resolvedTrace } : {}),
-              ...(Array.isArray(frag.relatedConversations) && frag.relatedConversations.length > 0
-                ? { relatedConversations: frag.relatedConversations }
-                : {}),
-              ...(Array.isArray(frag.relatedDeals) && frag.relatedDeals.length > 0
-                ? { relatedDeals: frag.relatedDeals }
-                : {}),
-              ...(Array.isArray(frag.relatedCalls) && frag.relatedCalls.length > 0
-                ? { relatedCalls: frag.relatedCalls }
-                : {}),
-            };
 
-            valentinaHistoryRef.current = [...valentinaHistoryRef.current, valentinaMsg];
+            // Se uma nova mensagem foi enviada enquanto aguardávamos, descartar esta resposta
+            if (valentinaGenerationRef.current !== myGeneration) return;
 
-            const isViewingVal = isCurrentlyViewingConversation("valentina");
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
 
-            setConversations((prev) =>
-              prev.map((c) => {
-                if (c.id === "valentina") {
-                  return {
-                    ...c,
-                    lastMessageTime: respTime,
-                    unreadCount: isViewingVal ? 0 : (c.unreadCount || 0) + 1,
-                    messages: [...c.messages, valentinaMsg],
-                  };
-                }
-                return c;
-              })
-            );
-
-            // Se o operador saiu do chat do Fagner/Valentina enquanto pensava, dispara notificação única
-            if (!isViewingVal && !hasNotifiedOutOfChat) {
-              hasNotifiedOutOfChat = true;
-              playNotificationSound();
-
-              const previewSnippetText = cleanPlainNotificationText(
-                combinedPreviewText || valentinaMsg.text,
-                { maxLength: 140 }
-              );
-              const isTecfag = tenantRef.current === "tecfag";
-
-              if (
-                typeof window !== "undefined" &&
-                "Notification" in window &&
-                Notification.permission === "granted" &&
-                document.hidden
-              ) {
-                try {
-                  const n = new Notification(currentPersona.name, {
-                    body: previewSnippetText,
-                    icon: currentPersona.avatarUrl || (isTecfag ? "/logo_tecfag.png" : "/logo_valem.jpg"),
-                    tag: "chat-valentina",
+            // Sincroniza IDs e datas das mensagens do operador salvas no servidor
+            const syncedMap = new Map<string, { id: string; sentAtISO: string; date: string }>();
+            if (Array.isArray(data?.userMessages) && data.userMessages.length > 0) {
+              for (const um of data.userMessages) {
+                if (um?.tempId && um?.id) {
+                  const dObj = um.createdAt ? new Date(um.createdAt) : nowDate;
+                  const validD = !isNaN(dObj.getTime()) ? dObj : nowDate;
+                  syncedMap.set(um.tempId, {
+                    id: um.id,
+                    sentAtISO: validD.toISOString(),
+                    date: validD.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
                   });
-                  n.onclick = () => {
-                    window.focus();
-                    setSelectedChatId("valentina");
-                    setActiveView("chat");
-                    markAsRead("valentina");
-                    n.close();
-                  };
-                } catch (err) {
-                  console.warn("[Notification] Erro ao disparar notificação nativa da IA:", err);
                 }
               }
+            } else if (data?.userMessage?.id) {
+              const serverUserDate = data.userMessage.createdAt
+                ? new Date(data.userMessage.createdAt)
+                : nowDate;
+              const validServerUserDate = !isNaN(serverUserDate.getTime())
+                ? serverUserDate
+                : nowDate;
+              syncedMap.set(tempUserMsgId, {
+                id: data.userMessage.id,
+                sentAtISO: validServerUserDate.toISOString(),
+                date: validServerUserDate.toLocaleDateString("pt-BR", {
+                  timeZone: "America/Sao_Paulo",
+                }),
+              });
+            }
 
-              toast.custom(
-                (t) => (
-                  <div className="flex flex-col gap-2.5 w-[388px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-card animate-in slide-in-from-top-3 duration-200 border-l-[4px] border-l-primary text-foreground">
-                    <div className="flex items-start gap-3">
-                      <div className="relative shrink-0">
-                        <img
-                          src={currentPersona.avatarUrl}
-                          alt={currentPersona.name}
-                          className="h-10 w-10 rounded-xl object-cover border border-border shadow-2xs"
-                        />
-                        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary border-2 border-card" />
-                      </div>
+            if (syncedMap.size > 0) {
+              valentinaHistoryRef.current = valentinaHistoryRef.current.map((m) => {
+                const s = syncedMap.get(m.id);
+                return s ? { ...m, id: s.id, sentAtISO: s.sentAtISO, date: s.date } : m;
+              });
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === "valentina"
+                    ? {
+                        ...c,
+                        messages: c.messages.map((m) => {
+                          const s = syncedMap.get(m.id);
+                          return s ? { ...m, id: s.id, sentAtISO: s.sentAtISO, date: s.date } : m;
+                        }),
+                      }
+                    : c
+                )
+              );
+            }
 
-                      <div className="flex-1 min-w-0 pr-1">
-                        <div className="flex items-center justify-between gap-1.5">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <p className="text-xs font-bold text-primary truncate">
-                              {currentPersona.name}
-                            </p>
-                            <span className="px-1.5 py-0.2 rounded bg-primary text-primary-foreground text-[8px] font-black uppercase tracking-wider shrink-0">
-                              IA
+            // Processar fragmentos com delays incrementais para simular digitação
+            const fragments = data.fragments || [];
+            const alerts = data.alerts || [];
+            const resolvedTrace: AgenticThoughtTraceData =
+              data.thoughtTrace || fragments[0]?.thoughtTrace || initialTrace;
+            const combinedPreviewText = fragments
+              .map((f: any) => f.content || f.text || "")
+              .filter(Boolean)
+              .join(" ");
+            let hasNotifiedOutOfChat = false;
+
+            for (let i = 0; i < fragments.length; i++) {
+              // Verificar cancelamento antes de cada fragmento
+              if (valentinaGenerationRef.current !== myGeneration) return;
+
+              const frag = fragments[i];
+              const stepDelay =
+                i === 0 ? 150 : Math.min(Math.max(Number(frag.delay) || 680, 480), 1100);
+
+              // Aguardar delay cancelável — rejeita se o sinal foi abortado
+              await new Promise<void>((resolve, reject) => {
+                const timer = setTimeout(resolve, stepDelay);
+                controller.signal.addEventListener(
+                  "abort",
+                  () => {
+                    clearTimeout(timer);
+                    reject(new DOMException("Aborted", "AbortError"));
+                  },
+                  { once: true }
+                );
+              });
+
+              // Verificar cancelamento novamente após o delay
+              if (valentinaGenerationRef.current !== myGeneration) return;
+
+              if (i === 0) {
+                setValentinaThoughtTrace(null);
+                setIsValentinaTyping(false);
+              }
+
+              const fragDateObj = frag.createdAt ? new Date(frag.createdAt) : new Date();
+              const validFragDate = !isNaN(fragDateObj.getTime()) ? fragDateObj : new Date();
+              const respTime = validFragDate.toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
+              });
+              const respDateStr = validFragDate.toLocaleDateString("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+              });
+              const valentinaMsg: Message = {
+                id: frag.id || `msg-val-${Date.now()}-${i}`,
+                author: currentPersona.name,
+                text: frag.content || frag.text || "",
+                time: respTime,
+                date: respDateStr,
+                sentAtISO: validFragDate.toISOString(),
+                side: "in",
+                isInternalNote: false,
+                ...(i === 0 ? { thoughtTrace: frag.thoughtTrace || resolvedTrace } : {}),
+                ...(Array.isArray(frag.relatedConversations) &&
+                frag.relatedConversations.length > 0
+                  ? { relatedConversations: frag.relatedConversations }
+                  : {}),
+                ...(Array.isArray(frag.relatedDeals) && frag.relatedDeals.length > 0
+                  ? { relatedDeals: frag.relatedDeals }
+                  : {}),
+                ...(Array.isArray(frag.relatedCalls) && frag.relatedCalls.length > 0
+                  ? { relatedCalls: frag.relatedCalls }
+                  : {}),
+              };
+
+              valentinaHistoryRef.current = [...valentinaHistoryRef.current, valentinaMsg];
+
+              const isViewingVal = isCurrentlyViewingConversation("valentina");
+
+              setConversations((prev) =>
+                prev.map((c) => {
+                  if (c.id === "valentina") {
+                    return {
+                      ...c,
+                      lastMessageTime: respTime,
+                      unreadCount: isViewingVal ? 0 : (c.unreadCount || 0) + 1,
+                      messages: [...c.messages, valentinaMsg],
+                    };
+                  }
+                  return c;
+                })
+              );
+
+              // Se o operador saiu do chat do Fagner/Valentina enquanto pensava, dispara notificação única
+              if (!isViewingVal && !hasNotifiedOutOfChat) {
+                hasNotifiedOutOfChat = true;
+                playNotificationSound();
+
+                const previewSnippetText = cleanPlainNotificationText(
+                  combinedPreviewText || valentinaMsg.text,
+                  { maxLength: 140 }
+                );
+                const isTecfag = tenantRef.current === "tecfag";
+
+                if (
+                  typeof window !== "undefined" &&
+                  "Notification" in window &&
+                  Notification.permission === "granted" &&
+                  document.hidden
+                ) {
+                  try {
+                    const n = new Notification(currentPersona.name, {
+                      body: previewSnippetText,
+                      icon:
+                        currentPersona.avatarUrl ||
+                        (isTecfag ? "/logo_tecfag.png" : "/logo_valem.jpg"),
+                      tag: "chat-valentina",
+                    });
+                    n.onclick = () => {
+                      window.focus();
+                      setSelectedChatId("valentina");
+                      setActiveView("chat");
+                      markAsRead("valentina");
+                      n.close();
+                    };
+                  } catch (err) {
+                    console.warn("[Notification] Erro ao disparar notificação nativa da IA:", err);
+                  }
+                }
+
+                toast.custom(
+                  (t) => (
+                    <div className="flex flex-col gap-2.5 w-[388px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-card animate-in slide-in-from-top-3 duration-200 border-l-[4px] border-l-primary text-foreground">
+                      <div className="flex items-start gap-3">
+                        <div className="relative shrink-0">
+                          <img
+                            src={currentPersona.avatarUrl}
+                            alt={currentPersona.name}
+                            className="h-10 w-10 rounded-xl object-cover border border-border shadow-2xs"
+                          />
+                          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary border-2 border-card" />
+                        </div>
+
+                        <div className="flex-1 min-w-0 pr-1">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <p className="text-xs font-bold text-primary truncate">
+                                {currentPersona.name}
+                              </p>
+                              <span className="px-1.5 py-0.2 rounded bg-primary text-primary-foreground text-[8px] font-black uppercase tracking-wider shrink-0">
+                                IA
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                              Agora
                             </span>
                           </div>
-                          <span className="text-[10px] text-muted-foreground font-mono shrink-0">
-                            Agora
-                          </span>
+                          <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
+                            {previewSnippetText}
+                          </p>
                         </div>
-                        <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
-                          {previewSnippetText}
-                        </p>
+
+                        <button
+                          onClick={() => toast.dismiss(t)}
+                          className="h-6 w-6 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
+                          title="Fechar aviso"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
                       </div>
 
-                      <button
-                        onClick={() => toast.dismiss(t)}
-                        className="h-6 w-6 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
-                        title="Fechar aviso"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
+                        <button
+                          onClick={() => {
+                            setSelectedChatId("valentina");
+                            markAsRead("valentina");
+                            window.dispatchEvent(
+                              new CustomEvent("crm:open-mini-chat", {
+                                detail: { conversationId: "valentina" },
+                              })
+                            );
+                            toast.dismiss(t);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/80 transition shadow-2xs cursor-pointer"
+                        >
+                          <MessageCircle className="h-3.5 w-3.5 text-primary" />
+                          Abrir Mini Chat
+                        </button>
 
-                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
-                      <button
-                        onClick={() => {
-                          setSelectedChatId("valentina");
-                          markAsRead("valentina");
-                          window.dispatchEvent(
-                            new CustomEvent("crm:open-mini-chat", {
-                              detail: { conversationId: "valentina" },
-                            })
-                          );
-                          toast.dismiss(t);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/80 transition shadow-2xs cursor-pointer"
-                      >
-                        <MessageCircle className="h-3.5 w-3.5 text-primary" />
-                        Abrir Mini Chat
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setSelectedChatId("valentina");
-                          setActiveView("chat");
-                          markAsRead("valentina");
-                          if (
-                            typeof window !== "undefined" &&
-                            window.location.pathname.startsWith("/crm/deals/")
-                          ) {
-                            window.location.href = "/chat/assistente";
-                          }
-                          toast.dismiss(t);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition shadow-2xs cursor-pointer"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Abrir Chat
-                      </button>
+                        <button
+                          onClick={() => {
+                            setSelectedChatId("valentina");
+                            setActiveView("chat");
+                            markAsRead("valentina");
+                            if (
+                              typeof window !== "undefined" &&
+                              window.location.pathname.startsWith("/crm/deals/")
+                            ) {
+                              window.location.href = "/chat/assistente";
+                            }
+                            toast.dismiss(t);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition shadow-2xs cursor-pointer"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Abrir Chat
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ),
-                { id: "chat-msg-valentina", duration: 8000, position: "top-right" }
+                  ),
+                  { id: "chat-msg-valentina", duration: 8000, position: "top-right" }
+                );
+              }
+            }
+
+            // Processar alertas como mensagens de warning
+            for (const alert of alerts) {
+              if (valentinaGenerationRef.current !== myGeneration) return;
+              const alertNow = new Date();
+              const respTime = alertNow.toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
+              });
+              const respDateStr = alertNow.toLocaleDateString("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+              });
+              const alertMsg: Message = {
+                id: `msg-alert-${alertNow.getTime()}-${Math.random().toString(36).slice(2, 6)}`,
+                author: currentPersona.name,
+                text: `[${alert.type === "sla_warning" ? "SLA" : "Alerta"}] ${alert.clientName || "Cliente"} está aguardando há ${alert.waitMinutes || "?"} minutos`,
+                time: respTime,
+                date: respDateStr,
+                sentAtISO: alertNow.toISOString(),
+                side: "in",
+                isInternalNote: false,
+                isWarning: true,
+                warningType: "delay" as const,
+                warningMetadata: {
+                  clientId: alert.conversationId || "",
+                  clientName: alert.clientName || "Cliente",
+                  lastMessage: alert.lastMessage || "",
+                },
+              };
+
+              const isViewingVal = isCurrentlyViewingConversation("valentina");
+
+              setConversations((prev) =>
+                prev.map((c) => {
+                  if (c.id === "valentina") {
+                    return {
+                      ...c,
+                      lastMessageTime: respTime,
+                      unreadCount: isViewingVal ? 0 : (c.unreadCount || 0) + 1,
+                      messages: [...c.messages, alertMsg],
+                    };
+                  }
+                  return c;
+                })
               );
             }
-          }
-
-          // Processar alertas como mensagens de warning
-          for (const alert of alerts) {
+          } catch (err: any) {
+            // AbortError é intencional (nova mensagem enviada) — não mostrar erro
+            if (err?.name === "AbortError") return;
+            console.error("[useChatState] Erro ao chamar API Valentina:", err);
+            // Fallback local em caso de erro de rede real
             if (valentinaGenerationRef.current !== myGeneration) return;
-            const alertNow = new Date();
-            const respTime = alertNow.toLocaleTimeString("pt-BR", {
+            const fallbackNow = new Date();
+            const fallbackTime = fallbackNow.toLocaleTimeString("pt-BR", {
               hour: "2-digit",
               minute: "2-digit",
               timeZone: "America/Sao_Paulo",
             });
-            const respDateStr = alertNow.toLocaleDateString("pt-BR", {
+            const fallbackDateStr = fallbackNow.toLocaleDateString("pt-BR", {
               timeZone: "America/Sao_Paulo",
             });
-            const alertMsg: Message = {
-              id: `msg-alert-${alertNow.getTime()}-${Math.random().toString(36).slice(2, 6)}`,
+            const fallbackMsg: Message = {
+              id: `msg-val-fallback-${fallbackNow.getTime()}`,
               author: currentPersona.name,
-              text: `[${alert.type === "sla_warning" ? "SLA" : "Alerta"}] ${alert.clientName || "Cliente"} está aguardando há ${alert.waitMinutes || "?"} minutos`,
-              time: respTime,
-              date: respDateStr,
-              sentAtISO: alertNow.toISOString(),
+              text: "Ops, tive um problema ao processar sua mensagem. Pode tentar de novo?",
+              time: fallbackTime,
+              date: fallbackDateStr,
+              sentAtISO: fallbackNow.toISOString(),
               side: "in",
               isInternalNote: false,
-              isWarning: true,
-              warningType: "delay" as const,
-              warningMetadata: {
-                clientId: alert.conversationId || "",
-                clientName: alert.clientName || "Cliente",
-                lastMessage: alert.lastMessage || "",
-              },
             };
-
-            const isViewingVal = isCurrentlyViewingConversation("valentina");
-
             setConversations((prev) =>
               prev.map((c) => {
                 if (c.id === "valentina") {
                   return {
                     ...c,
-                    lastMessageTime: respTime,
-                    unreadCount: isViewingVal ? 0 : (c.unreadCount || 0) + 1,
-                    messages: [...c.messages, alertMsg],
+                    lastMessageTime: fallbackTime,
+                    messages: [...c.messages, fallbackMsg],
                   };
                 }
                 return c;
               })
             );
+          } finally {
+            // Só desligar o indicador se esta geração ainda é a ativa
+            if (valentinaGenerationRef.current === myGeneration) {
+              setIsValentinaTyping(false);
+              setValentinaThoughtTrace(null);
+            }
           }
-        } catch (err: any) {
-          // AbortError é intencional (nova mensagem enviada) — não mostrar erro
-          if (err?.name === "AbortError") return;
-          console.error("[useChatState] Erro ao chamar API Valentina:", err);
-          // Fallback local em caso de erro de rede real
-          if (valentinaGenerationRef.current !== myGeneration) return;
-          const fallbackNow = new Date();
-          const fallbackTime = fallbackNow.toLocaleTimeString("pt-BR", {
-            hour: "2-digit",
-            minute: "2-digit",
-            timeZone: "America/Sao_Paulo",
-          });
-          const fallbackDateStr = fallbackNow.toLocaleDateString("pt-BR", {
-            timeZone: "America/Sao_Paulo",
-          });
-          const fallbackMsg: Message = {
-            id: `msg-val-fallback-${fallbackNow.getTime()}`,
-            author: currentPersona.name,
-            text: "Ops, tive um problema ao processar sua mensagem. Pode tentar de novo?",
-            time: fallbackTime,
-            date: fallbackDateStr,
-            sentAtISO: fallbackNow.toISOString(),
-            side: "in",
-            isInternalNote: false,
-          };
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id === "valentina") {
-                return { ...c, lastMessageTime: fallbackTime, messages: [...c.messages, fallbackMsg] };
-              }
-              return c;
-            })
-          );
-        } finally {
-          // Só desligar o indicador se esta geração ainda é a ativa
-          if (valentinaGenerationRef.current === myGeneration) {
-            setIsValentinaTyping(false);
-            setValentinaThoughtTrace(null);
-          }
-        }
-      })();
+        })();
+      }, 8000);
 
       return true;
     }

@@ -640,6 +640,36 @@ export function renderMessageContent(
     }
   }
 
+  // Fallback inteligente para mensagens antigas com tag [Arquivo anexado: *.jpg]
+  const legacyImgTagMatch = mediaTag.match(
+    /^\[(?:Arquivo|Imagem)\s+(?:anexad[oa]|enviad[oa])[^:]*:\s*([^\]]+\.(?:jpe?g|png|webp|gif|bmp))\]$/i
+  );
+  if (legacyImgTagMatch) {
+    const fileName = legacyImgTagMatch[1].trim();
+    const catalogImgUrl = `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(fileName)}`;
+    return wrapMediaWithCaption(
+      <div
+        className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
+        onClick={() => {
+          if (onMediaClick) {
+            onMediaClick("image", catalogImgUrl);
+          } else {
+            window.open(catalogImgUrl, "_blank");
+          }
+        }}
+      >
+        <img
+          src={catalogImgUrl}
+          alt={fileName}
+          className="max-h-72 sm:max-h-80 w-full object-contain rounded-2xl"
+        />
+        <div className="px-2.5 py-1.5 bg-black/40 text-white text-[10px] font-medium truncate">
+          {fileName}
+        </div>
+      </div>
+    );
+  }
+
   // Fallback para texto plano
   return <p className="whitespace-pre-wrap">{renderTextWithLinks(text, isMe)}</p>;
 }

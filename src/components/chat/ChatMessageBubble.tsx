@@ -128,6 +128,7 @@ function ChatMessageBubbleComponent({
   onSendWelcomeSuggestion,
 }: ChatMessageBubbleProps) {
   const navigate = useNavigate();
+  const [dealSearchQuery, setDealSearchQuery] = React.useState("");
   // ── 1. Mensagens de Sistema (ocultas por padrão no ícone ? discreto) ──
   if (isSystem) {
     return (
@@ -833,11 +834,27 @@ function ChatMessageBubbleComponent({
                               {`Negociações do CRM (${dealsList.length})`}
                             </span>
                             <span className="text-[9px] font-semibold text-primary">
-                              Ações rápidas
+                              {dealsList.length > 5 ? "Role ou filtre abaixo" : "Ações rápidas"}
                             </span>
                           </div>
-                          <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto pr-0.5">
-                            {dealsList.map((deal) => {
+                          {dealsList.length > 5 && (
+                            <input
+                              type="text"
+                              value={dealSearchQuery}
+                              onChange={(e) => setDealSearchQuery(e.target.value)}
+                              placeholder="Filtrar por empresa, código, etapa ou valor..."
+                              className="w-full px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border/70 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                            />
+                          )}
+                          <div className="flex flex-col gap-1.5 max-h-80 overflow-y-auto pr-0.5">
+                            {dealsList
+                              .filter((deal) => {
+                                const q = dealSearchQuery.trim().toLowerCase();
+                                if (!q) return true;
+                                const hay = `${deal.title || ""} ${deal.company || ""} ${deal.accountName || ""} ${deal.stageLabel || ""} ${deal.pipelineName || ""} ${deal.stageName || ""} ${deal.contactName || ""} ${deal.valueFormatted || ""}`.toLowerCase();
+                                return hay.includes(q);
+                              })
+                              .map((deal) => {
                               const formattedVal =
                                 deal.valueFormatted ||
                                 (deal.value != null && Number(deal.value) > 0

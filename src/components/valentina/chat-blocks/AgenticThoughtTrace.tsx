@@ -179,11 +179,13 @@ export function AgenticThoughtTrace({
     };
   }, []);
 
+  // Por padrão, todas as sub-etapas com detailText já vêm abertas (expandedStepIds[stepId] !== false).
+  // Se o usuário clicar na etapa/setinha, ela fecha (false) ou reabre (true).
   const toggleStepDetail = (stepId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setExpandedStepIds((prev) => ({
       ...prev,
-      [stepId]: !prev[stepId],
+      [stepId]: prev[stepId] === false ? true : false,
     }));
   };
 
@@ -217,7 +219,9 @@ export function AgenticThoughtTrace({
       : safeSteps;
 
   // Auto-scroll progressivo sempre que uma nova linha aparece ou atualiza no modo "live"
-  const stepsSignature = visibleSteps.map((s) => `${s.id}:${s.scopeTag || ""}`).join("|");
+  const stepsSignature = visibleSteps
+    .map((s) => `${s.id}:${s.scopeTag || ""}:${s.detailText || ""}`)
+    .join("|");
   useEffect(() => {
     if (mode !== "live" || !isOpen) return;
     const cleanup = triggerFollowScroll();
@@ -285,7 +289,7 @@ export function AgenticThoughtTrace({
                 {/* Linhas indentadas estilo Antigravity */}
                 <div className="ml-2 pl-3.5 border-l border-border/70 space-y-1.5">
                   {safeSteps.map((step, idx) => {
-                    const isStepOpen = !!expandedStepIds[step.id];
+                    const isStepOpen = expandedStepIds[step.id] !== false;
                     return (
                       <motion.div
                         key={step.id}
@@ -418,7 +422,7 @@ export function AgenticThoughtTrace({
               <AnimatePresence initial={false}>
                 {visibleSteps.map((step, idx) => {
                   const isLatest = idx === visibleSteps.length - 1;
-                  const isStepOpen = !!expandedStepIds[step.id];
+                  const isStepOpen = expandedStepIds[step.id] !== false;
 
                   return (
                     <motion.div

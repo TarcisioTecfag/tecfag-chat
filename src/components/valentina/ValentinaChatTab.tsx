@@ -182,6 +182,16 @@ export function ValentinaChatTab() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const abortCtrl = useRef<AbortController | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const generationRef = useRef(0);
+  const queuedAdminInputsRef = useRef<
+    Array<{
+      text: string;
+      userMessageText: string;
+      fileSnap: AttachedFile | null;
+      imageSnap: AttachedImage | null;
+    }>
+  >([]);
 
   const operatorFirstName = operatorProfile?.name?.split(" ")[0] || "Operador";
 
@@ -341,7 +351,7 @@ export function ValentinaChatTab() {
     }, 200);
   };
 
-  // Envio de mensagem
+  // Envio de mensagem com debounce natural de 8s (reseta a cada nova mensagem)
   const handleSendMessage = async (textOverride?: string) => {
     const text = (textOverride ?? input).trim();
     if (!text && !attachedFile && !attachedImage) return;
@@ -388,115 +398,175 @@ export function ValentinaChatTab() {
       })
     );
 
-    const isCasualMsg = !fileSnap && !imageSnap && isCasualConversationQuery(userMessageText);
-    const initialTrace: AgenticThoughtTraceData = {
-      taskTitle: isCasualMsg
-        ? "Respondendo mensagem"
-        : `Analisando indicadores da operação em tempo real`,
-      finishedTitle: isCasualMsg ? "Resposta direta enviada" : "Consulta executiva concluída",
-      totalDurationSeconds: 1,
-      scope: "admin",
-      isRealTimeStream: true,
-      steps: [
-        {
-          id: "step-init",
-          kind: "thought",
-          actionVerb: "Pensou por 1s",
-          targetLabel: isCasualMsg
-            ? "Reconhecendo mensagem rápida sem necessidade de varrer tabelas"
-            : "Planejando consultas reais nos indicadores operacionais e comerciais",
-          detailText: `Iniciando processamento real de "${userMessageText.slice(0, 80)}".`,
-        },
-      ],
-    };
-
     setInput("");
     setAttachedFile(null);
     setAttachedImage(null);
-    setLiveThoughtTrace(initialTrace);
-    setIsTyping(true);
 
     abortCtrl.current?.abort();
-    const ctrl = new AbortController();
-    abortCtrl.current = ctrl;
+    abortCtrl.current = null;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
 
-    try {
-      const res = await fetch("/api/valentina/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: ctrl.signal,
-        body: JSON.stringify({
-          tenantId: tenant,
-          operatorId: currentOperatorId || "system",
-          content: text || "[veja o arquivo/imagem anexada]",
-          scope: "admin",
-          knowledgeBase: selectedBase,
-          threadHistory,
-          ...(fileSnap ? { attachment: { name: fileSnap.name, mimeType: fileSnap.mimeType, base64: fileSnap.base64 } } : {}),
-          ...(imageSnap ? { imageBase64: imageSnap.dataUrl } : {}),
-        }),
-      });
+    const myGeneration = ++generationRef.current;
+    setIsTyping(false);
+    setLiveThoughtTrace(null);
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const fragments: any[] = data.fragments || [];
-      const resolvedTrace: AgenticThoughtTraceData =
-        data.thoughtTrace || fragments[0]?.thoughtTrace || initialTrace;
+    queuedAdminInputsRef.current.push({
+      text,
+      userMessageText,
+      fileSnap,
+      imageSnap,
+    });
 
-      for (let i = 0; i < fragments.length; i++) {
-        if (i > 0) {
-          await new Promise((r) => setTimeout(r, Math.max(fragments[i].delay ?? 600, 300)));
-        } else {
-          await new Promise((r) => setTimeout(r, 250));
-          setIsTyping(false);
-          setLiveThoughtTrace(null);
-        }
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      if (generationRef.current !== myGeneration) return;
 
-        const msgText = (fragments[i].content || fragments[i].text || "").trim();
-        const rawBlocks: any[] | undefined = Array.isArray(fragments[i].blocks)
-          ? fragments[i].blocks.filter(
-              (b: any) => !(b?.type === "text" && (b?.text || "").trim() === msgText)
-            )
-          : undefined;
+      const batch = [...queuedAdminInputsRef.current];
+      queuedAdminInputsRef.current = [];
+      if (batch.length === 0) return;
 
-        const botMsg: ValentinaChatMessage = {
-          id: fragments[i].id || `val-${Date.now()}-${i}`,
-          sender: "valentina",
-          content: msgText,
-          timestamp: new Date().toISOString(),
-          blocks: rawBlocks && rawBlocks.length > 0 ? rawBlocks : undefined,
-          thoughtTrace: i === 0 ? resolvedTrace : undefined,
-        };
+      const combinedText = batch
+        .map((b) => b.text.trim())
+        .filter(Boolean)
+        .join("\n");
+      const combinedUserMessageText = batch
+        .map((b) => b.userMessageText.trim())
+        .filter(Boolean)
+        .join(" • ");
+      const batchFile = [...batch].reverse().find((b) => b.fileSnap)?.fileSnap || null;
+      const batchImage = [...batch].reverse().find((b) => b.imageSnap)?.imageSnap || null;
 
-        setThreads((prev) =>
-          prev.map((t) =>
-            t.id === targetThreadId
-              ? { ...t, updatedAt: Date.now(), messages: [...t.messages, botMsg] }
-              : t
-          )
-        );
-      }
-    } catch (err: any) {
-      if (err?.name === "AbortError") return;
-      const errorMsg: ValentinaChatMessage = {
-        id: `val-err-${Date.now()}`,
-        sender: "valentina",
-        content: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente?",
-        timestamp: new Date().toISOString(),
-        blocks: [{ type: "text", text: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente?" }],
+      const isCasualMsg =
+        !batchFile && !batchImage && isCasualConversationQuery(combinedUserMessageText);
+      const initialTrace: AgenticThoughtTraceData = {
+        taskTitle: isCasualMsg
+          ? "Respondendo mensagem"
+          : `Analisando indicadores da operação em tempo real`,
+        finishedTitle: isCasualMsg ? "Resposta direta enviada" : "Consulta executiva concluída",
+        totalDurationSeconds: 1,
+        scope: "admin",
+        isRealTimeStream: true,
+        steps: [
+          {
+            id: "step-init",
+            kind: "thought",
+            actionVerb: "Pensou por 1s",
+            targetLabel: isCasualMsg
+              ? "Reconhecendo mensagem rápida sem necessidade de varrer tabelas"
+              : "Planejando consultas reais nos indicadores operacionais e comerciais",
+            detailText: `Iniciando processamento real de "${combinedUserMessageText.slice(0, 80)}".`,
+          },
+        ],
       };
 
-      setThreads((prev) =>
-        prev.map((t) =>
-          t.id === targetThreadId
-            ? { ...t, updatedAt: Date.now(), messages: [...t.messages, errorMsg] }
-            : t
-        )
-      );
-    } finally {
-      setIsTyping(false);
-      setLiveThoughtTrace(null);
-    }
+      setLiveThoughtTrace(initialTrace);
+      setIsTyping(true);
+
+      const ctrl = new AbortController();
+      abortCtrl.current = ctrl;
+
+      (async () => {
+        try {
+          const res = await fetch("/api/valentina/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: ctrl.signal,
+            body: JSON.stringify({
+              tenantId: tenant,
+              operatorId: currentOperatorId || "system",
+              content: combinedText || "[veja o arquivo/imagem anexada]",
+              scope: "admin",
+              knowledgeBase: selectedBase,
+              threadHistory,
+              ...(batchFile
+                ? {
+                    attachment: {
+                      name: batchFile.name,
+                      mimeType: batchFile.mimeType,
+                      base64: batchFile.base64,
+                    },
+                  }
+                : {}),
+              ...(batchImage ? { imageBase64: batchImage.dataUrl } : {}),
+            }),
+          });
+
+          if (generationRef.current !== myGeneration) return;
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          const fragments: any[] = data.fragments || [];
+          const resolvedTrace: AgenticThoughtTraceData =
+            data.thoughtTrace || fragments[0]?.thoughtTrace || initialTrace;
+
+          for (let i = 0; i < fragments.length; i++) {
+            if (generationRef.current !== myGeneration) return;
+            if (i > 0) {
+              await new Promise((r) => setTimeout(r, Math.max(fragments[i].delay ?? 600, 300)));
+            } else {
+              await new Promise((r) => setTimeout(r, 250));
+              setIsTyping(false);
+              setLiveThoughtTrace(null);
+            }
+            if (generationRef.current !== myGeneration) return;
+
+            const msgText = (fragments[i].content || fragments[i].text || "").trim();
+            const rawBlocks: any[] | undefined = Array.isArray(fragments[i].blocks)
+              ? fragments[i].blocks.filter(
+                  (b: any) => !(b?.type === "text" && (b?.text || "").trim() === msgText)
+                )
+              : undefined;
+
+            const botMsg: ValentinaChatMessage = {
+              id: fragments[i].id || `val-${Date.now()}-${i}`,
+              sender: "valentina",
+              content: msgText,
+              timestamp: new Date().toISOString(),
+              blocks: rawBlocks && rawBlocks.length > 0 ? rawBlocks : undefined,
+              thoughtTrace: i === 0 ? resolvedTrace : undefined,
+            };
+
+            setThreads((prev) =>
+              prev.map((t) =>
+                t.id === targetThreadId
+                  ? { ...t, updatedAt: Date.now(), messages: [...t.messages, botMsg] }
+                  : t
+              )
+            );
+          }
+        } catch (err: any) {
+          if (err?.name === "AbortError") return;
+          if (generationRef.current !== myGeneration) return;
+          const errorMsg: ValentinaChatMessage = {
+            id: `val-err-${Date.now()}`,
+            sender: "valentina",
+            content: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente?",
+            timestamp: new Date().toISOString(),
+            blocks: [
+              {
+                type: "text",
+                text: "Ops, tive um problema para processar sua solicitação. Pode tentar novamente?",
+              },
+            ],
+          };
+
+          setThreads((prev) =>
+            prev.map((t) =>
+              t.id === targetThreadId
+                ? { ...t, updatedAt: Date.now(), messages: [...t.messages, errorMsg] }
+                : t
+            )
+          );
+        } finally {
+          if (generationRef.current === myGeneration) {
+            setIsTyping(false);
+            setLiveThoughtTrace(null);
+          }
+        }
+      })();
+    }, 8000);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
