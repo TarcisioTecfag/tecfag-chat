@@ -1099,6 +1099,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setNoteScope("current");
   }, [activeChat?.id]);
   useEffect(() => {
+    const syncVersion = () => {
+      draftContextVersion.current = undefined;
+    };
+    window.addEventListener("conversation-deal-context-changed", syncVersion);
+    return () => window.removeEventListener("conversation-deal-context-changed", syncVersion);
+  }, []);
+  useEffect(() => {
     if (!text || msgMode !== "internal") draftContextVersion.current = undefined;
     else if (draftContextVersion.current === undefined) draftContextVersion.current = dealContext.data?.version;
   }, [text, msgMode, dealContext.data?.version]);
@@ -3334,13 +3341,27 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 )}
 
               {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo vs Templates Meta) ── */}
-              {activeChat.id !== "valentina" && <div className="mb-2">
-                <ConversationDealContext conversationId={activeChat.id} onSelected={version => { draftContextVersion.current = version; }} />
-                {msgMode === "internal" && <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                  <input type="checkbox" checked={noteScope === "general"} onChange={event => setNoteScope(event.target.checked ? "general" : "current")} />
-                  Permitir salvar sem card atual (vínculo pendente)
-                </label>}
-              </div>}
+              {activeChat.id !== "valentina" && (
+                <div className={(!dealContext.data?.hasCurrentDeal && dealContext.data) || msgMode === "internal" ? "mb-2" : ""}>
+                  <ConversationDealContext
+                    conversationId={activeChat.id}
+                    hideWhenSelected
+                    onSelected={(version) => {
+                      draftContextVersion.current = version;
+                    }}
+                  />
+                  {msgMode === "internal" && (
+                    <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={noteScope === "general"}
+                        onChange={(event) => setNoteScope(event.target.checked ? "general" : "current")}
+                      />
+                      Permitir salvar sem card atual (vínculo pendente)
+                    </label>
+                  )}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-3 pl-1 mb-2 text-[11px] font-bold select-none">
                 <button
                   type="button"

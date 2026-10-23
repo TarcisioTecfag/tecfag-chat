@@ -66,6 +66,13 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     setNoteScope("current");
   }, [selectedChatId]);
   useEffect(() => {
+    const syncVersion = () => {
+      draftContextVersion.current = undefined;
+    };
+    window.addEventListener("conversation-deal-context-changed", syncVersion);
+    return () => window.removeEventListener("conversation-deal-context-changed", syncVersion);
+  }, []);
+  useEffect(() => {
     if (!text || activeTab !== "internal_note") draftContextVersion.current = undefined;
     else if (draftContextVersion.current === undefined) draftContextVersion.current = dealContext.data?.version;
   }, [text, activeTab, dealContext.data?.version]);
@@ -218,7 +225,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
 
       <div className="max-w-lg mx-auto px-3.5 pt-2 pb-1.5 flex flex-col gap-2 relative">
         {selectedChatId && selectedChatId !== "valentina" && <>
-          <ConversationDealContext conversationId={selectedChatId} onSelected={version => { draftContextVersion.current = version; }} />
+          <ConversationDealContext conversationId={selectedChatId} hideWhenSelected onSelected={version => { draftContextVersion.current = version; }} />
           {activeTab === "internal_note" && <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input type="checkbox" checked={noteScope === "general"} onChange={event => setNoteScope(event.target.checked ? "general" : "current")} />
             Nota geral do contato (somente na conversa)

@@ -616,7 +616,10 @@ export function ConversationDealsPanel({
         </div>
       </div>
 
-      {variant === "chat" && <ConversationDealContext conversationId={conversationId} />}
+      <ConversationDealContext
+        conversationId={conversationId}
+        variant={variant === "chat" ? "default" : "sidebar-discreet"}
+      />
 
       {/* Lista de Cards Vinculados */}
       {loading ? (

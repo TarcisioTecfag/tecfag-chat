@@ -7,6 +7,7 @@ import {
   crmDealContacts,
   crmConversationDeals,
 } from "../../db/schema";
+import { resolveRelatedContactIds } from "./contact-deals-query";
 
 export type DealTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export const DEAL_REQUIRED_MESSAGE =
@@ -33,16 +34,26 @@ export async function conversationHasDeal(
   conversationId: string,
   contactId: string,
 ) {
-  const [participant] = await executor
-    .select({ id: crmDealContacts.id })
-    .from(crmDealContacts)
-    .innerJoin(
-      crmDeals,
-      and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, crmDealContacts.dealId)),
-    )
-    .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.contactId, contactId)))
-    .limit(1);
-  if (participant) return true;
+  const contactIds = await resolveRelatedContactIds(executor, tenantId, contactId);
+  if (contactIds.length > 0) {
+    const [participant] = await executor
+      .select({ id: crmDealContacts.id })
+      .from(crmDealContacts)
+      .innerJoin(
+        crmDeals,
+        and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, crmDealContacts.dealId)),
+      )
+      .where(
+        and(
+          eq(crmDealContacts.tenantId, tenantId),
+          contactIds.length === 1
+            ? eq(crmDealContacts.contactId, contactIds[0])
+            : inArray(crmDealContacts.contactId, contactIds),
+        ),
+      )
+      .limit(1);
+    if (participant) return true;
+  }
   const [link] = await executor
     .select({ id: crmConversationDeals.id })
     .from(crmConversationDeals)
@@ -60,6 +71,7 @@ export async function conversationHasDeal(
     .limit(1);
   return Boolean(link);
 }
+
 
 /** Exclusões em lote também não podem retirar o último card de um contato/atendimento. */
 export async function assertDealsCanBeRemoved(

@@ -65,15 +65,27 @@ export function ConversationDealContext({
   conversationId,
   onSelected,
   compactWhenSelected = false,
+  hideWhenSelected = false,
+  variant = "default",
 }: {
   conversationId: string;
   onSelected?: (version: number) => void;
   compactWhenSelected?: boolean;
+  hideWhenSelected?: boolean;
+  variant?: "default" | "sidebar-discreet";
 }) {
   const { data, error, refresh } = useConversationDealContext(conversationId);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
   const selectId = useId();
+
+  if (variant === "sidebar-discreet") {
+    if (error || !data || !data.hasCurrentDeal) return null;
+  }
+
+  if (hideWhenSelected && (!data || data.hasCurrentDeal)) {
+    return null;
+  }
 
   if (error)
     return (
@@ -90,6 +102,7 @@ export function ConversationDealContext({
   const eligibleDeals = data.deals.filter(isCurrentDealEligible);
   const historicalDeals = data.deals.filter((deal) => !isCurrentDealEligible(deal));
   const needsSelection = !data.hasCurrentDeal && data.editable;
+  const isSidebarDiscreet = variant === "sidebar-discreet";
 
   const handleSelectDeal = async (dealId: string) => {
     if (!dealId || saving || !data.editable) return;
@@ -132,14 +145,22 @@ export function ConversationDealContext({
     <div
       role={needsSelection ? "alert" : undefined}
       className={`w-full rounded-xl border transition-all text-xs ${
-        needsSelection
-          ? "border-2 border-red-600/85 bg-red-600/15 dark:border-red-500/85 dark:bg-red-600/20 p-3 shadow-sm space-y-2"
-          : compactWhenSelected
-            ? "border-primary/25 bg-primary/5 px-3 py-2"
-            : "border-primary/25 bg-primary/5 p-2.5 space-y-1.5"
+        isSidebarDiscreet
+          ? "border-border/70 bg-card/60 px-2.5 py-2 space-y-1.5"
+          : needsSelection
+            ? "border-2 border-red-600/85 bg-red-600/15 dark:border-red-500/85 dark:bg-red-600/20 p-3 shadow-sm space-y-2"
+            : compactWhenSelected
+              ? "border-primary/25 bg-primary/5 px-3 py-2"
+              : "border-primary/25 bg-primary/5 p-2.5 space-y-1.5"
       }`}
     >
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+      <div
+        className={
+          isSidebarDiscreet
+            ? "flex flex-col gap-1.5"
+            : "flex flex-col md:flex-row md:items-center justify-between gap-2"
+        }
+      >
         <div className="min-w-0 space-y-0.5">
           {needsSelection ? (
             <div className="flex items-center gap-1.5 font-bold text-red-600 dark:text-red-400">
@@ -152,24 +173,32 @@ export function ConversationDealContext({
             </div>
           ) : (
             <label
-              className="flex items-center gap-1.5 font-bold text-foreground cursor-pointer"
+              className={`flex items-center gap-1.5 cursor-pointer ${
+                isSidebarDiscreet
+                  ? "text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                  : "font-bold text-foreground"
+              }`}
               htmlFor={selectId}
             >
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <CheckCircle2
+                className={`${isSidebarDiscreet ? "h-3 w-3" : "h-3.5 w-3.5"} shrink-0 text-primary`}
+              />
               <span>Negociação deste atendimento</span>
             </label>
           )}
-          <p className="text-[11px] text-muted-foreground leading-snug">
-            {data.hasCurrentDeal
-              ? "Notas e ações serão registradas neste card. Transferências mantêm esta seleção."
-              : data.previousDeal
-                ? `Última negociação: ${data.previousDeal.title}. Confira o assunto antes de continuar.`
-                : "Escolha pelo menu suspenso ou clique no botão \"Escolher essa\" em um dos cards abaixo."}
-          </p>
+          {!isSidebarDiscreet && (
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              {data.hasCurrentDeal
+                ? "Notas e ações serão registradas neste card. Transferências mantêm esta seleção."
+                : data.previousDeal
+                  ? `Última negociação: ${data.previousDeal.title}. Confira o assunto antes de continuar.`
+                  : "Escolha pelo menu suspenso ou clique no botão \"Escolher essa\" em um dos cards abaixo."}
+            </p>
+          )}
         </div>
 
         {/* Menu suspenso customizado com Popover + SystemTooltip */}
-        <div className="w-full md:w-[380px] lg:w-[440px] shrink-0">
+        <div className={isSidebarDiscreet ? "w-full" : "w-full md:w-[380px] lg:w-[440px] shrink-0"}>
           <Popover open={open} onOpenChange={(next) => !saving && data.editable && setOpen(next)}>
             <SystemTooltip
               content={
@@ -186,10 +215,12 @@ export function ConversationDealContext({
                   type="button"
                   aria-label="Negociação deste atendimento"
                   disabled={saving || !data.editable}
-                  className={`w-full flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
-                    needsSelection
-                      ? "border-red-500/70 bg-card text-foreground hover:border-red-500 shadow-xs ring-2 ring-red-500/15"
-                      : "border-border bg-card text-foreground hover:border-primary/50 shadow-2xs"
+                  className={`w-full flex items-center justify-between gap-2 rounded-lg border font-semibold transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
+                    isSidebarDiscreet
+                      ? "border-border/80 bg-background/80 px-2.5 py-1.5 text-[11px] text-foreground hover:border-primary/40"
+                      : needsSelection
+                        ? "rounded-xl border-red-500/70 bg-card px-3 py-2 text-xs text-foreground hover:border-red-500 shadow-xs ring-2 ring-red-500/15"
+                        : "rounded-xl border-border bg-card px-3 py-2 text-xs text-foreground hover:border-primary/50 shadow-2xs"
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
@@ -213,7 +244,7 @@ export function ConversationDealContext({
                     </span>
                   </div>
                   <ChevronDown
-                    className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+                    className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
                       needsSelection ? "text-red-500" : "text-muted-foreground"
                     } ${open ? "rotate-180" : ""}`}
                   />

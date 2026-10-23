@@ -61,7 +61,7 @@ export function ConversationDealRequirement({
   selectionRequired?: boolean;
 }) {
   return (
-    <div className="w-full max-h-[62vh] space-y-3 overflow-y-auto rounded-2xl border-2 border-red-600/70 dark:border-red-500/70 bg-card p-4 shadow-xl">
+    <div className="w-full max-h-[76vh] space-y-3 overflow-y-auto rounded-2xl border-2 border-red-600/70 dark:border-red-500/70 bg-card p-4 shadow-xl">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
         <div>
           <p role="alert" className="text-sm font-bold text-foreground">
