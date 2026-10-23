@@ -319,6 +319,13 @@ export function ValentinaChatTab() {
       targetThreadId = createNewThread();
     }
 
+    const existingThreadMsgs =
+      threads.find((t) => t.id === targetThreadId)?.messages || [];
+    const threadHistory = existingThreadMsgs.slice(-10).map((m) => ({
+      sender: m.sender,
+      content: m.content,
+    }));
+
     const fileSnap = attachedFile;
     const imageSnap = attachedImage;
 
@@ -369,6 +376,7 @@ export function ValentinaChatTab() {
           content: text || "[veja o arquivo/imagem anexada]",
           scope: "admin",
           knowledgeBase: selectedBase,
+          threadHistory,
           ...(fileSnap ? { attachment: { name: fileSnap.name, mimeType: fileSnap.mimeType, base64: fileSnap.base64 } } : {}),
           ...(imageSnap ? { imageBase64: imageSnap.dataUrl } : {}),
         }),
@@ -382,12 +390,19 @@ export function ValentinaChatTab() {
         if (i > 0) setIsTyping(true);
         await new Promise((r) => setTimeout(r, Math.max(fragments[i].delay ?? 600, 300)));
 
+        const msgText = (fragments[i].content || fragments[i].text || "").trim();
+        const rawBlocks: any[] | undefined = Array.isArray(fragments[i].blocks)
+          ? fragments[i].blocks.filter(
+              (b: any) => !(b?.type === "text" && (b?.text || "").trim() === msgText)
+            )
+          : undefined;
+
         const botMsg: ValentinaChatMessage = {
           id: fragments[i].id || `val-${Date.now()}-${i}`,
           sender: "valentina",
-          content: fragments[i].content || fragments[i].text || "",
+          content: msgText,
           timestamp: new Date().toISOString(),
-          blocks: fragments[i].blocks || (fragments[i].content ? [{ type: "text", text: fragments[i].content }] : undefined),
+          blocks: rawBlocks && rawBlocks.length > 0 ? rawBlocks : undefined,
         };
 
         setThreads((prev) =>
@@ -753,9 +768,14 @@ export function ValentinaChatTab() {
 
                         <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs sm:text-sm text-foreground space-y-2">
                           {msg.content && <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>}
-                          {msg.blocks?.map((block, bIdx) => (
-                            <ValentinaBlockRenderer key={bIdx} block={block} />
-                          ))}
+                          {msg.blocks
+                            ?.filter(
+                              (block) =>
+                                !(block.type === "text" && (block.text || "").trim() === (msg.content || "").trim())
+                            )
+                            .map((block, bIdx) => (
+                              <ValentinaBlockRenderer key={bIdx} block={block} />
+                            ))}
                         </div>
                       </div>
                     </div>

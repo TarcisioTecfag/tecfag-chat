@@ -16,6 +16,7 @@ import {
   crmAccounts,
   crmStageSettings,
   crmDealActivities,
+  crmDealContacts,
   crmConversationDeals,
   tasks,
 } from "../../../db/schema";
@@ -25,8 +26,13 @@ import { getAiPersona } from "../../../lib/ai-persona";
 import { requireSession } from "../../../lib/auth-session";
 import { getCommercialHome } from "../../../lib/commercial/home-service";
 import { getKnowledgeBaseContext } from "../../../lib/valentina/knowledge-service";
+import { getDirectorBiContext } from "../../../lib/valentina/director-bi-context";
 import type { MultimodalPart } from "../../../lib/vertex-ai";
-import type { RelatedConversationItem } from "../../../lib/mockData";
+import type {
+  RelatedConversationItem,
+  RelatedDealItem,
+  RelatedCallActionItem,
+} from "../../../lib/mockData";
 
 // ── Headers CORS padrão ──────────────────────────────────────────────────────
 const corsHeaders = {
@@ -125,6 +131,25 @@ function extractSearchCandidateTerms(userQuery?: string): string[] {
     .slice(0, 4);
 }
 
+function extractPhoneFromCustomFields(cf: any): string | null {
+  if (!cf || typeof cf !== "object") return null;
+  for (const [k, v] of Object.entries(cf)) {
+    if (typeof v === "string" && /fone|tel|cel|whats|contato/i.test(k)) {
+      const digits = v.replace(/\D/g, "");
+      if (digits.length >= 10 && digits.length <= 13) return v.trim();
+    }
+  }
+  return null;
+}
+
+function normalizeForMatch(value?: string | null): string {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONTEXTO DO COPILOTO DO VENDEDOR/OPERADOR — Dados exclusivos do próprio operador
 // Usado em: Módulo de Chat (fixado na lista), scope = "operator"
@@ -135,18 +160,23 @@ export interface OperatorContextResult {
   knownConversations: RelatedConversationItem[];
   waitingConversations: RelatedConversationItem[];
   todayLeadsConversations: RelatedConversationItem[];
+  knownDeals: RelatedDealItem[];
+  scheduledCallActions: RelatedCallActionItem[];
 }
 
 async function getOperatorContext(
   tenantId: string,
   operatorId: string,
   operatorEmail?: string | null,
-  userQuery?: string
+  userQuery?: string,
+  recentAiContextText?: string
 ): Promise<OperatorContextResult> {
   const sections: string[] = [];
   const knownConvMap = new Map<string, RelatedConversationItem>();
   const waitingConversations: RelatedConversationItem[] = [];
   const todayLeadsConversations: RelatedConversationItem[] = [];
+  const knownDealMap = new Map<string, RelatedDealItem>();
+  const scheduledCallActions: RelatedCallActionItem[] = [];
 
   try {
     // ── 1. META DO MÊS, RITMO (PACING) E DIRETRIZES DO GESTOR ────────────────
@@ -201,7 +231,296 @@ async function getOperatorContext(
       console.warn("[getOperatorContext] Aviso ao carregar getCommercialHome:", homeErr?.message);
     }
 
-    // ── 2. TAREFAS, LIGAÇÕES AGENDADAS E REUNIÕES DO OPERADOR ────────────────
+    // ── 2. NEGOCIAÇÕES (CRM DEALS) ABERTAS & NEGOCIAÇÕES PARADAS / ESFRIANDO (COM TELEFONE E LINK DO CARD) ──
+    try {
+      const operatorDeals = await db
+        .select({
+          id: crmDeals.id,
+          title: crmDeals.title,
+          status: crmDeals.status,
+          value: crmDeals.value,
+          stageId: crmDeals.stageId,
+          stageName: crmStages.name,
+          pipelineId: crmDeals.pipelineId,
+          pipelineName: crmPipelines.name,
+          pipelineCoolingDays: crmPipelines.coolingDays,
+          stageCoolingDays: crmStageSettings.coolingDays,
+          stageCoolingEnabled: crmStageSettings.coolingEnabled,
+          accountId: crmDeals.accountId,
+          accountName: crmAccounts.name,
+          accountPhone: crmAccounts.phone,
+          accountEmail: crmAccounts.email,
+          accountDocument: crmAccounts.document,
+          customFields: crmDeals.customFields,
+          expectedCloseDate: crmDeals.expectedCloseDate,
+          lastActivityAt: crmDeals.lastActivityAt,
+          updatedAt: crmDeals.updatedAt,
+          createdAt: crmDeals.createdAt,
+        })
+        .from(crmDeals)
+        .leftJoin(crmStages, and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId)))
+        .leftJoin(crmPipelines, and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId)))
+        .leftJoin(crmAccounts, and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)))
+        .leftJoin(
+          crmStageSettings,
+          and(eq(crmStageSettings.stageId, crmDeals.stageId), eq(crmStageSettings.tenantId, tenantId))
+        )
+        .where(
+          and(
+            eq(crmDeals.tenantId, tenantId),
+            eq(crmDeals.operatorId, operatorId),
+            inArray(crmDeals.status, ["open", "paused"])
+          )
+        )
+        .orderBy(desc(crmDeals.updatedAt))
+        .limit(60);
+
+      if (operatorDeals.length > 0) {
+        const dealIds = operatorDeals.map((d) => d.id);
+        const accountIds = Array.from(
+          new Set(operatorDeals.map((d) => d.accountId).filter((v): v is string => Boolean(v)))
+        );
+
+        const dealContactMap = new Map<string, { contactId: string; name: string; phone: string | null }>();
+        const accountContactMap = new Map<string, { contactId: string; name: string; phone: string | null }>();
+        const dealConvMap = new Map<string, string>();
+        const contactConvMap = new Map<string, string>();
+
+        try {
+          const dcRows = await db
+            .select({
+              dealId: crmDealContacts.dealId,
+              isPrimary: crmDealContacts.isPrimary,
+              contactId: contacts.id,
+              contactName: contacts.name,
+              contactPhone: contacts.phone,
+            })
+            .from(crmDealContacts)
+            .innerJoin(contacts, and(eq(contacts.id, crmDealContacts.contactId), eq(contacts.tenantId, tenantId)))
+            .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, dealIds)));
+
+          for (const row of dcRows) {
+            const existing = dealContactMap.get(row.dealId);
+            if (!existing || row.isPrimary || (!existing.phone && row.contactPhone)) {
+              dealContactMap.set(row.dealId, {
+                contactId: row.contactId,
+                name: row.contactName,
+                phone: row.contactPhone || null,
+              });
+            }
+          }
+        } catch {}
+
+        if (accountIds.length > 0) {
+          try {
+            const accContacts = await db
+              .select({
+                id: contacts.id,
+                accountId: contacts.accountId,
+                name: contacts.name,
+                phone: contacts.phone,
+              })
+              .from(contacts)
+              .where(and(eq(contacts.tenantId, tenantId), inArray(contacts.accountId, accountIds)));
+
+            for (const c of accContacts) {
+              if (!c.accountId) continue;
+              const existing = accountContactMap.get(c.accountId);
+              if (!existing || (!existing.phone && c.phone)) {
+                accountContactMap.set(c.accountId, {
+                  contactId: c.id,
+                  name: c.name,
+                  phone: c.phone || null,
+                });
+              }
+            }
+          } catch {}
+        }
+
+        try {
+          const convLinks = await db
+            .select({
+              dealId: crmConversationDeals.dealId,
+              conversationId: crmConversationDeals.conversationId,
+            })
+            .from(crmConversationDeals)
+            .where(
+              and(
+                eq(crmConversationDeals.tenantId, tenantId),
+                inArray(crmConversationDeals.dealId, dealIds),
+                eq(crmConversationDeals.isActive, true)
+              )
+            );
+          for (const cl of convLinks) {
+            if (!dealConvMap.has(cl.dealId)) {
+              dealConvMap.set(cl.dealId, cl.conversationId);
+            }
+          }
+        } catch {}
+
+        const allResolvedContactIds = Array.from(
+          new Set([
+            ...Array.from(dealContactMap.values()).map((v) => v.contactId),
+            ...Array.from(accountContactMap.values()).map((v) => v.contactId),
+          ])
+        );
+        if (allResolvedContactIds.length > 0) {
+          try {
+            const cConvs = await db
+              .select({
+                id: conversations.id,
+                contactId: conversations.contactId,
+              })
+              .from(conversations)
+              .where(
+                and(
+                  eq(conversations.tenantId, tenantId),
+                  inArray(conversations.contactId, allResolvedContactIds)
+                )
+              )
+              .orderBy(desc(conversations.lastMessageTime));
+            for (const cc of cConvs) {
+              if (!contactConvMap.has(cc.contactId)) {
+                contactConvMap.set(cc.contactId, cc.id);
+              }
+            }
+          } catch {}
+        }
+
+        // Fallback por nome da conta em contacts caso algum deal importado do RD não tenha crmDealContacts nem contacts.accountId
+        const dealsMissingPhoneNames = operatorDeals
+          .filter((d) => {
+            const dc = dealContactMap.get(d.id);
+            const ac = d.accountId ? accountContactMap.get(d.accountId) : undefined;
+            return !dc?.phone && !ac?.phone && !d.accountPhone && d.accountName;
+          })
+          .map((d) => d.accountName!)
+          .slice(0, 20);
+
+        const namePhoneFallbackMap = new Map<string, { contactId: string; phone: string }>();
+        if (dealsMissingPhoneNames.length > 0) {
+          try {
+            const nameMatchedContacts = await db
+              .select({
+                id: contacts.id,
+                name: contacts.name,
+                phone: contacts.phone,
+              })
+              .from(contacts)
+              .where(
+                and(
+                  eq(contacts.tenantId, tenantId),
+                  inArray(contacts.name, dealsMissingPhoneNames)
+                )
+              );
+            for (const nm of nameMatchedContacts) {
+              if (nm.phone) {
+                namePhoneFallbackMap.set(nm.name.toLowerCase(), {
+                  contactId: nm.id,
+                  phone: nm.phone,
+                });
+              }
+            }
+          } catch {}
+        }
+
+        const nowMs = Date.now();
+        const enrichedDeals = operatorDeals.map((d) => {
+          const refDate = d.lastActivityAt || d.updatedAt || d.createdAt || new Date();
+          const daysIdle = Math.max(0, Math.floor((nowMs - new Date(refDate).getTime()) / 86_400_000));
+          const coolingThreshold =
+            d.stageCoolingEnabled !== false && d.stageCoolingDays
+              ? d.stageCoolingDays
+              : d.pipelineCoolingDays || 3;
+          const isStalled = daysIdle >= Math.min(3, coolingThreshold);
+          const isCoolingCritical = daysIdle >= coolingThreshold;
+
+          const dc = dealContactMap.get(d.id);
+          const ac = d.accountId ? accountContactMap.get(d.accountId) : undefined;
+          const nameFallback = d.accountName ? namePhoneFallbackMap.get(d.accountName.toLowerCase()) : undefined;
+          const cfPhone = extractPhoneFromCustomFields(d.customFields);
+
+          const contactName = dc?.name || ac?.name || d.accountName || null;
+          const contactPhone = dc?.phone || ac?.phone || d.accountPhone || nameFallback?.phone || cfPhone || null;
+          const contactId = dc?.contactId || ac?.contactId || nameFallback?.contactId || null;
+          const conversationId =
+            dealConvMap.get(d.id) || (contactId ? contactConvMap.get(contactId) : undefined) || null;
+
+          const numValue = Number(d.value || 0);
+          const dealItem: RelatedDealItem = {
+            dealId: d.id,
+            title: d.title,
+            value: numValue,
+            stageName: d.stageName || null,
+            pipelineName: d.pipelineName || null,
+            accountName: d.accountName || null,
+            contactName,
+            contactPhone,
+            conversationId,
+            daysIdle,
+            status: d.status,
+          };
+          knownDealMap.set(d.id, dealItem);
+
+          return {
+            ...d,
+            numValue,
+            daysIdle,
+            coolingThreshold,
+            isStalled,
+            isCoolingCritical,
+            refDate,
+            contactName,
+            contactPhone,
+            conversationId,
+          };
+        });
+
+        const stalledDeals = enrichedDeals
+          .filter((d) => d.isStalled)
+          .sort((a, b) => b.daysIdle - a.daysIdle || b.numValue - a.numValue);
+
+        if (stalledDeals.length > 0) {
+          const stalledLines = stalledDeals
+            .slice(0, 18)
+            .map((d) => {
+              const badge = d.isCoolingCritical ? "❄️ ESFRIANDO / PARADA CRÍTICA" : "⚠️ SEM INTERAÇÃO RECENTE";
+              const acc = d.accountName ? ` | Cliente/Conta: ${d.accountName}` : "";
+              const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
+              const convPart = d.conversationId ? ` | convId: ${d.conversationId}` : "";
+              return `  • [${badge} — ${d.daysIdle} dia(s) sem movimentação] "${d.title}"${acc} | Valor: ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Geral"} > ${d.stageName || "N/A"}${phonePart} (dealId: ${d.id}${convPart})`;
+            })
+            .join("\n");
+          sections.push(
+            `❄️ SUAS NEGOCIAÇÕES PARADAS / ESFRIANDO (${stalledDeals.length} de ${enrichedDeals.length} abertas exigem follow-up):\n${stalledLines}`
+          );
+        } else {
+          sections.push(
+            `❄️ NEGOCIAÇÕES PARADAS / ESFRIANDO: Parabéns! Nenhuma das suas ${enrichedDeals.length} negociações abertas está parada há 3+ dias.`
+          );
+        }
+
+        const activeDealLines = enrichedDeals
+          .slice(0, 25)
+          .map((d) => {
+            const acc = d.accountName ? ` (${d.accountName})` : "";
+            const phonePart = d.contactPhone ? ` | 📞 Tel: ${d.contactPhone}` : "";
+            const closePart = d.expectedCloseDate
+              ? ` | Prev. Fechamento: ${new Date(d.expectedCloseDate).toLocaleDateString("pt-BR")}`
+              : "";
+            const convPart = d.conversationId ? ` | convId: ${d.conversationId}` : "";
+            return `  • "${d.title}"${acc} — ${formatBrl(d.numValue)} | Etapa: ${d.stageName || "N/A"} (${d.pipelineName || "Funil"}) | Parada há: ${d.daysIdle}d${phonePart}${closePart}${d.status === "paused" ? " [PAUSADA]" : ""} (dealId: ${d.id}${convPart})`;
+          })
+          .join("\n");
+        sections.push(`💼 SUAS NEGOCIAÇÕES EM ABERTO NO CRM (${enrichedDeals.length}):\n${activeDealLines}`);
+      } else {
+        sections.push(`💼 SUAS NEGOCIAÇÕES NO CRM: Você não possui negociações abertas vinculadas ao seu usuário no momento.`);
+      }
+    } catch (dealErr: any) {
+      console.warn("[getOperatorContext] Aviso ao carregar negociações do operador:", dealErr?.message);
+    }
+
+    // ── 3. TAREFAS, LIGAÇÕES AGENDADAS E REUNIÕES DO OPERADOR ────────────────
     try {
       const crmActivities = await db
         .select({
@@ -266,7 +585,11 @@ async function getOperatorContext(
             : dueDay === todayStr
             ? "🔥 HOJE"
             : "📅 AGENDADA";
-        const dealPart = a.dealTitle ? ` | Negociação: "${a.dealTitle}" (${formatBrl(Number(a.dealValue || 0))})` : "";
+        const linkedDeal = a.dealId ? knownDealMap.get(a.dealId) : undefined;
+        const phoneStr = linkedDeal?.contactPhone ? ` | 📞 Tel: ${linkedDeal.contactPhone}` : "";
+        const dealPart = a.dealTitle
+          ? ` | Negociação: "${a.dealTitle}" (${formatBrl(Number(a.dealValue || 0))}${a.dealId ? `, dealId: ${a.dealId}` : ""})${phoneStr}`
+          : "";
         const descPart = a.description ? ` — Obs: ${a.description.slice(0, 100)}` : "";
         return `  • [${tag} - ${dueStr}] ${a.title}${dealPart}${descPart}`;
       };
@@ -275,6 +598,23 @@ async function getOperatorContext(
         (a) => a.type === "call" || /liga[cç][aã]o|ligar|call|telefonema/i.test(a.title)
       );
       const otherActivities = crmActivities.filter((a) => !scheduledCalls.includes(a));
+
+      for (const sc of scheduledCalls) {
+        const linkedDeal = sc.dealId ? knownDealMap.get(sc.dealId) : undefined;
+        if (linkedDeal?.contactPhone) {
+          scheduledCallActions.push({
+            id: `sched-call-${sc.id}`,
+            clientName: linkedDeal.contactName || linkedDeal.accountName || sc.title,
+            phone: linkedDeal.contactPhone,
+            company: linkedDeal.accountName || null,
+            dealId: linkedDeal.dealId,
+            dealTitle: linkedDeal.title,
+            dealValue: linkedDeal.value ?? null,
+            conversationId: linkedDeal.conversationId || null,
+            reason: sc.title,
+          });
+        }
+      }
 
       const legacyCalls = generalTasks.filter(
         (t) => t.type === "call" || /liga[cç][aã]o|ligar|call|telefonema/i.test(t.name)
@@ -313,107 +653,6 @@ async function getOperatorContext(
       }
     } catch (taskErr: any) {
       console.warn("[getOperatorContext] Aviso ao carregar tarefas/ligações:", taskErr?.message);
-    }
-
-    // ── 3. NEGOCIAÇÕES (CRM DEALS) ABERTAS & NEGOCIAÇÕES PARADAS / ESFRIANDO ──
-    try {
-      const operatorDeals = await db
-        .select({
-          id: crmDeals.id,
-          title: crmDeals.title,
-          status: crmDeals.status,
-          value: crmDeals.value,
-          stageId: crmDeals.stageId,
-          stageName: crmStages.name,
-          pipelineId: crmDeals.pipelineId,
-          pipelineName: crmPipelines.name,
-          pipelineCoolingDays: crmPipelines.coolingDays,
-          stageCoolingDays: crmStageSettings.coolingDays,
-          stageCoolingEnabled: crmStageSettings.coolingEnabled,
-          accountName: crmAccounts.name,
-          expectedCloseDate: crmDeals.expectedCloseDate,
-          lastActivityAt: crmDeals.lastActivityAt,
-          updatedAt: crmDeals.updatedAt,
-          createdAt: crmDeals.createdAt,
-        })
-        .from(crmDeals)
-        .leftJoin(crmStages, and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId)))
-        .leftJoin(crmPipelines, and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId)))
-        .leftJoin(crmAccounts, and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)))
-        .leftJoin(
-          crmStageSettings,
-          and(eq(crmStageSettings.stageId, crmDeals.stageId), eq(crmStageSettings.tenantId, tenantId))
-        )
-        .where(
-          and(
-            eq(crmDeals.tenantId, tenantId),
-            eq(crmDeals.operatorId, operatorId),
-            inArray(crmDeals.status, ["open", "paused"])
-          )
-        )
-        .orderBy(desc(crmDeals.updatedAt))
-        .limit(50);
-
-      if (operatorDeals.length > 0) {
-        const nowMs = Date.now();
-        const enrichedDeals = operatorDeals.map((d) => {
-          const refDate = d.lastActivityAt || d.updatedAt || d.createdAt || new Date();
-          const daysIdle = Math.max(0, Math.floor((nowMs - new Date(refDate).getTime()) / 86_400_000));
-          const coolingThreshold =
-            d.stageCoolingEnabled !== false && d.stageCoolingDays
-              ? d.stageCoolingDays
-              : d.pipelineCoolingDays || 3;
-          const isStalled = daysIdle >= Math.min(3, coolingThreshold);
-          const isCoolingCritical = daysIdle >= coolingThreshold;
-          return {
-            ...d,
-            numValue: Number(d.value || 0),
-            daysIdle,
-            coolingThreshold,
-            isStalled,
-            isCoolingCritical,
-            refDate,
-          };
-        });
-
-        const stalledDeals = enrichedDeals
-          .filter((d) => d.isStalled)
-          .sort((a, b) => b.daysIdle - a.daysIdle || b.numValue - a.numValue);
-
-        if (stalledDeals.length > 0) {
-          const stalledLines = stalledDeals
-            .slice(0, 15)
-            .map((d) => {
-              const badge = d.isCoolingCritical ? "❄️ ESFRIANDO / PARADA CRÍTICA" : "⚠️ SEM INTERAÇÃO RECENTE";
-              const acc = d.accountName ? ` | Cliente/Conta: ${d.accountName}` : "";
-              return `  • [${badge} — ${d.daysIdle} dia(s) sem movimentação] "${d.title}"${acc} | Valor: ${formatBrl(d.numValue)} | Funil/Etapa: ${d.pipelineName || "Geral"} > ${d.stageName || "N/A"}`;
-            })
-            .join("\n");
-          sections.push(
-            `❄️ SUAS NEGOCIAÇÕES PARADAS / ESFRIANDO (${stalledDeals.length} de ${enrichedDeals.length} abertas exigem follow-up):\n${stalledLines}`
-          );
-        } else {
-          sections.push(
-            `❄️ NEGOCIAÇÕES PARADAS / ESFRIANDO: Parabéns! Nenhuma das suas ${enrichedDeals.length} negociações abertas está parada há 3+ dias.`
-          );
-        }
-
-        const activeDealLines = enrichedDeals
-          .slice(0, 20)
-          .map((d) => {
-            const acc = d.accountName ? ` (${d.accountName})` : "";
-            const closePart = d.expectedCloseDate
-              ? ` | Prev. Fechamento: ${new Date(d.expectedCloseDate).toLocaleDateString("pt-BR")}`
-              : "";
-            return `  • "${d.title}"${acc} — ${formatBrl(d.numValue)} | Etapa: ${d.stageName || "N/A"} (${d.pipelineName || "Funil"}) | Parada há: ${d.daysIdle}d${closePart}${d.status === "paused" ? " [PAUSADA]" : ""}`;
-          })
-          .join("\n");
-        sections.push(`💼 SUAS NEGOCIAÇÕES EM ABERTO NO CRM (${enrichedDeals.length}):\n${activeDealLines}`);
-      } else {
-        sections.push(`💼 SUAS NEGOCIAÇÕES NO CRM: Você não possui negociações abertas vinculadas ao seu usuário no momento.`);
-      }
-    } catch (dealErr: any) {
-      console.warn("[getOperatorContext] Aviso ao carregar negociações do operador:", dealErr?.message);
     }
 
     // ── 4. CONVERSAS ATIVAS, CLIENTES AGUARDANDO RESPOSTA (SLA) E LEADS DE HOJE ──
@@ -542,6 +781,7 @@ async function getOperatorContext(
           const item: RelatedConversationItem = {
             clientId: cId,
             clientName: cName,
+            clientPhone: meta.clientPhone || meta.phone || null,
             company: meta.company || null,
             lastMessage: meta.interest || null,
             dealTitle: meta.dealTitle || null,
@@ -561,6 +801,7 @@ async function getOperatorContext(
           const agoMin = Math.max(0, Math.floor((Date.now() - new Date(c.lastTime).getTime()) / 60_000));
           const companyInfo = c.contactCompany ? ` [${c.contactCompany}]` : "";
           const dealInfo = c.dealTitle ? ` | Card: "${c.dealTitle}"${c.funnelName ? ` (${c.funnelName})` : ""}` : "";
+          const phoneInfo = c.contactPhone ? ` | 📞 Tel: ${c.contactPhone}` : "";
 
           const [lastMsg] = await db
             .select({
@@ -594,6 +835,7 @@ async function getOperatorContext(
           const convItem: RelatedConversationItem = {
             clientId: c.id,
             clientName: c.contactName,
+            clientPhone: c.contactPhone || null,
             company: c.contactCompany || null,
             lastMessage: cleanPreview || null,
             waitMinutes: isClientWaiting ? waitMinutes : null,
@@ -612,7 +854,7 @@ async function getOperatorContext(
               minute: "2-digit",
             });
             todayTransferLines.push(
-              `  • [Iniciado hoje às ${hora}] ${c.contactName}${companyInfo}${dealInfo} (convId: ${c.id}): "${cleanPreview}"`
+              `  • [Iniciado hoje às ${hora}] ${c.contactName}${companyInfo}${dealInfo}${phoneInfo} (convId: ${c.id}): "${cleanPreview}"`
             );
           }
 
@@ -625,12 +867,12 @@ async function getOperatorContext(
                 ? "⚠️ ATENÇÃO SLA (8-14min)"
                 : "⏳ Aguardando resposta";
             waitingClients.push(
-              `  • ${c.contactName}${companyInfo} (convId: ${c.id}) — esperando há ${waitMinutes}min (${slaTag})${dealInfo}: "${cleanPreview}"`
+              `  • ${c.contactName}${companyInfo}${phoneInfo} (convId: ${c.id}) — esperando há ${waitMinutes}min (${slaTag})${dealInfo}: "${cleanPreview}"`
             );
           }
 
           convLines.push(
-            `  • ${c.contactName}${companyInfo} (convId: ${c.id} | Fila: ${c.queueState}${isClientWaiting ? ` | ⏳ Cliente aguarda há ${waitMinutes}min` : " | ✅ Respondido"}) — última msg há ${agoMin}min${c.unread > 0 ? ` [${c.unread} não lida(s)]` : ""}${dealInfo}: "${cleanPreview}"`
+            `  • ${c.contactName}${companyInfo}${phoneInfo} (convId: ${c.id} | Fila: ${c.queueState}${isClientWaiting ? ` | ⏳ Cliente aguarda há ${waitMinutes}min` : " | ✅ Respondido"}) — última msg há ${agoMin}min${c.unread > 0 ? ` [${c.unread} não lida(s)]` : ""}${dealInfo}: "${cleanPreview}"`
           );
         }
 
@@ -667,20 +909,82 @@ async function getOperatorContext(
       console.warn("[getOperatorContext] Aviso ao carregar conversas ativas:", convErr?.message);
     }
 
-    // ── 5. BUSCA PROFUNDA SOB DEMANDA (CLIENTE / CONVERSA / NEGOCIAÇÃO) + GUARDA DE SIGILO ──
-    const searchTerms = extractSearchCandidateTerms(userQuery);
-    if (searchTerms.length > 0) {
-      try {
-        // 5.1 Verifica nas conversas e deals do PRÓPRIO operador se algum termo bate com nome de cliente/empresa/negociação
+    // ── 5. BUSCA PROFUNDA SOB DEMANDA (NEGOCIAÇÕES DO CRM + CONVERSAS) + GUARDA DE SIGILO ──
+    const primaryTerms = extractSearchCandidateTerms(userQuery);
+    const isFollowUpRequest =
+      /\b(?:puxe|puxar|detalhe|detalhes|link|bot[aã]o|abrir|abre|ela|elas|essa|esse|recomende|especifico|espec[ií]fico|fechar\s+hoje|ligar)\b/i.test(
+        userQuery || ""
+      );
+    const fallbackAiTerms =
+      isFollowUpRequest || primaryTerms.length === 0
+        ? extractSearchCandidateTerms(recentAiContextText)
+        : [];
+    const searchTerms = Array.from(new Set([...primaryTerms, ...fallbackAiTerms])).slice(0, 6);
+
+    try {
+      // 5.1 Verifica nas negociações (CRM Deals) do PRÓPRIO operador (por termos da pergunta ou pelo que a IA acabou de citar!)
+      const normCombinedContext = normalizeForMatch(`${userQuery || ""} ${isFollowUpRequest ? recentAiContextText || "" : ""}`);
+      const matchedDeals = Array.from(knownDealMap.values()).filter((d) => {
+        const hay = normalizeForMatch(`${d.title || ""} ${d.accountName || ""} ${d.contactName || ""}`);
+        if (!hay) return false;
+        const codeMatch = (d.title || "").match(/\b\d{4,}\b/)?.[0];
+        if (codeMatch && normCombinedContext.includes(codeMatch)) return true;
+        if (d.accountName && d.accountName.length >= 4 && normCombinedContext.includes(normalizeForMatch(d.accountName))) {
+          return true;
+        }
+        return searchTerms.some((t) => t.length >= 4 && hay.includes(t));
+      });
+
+      if (matchedDeals.length > 0) {
+        const dealDeepLines: string[] = [];
+        for (const md of matchedDeals.slice(0, 3)) {
+          const acts = await db
+            .select({
+              type: crmDealActivities.type,
+              title: crmDealActivities.title,
+              description: crmDealActivities.description,
+              status: crmDealActivities.status,
+              dueDate: crmDealActivities.dueDate,
+              createdAt: crmDealActivities.createdAt,
+            })
+            .from(crmDealActivities)
+            .where(and(eq(crmDealActivities.tenantId, tenantId), eq(crmDealActivities.dealId, md.dealId)))
+            .orderBy(desc(crmDealActivities.createdAt))
+            .limit(5);
+
+          const actSummary =
+            acts.length > 0
+              ? acts
+                  .map((a) => {
+                    const dt = a.createdAt
+                      ? new Date(a.createdAt).toLocaleDateString("pt-BR")
+                      : "";
+                    return `    - [${dt} | ${a.type} | ${a.status}] ${a.title}${a.description ? `: ${a.description.slice(0, 140)}` : ""}`;
+                  })
+                  .join("\n")
+              : "    - Nenhuma atividade/nota detalhada registrada no histórico do card.";
+
+          dealDeepLines.push(
+            `  📌 Card CRM: "${md.title}" (dealId: ${md.dealId})\n` +
+              `    • Cliente / Empresa: ${md.accountName || md.contactName || "Não informado"}\n` +
+              `    • Contato: ${md.contactName || "Não informado"} | 📞 Telefone (VigosPhone): ${md.contactPhone || "Não cadastrado no card"}\n` +
+              `    • Valor: ${formatBrl(Number(md.value || 0))} | Funil/Etapa: ${md.pipelineName || "Geral"} > ${md.stageName || "N/A"} | Parada há: ${md.daysIdle ?? 0} dia(s)\n` +
+              `    • Conversa WhatsApp vinculada: ${md.conversationId ? `Sim (convId: ${md.conversationId})` : "Sem conversa recente ativa vinculada (mas você PODE enviar o botão do Card do CRM via mentionedDealIds e o botão de Ligação via VigosPhone via suggestedCallDealIds!)"}\n` +
+              `    • Histórico de atividades do card:\n${actSummary}`
+          );
+        }
+        sections.push(
+          `🔍 FICHA DETALHADA DA(S) NEGOCIAÇÃO(ÕES) DO CRM EM FOCO (USE ESTES DADOS PARA DETALHAR E ENVIAR OS BOTÕES DE CARD CRM / LIGAÇÃO VIGOSPHONE):\n${dealDeepLines.join("\n\n")}`
+        );
+      }
+
+      // 5.2 Verifica nas conversas do PRÓPRIO operador se algum termo bate com nome de cliente/empresa/negociação
+      if (searchTerms.length > 0) {
         const matchedConvs = activeConvs.filter((c) => {
-          const hay = `${c.contactName || ""} ${c.contactCompany || ""} ${c.dealTitle || ""}`
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .toLowerCase();
+          const hay = normalizeForMatch(`${c.contactName || ""} ${c.contactCompany || ""} ${c.dealTitle || ""}`);
           return searchTerms.some((t) => hay.includes(t));
         });
 
-        // Se não achou nas ativas, procura também nas finalizadas do PRÓPRIO operador
         let extraOwnConvs: typeof activeConvs = [];
         if (matchedConvs.length === 0) {
           const likeFilters = searchTerms.map((t) => ilike(contacts.name, `%${t}%`));
@@ -721,6 +1025,7 @@ async function getOperatorContext(
               knownConvMap.set(tc.id, {
                 clientId: tc.id,
                 clientName: tc.contactName,
+                clientPhone: tc.contactPhone || null,
                 company: tc.contactCompany || null,
                 lastMessage: tc.lastMessage || null,
                 dealTitle: tc.dealTitle || null,
@@ -765,15 +1070,15 @@ async function getOperatorContext(
               .join("\n");
 
             deepDetails.push(
-              `  📌 Cliente: ${tc.contactName}${tc.contactCompany ? ` (${tc.contactCompany})` : ""} (convId: ${tc.id}) | Fila: ${tc.queueState}${tc.dealTitle ? ` | Negociação: ${tc.dealTitle}` : ""}\n  Últimas mensagens da conversa:\n${transcript}`
+              `  📌 Cliente: ${tc.contactName}${tc.contactCompany ? ` (${tc.contactCompany})` : ""}${tc.contactPhone ? ` | 📞 Tel: ${tc.contactPhone}` : ""} (convId: ${tc.id}) | Fila: ${tc.queueState}${tc.dealTitle ? ` | Negociação: ${tc.dealTitle}` : ""}\n  Últimas mensagens da conversa:\n${transcript}`
             );
           }
           sections.push(`🔍 HISTÓRICO DETALHADO DO(S) CLIENTE(S) CONSULTADO(S):\n${deepDetails.join("\n\n")}`);
         }
 
-        // 5.2 Guarda de Sigilo: Verifica se o termo buscado pertence a OUTRO operador (negociação ou conversa de terceiros)
-        if (targetConvs.length === 0) {
-          const dealLikeFilters = searchTerms.map((t) => ilike(crmDeals.title, `%${t}%`));
+        // 5.3 Guarda de Sigilo: Verifica se o termo buscado pertence a OUTRO operador (negociação ou conversa de terceiros)
+        if (targetConvs.length === 0 && matchedDeals.length === 0 && primaryTerms.length > 0) {
+          const dealLikeFilters = primaryTerms.map((t) => ilike(crmDeals.title, `%${t}%`));
           const thirdPartyDeals = await db
             .select({
               title: crmDeals.title,
@@ -789,7 +1094,7 @@ async function getOperatorContext(
             )
             .limit(3);
 
-          const contactLikeFilters = searchTerms.map((t) => ilike(contacts.name, `%${t}%`));
+          const contactLikeFilters = primaryTerms.map((t) => ilike(contacts.name, `%${t}%`));
           const thirdPartyConvs = await db
             .select({
               contactName: contacts.name,
@@ -818,9 +1123,9 @@ async function getOperatorContext(
             );
           }
         }
-      } catch (deepErr: any) {
-        console.warn("[getOperatorContext] Aviso na busca profunda:", deepErr?.message);
       }
+    } catch (deepErr: any) {
+      console.warn("[getOperatorContext] Aviso na busca profunda:", deepErr?.message);
     }
 
     // ── 6. MÉTRICAS DE ATENDIMENTO DO DIA ────────────────────────────────────
@@ -866,6 +1171,8 @@ async function getOperatorContext(
       knownConversations: Array.from(knownConvMap.values()),
       waitingConversations,
       todayLeadsConversations,
+      knownDeals: Array.from(knownDealMap.values()),
+      scheduledCallActions,
     };
   } catch (err: any) {
     console.error("[getOperatorContext] Erro:", err);
@@ -874,188 +1181,23 @@ async function getOperatorContext(
       knownConversations: Array.from(knownConvMap.values()),
       waitingConversations,
       todayLeadsConversations,
+      knownDeals: Array.from(knownDealMap.values()),
+      scheduledCallActions,
     };
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CONTEXTO DA VALENTINA SUPERVISORA — Visão global da operação
-// Usado em: Módulo Valentina (Chat), scope = "admin", role = "admin"
+// CONTEXTO DA DIRETORIA / GESTÃO — Visão global 360º da operação em tempo real
+// Usado exclusivamente em: Módulo IA Administrativa (ValentinaChatTab), scope = "admin"
+// NÃO afeta o Fagner/Valentina Colega do operador (scope = "operator")
 // ═══════════════════════════════════════════════════════════════════════════════
-async function getManagerContext(tenantId: string): Promise<string> {
-  try {
-    const sections: string[] = [];
-    const today = new Date().toISOString().split("T")[0];
-    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    // ── Resumo geral de conversas por estado ─────────────────────────────────
-    const convSummary = await db
-      .select({
-        state: conversations.queueState,
-        total: count(),
-      })
-      .from(conversations)
-      .where(eq(conversations.tenantId, tenantId))
-      .groupBy(conversations.queueState);
-
-    if (convSummary.length > 0) {
-      const sumLines = convSummary.map((s) => `  • ${s.state}: ${s.total}`).join("\n");
-      sections.push(`📊 CONVERSAS POR ESTADO:\n${sumLines}`);
-    }
-
-    // ── Operadores e métricas do dia ──────────────────────────────────────────
-    const teamMetrics = await db
-      .select()
-      .from(operatorDailyMetrics)
-      .where(
-        and(
-          eq(operatorDailyMetrics.tenantId, tenantId),
-          eq(operatorDailyMetrics.date, today)
-        )
-      )
-      .orderBy(desc(operatorDailyMetrics.totalConversations));
-
-    if (teamMetrics.length > 0) {
-      const teamLines = teamMetrics.map((m) => {
-        const tma = m.avgResponseTimeSeconds
-          ? `${Math.floor(m.avgResponseTimeSeconds / 60)}m${m.avgResponseTimeSeconds % 60}s`
-          : "N/A";
-        return `  • ${m.operatorName}: ${m.totalConversations} conv, TMA ${tma}, ${m.overdueCount} SLA estourado(s), score ${m.avgPerformanceScore ?? "N/A"}/100`;
-      }).join("\n");
-      sections.push(`👥 DESEMPENHO DA EQUIPE HOJE:\n${teamLines}`);
-    }
-
-    // ── SLA estourado global ──────────────────────────────────────────────────
-    const overdueSla = await db
-      .select({
-        contactName: contacts.name,
-        operatorId: responseTimeLogs.operatorId,
-        clientMsgAt: responseTimeLogs.clientMessageAt,
-      })
-      .from(responseTimeLogs)
-      .innerJoin(conversations, eq(conversations.id, responseTimeLogs.conversationId))
-      .innerJoin(contacts, eq(contacts.id, conversations.contactId))
-      .where(
-        and(
-          eq(responseTimeLogs.tenantId, tenantId),
-          eq(responseTimeLogs.isOverdue, true),
-          isNull(responseTimeLogs.agentResponseId)
-        )
-      )
-      .orderBy(desc(responseTimeLogs.clientMessageAt))
-      .limit(10);
-
-    if (overdueSla.length > 0) {
-      const slaLines = await Promise.all(
-        overdueSla.map(async (s) => {
-          const waitMin = Math.floor((Date.now() - new Date(s.clientMsgAt).getTime()) / 60_000);
-          let opName = "Sem operador";
-          if (s.operatorId) {
-            opName = await getOperatorName(s.operatorId);
-          }
-          return `  • 🚨 ${s.contactName} — ${waitMin}min sem resposta (operador: ${opName})`;
-        })
-      );
-      sections.push(`⏱️ SLAs ESTOURADOS AGORA (${overdueSla.length}):\n${slaLines.join("\n")}`);
-    } else {
-      sections.push("⏱️ SLAs ESTOURADOS: Nenhum no momento.");
-    }
-
-    // ── Conversas ativas no momento por operador ──────────────────────────────
-    const activeByOp = await db
-      .select({
-        operatorId: conversations.operatorId,
-        total: count(),
-      })
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.tenantId, tenantId),
-          eq(conversations.queueState, "meus")
-        )
-      )
-      .groupBy(conversations.operatorId)
-      .orderBy(desc(count()));
-
-    if (activeByOp.length > 0) {
-      const activeLines = await Promise.all(
-        activeByOp.map(async (a) => {
-          const name = a.operatorId ? await getOperatorName(a.operatorId) : "Sem operador";
-          return `  • ${name}: ${a.total} conversa(s) ativa(s)`;
-        })
-      );
-      sections.push(`🔴 CONVERSAS EM ANDAMENTO AGORA:\n${activeLines.join("\n")}`);
-    }
-
-    // ── Pipeline SDR ativo ────────────────────────────────────────────────────
-    const sdrActive = await db
-      .select({ id: agentFlowStates.id })
-      .from(agentFlowStates)
-      .where(
-        and(
-          eq(agentFlowStates.tenantId, tenantId),
-          eq(agentFlowStates.agentType, "sdr"),
-          isNull(agentFlowStates.completedAt)
-        )
-      );
-    sections.push(`🤖 TRIAGENS SDR ATIVAS: ${sdrActive.length} lead(s) em qualificação agora.`);
-
-    // ── Auditorias recentes (últimas 24h) ─────────────────────────────────────
-    const recentAudits = await db
-      .select({
-        contactName: aiConversationAudits.contactName,
-        score: aiConversationAudits.performanceScore,
-        sentiment: aiConversationAudits.clientSentiment,
-        insight: aiConversationAudits.actionableInsight,
-        operatorId: aiConversationAudits.operatorId,
-        auditedAt: aiConversationAudits.auditedAt,
-      })
-      .from(aiConversationAudits)
-      .where(
-        and(
-          eq(aiConversationAudits.tenantId, tenantId),
-          eq(aiConversationAudits.status, "done"),
-          gte(aiConversationAudits.auditedAt, last24h)
-        )
-      )
-      .orderBy(desc(aiConversationAudits.auditedAt))
-      .limit(8);
-
-    if (recentAudits.length > 0) {
-      const auditLines = await Promise.all(
-        recentAudits.map(async (a) => {
-          const opName = a.operatorId ? await getOperatorName(a.operatorId) : "N/A";
-          return `  • ${a.contactName || "Lead"} | Op: ${opName} | Score: ${a.score ?? "N/A"}/100 | Sentimento: ${a.sentiment ?? "N/A"}\n    Insight: ${(a.insight || "N/A").slice(0, 120)}`;
-        })
-      );
-      sections.push(`🔍 AUDITORIAS RECENTES (últimas 24h — ${recentAudits.length}):\n${auditLines.join("\n")}`);
-    }
-
-    // ── Resumo de sentimento global ───────────────────────────────────────────
-    const sentimentCount = await db
-      .select({
-        sentiment: aiConversationAudits.clientSentiment,
-        total: count(),
-      })
-      .from(aiConversationAudits)
-      .where(
-        and(
-          eq(aiConversationAudits.tenantId, tenantId),
-          gte(aiConversationAudits.createdAt, last24h)
-        )
-      )
-      .groupBy(aiConversationAudits.clientSentiment);
-
-    if (sentimentCount.length > 0) {
-      const sentimentLines = sentimentCount.map((s) => `  • ${s.sentiment}: ${s.total}`).join("\n");
-      sections.push(`😊 SENTIMENTO GLOBAL (últimas 24h):\n${sentimentLines}`);
-    }
-
-    return sections.join("\n\n");
-  } catch (err: any) {
-    console.error("[getManagerContext] Erro:", err);
-    return "⚠️ Não foi possível carregar dados da operação neste momento.";
-  }
+async function getManagerContext(
+  tenantId: string,
+  userQuery?: string,
+  knowledgeBase?: string
+): Promise<string> {
+  return getDirectorBiContext(tenantId, userQuery, knowledgeBase);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1070,19 +1212,43 @@ function buildSupervisorPrompt(
   chatHistoryText: string,
   userMessage: string
 ): string {
-  const genderRole = persona.gender === "male" ? "um analista de dados comerciais sênior" : "uma analista de dados comerciais sênior";
-  return `Você é ${persona.name}, I.A. de Business Intelligence e Gestão Comercial da ${persona.company}.
-Você está conversando com o gestor "${operatorName}" em uma interface de chat exclusiva para supervisores.
+  const genderRole =
+    persona.gender === "male"
+      ? "o Diretor de Business Intelligence, Operações e Gestão Comercial em Tempo Real"
+      : "a Diretora de Business Intelligence, Operações e Gestão Comercial em Tempo Real";
 
-## SEU PAPEL:
-Você é ${genderRole}. Seu objetivo é ajudar o gestor a tomar decisões estratégicas com base nos dados reais da operação.
-- Quando pedirem gráficos, métricas, tabelas ou análises, gere os blocos estruturados correspondentes com os dados reais disponíveis.
-- Seja direto, objetivo e estratégico.
-- Use os dados da operação abaixo como fonte primária — NÃO invente números.
-- Se os dados não estiverem disponíveis, diga isso claramente.
-- Tom profissional, analítico e consultivo.
+  return `Você é ${persona.name}, ${genderRole} da ${persona.company}.
+Você está conversando diretamente com "${operatorName}" (Diretoria / Gestão Executiva) no painel administrativo exclusivo da Diretoria.
 
-## DADOS REAIS DA OPERAÇÃO AGORA:
+## 🏛️ SEU PAPEL E ACESSO TOTAL À OPERAÇÃO:
+1. **ACESSO 100% COMPLETO E EM TEMPO REAL**:
+   - Você JÁ POSSUI acesso integral a todos os dados da operação no dossiê abaixo:
+     * **Seção 1**: Filas em tempo real e Ranking de Gargalos por Operador (conversas ativas, clientes aguardando resposta agora, espera >= 15min [SLA estourado], alerta 8-14min, espera máxima e média por operador, e nomes dos clientes esperando).
+     * **Seção 2**: Tempo Médio de Atendimento (TMA) Geral e por Operador (Hoje, Últimos 7 dias, Últimos 30 dias e TMA de 1ª Resposta Pós-Transferência do SDR no mês, além do operador mais rápido e mais lento).
+     * **Seção 3**: Taxa de Conversão do SDR / Triagem Automática (Hoje, Últimos 7 dias e Geral: total de leads, qualificados/transferidos, em coleta, sem resposta, interrompidos, distribuição por funil/setor e lista nominal dos leads triados).
+     * **Seção 4**: Alertas de Estouro de SLA Hoje, nos últimos 7 dias e conversas com SLA estourado ao vivo neste exato minuto.
+     * **Seção 5**: Funil de Vendas Comercial (Desta Semana, do Mês e Pipeline Geral por Etapa e por Funil, mais Funil Ponta a Ponta Marketing/SDR -> CRM -> Fechamento).
+     * **Seção 6**: Relatório Detalhado por Vendedor / Consultor (Meta Mensal, Realizado no Mês e na Semana, % da Meta, Pacing de Dias Úteis, Pipeline Aberto, Negociações Paradas >=3 dias, Perdidos, Fila de WhatsApp e TMA por vendedor, além das Top Negociações Abertas, Paradas e Ganhas).
+     * **Seção 7**: Objeções dos Leads nas Conversas (Preço, Especificação Técnica, Prazo/Frete, Pagamento/Boleto, Garantia/Peças com exemplos reais de falas de clientes), Motivos de Perda no CRM e Auditorias de Qualidade/Sentimento.
+     * **Seção 8**: Top 5 Principais Alertas da Operação Hoje (síntese executiva priorizada por criticidade).
+     * **Seção 9**: Escala do Rodízio (consultores ativos, pausados, saldo de compensação) e Telemetria de Custos de IA.
+     * **Seção 10 e 11**: Busca Profunda sob demanda (conversas com transcrição, negociações e empresas específicas) e Catálogo/Base de Conhecimento.
+
+2. **REGRA INVIOLÁVEL — PROIBIDO DIZER "NÃO TENHO ACESSO"**:
+   - **JAMAIS** responda que "não tem acesso", "não consigo consultar" ou "os dados não estão disponíveis no contexto".
+   - Quando um indicador específico do dia de hoje estiver em \`0\` (por exemplo: \`0\` alertas disparados hoje, \`0\` leads iniciados hoje até esta hora, ou \`0\` pares de resposta concluídos nas primeiras horas da manhã), **informe claramente que hoje o número está em 0 até o momento E apresente imediatamente o panorama vivo de agora + o consolidado dos últimos 7 dias / mês atual** (que estão na mesma seção do dossiê abaixo!).
+
+3. **USO OBRIGATÓRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\`)**:
+   - Sempre que a pergunta envolver métricas, comparativos, rankings, funil, relatórios ou objeções, enriqueça sua resposta com **1 ou 2 blocos visuais** dentro do array \`"blocks"\` usando os números exatos do dossiê:
+     * **Perguntas sobre TMA**: Traga a análise executiva em \`"text"\` + um \`InsightBlock\` (com TMA 7d/Hoje, TMA Pós-SDR, Operador Mais Rápido, Operador Mais Lento e recomendação) + um \`ChartBlock\` (\`"bar"\`, unit \`"min"\` ou \`"s"\`) comparando o TMA por operador.
+     * **Perguntas sobre Gargalo de Fila por Operador**: Traga a resposta direta em \`"text"\` + um \`ReportBlock\` ou \`ChartBlock\` (\`"bar"\`) com os operadores ordenados por clientes aguardando resposta / conversas ativas + um \`InsightBlock\` apontando os clientes mais críticos esperando resposta agora.
+     * **Perguntas sobre Taxa de Conversão do SDR**: Traga a taxa de hoje, dos últimos 7 dias e geral em \`"text"\` + um \`InsightBlock\` com os KPIs de conversão e funis de destino + um \`ChartBlock\` (\`"bar"\` ou \`"pie"\`) mostrando o desfecho das triagens ou a distribuição por setor/funil.
+     * **Perguntas sobre Alertas de Estouro de SLA ou 5 Principais Alertas da Operação**: Traga o diagnóstico completo em \`"text"\` + um \`InsightBlock\` com os alertas estruturados e plano de ação imediato (e \`ReportBlock\` se houver lista nominal de conversas/negociações críticas).
+     * **Perguntas sobre Gráfico do Funil de Vendas desta Semana**: Gere obrigatoriamente um \`ChartBlock\` (\`"bar"\`) com as etapas do funil comercial da semana / pipeline aberto (usando os dados da Seção 5) + um \`ReportBlock\` ou \`InsightBlock\` detalhando quantidade e valor (R$) em cada etapa.
+     * **Perguntas sobre Relatório Detalhado por Vendedor**: Gere obrigatoriamente um \`ReportBlock\` completo com todos os vendedores (Colunas sugeridas: \`["Vendedor", "Divisão", "Meta Mês", "Realizado Mês", "Pipeline Aberto", "Parados >=3d", "Fila / TMA"]\`) + um \`InsightBlock\` com o resumo da meta global e pacing da empresa.
+     * **Perguntas sobre Objeções dos Leads**: Gere um \`ChartBlock\` (\`"bar"\` ou \`"pie"\`) com o ranking das objeções mapeadas na Seção 7 + um \`ExcerptBlock\` com os exemplos reais de falas dos clientes e/ou \`InsightBlock\` com recomendações práticas de contorno comercial.
+
+## 📊 DADOS REAIS DA OPERAÇÃO AGORA (DOSSIÊ EXECUTIVO 360º):
 ${operationalContext}
 ${fileContext}
 
@@ -1090,17 +1256,17 @@ ${chatHistoryText ? `## HISTÓRICO RECENTE DESTA CONVERSA:\n${chatHistoryText}\n
 ## SOLICITAÇÃO ATUAL DO GESTOR (${operatorName}):
 "${userMessage}"
 
-## ESTRUTURA DE BLOCOS SUPORTADOS (use "blocks" no JSON quando necessário):
+## ESTRUTURA DE BLOCOS VISUAIS SUPORTADOS (use dentro de "blocks" no JSON):
 1. ChartBlock: { "type": "chart", "chart": "bar"|"line"|"pie", "title": "...", "subtitle": "...", "unit": "...", "data": [{ "label": "X", "value": 10 }] }
 2. InsightBlock: { "type": "insight", "title": "...", "items": [{ "label": "...", "value": "...", "delta": "+5%", "trend": "up"|"down"|"flat", "hint": "..." }], "recommendation": "..." }
-3. ReportBlock: { "type": "report", "title": "...", "columns": ["A","B"], "rows": [["1","2"]], "footnote": "..." }
-4. ExcerptBlock: { "type": "excerpt", "title": "...", "conversations": [{ "lead": "...", "channel": "WhatsApp", "when": "Hoje", "sentiment": "positivo"|"neutro"|"negativo", "lines": [{ "from": "lead"|"agente", "text": "..." }] }] }
+3. ReportBlock: { "type": "report", "title": "...", "columns": ["Col1","Col2"], "rows": [["val1","val2"]], "footnote": "..." }
+4. ExcerptBlock: { "type": "excerpt", "title": "...", "conversations": [{ "lead": "...", "channel": "WhatsApp", "when": "Recente", "sentiment": "positivo"|"neutro"|"negativo", "lines": [{ "from": "lead"|"agente", "text": "..." }] }] }
 
-## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
+## FORMATO OBRIGATÓRIO DE RESPOSTA (JSON VÁLIDO):
 {
   "fragments": [
     {
-      "text": "mensagem explicativa em texto respondendo diretamente à pergunta do gestor",
+      "text": "Análise executiva direta, clara e completa respondendo à pergunta do gestor com os números reais da operação (sem repetir de forma idêntica o que já está desenhado na tabela/gráfico abaixo, mas interpretando os destaques e gargalos).",
       "delay": 0,
       "blocks": [ ... ]
     }
@@ -1129,8 +1295,8 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
 1. **Leads e Atendimentos de Hoje / Conversas Ativas / SLA**: Quantos leads chegaram hoje, quais clientes estão aguardando resposta no WhatsApp (e há quantos minutos), quais foram transferidos recentemente, resumo do que o cliente falou e sugestões de mensagens de abordagem, contorno de objeções ou follow-up.
 2. **Metas e Ritmo Comercial**: Quanto falta para bater a meta do mês, quanto já vendeu, qual a meta diária necessária e quantos dias úteis restam.
 3. **Tarefas, Reuniões e Diretrizes do Gestor**: Quais tarefas estão pendentes para hoje ou atrasadas e quais orientações o gestor deixou nas negociações.
-4. **Ligações Agendadas**: Quais ligações e follow-ups ${firstName} precisa fazer hoje.
-5. **Negociações (CRM) Abertas e Negociações Paradas/Esfriando**: Quais orçamentos/deals estão em aberto e quais estão parados há 3+ dias sem interação.
+4. **Ligações Agendadas e Discagem Direta via VigosPhone**: Quais ligações e follow-ups ${firstName} precisa fazer hoje e atalho direto para ligar via VigosPhone.
+5. **Negociações (CRM) Abertas, Histórico de Atividades e Negociações Paradas/Esfriando**: Quais orçamentos/deals estão em aberto, histórico detalhado de anotações/atividades de cada card, telefone do contato e quais estão parados há 3+ dias sem interação.
 6. **Dúvidas Técnicas de Produtos/Máquinas**: Especificações técnicas do catálogo da ${persona.company} para ajudar ${firstName} a responder rápido ao cliente.
 
 ## 💬 ESTILO DE CONVERSA NATURAL (COMO UM COLEGA NO WHATSAPP):
@@ -1139,8 +1305,8 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
    - Cada balão deve ter **1 a 3 frases curtas** ou uma lista enxuta.
    - Exemplo:
      - Balão 1 (\`delay: 0\`): Resposta direta à pergunta (sem enrolação).
-     - Balão 2 (\`delay: 650\`): Dados objetivos (ex: os clientes/leads, ou os números da meta/tarefas).
-     - Balão 3 (\`delay: 1300\`, opcional): Uma dica prática ou pergunta curta sobre qual cliente/item atacar primeiro.
+     - Balão 2 (\`delay: 650\`): Dados objetivos (ex: os clientes/leads, ou os detalhes da negociação/meta/tarefas).
+     - Balão 3 (\`delay: 1300\`, opcional): Uma dica prática ou próximo passo direto.
 2. **PROIBIDO CUMPRIMENTAR TODA HORA**:
    - ${
      alreadyTalkingToday
@@ -1152,13 +1318,20 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
    - **NÃO** fique repetindo o nome "${firstName}" em toda mensagem ou em todo balão.
    - **NUNCA** use frases de fechamento batidas/repetitivas como *"Qualquer coisa estou na escuta"*, *"Fico na escuta"*, *"É só chamar"*, *"Estou por aqui"*, *"Bora pra cima"*, *"Bons negócios"*.
    - Olhe o **HISTÓRICO RECENTE DA CONVERSA** abaixo e garanta que você **NÃO vai repetir** nenhuma frase, abertura ou estrutura que já usou nas mensagens anteriores.
-4. **CITAÇÃO INTERATIVA DE CONVERSAS (\`mentionedConversationIds\`)**:
-   - Sempre que você citar, listar ou responder sobre clientes/conversas/leads (ex: leads que chegaram hoje, clientes aguardando resposta ou conversas ativas), coloque os respectivos IDs das conversas (que aparecem no contexto como \`[ID: ...]\`) dentro do array \`"mentionedConversationIds"\` do JSON. O sistema criará automaticamente os botões clicáveis **"Abrir →"** para ${firstName} abrir cada conversa direto pelo chat!
+4. **FORMATAÇÃO LIMPA DE WHATSAPP (PROIBIDO USAR CRASE / BACKTICKS \` \`)**:
+   - **JAMAIS** use crases (\`0017418\`) para destacar códigos ou nomes. Use apenas negrito simples do WhatsApp (\`*0017418*\` ou \`**0017418**\`).
+   - **JAMAIS** escreva \`[ID: ...]\`, \`[dealId: ...]\` ou \`[convId: ...]\` no texto visível de \`"text"\`. Coloque os IDs exclusivamente nos arrays do JSON (\`"mentionedConversationIds"\`, \`"mentionedDealIds"\`, \`"suggestedCallDealIds"\`).
+5. **CARDS E BOTÕES INTERATIVOS DE CONVERSAS, CRM E LIGAÇÃO VIGOSPHONE**:
+   - **Conversas do WhatsApp (\`"mentionedConversationIds"\`)**: Sempre que citar conversas/leads do WhatsApp (\`[ID: ...]\` ou \`[convId: ...]\`), inclua os IDs em \`"mentionedConversationIds"\`. O sistema cria o botão **"Abrir →"** para abrir a conversa.
+   - **Cards de Negociação do CRM (\`"mentionedDealIds"\`)**: Sempre que você citar, detalhar ou recomendar uma negociação do CRM (que aparece no contexto com \`[dealId: ...]\`), coloque o respectivo \`dealId\` dentro do array \`"mentionedDealIds"\`. O sistema criará automaticamente o **Card Interativo do CRM com o botão "Abrir no CRM →"**!
+   - **PROIBIDO DIZER QUE NÃO CONSEGUE CRIAR BOTÃO PARA O CRM**: Nunca diga que *"não consigo criar um botão direto para o card do CRM"* ou que *"atalhos são exclusivos para o WhatsApp"*. Você CONSEGUE gerar tanto o botão do card do CRM (basta preencher \`"mentionedDealIds"\`) quanto o botão de ligação direta no VigosPhone (basta preencher \`"suggestedCallDealIds"\`)!
+   - **Botão / Balão de Ligação Direta via VigosPhone (\`"suggestedCallDealIds"\`)**: Sempre que você recomendar ligar para um cliente, quando ${firstName} pedir o telefone/contato para ligar, quando perguntar sobre ligações agendadas ou quando uma negociação citada tiver telefone disponível e for boa para ligação rápida de fechamento, inclua o \`dealId\` em \`"suggestedCallDealIds"\`. O sistema exibirá automaticamente um **Card Interativo do VigosPhone** que, ao ser clicado, abre o VigosPhone e já disca direto para o número do cliente!
+   - **Consulta Profunda de Negociações e Telefones**: Verifique sempre a seção \`🔍 FICHA DETALHADA DA(S) NEGOCIAÇÃO(ÕES) DO CRM EM FOCO\` e a lista de negociações abertas. Se o telefone estiver preenchido lá, informe o número no texto e inclua o \`dealId\` em \`"mentionedDealIds"\` e \`"suggestedCallDealIds"\`. Se constar como *"Sem telefone vinculado no cadastro"*, avise de forma direta que ainda não há telefone salvo naquele card do CRM e deixe o card em \`"mentionedDealIds"\` para ${firstName} abrir no CRM com 1 clique.
 
-## 🔒 REGRAS INVIOLÁVEIS DE SIGILO E SEGURANÇA (RBAC):
+## 🔒 REGRAS INVIOLÁVEL DE SIGILO E SEGURANÇA (RBAC):
 - Você tem acesso EXCLUSIVO à carteira, metas, tarefas, clientes e negociações de **${operatorName}**.
 - **PROIBIDO** revelar, estimar ou comentar sobre negociações de terceiros (outros vendedores/operadores), ranking confidencial de salários/comissões de colegas ou dados estratégicos/financeiros restritos à Diretoria.
-- Use SEMPRE os dados reais fornecidos abaixo. Nunca invente valores, nomes de clientes ou tarefas que não estejam listados no contexto.
+- Use SEMPRE os dados reais fornecidos abaixo. Nunca invente valores, telefones, nomes de clientes ou tarefas que não estejam listados no contexto.
 
 ## DADOS COMERCIAIS E OPERACIONAIS DE ${operatorName.toUpperCase()} AGORA:
 ${operatorContext}
@@ -1180,7 +1353,9 @@ ${chatHistoryText ? `## HISTÓRICO RECENTE DA CONVERSA COM ${operatorName.toUppe
       "delay": 650
     }
   ],
-  "mentionedConversationIds": ["id-da-conversa-1", "id-da-conversa-2"]
+  "mentionedConversationIds": ["id-da-conversa-whatsapp-se-houver"],
+  "mentionedDealIds": ["id-da-negociacao-crm-citada"],
+  "suggestedCallDealIds": ["id-da-negociacao-para-ligar-no-vigosphone"]
 }`;
 }
 
@@ -1216,8 +1391,14 @@ function cleanColleagueText(
     .replace(/\s*(?:qualquer\s+coisa\s+)?(?:estou|fico|tô)\s+(?:por\s+aqui|na\s+escuta|à\s+disposição)[^.!?\n]*[.!?]?\s*$/i, "")
     .trim();
 
-  // Remove vazamento acidental de "[ID: ...]" no texto visível (já que terá botão interativo)
-  out = out.replace(/\s*\[ID:\s*[^\]]+\]/gi, "").trim();
+  // Remove vazamento acidental de "[ID: ...]", "[dealId: ...]", "[convId: ...]" no texto visível
+  out = out
+    .replace(/\s*\[(?:ID|dealId|convId):\s*[^\]]+\]/gi, "")
+    .replace(/\s*\((?:ID|dealId|convId):\s*[^)]+\)/gi, "")
+    .trim();
+
+  // Converte crases inline (`0017418`) em negrito limpo de WhatsApp (*0017418*)
+  out = out.replace(/`([^`\n]+)`/g, "*$1*");
 
   return out || text.trim();
 }
@@ -1303,11 +1484,162 @@ function splitIntoNaturalFragments(
   return finalBubbles;
 }
 
+function resolveRelatedDeals(
+  mentionedDealIds: string[],
+  suggestedCallDealIds: string[],
+  fullReplyText: string,
+  userText: string,
+  ctx: OperatorContextResult | null
+): RelatedDealItem[] {
+  if (!ctx || ctx.knownDeals.length === 0) return [];
+
+  const selectedMap = new Map<string, RelatedDealItem>();
+  const byId = new Map(ctx.knownDeals.map((d) => [d.dealId, d]));
+
+  // 1. IDs explicitamente retornados pela IA em mentionedDealIds ou suggestedCallDealIds
+  for (const id of [...mentionedDealIds, ...suggestedCallDealIds]) {
+    const cleanId = (id || "").trim();
+    const found = byId.get(cleanId);
+    if (found) selectedMap.set(found.dealId, found);
+  }
+
+  // 2. Negociações citadas nominalmente ou por código numérico no texto da resposta da IA ou pergunta do vendedor
+  const normCombined = normalizeForMatch(`${fullReplyText} ${userText}`);
+  for (const deal of ctx.knownDeals) {
+    const titleNorm = normalizeForMatch(deal.title || "");
+    const companyNorm = normalizeForMatch(deal.company || "");
+    const codeMatch = (deal.title || "").match(/\b(\d{4,})\b/);
+    const codeToken = codeMatch ? codeMatch[1] : "";
+
+    const matchedByCode = codeToken.length >= 4 && normCombined.includes(codeToken);
+    const matchedByTitle = titleNorm.length >= 4 && normCombined.includes(titleNorm);
+    const matchedByCompany = companyNorm.length >= 4 && normCombined.includes(companyNorm);
+
+    if (matchedByCode || matchedByTitle || matchedByCompany) {
+      selectedMap.set(deal.dealId, deal);
+    }
+  }
+
+  return Array.from(selectedMap.values()).slice(0, 6);
+}
+
+function resolveRelatedCalls(
+  suggestedCallDealIds: string[],
+  relatedDeals: RelatedDealItem[],
+  relatedConversations: RelatedConversationItem[],
+  fullReplyText: string,
+  userText: string,
+  ctx: OperatorContextResult | null
+): RelatedCallActionItem[] {
+  if (!ctx) return [];
+
+  const selectedByPhone = new Map<string, RelatedCallActionItem>();
+  const dealsById = new Map(ctx.knownDeals.map((d) => [d.dealId, d]));
+  const convsById = new Map(ctx.knownConversations.map((c) => [c.clientId, c]));
+
+  const addCallItem = (item: RelatedCallActionItem) => {
+    const digits = (item.phone || "").replace(/\D/g, "");
+    if (digits.length < 8) return;
+    if (!selectedByPhone.has(digits)) {
+      selectedByPhone.set(digits, item);
+    }
+  };
+
+  // 1. IDs explicitamente sugeridos pela IA em suggestedCallDealIds
+  for (const rawId of suggestedCallDealIds) {
+    const id = (rawId || "").trim();
+    const deal = dealsById.get(id);
+    if (deal && deal.contactPhone) {
+      addCallItem({
+        id: `call-deal-${deal.dealId}`,
+        clientName: deal.contactName || deal.company || deal.title,
+        company: deal.company,
+        phone: deal.contactPhone,
+        dealId: deal.dealId,
+        dealTitle: deal.title,
+        dealValueFormatted: deal.valueFormatted,
+        stageLabel: deal.stageLabel,
+        conversationId: deal.conversationId,
+        reason: "Recomendado para ligação de fechamento",
+      });
+      continue;
+    }
+    const conv = convsById.get(id);
+    if (conv && conv.clientPhone) {
+      addCallItem({
+        id: `call-conv-${conv.clientId}`,
+        clientName: conv.clientName,
+        company: conv.company,
+        phone: conv.clientPhone,
+        conversationId: conv.clientId,
+        reason: conv.statusLabel || "Contato direto via VigosPhone",
+      });
+    }
+  }
+
+  // 2. Detecta se a conversa aborda ligação / telefone / discagem / fechamento rápido
+  const combinedText = `${userText} ${fullReplyText}`;
+  const isCallContext =
+    /\b(?:ligar|liga[çc][aã]o|liga[çc][oõ]es|ligue|discar|telefone|fone|vigosphone|vigos|contato\s+telef[oô]nico|fechamento\s+r[aá]pido)\b/i.test(
+      combinedText
+    );
+  const asksScheduledCalls =
+    /\b(?:liga[çc][aã]o|liga[çc][oõ]es)\b.*\b(?:agendada|agendadas|hoje|pendente|pendentes)\b|\b(?:quem\s+devo\s+ligar|para\s+quem\s+ligar)\b/i.test(
+      combinedText
+    );
+
+  if (asksScheduledCalls && ctx.scheduledCallActions.length > 0) {
+    for (const sc of ctx.scheduledCallActions) {
+      addCallItem(sc);
+    }
+  }
+
+  // 3. Para qualquer negociação citada (relatedDeals) que possua telefone, se o contexto fala em ligar/telefone
+  //    ou se há 1-3 deals específicos em foco com telefone, disponibiliza o card de ligação direta VigosPhone
+  if (isCallContext || (relatedDeals.length > 0 && relatedDeals.length <= 3)) {
+    for (const deal of relatedDeals) {
+      if (deal.contactPhone) {
+        addCallItem({
+          id: `call-deal-${deal.dealId}`,
+          clientName: deal.contactName || deal.company || deal.title,
+          company: deal.company,
+          phone: deal.contactPhone,
+          dealId: deal.dealId,
+          dealTitle: deal.title,
+          dealValueFormatted: deal.valueFormatted,
+          stageLabel: deal.stageLabel,
+          conversationId: deal.conversationId,
+          reason: isCallContext ? "Clique para discar direto no VigosPhone" : `${deal.stageLabel} • ${deal.valueFormatted}`,
+        });
+      }
+    }
+  }
+
+  // 4. Se o contexto é explicitamente de ligação e citou conversas do WhatsApp com telefone
+  if (isCallContext && selectedByPhone.size === 0 && relatedConversations.length > 0) {
+    for (const conv of relatedConversations.slice(0, 4)) {
+      if (conv.clientPhone) {
+        addCallItem({
+          id: `call-conv-${conv.clientId}`,
+          clientName: conv.clientName,
+          company: conv.company,
+          phone: conv.clientPhone,
+          conversationId: conv.clientId,
+          reason: conv.statusLabel || "Clique para discar direto no VigosPhone",
+        });
+      }
+    }
+  }
+
+  return Array.from(selectedByPhone.values()).slice(0, 5);
+}
+
 function resolveRelatedConversations(
   mentionedIds: string[],
   fullReplyText: string,
   userText: string,
-  ctx: OperatorContextResult | null
+  ctx: OperatorContextResult | null,
+  relatedDeals: RelatedDealItem[] = []
 ): RelatedConversationItem[] {
   if (!ctx || ctx.knownConversations.length === 0) return [];
 
@@ -1320,25 +1652,36 @@ function resolveRelatedConversations(
     if (found) selectedMap.set(found.clientId, found);
   }
 
-  // 2. Nomes de clientes citados no texto da resposta da IA ou na pergunta do usuário
+  // 2. Se alguma negociação citada em relatedDeals tem conversationId vinculado e está em knownConversations, inclui
+  const dealConvIds = new Set(relatedDeals.map((d) => d.conversationId).filter(Boolean) as string[]);
+  for (const convId of dealConvIds) {
+    const found = byId.get(convId);
+    if (found) selectedMap.set(found.clientId, found);
+  }
+
+  // 3. Nomes de clientes citados no texto da resposta da IA ou na pergunta do usuário
   const normReply = fullReplyText.toLowerCase();
   const normUser = userText.toLowerCase();
   for (const conv of ctx.knownConversations) {
     const nameClean = (conv.clientName || "").trim().toLowerCase();
     if (nameClean.length >= 3 && !nameClean.startsWith("cliente ")) {
-      // Verifica nome completo ou primeiro nome (se >= 4 letras)
+      // Quando já temos deals do CRM em foco, exige correspondência do nome completo (ou nome >= 5 letras)
+      // para evitar falso positivo com primeiro nome genérico
       const firstToken = nameClean.split(/\s+/)[0];
+      const minFirstTokenLen = relatedDeals.length > 0 ? 6 : 4;
       if (
         normReply.includes(nameClean) ||
         normUser.includes(nameClean) ||
-        (firstToken.length >= 4 && (normReply.includes(firstToken) || normUser.includes(firstToken)))
+        (firstToken.length >= minFirstTokenLen &&
+          !nameClean.includes(" ") &&
+          (normReply.includes(firstToken) || normUser.includes(firstToken)))
       ) {
         selectedMap.set(conv.clientId, conv);
       }
     }
   }
 
-  // 3. Se o operador perguntou sobre leads de hoje e temos leads de hoje, anexa
+  // 4. Se o operador perguntou sobre leads de hoje e temos leads de hoje, anexa
   const asksTodayLeads =
     /(?:lead|leads|chegaram|chegou|recebi|entraram|entrou|novos)\b.*\b(?:hoje|dia)\b|\b(?:hoje)\b.*\b(?:lead|leads|chegaram|chegou|atendimento)/i.test(
       normUser
@@ -1349,14 +1692,21 @@ function resolveRelatedConversations(
     }
   }
 
-  // 4. Se o operador perguntou sobre conversas/clientes aguardando ou ativos e ainda não selecionamos nenhuma
-  const asksConversations =
-    /\b(?:conversa|conversas|atendimento|atendimentos|cliente|clientes|aguardando|esperando|pendente|pendentes|fila|responder|sobrecarga)\b/i.test(
+  // 5. Fallback para fila de conversas do WhatsApp APENAS se a pergunta for sobre fila/conversas do WhatsApp
+  //    e NÃO for uma pergunta focada em cards/negociações do CRM
+  const isCrmFocused =
+    relatedDeals.length > 0 ||
+    /\b(?:negocia[çc][aã]o|negocia[çc][oõ]es|crm|card|cards|or[çc]amento|or[çc]amentos|proposta|propostas|pipeline|funil|etapa)\b/i.test(
+      `${normUser} ${normReply}`
+    );
+
+  const asksWhatsAppQueue =
+    /\b(?:conversa|conversas|atendimento|atendimentos|aguardando|esperando|fila|sobrecarga)\b/i.test(
       normUser
     ) ||
     /\b(?:aguardando\s+sua\s+resposta|conversas\s+ativas|atendimentos\s+ativos)\b/i.test(normReply);
 
-  if (asksConversations && selectedMap.size === 0) {
+  if (!isCrmFocused && asksWhatsAppQueue && selectedMap.size === 0) {
     const pool =
       ctx.waitingConversations.length > 0 ? ctx.waitingConversations : ctx.knownConversations;
     for (const c of pool.slice(0, 6)) {
@@ -1579,7 +1929,14 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
         try {
           const body = await request.json();
-          const { content, scope = "operator", attachment, imageBase64 } = body;
+          const {
+            content,
+            scope = "operator",
+            attachment,
+            imageBase64,
+            knowledgeBase,
+            threadHistory,
+          } = body;
 
           if (!content && !attachment && !imageBase64) {
             return new Response(
@@ -1588,11 +1945,17 @@ export const Route = createFileRoute("/api/valentina/messages")({
             );
           }
 
-          // ── Detecta se é Supervisora ou Copiloto do Vendedor ───────────────
-          // scope "admin" → Supervisora (Módulo IA Gestão, só gestores)
+          // ── Detecta se é Supervisora/Diretoria ou Copiloto do Vendedor ─────
+          // scope "admin" → Diretoria / Supervisora (Módulo IA Gestão)
           // scope "operator" → Copiloto Comercial (Módulo Chat, todos os operadores/vendedores)
           const isSupervisor = scope === "admin";
-          const isActuallyAdmin = session.operator.role === "admin" || session.operator.role === "supervisor";
+          const sessionPerms = (session as any).permissions;
+          const isActuallyAdmin =
+            session.operator.role === "admin" ||
+            session.operator.role === "supervisor" ||
+            sessionPerms?.views?.valentina === true ||
+            sessionPerms?.views?.commercialBi === true ||
+            sessionPerms?.views?.gestao === true;
           const useManagerContext = isSupervisor && isActuallyAdmin;
 
           const now = new Date();
@@ -1630,12 +1993,36 @@ export const Route = createFileRoute("/api/valentina/messages")({
             return isChatMsg && createdMs >= todayStart.getTime();
           });
 
-          const chatHistoryText = recentChatRows
-            .reverse()
-            .map((r) => {
-              const speaker = r.direction === "to_agent" ? operatorName : persona.name;
-              return `${speaker}: ${(r.content || "").slice(0, 500)}`;
-            })
+          const isLegacyRefusal = (txt: string) =>
+            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio/i.test(
+              txt || ""
+            );
+
+          let chatHistoryText = "";
+          if (useManagerContext && Array.isArray(threadHistory)) {
+            chatHistoryText = threadHistory
+              .filter((m: any) => m && typeof m.content === "string" && !isLegacyRefusal(m.content))
+              .slice(-10)
+              .map((m: any) => {
+                const speaker = m.sender === "operator" ? operatorName : persona.name;
+                return `${speaker}: ${m.content.slice(0, 500)}`;
+              })
+              .join("\n");
+          } else {
+            chatHistoryText = recentChatRows
+              .reverse()
+              .filter((r) => !(useManagerContext && r.direction === "from_agent" && isLegacyRefusal(r.content || "")))
+              .map((r) => {
+                const speaker = r.direction === "to_agent" ? operatorName : persona.name;
+                return `${speaker}: ${(r.content || "").slice(0, 500)}`;
+              })
+              .join("\n");
+          }
+
+          // Texto recente da conversa (últimas 4 mensagens) para resolver follow-ups como "puxe por favor" ou "qual o telefone dela?"
+          const recentAiContextText = recentChatRows
+            .slice(-4)
+            .map((r) => r.content || "")
             .join("\n");
 
           // ── Salva mensagem do usuário no banco ─────────────────────────────
@@ -1650,7 +2037,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             metadata: {
               isChat: true,
               scope,
-              knowledgeBase: tenantId,
+              knowledgeBase: knowledgeBase || tenantId,
               attachedFileInfo: attachment ? { name: attachment.name, mimeType: attachment.mimeType } : undefined,
               attachedImageInfo: imageBase64 ? { name: "Imagem", dataUrl: imageBase64 } : undefined,
             },
@@ -1669,13 +2056,14 @@ export const Route = createFileRoute("/api/valentina/messages")({
           let operatorContextResult: OperatorContextResult | null = null;
 
           if (useManagerContext) {
-            managerContextText = await getManagerContext(contextTenantId);
+            managerContextText = await getManagerContext(contextTenantId, userText, knowledgeBase);
           } else {
             operatorContextResult = await getOperatorContext(
               contextTenantId,
               operatorId,
               operatorEmail,
-              userText
+              userText,
+              recentAiContextText
             );
           }
 
@@ -1705,6 +2093,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
           // ── Chama o Vertex AI (suportando imagem anexada quando houver) ─────
           let fragments: { text: string; delay?: number; blocks?: any[] }[] = [];
           let mentionedConversationIds: string[] = [];
+          let mentionedDealIds: string[] = [];
+          let suggestedCallDealIds: string[] = [];
           let alerts: any[] = [];
 
           try {
@@ -1725,6 +2115,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
               const aiRes = await vertexAi.generateStructuredJson<{
                 fragments: { text: string; delay?: number; blocks?: any[] }[];
                 mentionedConversationIds?: string[];
+                mentionedDealIds?: string[];
+                suggestedCallDealIds?: string[];
                 alerts?: any[];
               }>(promptInput, "gemini-2.5-pro", undefined, {
                 tenantId,
@@ -1736,6 +2128,12 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 fragments = aiRes.fragments;
                 mentionedConversationIds = Array.isArray(aiRes.mentionedConversationIds)
                   ? aiRes.mentionedConversationIds
+                  : [];
+                mentionedDealIds = Array.isArray(aiRes.mentionedDealIds)
+                  ? aiRes.mentionedDealIds
+                  : [];
+                suggestedCallDealIds = Array.isArray(aiRes.suggestedCallDealIds)
+                  ? aiRes.suggestedCallDealIds
                   : [];
                 alerts = aiRes.alerts || [];
               }
@@ -1755,15 +2153,35 @@ export const Route = createFileRoute("/api/valentina/messages")({
             ];
           }
 
-          // ── Pós-processamento: fragmentação natural em balões curtos + conversas citadas ──
+          // ── Pós-processamento: fragmentação natural em balões curtos + cards interativos ──
           if (!useManagerContext) {
             fragments = splitIntoNaturalFragments(fragments, operatorName, alreadyTalkingToday);
           }
 
           const fullReplyText = fragments.map((f) => f.text).join("\n");
+          const relatedDeals = !useManagerContext
+            ? resolveRelatedDeals(
+                mentionedDealIds,
+                suggestedCallDealIds,
+                fullReplyText,
+                userText,
+                operatorContextResult
+              )
+            : [];
           const relatedConversations = !useManagerContext
             ? resolveRelatedConversations(
                 mentionedConversationIds,
+                fullReplyText,
+                userText,
+                operatorContextResult,
+                relatedDeals
+              )
+            : [];
+          const relatedCalls = !useManagerContext
+            ? resolveRelatedCalls(
+                suggestedCallDealIds,
+                relatedDeals,
+                relatedConversations,
                 fullReplyText,
                 userText,
                 operatorContextResult
@@ -1777,6 +2195,10 @@ export const Route = createFileRoute("/api/valentina/messages")({
             const isLastFrag = i === fragments.length - 1;
             const fragRelated =
               isLastFrag && relatedConversations.length > 0 ? relatedConversations : undefined;
+            const fragRelatedDeals =
+              isLastFrag && relatedDeals.length > 0 ? relatedDeals : undefined;
+            const fragRelatedCalls =
+              isLastFrag && relatedCalls.length > 0 ? relatedCalls : undefined;
             const fragId = `val-ai-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
             const fragTimestamp = new Date(now.getTime() + 500 + i * 650);
 
@@ -1794,6 +2216,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 totalFragments: fragments.length,
                 blocks: frag.blocks || undefined,
                 relatedConversations: fragRelated,
+                relatedDeals: fragRelatedDeals,
+                relatedCalls: fragRelatedCalls,
                 isManager: useManagerContext,
               },
               read: 0,
@@ -1805,6 +2229,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
               content: frag.text,
               blocks: frag.blocks || undefined,
               relatedConversations: fragRelated,
+              relatedDeals: fragRelatedDeals,
+              relatedCalls: fragRelatedCalls,
               direction: "from_agent",
               createdAt: fragTimestamp,
             });
@@ -1832,4 +2258,5 @@ export const Route = createFileRoute("/api/valentina/messages")({
     },
   },
 });
+
 
