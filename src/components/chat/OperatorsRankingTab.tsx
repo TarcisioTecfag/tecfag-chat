@@ -338,10 +338,18 @@ export function OperatorsRankingTab({
     );
   }
 
-  // Ordena os operadores por pontuação para exibição exata no Ranking
-  const operadores = [...overview.operators].sort(
-    (a, b) => (b.avgPerformanceScore ?? 0) - (a.avgPerformanceScore ?? 0)
-  );
+  // Ordena os operadores dando prioridade a quem tem atendimentos ativos/hoje (e maior quantidade / score),
+  // mantendo quem está com 0 atendimentos no final da lista
+  const operadores = [...overview.operators].sort((a, b) => {
+    const aHasConvs = a.totalConversations > 0 ? 1 : 0;
+    const bHasConvs = b.totalConversations > 0 ? 1 : 0;
+    if (bHasConvs !== aHasConvs) return bHasConvs - aHasConvs;
+    const convDiff = (b.totalConversations ?? 0) - (a.totalConversations ?? 0);
+    if (convDiff !== 0) return convDiff;
+    const scoreDiff = (b.avgPerformanceScore ?? 0) - (a.avgPerformanceScore ?? 0);
+    if (scoreDiff !== 0) return scoreDiff;
+    return a.operatorName.localeCompare(b.operatorName, "pt-BR");
+  });
 
   const atual = operadores.find((o) => o.operatorId === selecionadoId) ?? operadores[0];
 

@@ -242,6 +242,18 @@ export const Route = createFileRoute("/api/gestao/live")({
             });
           }
 
+          // Ordena operadores dando prioridade a quem tem mais atendimentos ativos primeiro;
+          // usuários sem chat ativo (0 atend.) ficam no final da lista.
+          const statusPriority = (status: string) =>
+            status === "disponivel" ? 0 : status === "ocupado" ? 1 : 2;
+          operatorResult.sort((a, b) => {
+            const convDiff = b.conversations.length - a.conversations.length;
+            if (convDiff !== 0) return convDiff;
+            const statusDiff = statusPriority(a.status) - statusPriority(b.status);
+            if (statusDiff !== 0) return statusDiff;
+            return a.operatorName.localeCompare(b.operatorName, "pt-BR");
+          });
+
           const unassignedResult = unassignedConvs.map(buildLiveConv);
           const automationResult = automationConvs.map((c) => ({
             id: c.id,

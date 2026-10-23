@@ -1873,8 +1873,20 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
     c.contactName.toLowerCase().includes(searchLower) ||
     c.contactPhone.includes(searchTerm);
 
-  // Lista de operadores disponíveis para o dropdown
-  const allOperators = liveData?.operators ?? [];
+  // Lista de operadores disponíveis para o dropdown e sidebar,
+  // dando prioridade a quem tem mais atendimentos ativos primeiro e movendo 0 atend. para o final
+  const allOperators = useMemo(() => {
+    const ops = liveData?.operators ?? [];
+    const statusPriority = (status: string) =>
+      status === "disponivel" ? 0 : status === "ocupado" ? 1 : 2;
+    return [...ops].sort((a, b) => {
+      const convDiff = b.conversations.length - a.conversations.length;
+      if (convDiff !== 0) return convDiff;
+      const statusDiff = statusPriority(a.status) - statusPriority(b.status);
+      if (statusDiff !== 0) return statusDiff;
+      return a.operatorName.localeCompare(b.operatorName, "pt-BR");
+    });
+  }, [liveData?.operators]);
 
   // Ref para auto-scroll do chat
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
@@ -1980,46 +1992,58 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
             </div>
           )}
 
-          {/* ── Seção: Operadores ─────────────────────────────────────────── */}
+          {/* ── Seção: Operadores (ordenados por maior nº de atendimentos ativos primeiro) ── */}
           {!loading && allOperators
             .filter((op) => opIdFilter ? op.operatorId === opIdFilter : true)
-            .map((op) => {
-              const filtered = op.conversations.filter(matchesSearch);
-              if (filtered.length === 0 && searchTerm) return null;
-              return (
-                <div key={op.operatorId} className="space-y-1">
-                  <div className="flex items-center justify-between px-2 py-1 shrink-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`h-2 w-2 rounded-full ${
-                        op.status === "disponivel" ? "bg-primary" :
-                        op.status === "ocupado" ? "bg-amber-500" :
-                        "bg-slate-400"
-                      }`} />
-                      <span className="text-[11px] font-bold text-foreground truncate max-w-[120px]">{op.operatorName}</span>
-                    </div>
-                    <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase ${
-                      op.status === "disponivel" ? "text-primary bg-primary/10" :
-                      op.status === "ocupado" ? "text-amber-700 bg-amber-50" :
-                      "text-slate-600 bg-slate-100"
-                    }`}>
-                      {op.conversations.length} atend.
-                    </span>
-                  </div>
-                  {filtered.length === 0 ? (
-                    <p className="text-[10px] text-muted-foreground pl-4 italic">Sem conversas ativas</p>
-                  ) : (
-                    filtered.map((conv) => (
-                      <LiveConvCard
-                        key={conv.id}
-                        conv={conv}
-                        isSelected={conv.id === selectedConvId}
-                        onClick={() => setSelectedConvId(conv.id)}
-                      />
-                    ))
-                  )}
-                </div>
-              );
+            .map((op) => ({
+              op,
+              filtered: op.conversations.filter(matchesSearch),
+            }))
+            .filter(({ filtered }) => !(filtered.length === 0 && searchTerm))
+            .sort((a, b) => {
+              const filteredDiff = b.filtered.length - a.filtered.length;
+              if (filteredDiff !== 0) return filteredDiff;
+              const totalDiff = b.op.conversations.length - a.op.conversations.length;
+              if (totalDiff !== 0) return totalDiff;
+              const statusPriority = (status: string) =>
+                status === "disponivel" ? 0 : status === "ocupado" ? 1 : 2;
+              const statusDiff = statusPriority(a.op.status) - statusPriority(b.op.status);
+              if (statusDiff !== 0) return statusDiff;
+              return a.op.operatorName.localeCompare(b.op.operatorName, "pt-BR");
             })
+            .map(({ op, filtered }) => (
+              <div key={op.operatorId} className="space-y-1">
+                <div className="flex items-center justify-between px-2 py-1 shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`h-2 w-2 rounded-full ${
+                      op.status === "disponivel" ? "bg-primary" :
+                      op.status === "ocupado" ? "bg-amber-500" :
+                      "bg-slate-400"
+                    }`} />
+                    <span className="text-[11px] font-bold text-foreground truncate max-w-[120px]">{op.operatorName}</span>
+                  </div>
+                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase ${
+                    op.status === "disponivel" ? "text-primary bg-primary/10" :
+                    op.status === "ocupado" ? "text-amber-700 bg-amber-50" :
+                    "text-slate-600 bg-slate-100"
+                  }`}>
+                    {op.conversations.length} atend.
+                  </span>
+                </div>
+                {filtered.length === 0 ? (
+                  <p className="text-[10px] text-muted-foreground pl-4 italic">Sem conversas ativas</p>
+                ) : (
+                  filtered.map((conv) => (
+                    <LiveConvCard
+                      key={conv.id}
+                      conv={conv}
+                      isSelected={conv.id === selectedConvId}
+                      onClick={() => setSelectedConvId(conv.id)}
+                    />
+                  ))
+                )}
+              </div>
+            ))
           }
 
           {!loading && !liveData?.operators.length && !liveData?.unassigned.length && !liveData?.automation.length && (

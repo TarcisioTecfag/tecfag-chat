@@ -362,8 +362,14 @@ export const Route = createFileRoute("/api/gestao/overview")({
           };
         });
 
-        // Ordena: vermelho > amarelo > verde > cinza (sem dados por último)
+        // Ordena dando prioridade a quem possui atendimentos hoje (maior volume primeiro) e semáforo,
+        // mantendo quem está sem atendimento (0 atend.) no final da lista
         operatorsWithMetrics.sort((a, b) => {
+          const aHasConvs = (a.totalConversations ?? 0) > 0 ? 1 : 0;
+          const bHasConvs = (b.totalConversations ?? 0) > 0 ? 1 : 0;
+          if (bHasConvs !== aHasConvs) return bHasConvs - aHasConvs;
+          const convDiff = (b.totalConversations ?? 0) - (a.totalConversations ?? 0);
+          if (convDiff !== 0) return convDiff;
           const order: Record<string, number> = { red: 0, yellow: 1, green: 2, gray: 3 };
           if (order[a.trafficLight] !== order[b.trafficLight])
             return order[a.trafficLight] - order[b.trafficLight];
