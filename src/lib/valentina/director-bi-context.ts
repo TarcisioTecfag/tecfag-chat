@@ -15,13 +15,21 @@ import {
 import { buildConsultantOperatorAliasMap } from "../commercial/avatar-matcher";
 import { categorizeLossReason } from "../commercial/perdas-data";
 import { projectIndustrialMonitoring } from "../triage/industrial-monitor";
-import {
-  buildJournalSnapshot,
-  readJournalSnapshot,
-  type JournalFlow,
-} from "../triage/industrial-triage-journal";
+import { computeIndustrialTriageProgress } from "../triage/industrial-policy";
 import { RodizioEngine } from "./rodizio-engine";
 import { getKnowledgeBaseContext } from "./knowledge-service";
+
+function readCollectedField(cd: Record<string, any> | null | undefined, ...keys: string[]): string | null {
+  if (!cd || typeof cd !== "object") return null;
+  for (const k of keys) {
+    const raw = cd[k];
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+    if (raw && typeof raw === "object" && typeof raw.value === "string" && raw.value.trim()) {
+      return raw.value.trim();
+    }
+  }
+  return null;
+}
 
 function formatBrl(value: number): string {
   return Number(value || 0).toLocaleString("pt-BR", {
@@ -1052,99 +1060,106 @@ export async function getDirectorBiContext(
     const triageObjectionsSample: string[] = [];
 
     for (const row of sdrFlows) {
-      const monitoring = projectIndustrialMonitoring(
-        {
-          startedAt: row.started_at,
-          outcome: row.outcome,
-          metadata: row.metadata,
-        },
-        {
-          operatorId: row.operator_id,
-          queueState: row.queue_state,
+      try {
+        const monitoring = projectIndustrialMonitoring(
+          {
+            startedAt: row.started_at || new Date(),
+            outcome: row.outcome,
+            metadata: row.metadata,
+          },
+          {
+            operatorId: row.operator_id,
+            queueState: row.queue_state || "automacao",
+          }
+        );
+
+        const meta =
+          row.metadata && typeof row.metadata === "object"
+            ? (row.metadata as Record<string, any>)
+            : {};
+        const cd =
+          row.collected_data && typeof row.collected_data === "object"
+            ? (row.collected_data as Record<string, any>)
+            : {};
+
+        const startedDate = row.started_at ? new Date(row.started_at) : new Date();
+        const startedDayBr = saoPauloDay(startedDate);
+        const isToday =
+          startedDayBr === todayBr || startedDate.getTime() >= new Date(todayStartIso).getTime();
+        const is7d = startedDate.getTime() >= new Date(sevenDaysAgoIso).getTime();
+
+        const state = monitoring.state;
+        const isQualified =
+          state === "transferred" ||
+          state === "ready" ||
+          state === "handoff_pending" ||
+          state === "waiting_for_team" ||
+          row.outcome === "transferred" ||
+          row.outcome === "completed" ||
+          (state === "manual" && Boolean(row.operator_id));
+        const isCollecting = state === "collecting";
+        const isNoResponse = state === "no_response" || row.outcome === "abandoned";
+        const isResolved = state === "resolved";
+        const isStopped = !isQualified && !isCollecting && !isNoResponse && !isResolved;
+
+        const funnelName =
+          monitoring.targetFunnel ||
+          meta.targetFunnel ||
+          readCollectedField(cd, "SETOR / FUNIL DE DESTINO", "area", "setor") ||
+          row.sector_name ||
+          "Em definição / Geral";
+
+        const applyToWindow = (win: SdrWindowMetrics) => {
+          win.total += 1;
+          if (isQualified) win.qualifiedTransferred += 1;
+          else if (isCollecting) win.collectingActive += 1;
+          else if (isNoResponse) win.noResponse += 1;
+          else if (isResolved) win.resolvedByAi += 1;
+          else if (isStopped) win.stoppedManual += 1;
+          win.byFunnel[funnelName] = (win.byFunnel[funnelName] || 0) + 1;
+        };
+
+        applyToWindow(sdrAll);
+        if (is7d) applyToWindow(sdr7d);
+        if (isToday) applyToWindow(sdrToday);
+
+        const machineOrProduct = readCollectedField(
+          cd,
+          "MÁQUINA / PEÇA / INTERESSE",
+          "maquina",
+          "produto",
+          "interesse",
+          "equipamento"
+        );
+        const companyName = readCollectedField(cd, "EMPRESA", "empresa", "razao_social");
+        const cnpj = readCollectedField(cd, "CNPJ OU CPF", "CNPJ", "cnpj");
+
+        let progressPct = 0;
+        try {
+          const prog = computeIndustrialTriageProgress(cd, meta.subflow || null);
+          progressPct = prog.percent ?? 0;
+        } catch {
+          progressPct = isQualified ? 100 : 0;
         }
-      );
 
-      const flowForJournal: JournalFlow = {
-        conversationId: row.conversation_id,
-        currentNodeId: row.current_node_id,
-        collectedData: row.collected_data,
-        metadata: row.metadata,
-      };
-      const snapshot =
-        readJournalSnapshot(row.metadata) ||
-        buildJournalSnapshot(flowForJournal, { updatedBy: "rule" });
+        if (recentTriageItems.length < 15) {
+          recentTriageItems.push(
+            `  - [${startedDayBr}] ${row.contact_name || row.contact_phone || "Lead"}${
+              companyName ? ` (${companyName}${cnpj ? ` - Doc ${cnpj}` : ""})` : ""
+            } | Status SDR: ${monitoring.label} (${state}) | Funil: ${funnelName} | Interesse: ${
+              machineOrProduct || "N/I"
+            } | Progresso: ${progressPct}% | Consultor: ${
+              row.operator_name || meta.allocatedOperatorName || "Aguardando/IA"
+            }`
+          );
+        }
 
-      const startedDate = row.started_at ? new Date(row.started_at) : new Date();
-      const startedDayBr = saoPauloDay(startedDate);
-      const isToday =
-        startedDayBr === todayBr || startedDate.getTime() >= new Date(todayStartIso).getTime();
-      const is7d = startedDate.getTime() >= new Date(sevenDaysAgoIso).getTime();
-
-      const state = monitoring.state;
-      const isQualified =
-        state === "transferred" ||
-        state === "ready" ||
-        state === "handoff_pending" ||
-        state === "waiting_for_team" ||
-        row.outcome === "transferred" ||
-        row.outcome === "completed" ||
-        (state === "manual" && Boolean(row.operator_id));
-      const isCollecting = state === "collecting";
-      const isNoResponse = state === "no_response" || row.outcome === "abandoned";
-      const isResolved = state === "resolved";
-      const isStopped = !isQualified && !isCollecting && !isNoResponse && !isResolved;
-
-      const funnelName =
-        monitoring.targetFunnel ||
-        snapshot?.routing?.target ||
-        row.sector_name ||
-        (row.collected_data as any)?.area ||
-        (row.collected_data as any)?.setor ||
-        "Em definição / Geral";
-
-      const applyToWindow = (win: SdrWindowMetrics) => {
-        win.total += 1;
-        if (isQualified) win.qualifiedTransferred += 1;
-        else if (isCollecting) win.collectingActive += 1;
-        else if (isNoResponse) win.noResponse += 1;
-        else if (isResolved) win.resolvedByAi += 1;
-        else if (isStopped) win.stoppedManual += 1;
-        win.byFunnel[funnelName] = (win.byFunnel[funnelName] || 0) + 1;
-      };
-
-      applyToWindow(sdrAll);
-      if (is7d) applyToWindow(sdr7d);
-      if (isToday) applyToWindow(sdrToday);
-
-      const cd = (row.collected_data || {}) as Record<string, any>;
-      const machineOrProduct =
-        snapshot?.Asset?.machineModel ||
-        snapshot?.Need?.desiredProduct ||
-        cd.maquina ||
-        cd.produto ||
-        cd.interesse ||
-        cd.equipamento ||
-        null;
-      const companyName =
-        snapshot?.Identity?.companyName || cd.empresa || cd.razao_social || null;
-      const cnpj = snapshot?.Identity?.cnpj || cd.cnpj || null;
-
-      if (recentTriageItems.length < 15) {
-        recentTriageItems.push(
-          `  - [${startedDayBr}] ${row.contact_name || row.contact_phone || "Lead"}${
-            companyName ? ` (${companyName}${cnpj ? ` - CNPJ ${cnpj}` : ""})` : ""
-          } | Status SDR: ${monitoring.label} (${state}) | Funil: ${funnelName} | Interesse: ${
-            machineOrProduct || "N/I"
-          } | Progresso: ${snapshot?.progress?.percent ?? 0}% | Consultor: ${
-            row.operator_name || "Aguardando/IA"
-          }`
-        );
-      }
-
-      if (cd.duvida || cd.observacao || cd.urgencia || cd.problema) {
-        triageObjectionsSample.push(
-          `${row.contact_name || "Lead"}: ${cd.duvida || cd.observacao || cd.urgencia || cd.problema}`
-        );
+        const objectionNote = readCollectedField(cd, "duvida", "observacao", "urgencia", "problema");
+        if (objectionNote) {
+          triageObjectionsSample.push(`${row.contact_name || "Lead"}: ${objectionNote}`);
+        }
+      } catch (flowErr: any) {
+        console.warn("[getDirectorBiContext] Aviso ao processar fluxo SDR:", flowErr?.message);
       }
     }
 
@@ -1979,128 +1994,132 @@ export async function getDirectorBiContext(
     // ══════════════════════════════════════════════════════════════════════════
     const searchTerms = extractDirectorSearchTerms(userQuery);
     if (searchTerms.length > 0) {
-      const patterns = searchTerms.map((t) => `%${t}%`);
-      const [matchedConvsRes, matchedDealsRes, matchedAccountsRes] = await Promise.allSettled([
-        sqlClient`
-          SELECT
-            c.id,
-            c.queue_state,
-            ct.name AS contact_name,
-            ct.phone AS contact_phone,
-            acc.name AS company_name,
-            acc.document AS company_cnpj,
-            op.name AS operator_name,
-            c.last_message_text,
-            c.updated_at
-          FROM conversations c
-          INNER JOIN contacts ct ON ct.id = c.contact_id
-          LEFT JOIN crm_accounts acc ON acc.id = ct.account_id
-          LEFT JOIN operators op ON op.id = c.operator_id
-          WHERE c.tenant_id = ${tenantId}
-            AND (
-              ct.name ILIKE ANY(${patterns})
-              OR ct.phone ILIKE ANY(${patterns})
-              OR COALESCE(acc.name, '') ILIKE ANY(${patterns})
-              OR COALESCE(acc.document, '') ILIKE ANY(${patterns})
-              OR COALESCE(c.last_message_text, '') ILIKE ANY(${patterns})
-              OR COALESCE(op.name, '') ILIKE ANY(${patterns})
-            )
-          ORDER BY c.updated_at DESC
-          LIMIT 6
-        `,
-        sqlClient`
-          SELECT
-            d.id,
-            d.title,
-            d.value,
-            d.status,
-            d.loss_reason,
-            s.name AS stage_name,
-            op.name AS operator_name,
-            acc.name AS account_name,
-            acc.document AS account_cnpj,
-            d.updated_at
-          FROM crm_deals d
-          LEFT JOIN crm_stages s ON s.id = d.stage_id
-          LEFT JOIN operators op ON op.id = d.operator_id
-          LEFT JOIN crm_accounts acc ON acc.id = d.account_id
-          WHERE d.tenant_id = ${tenantId}
-            AND (
-              d.title ILIKE ANY(${patterns})
-              OR COALESCE(acc.name, '') ILIKE ANY(${patterns})
-              OR COALESCE(acc.document, '') ILIKE ANY(${patterns})
-              OR COALESCE(op.name, '') ILIKE ANY(${patterns})
-            )
-          ORDER BY d.updated_at DESC
-          LIMIT 8
-        `,
-        sqlClient`
-          SELECT name, document AS cnpj, phone, email, segment, address
-          FROM crm_accounts
-          WHERE tenant_id = ${tenantId}
-            AND (
-              name ILIKE ANY(${patterns})
-              OR COALESCE(document, '') ILIKE ANY(${patterns})
-            )
-          LIMIT 6
-        `,
-      ]);
-
-      const matchedConvs: any[] =
-        matchedConvsRes.status === "fulfilled" ? [...matchedConvsRes.value] : [];
-      const matchedDeals: any[] =
-        matchedDealsRes.status === "fulfilled" ? [...matchedDealsRes.value] : [];
-      const matchedAccounts: any[] =
-        matchedAccountsRes.status === "fulfilled" ? [...matchedAccountsRes.value] : [];
-
-      const drillLines: string[] = [];
-
-      if (matchedConvs.length > 0) {
-        drillLines.push(`• Conversas Encontradas para os termos [${searchTerms.join(", ")}]:`);
-        for (const mc of matchedConvs.slice(0, 4)) {
-          const msgsRows = await sqlClient`
-            SELECT sender_type, sender_name, content, sent_at
-            FROM messages
-            WHERE conversation_id = ${mc.id}
-            ORDER BY sent_at DESC
+      try {
+        const patterns = searchTerms.map((t) => `%${t}%`);
+        const [matchedConvsRes, matchedDealsRes, matchedAccountsRes] = await Promise.allSettled([
+          sqlClient`
+            SELECT
+              c.id,
+              c.queue_state,
+              ct.name AS contact_name,
+              ct.phone AS contact_phone,
+              acc.name AS company_name,
+              acc.document AS company_cnpj,
+              op.name AS operator_name,
+              c.last_message_text,
+              c.updated_at
+            FROM conversations c
+            INNER JOIN contacts ct ON ct.id = c.contact_id
+            LEFT JOIN crm_accounts acc ON acc.id = ct.account_id
+            LEFT JOIN operators op ON op.id = c.operator_id
+            WHERE c.tenant_id = ${tenantId}
+              AND (
+                ct.name ILIKE ANY(${patterns})
+                OR ct.phone ILIKE ANY(${patterns})
+                OR COALESCE(acc.name, '') ILIKE ANY(${patterns})
+                OR COALESCE(acc.document, '') ILIKE ANY(${patterns})
+                OR COALESCE(c.last_message_text, '') ILIKE ANY(${patterns})
+                OR COALESCE(op.name, '') ILIKE ANY(${patterns})
+              )
+            ORDER BY c.updated_at DESC
+            LIMIT 6
+          `,
+          sqlClient`
+            SELECT
+              d.id,
+              d.title,
+              d.value,
+              d.status,
+              d.loss_reason,
+              s.name AS stage_name,
+              op.name AS operator_name,
+              acc.name AS account_name,
+              acc.document AS account_cnpj,
+              d.updated_at
+            FROM crm_deals d
+            LEFT JOIN crm_stages s ON s.id = d.stage_id
+            LEFT JOIN operators op ON op.id = d.operator_id
+            LEFT JOIN crm_accounts acc ON acc.id = d.account_id
+            WHERE d.tenant_id = ${tenantId}
+              AND (
+                d.title ILIKE ANY(${patterns})
+                OR COALESCE(acc.name, '') ILIKE ANY(${patterns})
+                OR COALESCE(acc.document, '') ILIKE ANY(${patterns})
+                OR COALESCE(op.name, '') ILIKE ANY(${patterns})
+              )
+            ORDER BY d.updated_at DESC
             LIMIT 8
-          `;
-          const transcript = [...msgsRows]
-            .reverse()
-            .map(
-              (m: any) =>
-                `[${m.sender_type === "client" ? "Lead" : m.sender_name || "Agente"}]: ${(m.content || "").slice(0, 140)}`
-            )
-            .join(" | ");
-          drillLines.push(
-            `  - Conversa ${mc.contact_name} (${mc.contact_phone || "s/ tel"}${mc.company_name ? ` | Empresa: ${mc.company_name}` : ""}) | Estado: ${mc.queue_state} | Consultor: ${mc.operator_name || "IA/Fila"}\n    Últimas mensagens: ${transcript || mc.last_message_text || "Sem texto"}`
+          `,
+          sqlClient`
+            SELECT name, document AS cnpj, phone, email, segment, address
+            FROM crm_accounts
+            WHERE tenant_id = ${tenantId}
+              AND (
+                name ILIKE ANY(${patterns})
+                OR COALESCE(document, '') ILIKE ANY(${patterns})
+              )
+            LIMIT 6
+          `,
+        ]);
+
+        const matchedConvs: any[] =
+          matchedConvsRes.status === "fulfilled" ? [...matchedConvsRes.value] : [];
+        const matchedDeals: any[] =
+          matchedDealsRes.status === "fulfilled" ? [...matchedDealsRes.value] : [];
+        const matchedAccounts: any[] =
+          matchedAccountsRes.status === "fulfilled" ? [...matchedAccountsRes.value] : [];
+
+        const drillLines: string[] = [];
+
+        if (matchedConvs.length > 0) {
+          drillLines.push(`• Conversas Encontradas para os termos [${searchTerms.join(", ")}]:`);
+          for (const mc of matchedConvs.slice(0, 4)) {
+            const msgsRows = await sqlClient`
+              SELECT sender_type, sender_name, content, sent_at
+              FROM messages
+              WHERE conversation_id = ${mc.id}
+              ORDER BY sent_at DESC
+              LIMIT 8
+            `;
+            const transcript = [...msgsRows]
+              .reverse()
+              .map(
+                (m: any) =>
+                  `[${m.sender_type === "client" ? "Lead" : m.sender_name || "Agente"}]: ${(m.content || "").slice(0, 140)}`
+              )
+              .join(" | ");
+            drillLines.push(
+              `  - Conversa ${mc.contact_name} (${mc.contact_phone || "s/ tel"}${mc.company_name ? ` | Empresa: ${mc.company_name}` : ""}) | Estado: ${mc.queue_state} | Consultor: ${mc.operator_name || "IA/Fila"}\n    Últimas mensagens: ${transcript || mc.last_message_text || "Sem texto"}`
+            );
+          }
+        }
+
+        if (matchedDeals.length > 0) {
+          drillLines.push(`• Negociações CRM Encontradas:`);
+          for (const md of matchedDeals) {
+            drillLines.push(
+              `  - Deal "${md.title}" | Conta: ${md.account_name || "N/I"} (${md.account_cnpj || "s/ CNPJ"}) | Valor: ${formatBrl(Number(md.value || 0))} | Status: ${md.status} (Etapa: ${md.stage_name || "N/I"}) | Vendedor: ${md.operator_name || "N/I"}`
+            );
+          }
+        }
+
+        if (matchedAccounts.length > 0) {
+          drillLines.push(`• Empresas (Contas CRM) Encontradas:`);
+          for (const ma of matchedAccounts) {
+            const addr = (ma.address || {}) as Record<string, any>;
+            drillLines.push(
+              `  - ${ma.name} | CNPJ: ${ma.cnpj || "N/I"} | Tel: ${ma.phone || "N/I"} | Cidade/UF: ${addr.city || "-"}/${addr.state || "-"}`
+            );
+          }
+        }
+
+        if (drillLines.length > 0) {
+          sections.push(
+            `🔎 10. BUSCA PROFUNDA ESPECÍFICA PARA A PERGUNTA DO GESTOR:\n${drillLines.join("\n")}`
           );
         }
-      }
-
-      if (matchedDeals.length > 0) {
-        drillLines.push(`• Negociações CRM Encontradas:`);
-        for (const md of matchedDeals) {
-          drillLines.push(
-            `  - Deal "${md.title}" | Conta: ${md.account_name || "N/I"} (${md.account_cnpj || "s/ CNPJ"}) | Valor: ${formatBrl(Number(md.value || 0))} | Status: ${md.status} (Etapa: ${md.stage_name || "N/I"}) | Vendedor: ${md.operator_name || "N/I"}`
-          );
-        }
-      }
-
-      if (matchedAccounts.length > 0) {
-        drillLines.push(`• Empresas (Contas CRM) Encontradas:`);
-        for (const ma of matchedAccounts) {
-          const addr = (ma.address || {}) as Record<string, any>;
-          drillLines.push(
-            `  - ${ma.name} | CNPJ: ${ma.cnpj || "N/I"} | Tel: ${ma.phone || "N/I"} | Cidade/UF: ${addr.city || "-"}/${addr.state || "-"}`
-          );
-        }
-      }
-
-      if (drillLines.length > 0) {
-        sections.push(
-          `🔎 10. BUSCA PROFUNDA ESPECÍFICA PARA A PERGUNTA DO GESTOR:\n${drillLines.join("\n")}`
-        );
+      } catch (drillErr: any) {
+        console.warn("[getDirectorBiContext] Aviso na busca profunda:", drillErr?.message);
       }
     }
 
@@ -2113,23 +2132,30 @@ export async function getDirectorBiContext(
       );
 
     if (asksProductOrCatalog) {
-      const targetBases =
-        knowledgeBase === "all"
-          ? ["tecfag", "valem"]
-          : [knowledgeBase === "valem" || knowledgeBase === "tecfag" ? knowledgeBase : tenantId];
-      const kbParts: string[] = [];
-      for (const b of targetBases) {
-        const kb = await getKnowledgeBaseContext(b, userQuery);
-        if (kb) kbParts.push(kb.slice(0, 6000));
-      }
-      if (kbParts.length > 0) {
-        sections.push(`📚 11. CATÁLOGO E BASE DE CONHECIMENTO:\n${kbParts.join("\n\n")}`);
+      try {
+        const targetBases =
+          knowledgeBase === "all"
+            ? ["tecfag", "valem"]
+            : [knowledgeBase === "valem" || knowledgeBase === "tecfag" ? knowledgeBase : tenantId];
+        const kbParts: string[] = [];
+        for (const b of targetBases) {
+          const kb = await getKnowledgeBaseContext(b, userQuery);
+          if (kb) kbParts.push(kb.slice(0, 6000));
+        }
+        if (kbParts.length > 0) {
+          sections.push(`📚 11. CATÁLOGO E BASE DE CONHECIMENTO:\n${kbParts.join("\n\n")}`);
+        }
+      } catch (kbErr: any) {
+        console.warn("[getDirectorBiContext] Aviso ao ler base de conhecimento:", kbErr?.message);
       }
     }
 
     return sections.join("\n\n");
   } catch (err: any) {
     console.error("[getDirectorBiContext] Erro ao compilar contexto executivo:", err);
-    return `⚠️ Erro parcial ao compilar métricas da operação: ${err?.message || "erro desconhecido"}`;
+    if (sections.length > 0) {
+      return sections.join("\n\n");
+    }
+    return "Dossiê operacional temporariamente indisponível.";
   }
 }

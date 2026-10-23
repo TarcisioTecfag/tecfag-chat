@@ -14,6 +14,11 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ValentinaBlockRenderer } from "./chat-blocks/ValentinaBlockRenderer";
 import { ValentinaThreadRail } from "./chat-blocks/ValentinaThreadRail";
+import { AgenticThoughtTrace } from "./chat-blocks/AgenticThoughtTrace";
+import {
+  buildAgenticThoughtTrace,
+  type AgenticThoughtTraceData,
+} from "@/lib/valentina/agentic-thought-trace";
 import type {
   ValentinaChatMessage, ValentinaThread, ValentinaFolder,
 } from "./chat-blocks/valentina-chat-types";
@@ -119,7 +124,20 @@ export function ValentinaChatTab() {
   const [threads, setThreads] = useState<ValentinaThread[]>(() => {
     try {
       const saved = localStorage.getItem(storageKey);
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed: ValentinaThread[] = JSON.parse(saved);
+      const isBrokenMsg = (txt: string) =>
+        /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa/i.test(
+          txt || ""
+        );
+      return parsed
+        .map((t) => ({
+          ...t,
+          messages: Array.isArray(t.messages)
+            ? t.messages.filter((m) => !(m.sender === "valentina" && isBrokenMsg(m.content || "")))
+            : [],
+        }))
+        .filter((t) => t.messages.length > 0);
     } catch {
       return [];
     }
@@ -147,6 +165,7 @@ export function ValentinaChatTab() {
   // Anexos e Input
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [liveThoughtTrace, setLiveThoughtTrace] = useState<AgenticThoughtTraceData | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
   const [fullscreenSrc, setFullscreenSrc] = useState<string | null>(null);
@@ -356,9 +375,19 @@ export function ValentinaChatTab() {
       })
     );
 
+    const initialTrace = buildAgenticThoughtTrace({
+      userQuery: userMessageText,
+      scope: "admin",
+      personaName: persona.name,
+      knowledgeBase: selectedBase,
+      attachedFileName: fileSnap?.name || null,
+      hasAttachedImage: Boolean(imageSnap),
+    });
+
     setInput("");
     setAttachedFile(null);
     setAttachedImage(null);
+    setLiveThoughtTrace(initialTrace);
     setIsTyping(true);
 
     abortCtrl.current?.abort();
@@ -385,10 +414,17 @@ export function ValentinaChatTab() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const fragments: any[] = data.fragments || [];
+      const resolvedTrace: AgenticThoughtTraceData =
+        data.thoughtTrace || fragments[0]?.thoughtTrace || initialTrace;
 
       for (let i = 0; i < fragments.length; i++) {
-        if (i > 0) setIsTyping(true);
-        await new Promise((r) => setTimeout(r, Math.max(fragments[i].delay ?? 600, 300)));
+        if (i > 0) {
+          await new Promise((r) => setTimeout(r, Math.max(fragments[i].delay ?? 600, 300)));
+        } else {
+          await new Promise((r) => setTimeout(r, 250));
+          setIsTyping(false);
+          setLiveThoughtTrace(null);
+        }
 
         const msgText = (fragments[i].content || fragments[i].text || "").trim();
         const rawBlocks: any[] | undefined = Array.isArray(fragments[i].blocks)
@@ -403,6 +439,7 @@ export function ValentinaChatTab() {
           content: msgText,
           timestamp: new Date().toISOString(),
           blocks: rawBlocks && rawBlocks.length > 0 ? rawBlocks : undefined,
+          thoughtTrace: i === 0 ? resolvedTrace : undefined,
         };
 
         setThreads((prev) =>
@@ -432,6 +469,7 @@ export function ValentinaChatTab() {
       );
     } finally {
       setIsTyping(false);
+      setLiveThoughtTrace(null);
     }
   };
 
@@ -757,7 +795,7 @@ export function ValentinaChatTab() {
                       <OperatorAvatar name={operatorProfile?.name} avatar={operatorProfile?.avatar} className="h-7 w-7 mt-0.5" />
                     </div>
                   ) : (
-                    /* Mensagem da Valentina */
+                    /* Mensagem da Valentina / Fagner */
                     <div key={msg.id} className="flex gap-3 items-start">
                       <ValentinaAvatar className="h-7 w-7 mt-0.5" />
                       <div className="flex-1 min-w-0">
@@ -765,6 +803,13 @@ export function ValentinaChatTab() {
                           <span className="text-xs font-bold text-foreground">{persona.name}</span>
                           <span className="text-[10px] text-muted-foreground">{formatTime(msg.timestamp)}</span>
                         </div>
+
+                        {msg.thoughtTrace && (
+                          <AgenticThoughtTrace
+                            trace={msg.thoughtTrace}
+                            mode="completed"
+                          />
+                        )}
 
                         <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs sm:text-sm text-foreground space-y-2">
                           {msg.content && <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>}
@@ -782,13 +827,19 @@ export function ValentinaChatTab() {
                   )
                 )}
 
-                {/* Indicador de Digitação da Valentina */}
-                {isTyping && (
-                  <div className="flex gap-3 items-center">
-                    <ValentinaAvatar className="h-7 w-7" />
-                    <div className="rounded-2xl bg-muted/40 border border-border/60 px-4 py-2.5 text-xs text-muted-foreground flex items-center gap-2">
-                      <Sparkles className="h-3.5 w-3.5 text-primary animate-spin" />
-                      <span>Analisando dados do sistema...</span>
+                {/* Árvore Agêntica de Pensamento e Ações em Tempo Real (Estilo Antigravity) */}
+                {isTyping && liveThoughtTrace && (
+                  <div className="flex gap-3 items-start">
+                    <ValentinaAvatar className="h-7 w-7 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2 mb-0.5">
+                        <span className="text-xs font-bold text-foreground">{persona.name}</span>
+                        <span className="text-[10px] text-muted-foreground">em execução</span>
+                      </div>
+                      <AgenticThoughtTrace
+                        trace={liveThoughtTrace}
+                        mode="live"
+                      />
                     </div>
                   </div>
                 )}

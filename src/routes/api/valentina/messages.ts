@@ -27,6 +27,7 @@ import { requireSession } from "../../../lib/auth-session";
 import { getCommercialHome } from "../../../lib/commercial/home-service";
 import { getKnowledgeBaseContext } from "../../../lib/valentina/knowledge-service";
 import { getDirectorBiContext } from "../../../lib/valentina/director-bi-context";
+import { buildAgenticThoughtTrace } from "../../../lib/valentina/agentic-thought-trace";
 import type { MultimodalPart } from "../../../lib/vertex-ai";
 import type {
   RelatedConversationItem,
@@ -1234,19 +1235,20 @@ Você está conversando diretamente com "${operatorName}" (Diretoria / Gestão E
      * **Seção 9**: Escala do Rodízio (consultores ativos, pausados, saldo de compensação) e Telemetria de Custos de IA.
      * **Seção 10 e 11**: Busca Profunda sob demanda (conversas com transcrição, negociações e empresas específicas) e Catálogo/Base de Conhecimento.
 
-2. **REGRA INVIOLÁVEL — PROIBIDO DIZER "NÃO TENHO ACESSO"**:
-   - **JAMAIS** responda que "não tem acesso", "não consigo consultar" ou "os dados não estão disponíveis no contexto".
-   - Quando um indicador específico do dia de hoje estiver em \`0\` (por exemplo: \`0\` alertas disparados hoje, \`0\` leads iniciados hoje até esta hora, ou \`0\` pares de resposta concluídos nas primeiras horas da manhã), **informe claramente que hoje o número está em 0 até o momento E apresente imediatamente o panorama vivo de agora + o consolidado dos últimos 7 dias / mês atual** (que estão na mesma seção do dossiê abaixo!).
+2. **REGRA INVIOLÁVEL — PROIBIDO DIZER "NÃO TENHO ACESSO" E PROIBIDO INVENTAR DADOS FICTÍCIOS**:
+   - **JAMAIS** responda que "não tem acesso", "não consigo consultar", "os dados não estão disponíveis no contexto" ou que houve "falha no início do ciclo / erro na compilação da métrica".
+   - **PROIBIÇÃO ABSOLUTA DE ALUCINAÇÃO (FIDELIDADE 100% AO DOSSIÊ)**: Você SÓ pode citar nomes de operadores/vendedores, nomes de clientes/empresas, CNPJs, valores em R$ e quantidades que estejam **literalmente escritos** no dossiê abaixo (\`DADOS REAIS DA OPERAÇÃO AGORA\`). **JAMAIS** invente nomes fictícios de exemplo (como "Ana Paula", "Carlos Dias", "Mecânica Souza Ltda", "Construtora Alfa", "Agropecuária do Vale") nem números fictícios (como "48 alertas" ou "3 conversas")!
+   - Quando um indicador específico estiver em \`0\` no dossiê (por exemplo: \`0 alertas de SLA disparados hoje\` e \`0 conversas com SLA estourado agora\`), **informe com exatidão que o número é 0 (operação 100% dentro do SLA no momento)** e mostre nos blocos visuais os indicadores reais correlatos do dossiê (como operadores ativos na escala do rodízio, volume de negociações abertas/paradas no CRM dos vendedores reais da empresa, ou histórico real de 7 dias), **nunca fabricando clientes ou operadores inexistentes**.
 
-3. **USO OBRIGATÓRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\`)**:
-   - Sempre que a pergunta envolver métricas, comparativos, rankings, funil, relatórios ou objeções, enriqueça sua resposta com **1 ou 2 blocos visuais** dentro do array \`"blocks"\` usando os números exatos do dossiê:
-     * **Perguntas sobre TMA**: Traga a análise executiva em \`"text"\` + um \`InsightBlock\` (com TMA 7d/Hoje, TMA Pós-SDR, Operador Mais Rápido, Operador Mais Lento e recomendação) + um \`ChartBlock\` (\`"bar"\`, unit \`"min"\` ou \`"s"\`) comparando o TMA por operador.
-     * **Perguntas sobre Gargalo de Fila por Operador**: Traga a resposta direta em \`"text"\` + um \`ReportBlock\` ou \`ChartBlock\` (\`"bar"\`) com os operadores ordenados por clientes aguardando resposta / conversas ativas + um \`InsightBlock\` apontando os clientes mais críticos esperando resposta agora.
-     * **Perguntas sobre Taxa de Conversão do SDR**: Traga a taxa de hoje, dos últimos 7 dias e geral em \`"text"\` + um \`InsightBlock\` com os KPIs de conversão e funis de destino + um \`ChartBlock\` (\`"bar"\` ou \`"pie"\`) mostrando o desfecho das triagens ou a distribuição por setor/funil.
-     * **Perguntas sobre Alertas de Estouro de SLA ou 5 Principais Alertas da Operação**: Traga o diagnóstico completo em \`"text"\` + um \`InsightBlock\` com os alertas estruturados e plano de ação imediato (e \`ReportBlock\` se houver lista nominal de conversas/negociações críticas).
-     * **Perguntas sobre Gráfico do Funil de Vendas desta Semana**: Gere obrigatoriamente um \`ChartBlock\` (\`"bar"\`) com as etapas do funil comercial da semana / pipeline aberto (usando os dados da Seção 5) + um \`ReportBlock\` ou \`InsightBlock\` detalhando quantidade e valor (R$) em cada etapa.
-     * **Perguntas sobre Relatório Detalhado por Vendedor**: Gere obrigatoriamente um \`ReportBlock\` completo com todos os vendedores (Colunas sugeridas: \`["Vendedor", "Divisão", "Meta Mês", "Realizado Mês", "Pipeline Aberto", "Parados >=3d", "Fila / TMA"]\`) + um \`InsightBlock\` com o resumo da meta global e pacing da empresa.
-     * **Perguntas sobre Objeções dos Leads**: Gere um \`ChartBlock\` (\`"bar"\` ou \`"pie"\`) com o ranking das objeções mapeadas na Seção 7 + um \`ExcerptBlock\` com os exemplos reais de falas dos clientes e/ou \`InsightBlock\` com recomendações práticas de contorno comercial.
+3. **USO OBRIGATÓRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\` COM DADOS 100% REAIS DO DOSSIÊ)**:
+   - Sempre que a pergunta envolver métricas, comparativos, rankings, funil, relatórios ou objeções, enriqueça sua resposta com **1 ou 2 blocos visuais** dentro do array \`"blocks"\` usando **exclusivamente** os números e nomes reais do dossiê:
+     * **Perguntas sobre TMA**: Traga a análise executiva em \`"text"\` + um \`InsightBlock\` (com os valores reais do dossiê de TMA Hoje, 7d, 30d e Pós-SDR) + um \`ChartBlock\` (\`"bar"\`, unit \`"min"\` ou \`"s"\`) se houver operadores com TMA medido (se todos estiverem em 0/N/A, use um \`ReportBlock\` com os operadores reais da equipe e seu status atual).
+     * **Perguntas sobre Gargalo de Fila por Operador**: Traga a resposta direta em \`"text"\` + um \`ReportBlock\` ou \`ChartBlock\` (\`"bar"\`) com os operadores reais listados na Seção 1 / Seção 6 / Seção 9 + um \`InsightBlock\` apontando o status real da fila agora.
+     * **Perguntas sobre Taxa de Conversão do SDR**: Traga a taxa real de hoje, dos últimos 7 dias e geral em \`"text"\` + um \`InsightBlock\` com os KPIs reais da Seção 3 + um \`ChartBlock\` ou \`ReportBlock\` mostrando o funil real.
+     * **Perguntas sobre Alertas de Estouro de SLA ou 5 Principais Alertas da Operação**: Traga o diagnóstico fiel da Seção 4 e Seção 8 em \`"text"\` + um \`InsightBlock\` com os números exatos da Seção 4 (se houver 0 estouros de SLA agora, destaque positivamente que há 0 estouros de SLA no WhatsApp e traga no \`ReportBlock\` os alertas reais da Seção 8, como as negociações reais paradas no CRM com seus respectivos vendedores reais).
+     * **Perguntas sobre Gráfico do Funil de Vendas desta Semana**: Gere obrigatoriamente um \`ChartBlock\` (\`"bar"\`) com as etapas e quantidades/valores reais do funil comercial da Seção 5 + um \`ReportBlock\` ou \`InsightBlock\` detalhando quantidade e valor (R$) real em cada etapa.
+     * **Perguntas sobre Relatório Detalhado por Vendedor**: Gere obrigatoriamente um \`ReportBlock\` completo com os vendedores reais da Seção 6 (Colunas sugeridas: \`["Vendedor", "Divisão", "Meta Mês", "Realizado Mês", "Pipeline Aberto", "Parados >=3d", "Perdidos Mês"]\`) + um \`InsightBlock\` com o resumo da meta global e realizado real da empresa.
+     * **Perguntas sobre Objeções dos Leads**: Gere um \`ChartBlock\` (\`"bar"\` ou \`"pie"\`) com o ranking real das categorias/objeções da Seção 7 (usando as 5 macro-categorias e os Top 12 motivos específicos de perda do CRM quando a amostra de mensagens do chat estiver em 0) + um \`ReportBlock\` ou \`InsightBlock\` detalhando os valores em R$ e ocorrências reais.
 
 ## 📊 DADOS REAIS DA OPERAÇÃO AGORA (DOSSIÊ EXECUTIVO 360º):
 ${operationalContext}
@@ -1906,7 +1908,29 @@ export const Route = createFileRoute("/api/valentina/messages")({
             });
           }
 
-          const sorted = msgs.reverse();
+          const isBrokenAdminMessage = (txt: string) =>
+            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa/i.test(
+              txt || ""
+            );
+
+          const brokenAdminIds = msgs
+            .filter((m) => m.direction === "from_agent" && isBrokenAdminMessage(m.content || ""))
+            .map((m) => m.id);
+
+          if (brokenAdminIds.length > 0) {
+            db.delete(internalMessages)
+              .where(
+                and(
+                  eq(internalMessages.tenantId, tenantId),
+                  inArray(internalMessages.id, brokenAdminIds)
+                )
+              )
+              .catch(() => {});
+          }
+
+          const sorted = msgs
+            .filter((m) => !(m.direction === "from_agent" && isBrokenAdminMessage(m.content || "")))
+            .reverse();
 
           return new Response(JSON.stringify(sorted), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1994,7 +2018,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           });
 
           const isLegacyRefusal = (txt: string) =>
-            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio/i.test(
+            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa/i.test(
               txt || ""
             );
 
@@ -2046,6 +2070,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           });
 
           // ── Contexto e extração de arquivo ─────────────────────────────────
+          const requestStartedMs = Date.now();
           let fileContext = "";
           if (attachment?.base64 && attachment?.name) {
             const extracted = await extractFileText(attachment.name, attachment.mimeType || "", attachment.base64);
@@ -2055,6 +2080,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           let managerContextText = "";
           let operatorContextResult: OperatorContextResult | null = null;
 
+          const contextStartMs = Date.now();
           if (useManagerContext) {
             managerContextText = await getManagerContext(contextTenantId, userText, knowledgeBase);
           } else {
@@ -2066,6 +2092,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               recentAiContextText
             );
           }
+          const contextDurationMs = Math.max(100, Date.now() - contextStartMs);
 
           // ── Seleciona o prompt correto (incluindo histórico + pergunta atual!) ──
           const systemPrompt = useManagerContext
@@ -2097,6 +2124,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           let suggestedCallDealIds: string[] = [];
           let alerts: any[] = [];
 
+          const aiStartMs = Date.now();
           try {
             const { vertexAi } = await import("../../../lib/vertex-ai");
 
@@ -2141,6 +2169,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
           } catch (aiErr: any) {
             console.warn("[valentina/messages] Vertex AI erro:", aiErr?.message);
           }
+          const aiDurationMs = Math.max(200, Date.now() - aiStartMs);
+          const totalDurationMs = Math.max(500, Date.now() - requestStartedMs);
 
           // ── Fallback amigável quando a IA não responder ─────────────────────
           if (fragments.length === 0) {
@@ -2188,10 +2218,31 @@ export const Route = createFileRoute("/api/valentina/messages")({
               )
             : [];
 
+          // ── Constrói a árvore agêntica de raciocínio e ações executadas ─────
+          const candidateSearchTerms = extractSearchCandidateTerms(userText);
+          const thoughtTrace = buildAgenticThoughtTrace({
+            userQuery: userText,
+            scope: useManagerContext ? "admin" : "operator",
+            personaName: persona.name,
+            knowledgeBase: knowledgeBase || tenantId,
+            attachedFileName: attachment?.name || null,
+            hasAttachedImage: Boolean(imageBase64),
+            totalDurationMs,
+            contextDurationMs,
+            aiDurationMs,
+            extraSummary: {
+              dealsCount: operatorContextResult?.knownDeals?.length,
+              waitingCount: operatorContextResult?.waitingConversations?.length,
+              callsCount: relatedCalls.length,
+              searchTerms: candidateSearchTerms.length > 0 ? candidateSearchTerms : undefined,
+            },
+          });
+
           // ── Salva fragmentos no banco ───────────────────────────────────────
           const savedFragments: any[] = [];
           for (let i = 0; i < fragments.length; i++) {
             const frag = fragments[i];
+            const isFirstFrag = i === 0;
             const isLastFrag = i === fragments.length - 1;
             const fragRelated =
               isLastFrag && relatedConversations.length > 0 ? relatedConversations : undefined;
@@ -2199,6 +2250,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               isLastFrag && relatedDeals.length > 0 ? relatedDeals : undefined;
             const fragRelatedCalls =
               isLastFrag && relatedCalls.length > 0 ? relatedCalls : undefined;
+            const fragThoughtTrace = isFirstFrag ? thoughtTrace : undefined;
             const fragId = `val-ai-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
             const fragTimestamp = new Date(now.getTime() + 500 + i * 650);
 
@@ -2218,6 +2270,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 relatedConversations: fragRelated,
                 relatedDeals: fragRelatedDeals,
                 relatedCalls: fragRelatedCalls,
+                thoughtTrace: fragThoughtTrace,
                 isManager: useManagerContext,
               },
               read: 0,
@@ -2231,6 +2284,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               relatedConversations: fragRelated,
               relatedDeals: fragRelatedDeals,
               relatedCalls: fragRelatedCalls,
+              thoughtTrace: fragThoughtTrace,
               direction: "from_agent",
               createdAt: fragTimestamp,
             });
@@ -2240,6 +2294,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             JSON.stringify({
               success: true,
               userMessage: { id: userMsgId, content: userText, direction: "to_agent", createdAt: now },
+              thoughtTrace,
               fragments: savedFragments.map((f, i) => ({
                 ...f,
                 delay: fragments[i]?.delay ?? i * 650,
