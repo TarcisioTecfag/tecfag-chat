@@ -211,14 +211,21 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => {
-    let title = "Valem Chat";
-    let iconHref = "/favicon.png";
-    let themeColor = "#2dc4a0";
+    let title = "Tecfag Group";
+    let iconHref = "/logo_t_preto.png";
+    let themeColor = "#0a0a0a";
+    const ogTitle = "Tecfag Group";
+    const ogDescription = "Sistema desenvolvido especialmente para a Tecfag Group.";
+    const ogImageUrl = "https://tecfagchat.up.railway.app/og-image.png?v=tecfag";
 
     if (typeof window !== "undefined") {
       try {
         const savedTenant = localStorage.getItem("chat_tenant");
-        if (savedTenant === "tecfag") {
+        if (savedTenant === "valem") {
+          title = "Valem Chat";
+          iconHref = "/favicon.png";
+          themeColor = "#2dc4a0";
+        } else if (savedTenant === "tecfag") {
           title = "Tecfag Chat";
           iconHref = "/logo_tecfag.png";
           themeColor = "#df3d3d";
@@ -239,47 +246,44 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         { title },
         {
           name: "description",
-          content:
-            "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial.",
+          content: ogDescription,
         },
         { name: "author", content: "Tecfag Group" },
 
-        // Open Graph (WhatsApp, Facebook, LinkedIn, Discord, Telegram)
-        { property: "og:title", content: title },
+        // Open Graph (WhatsApp, Facebook, LinkedIn, Discord, Telegram, Microsoft Teams)
+        { property: "og:title", content: ogTitle },
         {
           property: "og:description",
-          content:
-            "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial.",
+          content: ogDescription,
         },
         { property: "og:type", content: "website" },
         { property: "og:url", content: "https://tecfagchat.up.railway.app" },
-        { property: "og:site_name", content: title },
-        { property: "og:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
+        { property: "og:site_name", content: ogTitle },
+        { property: "og:image", content: ogImageUrl },
         {
           property: "og:image:secure_url",
-          content: "https://tecfagchat.up.railway.app/og-image.png",
+          content: ogImageUrl,
         },
         { property: "og:image:type", content: "image/png" },
         { property: "og:image:width", content: "1200" },
         { property: "og:image:height", content: "630" },
-        { property: "og:image:alt", content: title },
+        { property: "og:image:alt", content: ogTitle },
 
         // Twitter Cards
         { name: "twitter:card", content: "summary_large_image" },
-        { name: "twitter:title", content: title },
+        { name: "twitter:title", content: ogTitle },
         {
           name: "twitter:description",
-          content:
-            "Plataforma de atendimento multicanal, automação via WhatsApp e gestão comercial.",
+          content: ogDescription,
         },
-        { name: "twitter:image", content: "https://tecfagchat.up.railway.app/og-image.png" },
+        { name: "twitter:image", content: ogImageUrl },
 
         // Mobile & PWA App (Safari iOS e Chrome Android)
         { name: "mobile-web-app-capable", content: "yes" },
         { name: "apple-mobile-web-app-capable", content: "yes" },
         { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-        { name: "apple-mobile-web-app-title", content: "Tecfag Chat" },
-        { name: "application-name", content: "Tecfag Chat" },
+        { name: "apple-mobile-web-app-title", content: "Tecfag Group" },
+        { name: "application-name", content: "Tecfag Group" },
       ],
       links: [
         { rel: "icon", type: "image/png", href: iconHref },
@@ -313,7 +317,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{if(typeof window!=="undefined"){if(typeof window.global==="undefined")window.global=window;if(typeof window.Buffer==="undefined"){window.Buffer={isBuffer:function(b){return b instanceof Uint8Array;},from:function(d){if(typeof d==="string")return new TextEncoder().encode(d);return new Uint8Array(d);},alloc:function(s){return new Uint8Array(s);},allocUnsafe:function(s){return new Uint8Array(s);},concat:function(l){var t=0;for(var i=0;i<l.length;i++)t+=(l[i].length||0);var r=new Uint8Array(t);var o=0;for(var j=0;j<l.length;j++){r.set(l[j],o);o+=l[j].length;}return r;}};}}}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_tenant");var isT=t==="tecfag";document.title=isT?"Tecfag Chat":"Valem Chat";var icon=isT?"/logo_tecfag.png":"/favicon.png";var l=document.querySelectorAll("link[rel='icon'], link[rel='shortcut icon']");l.forEach(function(el){el.href=icon;});}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_theme_mode");var v=t==="voice";var d=t==="dark"||v||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}if(v){document.documentElement.classList.add("theme-voice");document.documentElement.setAttribute("data-theme","voice");}else{document.documentElement.classList.remove("theme-voice");document.documentElement.removeAttribute("data-theme");}}catch(e){}})();(function(){try{var d=localStorage.getItem("chat_ui_density");if(d&&d!=="auto"){document.documentElement.setAttribute("data-density",d);}}catch(e){}})();`,
+            __html: `(function(){try{if(typeof window!=="undefined"){if(typeof window.global==="undefined")window.global=window;if(typeof window.Buffer==="undefined"){window.Buffer={isBuffer:function(b){return b instanceof Uint8Array;},from:function(d){if(typeof d==="string")return new TextEncoder().encode(d);return new Uint8Array(d);},alloc:function(s){return new Uint8Array(s);},allocUnsafe:function(s){return new Uint8Array(s);},concat:function(l){var t=0;for(var i=0;i<l.length;i++)t+=(l[i].length||0);var r=new Uint8Array(t);var o=0;for(var j=0;j<l.length;j++){r.set(l[j],o);o+=l[j].length;}return r;}};}}}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_tenant");var isV=t==="valem";var isT=t==="tecfag";document.title=isV?"Valem Chat":(isT?"Tecfag Chat":"Tecfag Group");var icon=isV?"/favicon.png":(isT?"/logo_tecfag.png":"/logo_t_preto.png");var l=document.querySelectorAll("link[rel='icon'], link[rel='shortcut icon']");l.forEach(function(el){el.href=icon;});}catch(e){}})();(function(){try{var t=localStorage.getItem("chat_theme_mode");var v=t==="voice";var d=t==="dark"||v||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");}else{document.documentElement.classList.remove("dark");}if(v){document.documentElement.classList.add("theme-voice");document.documentElement.setAttribute("data-theme","voice");}else{document.documentElement.classList.remove("theme-voice");document.documentElement.removeAttribute("data-theme");}}catch(e){}})();(function(){try{var d=localStorage.getItem("chat_ui_density");if(d&&d!=="auto"){document.documentElement.setAttribute("data-density",d);}}catch(e){}})();`,
           }}
         />
         <HeadContent />

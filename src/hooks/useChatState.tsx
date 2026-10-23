@@ -297,8 +297,9 @@ function mergeRecentMessages(current: Message[], incoming: Message[]): Message[]
 // Atualiza dinamicamente o favicon da aba do navegador conforme o tenant ativo
 export const updateFavicon = (currentTenant: string | null) => {
   if (typeof document === "undefined") return;
+  const isValem = currentTenant === "valem";
   const isTecfag = currentTenant === "tecfag";
-  const iconHref = isTecfag ? "/logo_tecfag.png" : "/favicon.png";
+  const iconHref = isValem ? "/favicon.png" : isTecfag ? "/logo_tecfag.png" : "/logo_t_preto.png";
 
   const head = document.head || document.getElementsByTagName("head")[0];
   if (!head) return;
@@ -328,7 +329,7 @@ export const updateFavicon = (currentTenant: string | null) => {
 // Atualiza dinamicamente o título do documento e o favicon sem fixar canal por tenant
 export const updateDocumentTitle = (currentTenant: string | null, _provider?: "baileys" | "meta") => {
   if (typeof document === "undefined") return;
-  const tName = currentTenant === "tecfag" ? "Tecfag Chat" : "Valem Chat";
+  const tName = currentTenant === "valem" ? "Valem Chat" : currentTenant === "tecfag" ? "Tecfag Chat" : "Tecfag Group";
   document.title = tName;
   updateFavicon(currentTenant);
 };
