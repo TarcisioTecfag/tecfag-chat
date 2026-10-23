@@ -40,6 +40,8 @@ import {
 } from "./industrial-handoff-issues";
 import type { MachineDecision } from "./industrial-decisor";
 import { appendIndustrialJournal } from "./industrial-triage-journal-store";
+import { setAttendanceActor } from "../attendance-events";
+import { getAiPersona } from "../ai-persona";
 import { readSiteContext, type SiteContext } from "../livechat/site-context";
 
 export interface HandoffRequest {
@@ -271,6 +273,7 @@ export function createIndustrialHandoffStore(
     ): Promise<IndustrialStoredResult> {
       try {
         return await database.transaction(async (tx): Promise<IndustrialStoredResult> => {
+          await setAttendanceActor(tx, key.tenantId, getAiPersona(key.tenantId).name, null);
           // Reserva por tenant, não por processo. Abrange seleção, CRM, carteira, contador e recibo.
           const rodizio = await lockIndustrialRodizio(tx, key.tenantId);
           const state = await lockFlow(tx, key);

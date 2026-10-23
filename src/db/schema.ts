@@ -1309,6 +1309,33 @@ export const crmCatalogPolicies = pgTable("crm_catalog_policies", {
 // ─── 16. ESTADO DO FLUXO DO AGENTE POR CONVERSA ─────────────────────────────
 // Rastreia em qual passo da conversa o agente está para cada atendimento ativo.
 // Permite retomar o fluxo exatamente de onde parou após reconexão.
+export const attendanceEventCycles = pgTable("attendance_event_cycles", {
+  conversationId: text("conversation_id").primaryKey().references(() => conversations.id, { onDelete: "cascade" }),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  cycleId: text("cycle_id").notNull().default(sql`gen_random_uuid()::text`),
+  closed: boolean("closed").notNull().default(false),
+});
+
+export const attendanceEvents = pgTable("attendance_events", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  cycleId: text("cycle_id").notNull(),
+  sourceKey: text("source_key").notNull(),
+  eventType: text("event_type").notNull(),
+  description: text("description").notNull(),
+  actorName: text("actor_name").notNull(),
+  operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
+  dealId: text("deal_id").references(() => crmDeals.id, { onDelete: "set null" }),
+  pendingBinding: boolean("pending_binding").notNull().default(false),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  sourceUnique: uniqueIndex("attendance_events_tenant_id_conversation_id_source_key_key").on(table.tenantId, table.conversationId, table.sourceKey),
+  timeline: index("idx_attendance_events_timeline").on(table.tenantId, table.conversationId, table.createdAt.desc(), table.id.desc()),
+  pending: index("idx_attendance_events_pending").on(table.tenantId, table.conversationId, table.cycleId).where(sql`${table.pendingBinding}`),
+}));
+
 export const agentFlowStates = pgTable("agent_flow_states", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),

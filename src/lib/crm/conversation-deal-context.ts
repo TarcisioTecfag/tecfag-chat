@@ -7,6 +7,7 @@ import {
   crmDealActivities,
   crmDealEvents,
   messages,
+  operators,
 } from "../../db/schema";
 import type { DealTransaction } from "./deal-associations";
 import { getContactDealRows } from "./contact-deals-query";
@@ -147,6 +148,14 @@ async function recordContextChange(
   reason: string,
 ) {
   const changeId = crypto.randomUUID();
+  if (reason === "automatic" && toDealId) {
+    const [deal] = await tx.select({ title: crmDeals.title }).from(crmDeals).where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, toDealId))).limit(1);
+    await tx.insert(messages).values({ id: `context-auto-${changeId}`, tenantId, conversationId,
+      senderType: "system", senderName: "Sistema", isInternalNote: true, direction: "outbound", status: "accepted",
+      content: `Negociação atual selecionada automaticamente: ${deal?.title || toDealId}.`,
+      metaDetails: { attendanceEventType: "attendance.context_selected" },
+    });
+  }
   for (const dealId of new Set([fromDealId, toDealId].filter((id): id is string => Boolean(id)))) {
     await tx.insert(crmDealEvents).values({
       id: `context-${changeId}-${dealId}`,
@@ -211,12 +220,14 @@ export async function selectDealContext(
     operatorId,
     "manual",
   );
+  const [actor] = await tx.select({ name: operators.name }).from(operators).where(and(eq(operators.tenantId, tenantId), eq(operators.id, operatorId))).limit(1);
   await tx.insert(messages).values({
     id: `context-${crypto.randomUUID()}`,
     tenantId,
     conversationId,
     senderType: "system",
     senderName: "Sistema",
+    metaDetails: { attendanceActor: { name: actor?.name || "Operador", operatorId }, attendanceEventType: "attendance.context_selected" },
     isInternalNote: true,
     direction: "outbound",
     status: "accepted",
@@ -259,23 +270,8 @@ export async function recordConversationAction(
         operatorId: input.operatorId,
       })
       .onConflictDoNothing();
-  await tx
-    .insert(crmDealEvents)
-    .values({
-      id: `chat-${input.messageId}`,
-      tenantId: input.tenantId,
-      dealId: input.dealId,
-      eventType: "conversation_action",
-      operatorId: input.operatorId,
-      metadata: {
-        ...input.metadata,
-        conversationId: input.conversationId,
-        messageId: input.messageId,
-        description: input.content,
-        actionType: input.type,
-      },
-    })
-    .onConflictDoNothing();
+  // O ledger attendance_events e a projeção no CRM são gravados pelos triggers
+  // da mesma transação que persiste a ação. Aqui mantemos apenas o card rico da nota.
 }
 
 export async function endDealContext(
@@ -293,7 +289,7 @@ export async function endDealContext(
       ),
     )
     .limit(1);
-  if (!context) return;
+  if (!context || (!context.currentDealId && context.selectionRequired)) return;
   await tx
     .update(conversationDealContexts)
     .set({
@@ -309,36 +305,4 @@ export async function endDealContext(
         eq(conversationDealContexts.conversationId, conversationId),
       ),
     );
-}
-
-/** Alterações do card aparecem apenas nas conversas que o usam como contexto atual. */
-export async function recordDealChangeInConversation(
-  tx: DealTransaction,
-  tenantId: string,
-  dealId: string,
-  content: string,
-  conversationId?: string | null,
-) {
-  const contexts = await tx
-    .select({ conversationId: conversationDealContexts.conversationId })
-    .from(conversationDealContexts)
-    .where(
-      and(
-        eq(conversationDealContexts.tenantId, tenantId),
-        eq(conversationDealContexts.currentDealId, dealId),
-        conversationId ? eq(conversationDealContexts.conversationId, conversationId) : undefined,
-      ),
-    );
-  for (const context of contexts)
-    await tx.insert(messages).values({
-      id: `crm-${crypto.randomUUID()}`,
-      tenantId,
-      conversationId: context.conversationId,
-      senderType: "system",
-      senderName: "Sistema",
-      isInternalNote: true,
-      direction: "outbound",
-      status: "accepted",
-      content,
-    });
 }

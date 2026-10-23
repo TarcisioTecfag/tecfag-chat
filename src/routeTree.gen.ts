@@ -157,6 +157,7 @@ import { Route as ApiContactsContactIdRdDealRouteImport } from './routes/api/con
 import { Route as ApiContactsContactIdConversationsRouteImport } from './routes/api/contacts/$contactId/conversations'
 import { Route as ApiContactsContactIdAccountHistoryRouteImport } from './routes/api/contacts/$contactId/account-history'
 import { Route as ApiCommercialDirectivesPointRouteImport } from './routes/api/commercial/directives/point'
+import { Route as ApiChatsConversationIdEventsRouteImport } from './routes/api/chats/$conversationId/events'
 import { Route as ApiChatsConversationIdDealsRouteImport } from './routes/api/chats/$conversationId/deals'
 import { Route as ApiChatsConversationIdDealContextRouteImport } from './routes/api/chats/$conversationId/deal-context'
 import { Route as ApiChatsChatIdMessagesRouteImport } from './routes/api/chats/$chatId/messages'
@@ -951,6 +952,12 @@ const ApiCommercialDirectivesPointRoute =
     path: '/point',
     getParentRoute: () => ApiCommercialDirectivesRoute,
   } as any)
+const ApiChatsConversationIdEventsRoute =
+  ApiChatsConversationIdEventsRouteImport.update({
+    id: '/$conversationId/events',
+    path: '/$conversationId/events',
+    getParentRoute: () => ApiChatsRoute,
+  } as any)
 const ApiChatsConversationIdDealsRoute =
   ApiChatsConversationIdDealsRouteImport.update({
     id: '/$conversationId/deals',
@@ -1213,6 +1220,7 @@ export interface FileRoutesByFullPath {
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deal-context': typeof ApiChatsConversationIdDealContextRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
+  '/api/chats/$conversationId/events': typeof ApiChatsConversationIdEventsRoute
   '/api/commercial/directives/point': typeof ApiCommercialDirectivesPointRoute
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/conversations': typeof ApiContactsContactIdConversationsRoute
@@ -1386,6 +1394,7 @@ export interface FileRoutesByTo {
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deal-context': typeof ApiChatsConversationIdDealContextRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
+  '/api/chats/$conversationId/events': typeof ApiChatsConversationIdEventsRoute
   '/api/commercial/directives/point': typeof ApiCommercialDirectivesPointRoute
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/conversations': typeof ApiContactsContactIdConversationsRoute
@@ -1560,6 +1569,7 @@ export interface FileRoutesById {
   '/api/chats/$chatId/messages': typeof ApiChatsChatIdMessagesRoute
   '/api/chats/$conversationId/deal-context': typeof ApiChatsConversationIdDealContextRoute
   '/api/chats/$conversationId/deals': typeof ApiChatsConversationIdDealsRoute
+  '/api/chats/$conversationId/events': typeof ApiChatsConversationIdEventsRoute
   '/api/commercial/directives/point': typeof ApiCommercialDirectivesPointRoute
   '/api/contacts/$contactId/account-history': typeof ApiContactsContactIdAccountHistoryRoute
   '/api/contacts/$contactId/conversations': typeof ApiContactsContactIdConversationsRoute
@@ -1735,6 +1745,7 @@ export interface FileRouteTypes {
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deal-context'
     | '/api/chats/$conversationId/deals'
+    | '/api/chats/$conversationId/events'
     | '/api/commercial/directives/point'
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/conversations'
@@ -1908,6 +1919,7 @@ export interface FileRouteTypes {
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deal-context'
     | '/api/chats/$conversationId/deals'
+    | '/api/chats/$conversationId/events'
     | '/api/commercial/directives/point'
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/conversations'
@@ -2081,6 +2093,7 @@ export interface FileRouteTypes {
     | '/api/chats/$chatId/messages'
     | '/api/chats/$conversationId/deal-context'
     | '/api/chats/$conversationId/deals'
+    | '/api/chats/$conversationId/events'
     | '/api/commercial/directives/point'
     | '/api/contacts/$contactId/account-history'
     | '/api/contacts/$contactId/conversations'
@@ -3289,6 +3302,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCommercialDirectivesPointRouteImport
       parentRoute: typeof ApiCommercialDirectivesRoute
     }
+    '/api/chats/$conversationId/events': {
+      id: '/api/chats/$conversationId/events'
+      path: '/$conversationId/events'
+      fullPath: '/api/chats/$conversationId/events'
+      preLoaderRoute: typeof ApiChatsConversationIdEventsRouteImport
+      parentRoute: typeof ApiChatsRoute
+    }
     '/api/chats/$conversationId/deals': {
       id: '/api/chats/$conversationId/deals'
       path: '/$conversationId/deals'
@@ -3461,6 +3481,7 @@ interface ApiChatsRouteChildren {
   ApiChatsChatIdMessagesRoute: typeof ApiChatsChatIdMessagesRoute
   ApiChatsConversationIdDealContextRoute: typeof ApiChatsConversationIdDealContextRoute
   ApiChatsConversationIdDealsRoute: typeof ApiChatsConversationIdDealsRoute
+  ApiChatsConversationIdEventsRoute: typeof ApiChatsConversationIdEventsRoute
 }
 
 const ApiChatsRouteChildren: ApiChatsRouteChildren = {
@@ -3472,6 +3493,7 @@ const ApiChatsRouteChildren: ApiChatsRouteChildren = {
   ApiChatsConversationIdDealContextRoute:
     ApiChatsConversationIdDealContextRoute,
   ApiChatsConversationIdDealsRoute: ApiChatsConversationIdDealsRoute,
+  ApiChatsConversationIdEventsRoute: ApiChatsConversationIdEventsRoute,
 }
 
 const ApiChatsRouteWithChildren = ApiChatsRoute._addFileChildren(

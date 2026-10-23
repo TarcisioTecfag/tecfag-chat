@@ -1,250 +1,293 @@
-/**
- * /api/calls
- * REST endpoints para gerenciar sessões de chamada WebRTC via polling.
- *
- * POST   /api/calls                    → Cria sala + registra no DB + retorna link
- * GET    /api/calls?roomId=xxx         → Estado atual da sala
- * GET    /api/calls?action=signal&...  → Polling de sinais WebRTC (offer/answer/ICE)
- * POST   /api/calls?action=signal     → Envia sinal WebRTC
- * POST   /api/calls?action=transcribe  → Recebe áudio, transcreve e insere nota no chat
- * POST   /api/calls?action=end         → Encerra sala forçado
- */
-
 import { createFileRoute } from "@tanstack/react-router";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db";
-import { callSessions, messages, conversations } from "../../db/schema";
-import { eq } from "drizzle-orm";
-import { createRoom, getRoomStatus, addSignal, getSignals, endRoom } from "../../lib/call-signaling";
+import { callSessions, messages } from "../../db/schema";
+import { requireSession } from "../../lib/auth-session";
+import {
+  requireConversationAccess,
+  requireConversationWriteAccess,
+} from "../../lib/access-control/conversation-access";
+import {
+  createRoom,
+  getRoomStatus,
+  addSignal,
+  getSignals,
+  endRoom,
+} from "../../lib/call-signaling";
 import { transcribeAudio, formatCallNote } from "../../lib/call-transcriber";
+import { getDealContext, DealContextError } from "../../lib/crm/conversation-deal-context";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
-
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+const json = (data: unknown, init: ResponseInit = {}) =>
+  Response.json(data, {
+    ...init,
+    headers: { ...corsHeaders, ...((init.headers as Record<string, string>) || {}) },
   });
-}
 
+/** O link do cliente é uma capacidade aleatória de 128 bits, limitada à sala em
+ * memória. Não dá acesso à transcrição, ao chat ou a outro tenant. */
 export const Route = createFileRoute("/api/calls")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
-
-      // ── GET /api/calls — Estado da sala OU polling de sinais ────────────────
       GET: async ({ request }) => {
         const url = new URL(request.url);
-        const action = url.searchParams.get("action");
-
-        if (action === "signal") {
-          return handlePollSignals(url);
+        const roomId = url.searchParams.get("roomId") || "";
+        const room = getRoomStatus(roomId);
+        if (!room) return json({ error: "Sala não encontrada ou expirada." }, { status: 404 });
+        const role = url.searchParams.get("role") || "client";
+        if (!["agent", "client"].includes(role))
+          return json({ error: "Papel inválido." }, { status: 400 });
+        if (role === "agent") {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          if (room.tenantId !== session.tenantId || room.operatorId !== session.operator.id)
+            return json({ error: "Sala não encontrada." }, { status: 404 });
+          const denied = await requireConversationAccess(session, room.conversationId);
+          if (denied) return denied;
         }
-
-        // GET sem action → estado da sala
-        const roomId = url.searchParams.get("roomId");
-        if (!roomId) return json({ error: "roomId é obrigatório" }, 400);
-
-        const roomInMemory = getRoomStatus(roomId);
-        const session = await db.query.callSessions.findFirst({
-          where: (t, { eq: dEq }) => dEq(t.roomId, roomId),
-        });
-
-        if (!session) return json({ error: "Sala não encontrada" }, 404);
-
-        return json({
-          roomId,
-          status: roomInMemory?.status ?? session.status,
-          durationSeconds: session.durationSeconds,
-          transcription: session.transcription,
-        });
+        if (url.searchParams.get("action") === "signal") {
+          const after = Number(url.searchParams.get("after") || "0");
+          if (!Number.isFinite(after) || after < 0)
+            return json({ error: "Cursor inválido." }, { status: 400 });
+          return json(
+            { signals: getSignals(roomId, after, role as "agent" | "client"), status: room.status },
+            { headers: { "Cache-Control": "no-store" } },
+          );
+        }
+        return json({ roomId, status: room.status }, { headers: { "Cache-Control": "no-store" } });
       },
-
-      // ── POST /api/calls — Criar sala, sinalizar, transcrever, encerrar ───────
       POST: async ({ request }) => {
-        const url = new URL(request.url);
-        const action = url.searchParams.get("action");
-
-        if (action === "signal")    return handleSendSignal(request);
-        if (action === "transcribe") return handleTranscribe(request);
-        if (action === "end")        return handleEnd(request);
-
-        return handleCreate(request);
+        try {
+          const action = new URL(request.url).searchParams.get("action");
+          // Sinalização pública tem capacidade própria; não aceita tenant/conversa do cliente.
+          if (action === "signal") {
+            const body = await request.json();
+            const room = typeof body.roomId === "string" ? getRoomStatus(body.roomId) : null;
+            if (!room) return json({ error: "Sala não encontrada ou expirada." }, { status: 404 });
+            if (
+              !["agent", "client"].includes(body.role) ||
+              ![
+                "client:joined",
+                "call:connected",
+                "webrtc:ice",
+                "webrtc:offer",
+                "webrtc:answer",
+                "call:ended",
+              ].includes(body.type)
+            )
+              return json({ error: "Sinal inválido." }, { status: 400 });
+            if (body.role === "agent") {
+              const auth = await requireSession(request);
+              if ("response" in auth) return auth.response;
+              const { session } = auth;
+              if (room.tenantId !== session.tenantId || room.operatorId !== session.operator.id)
+                return json({ error: "Sala não encontrada." }, { status: 404 });
+              const denied = await requireConversationAccess(session, room.conversationId);
+              if (denied) return denied;
+            }
+            if (
+              (body.type === "client:joined" && body.role !== "client") ||
+              (body.type === "webrtc:offer" && body.role !== "agent") ||
+              (body.type === "webrtc:answer" && body.role !== "client")
+            )
+              return json({ error: "Sinal inválido para este participante." }, { status: 400 });
+            if (room.status === "ended") return json({ error: "Sala encerrada." }, { status: 409 });
+            if (body.type === "client:joined") {
+              await db
+                .update(callSessions)
+                .set({ status: "connecting" })
+                .where(
+                  and(
+                    eq(callSessions.tenantId, room.tenantId),
+                    eq(callSessions.roomId, room.roomId),
+                    eq(callSessions.status, "waiting"),
+                  ),
+                );
+            } else if (body.type === "call:connected") {
+              await db
+                .update(callSessions)
+                .set({ status: "active", startedAt: new Date() })
+                .where(
+                  and(
+                    eq(callSessions.tenantId, room.tenantId),
+                    eq(callSessions.roomId, room.roomId),
+                    inArray(callSessions.status, ["waiting", "connecting"]),
+                  ),
+                );
+            } else if (body.type === "call:ended") {
+              await db
+                .update(callSessions)
+                .set({ status: "ended", endedAt: new Date() })
+                .where(
+                  and(
+                    eq(callSessions.tenantId, room.tenantId),
+                    eq(callSessions.roomId, room.roomId),
+                  ),
+                );
+            }
+            const ok = addSignal(room.roomId, body.role, body.type, body.data);
+            if (body.type === "call:ended") endRoom(room.roomId);
+            return json({ success: ok });
+          }
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+          if (!action) {
+            const body = await request.json();
+            if (typeof body.conversationId !== "string" || !body.conversationId)
+              return json({ error: "Atendimento inválido." }, { status: 400 });
+            const denied = await requireConversationWriteAccess(session, body.conversationId);
+            if (denied) return denied;
+            const roomId = `call-${crypto.randomUUID()}`;
+            const sessionId = `cs-${crypto.randomUUID()}`;
+            await db.transaction(async (tx) => {
+              const state = await getDealContext(
+                tx,
+                tenantId,
+                body.conversationId,
+                session.operator.id,
+              );
+              if (
+                state.conversation.operatorId !== session.operator.id ||
+                state.conversation.queueState !== "meus"
+              )
+                throw new DealContextError(
+                  "O responsável pelo atendimento mudou.",
+                  "FORBIDDEN",
+                  403,
+                );
+              await tx.insert(callSessions).values({
+                id: sessionId,
+                tenantId,
+                conversationId: body.conversationId,
+                operatorId: session.operator.id,
+                roomId,
+                status: "waiting",
+              });
+            });
+            createRoom(
+              roomId,
+              { tenantId, conversationId: body.conversationId, operatorId: session.operator.id },
+              async () => {
+                await db
+                  .update(callSessions)
+                  .set({ status: "missed", endedAt: new Date() })
+                  .where(
+                    and(
+                      eq(callSessions.tenantId, tenantId),
+                      eq(callSessions.id, sessionId),
+                      eq(callSessions.status, "waiting"),
+                    ),
+                  );
+              },
+            );
+            const appUrl = process.env.PUBLIC_APP_URL || new URL(request.url).origin;
+            return json({
+              success: true,
+              roomId,
+              sessionId,
+              callLink: `${appUrl}/call/${roomId}`,
+            });
+          }
+          if (!["end", "transcribe"].includes(action))
+            return json({ error: "Ação inválida." }, { status: 400 });
+          const form = action === "transcribe" ? await request.formData() : null;
+          const body = form ? null : await request.json();
+          const roomId = form ? form.get("roomId") : body?.roomId;
+          if (typeof roomId !== "string" || !roomId)
+            return json({ error: "Sala inválida." }, { status: 400 });
+          const [call] = await db
+            .select()
+            .from(callSessions)
+            .where(and(eq(callSessions.tenantId, tenantId), eq(callSessions.roomId, roomId)))
+            .limit(1);
+          if (!call || call.operatorId !== session.operator.id)
+            return json({ error: "Sala não encontrada." }, { status: 404 });
+          const denied = await requireConversationAccess(session, call.conversationId);
+          if (denied) return denied;
+          if (action === "end") {
+            await db
+              .update(callSessions)
+              .set({ status: "ended", endedAt: call.endedAt || new Date() })
+              .where(and(eq(callSessions.tenantId, tenantId), eq(callSessions.id, call.id)));
+            endRoom(roomId);
+            return json({ success: true });
+          }
+          const audio = form!.get("audio");
+          const duration = Number(form!.get("duration") || "0");
+          if (
+            !(audio instanceof File) ||
+            !Number.isFinite(duration) ||
+            duration < 0 ||
+            duration > 86400 ||
+            audio.size > 50 * 1024 * 1024
+          )
+            return json({ error: "Áudio ou duração inválidos." }, { status: 400 });
+          if (call.transcriptionMessageId)
+            return json({
+              success: true,
+              transcription: call.transcription,
+              transcriptionMessageId: call.transcriptionMessageId,
+            });
+          await db
+            .update(callSessions)
+            .set({
+              status: "ended",
+              endedAt: call.endedAt || new Date(),
+              durationSeconds: Math.floor(duration),
+            })
+            .where(and(eq(callSessions.tenantId, tenantId), eq(callSessions.id, call.id)));
+          endRoom(roomId);
+          const transcription = await transcribeAudio(
+            Buffer.from(await audio.arrayBuffer()),
+            audio.name || "recording.webm",
+            tenantId,
+          );
+          let transcriptionMessageId: string | null = null;
+          if (transcription) {
+            transcriptionMessageId = `call-note-${call.id}`;
+            await db.transaction(async (tx) => {
+              await tx
+                .insert(messages)
+                .values({
+                  id: transcriptionMessageId!,
+                  tenantId,
+                  conversationId: call.conversationId,
+                  senderType: "system",
+                  senderName: "Sistema — Ligação",
+                  content: formatCallNote(transcription, session.operator.name, duration),
+                  isInternalNote: true,
+                  direction: "outbound",
+                  provider: "system",
+                  metaDetails: {
+                    attendanceActor: {
+                      name: session.operator.name,
+                      operatorId: session.operator.id,
+                    },
+                  },
+                })
+                .onConflictDoNothing();
+              await tx
+                .update(callSessions)
+                .set({ transcription, transcriptionMessageId })
+                .where(and(eq(callSessions.tenantId, tenantId), eq(callSessions.id, call.id)));
+            });
+          }
+          return json({ success: true, transcription, transcriptionMessageId });
+        } catch (error) {
+          if (error instanceof DealContextError)
+            return json({ error: error.message, code: error.code }, { status: error.statusCode });
+          console.error("[Calls]", error);
+          return json({ error: "Não foi possível concluir a ação da ligação." }, { status: 500 });
+        }
       },
     },
   },
 });
-
-// ── Polling de sinais WebRTC ──────────────────────────────────────────────────
-// GET /api/calls?action=signal&roomId=xxx&after=timestamp&role=agent|client
-
-function handlePollSignals(url: URL): Response {
-  const roomId = url.searchParams.get("roomId");
-  const after  = parseInt(url.searchParams.get("after") ?? "0", 10);
-  const role   = (url.searchParams.get("role") ?? "client") as "agent" | "client";
-
-  if (!roomId) return json({ error: "roomId é obrigatório" }, 400);
-
-  const room = getRoomStatus(roomId);
-  if (!room) return json({ error: "Sala não encontrada ou expirada" }, 404);
-
-  const signals = getSignals(roomId, after, role);
-  return json({ signals, status: room.status });
-}
-
-// ── Enviar sinal WebRTC ───────────────────────────────────────────────────────
-// POST /api/calls?action=signal  body: { roomId, role, type, data }
-
-async function handleSendSignal(request: Request): Promise<Response> {
-  try {
-    const body = await request.json();
-    const { roomId, role, type, data } = body;
-
-    if (!roomId || !role || !type) {
-      return json({ error: "roomId, role e type são obrigatórios" }, 400);
-    }
-
-    const ok = addSignal(roomId, role as "agent" | "client", type, data);
-    if (!ok) return json({ error: "Sala não encontrada ou encerrada" }, 404);
-
-    return json({ success: true });
-  } catch (e: any) {
-    return json({ error: e.message }, 500);
-  }
-}
-
-// ── Criar sala ────────────────────────────────────────────────────────────────
-
-async function handleCreate(request: Request): Promise<Response> {
-  try {
-    const body = await request.json();
-    const { tenantId, conversationId, operatorId, operatorName } = body;
-
-    if (!tenantId || !conversationId || !operatorId) {
-      return json({ error: "tenantId, conversationId e operatorId são obrigatórios" }, 400);
-    }
-
-    const roomId = `call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const sessionId = `cs-${Date.now()}`;
-
-    createRoom(roomId);
-
-    await db.insert(callSessions).values({
-      id: sessionId,
-      tenantId,
-      conversationId,
-      operatorId,
-      roomId,
-      status: "waiting",
-      createdAt: new Date(),
-    });
-
-    const appUrl = process.env.PUBLIC_APP_URL ?? "http://localhost:3000";
-    const callLink = `${appUrl}/call/${roomId}`;
-
-    console.log(`[Calls] Sala criada: ${roomId} | Operador: ${operatorName} | Link: ${callLink}`);
-
-    return json({ success: true, roomId, sessionId, callLink });
-  } catch (e: any) {
-    console.error("[Calls] Erro ao criar sala:", e);
-    return json({ error: e.message }, 500);
-  }
-}
-
-// ── Transcrever áudio e inserir nota no chat ──────────────────────────────────
-
-async function handleTranscribe(request: Request): Promise<Response> {
-  try {
-    const formData = await request.formData();
-    const audioFile = formData.get("audio") as File | null;
-    const roomId = formData.get("roomId") as string;
-    const durationStr = formData.get("duration") as string;
-    const operatorName = (formData.get("operatorName") as string) ?? "Agente";
-
-    if (!audioFile || !roomId) {
-      return json({ error: "audio e roomId são obrigatórios" }, 400);
-    }
-
-    const duration = parseInt(durationStr ?? "0", 10);
-
-    const session = await db.query.callSessions.findFirst({
-      where: (t, { eq: dEq }) => dEq(t.roomId, roomId),
-    });
-
-    if (!session) return json({ error: "Sessão não encontrada" }, 404);
-
-    await db
-      .update(callSessions)
-      .set({ status: "ended", endedAt: new Date(), durationSeconds: duration })
-      .where(eq(callSessions.roomId, roomId));
-
-    const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
-    const transcription = await transcribeAudio(audioBuffer, audioFile.name || "recording.webm");
-
-    let transcriptionMessageId: string | null = null;
-
-    if (transcription) {
-      await db
-        .update(callSessions)
-        .set({ transcription })
-        .where(eq(callSessions.roomId, roomId));
-
-      const noteContent = formatCallNote(transcription, operatorName, duration);
-      transcriptionMessageId = `call-note-${Date.now()}`;
-
-      await db.insert(messages).values({
-        id: transcriptionMessageId,
-        tenantId: session.tenantId,
-        conversationId: session.conversationId,
-        senderType: "system",
-        senderName: "Sistema — Ligação",
-        content: noteContent,
-        isInternalNote: true,
-        sentAt: new Date(),
-      });
-
-      await db
-        .update(conversations)
-        .set({
-          lastMessageText: `📞 Ligação encerrada • ${Math.floor(duration / 60)}min`,
-          lastMessageTime: new Date(),
-        })
-        .where(eq(conversations.id, session.conversationId));
-
-      await db
-        .update(callSessions)
-        .set({ transcriptionMessageId })
-        .where(eq(callSessions.roomId, roomId));
-    }
-
-    return json({ success: true, transcription, transcriptionMessageId });
-  } catch (e: any) {
-    console.error("[Calls] Erro ao transcrever:", e);
-    return json({ error: e.message }, 500);
-  }
-}
-
-// ── Encerrar sala ─────────────────────────────────────────────────────────────
-
-async function handleEnd(request: Request): Promise<Response> {
-  try {
-    const body = await request.json();
-    const { roomId } = body;
-
-    if (!roomId) return json({ error: "roomId é obrigatório" }, 400);
-
-    endRoom(roomId);
-
-    await db
-      .update(callSessions)
-      .set({ status: "ended", endedAt: new Date() })
-      .where(eq(callSessions.roomId, roomId));
-
-    return json({ success: true });
-  } catch (e: any) {
-    return json({ error: e.message }, 500);
-  }
-}

@@ -4,6 +4,7 @@ import { agentFlowStates, conversations, messages } from "../../db/schema";
 import type { IndustrialDatabase, IndustrialTransaction } from "./industrial-rodizio-store";
 import { appendIndustrialJournal } from "./industrial-triage-journal-store";
 import { buildJournalSnapshot } from "./industrial-triage-journal";
+import { getAiPersona } from "../ai-persona";
 
 /** Arquiva e reinicia apenas o SDR, na mesma transação e com deduplicação da entrada. */
 export async function restartIndustrialCycle(
@@ -102,6 +103,7 @@ export async function restartIndustrialCycle(
         currentStep: "Em Qualificação",
         collectedData: {},
         metadata: {
+          attendanceActorName: getAiPersona(tenantId).name,
           stepNumber: 1,
           totalSteps: 7,
           followUpStage: 0,

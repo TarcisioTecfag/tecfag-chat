@@ -15,7 +15,7 @@ import { vertexAi, MultimodalPart } from "./vertex-ai";
 export async function transcribeAudio(
   audioBuffer: Buffer,
   filename: string = "recording.webm",
-  tenantId: string = "valem"
+  tenantId: string
 ): Promise<string | null> {
   try {
     console.log(`[Transcriber VertexAI] Iniciando transcrição — ${(audioBuffer.length / 1024).toFixed(0)} KB`);

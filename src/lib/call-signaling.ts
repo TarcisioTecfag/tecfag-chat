@@ -19,6 +19,9 @@ export interface SignalMessage {
 
 export interface Room {
   roomId: string;
+  tenantId: string;
+  conversationId: string;
+  operatorId: string;
   status: "waiting" | "active" | "ended";
   createdAt: number;
   signals: SignalMessage[];
@@ -33,9 +36,10 @@ const ROOM_TTL_MS = 10 * 60 * 1000; // 10 minutos
 // ─── API Pública ──────────────────────────────────────────────────────────────
 
 /** Cria uma nova sala de chamada com TTL automático. */
-export function createRoom(roomId: string): Room {
+export function createRoom(roomId: string, context: Pick<Room, "tenantId" | "conversationId" | "operatorId">, onExpire?: () => Promise<void>): Room {
   const room: Room = {
     roomId,
+    ...context,
     status: "waiting",
     createdAt: Date.now(),
     signals: [],
@@ -44,6 +48,7 @@ export function createRoom(roomId: string): Room {
       if (r && r.status !== "active") {
         console.log(`[Calls] Sala ${roomId} expirou sem conexão.`);
         rooms.delete(roomId);
+        void onExpire?.().catch(error => console.error("[Calls] Falha ao registrar expiração", error));
       }
     }, ROOM_TTL_MS),
   };

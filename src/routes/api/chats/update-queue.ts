@@ -12,6 +12,7 @@ import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 import { getDealContext, recordConversationAction, endDealContext, selectDealContext, assertDealContextVersion, DealContextError } from "../../../lib/crm/conversation-deal-context";
 import { requireCrmDealAccess } from "../../../lib/access-control/crm-record-access";
+import { setAttendanceActor } from "../../../lib/attendance-events";
 
 export const Route = createFileRoute("/api/chats/update-queue")({
   server: {
@@ -194,6 +195,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           let updatedConv: any;
           try {
             updatedConv = await db.transaction(async (tx) => {
+              await setAttendanceActor(tx, session.tenantId, session.operator.name, session.operator.id);
               const state = await getDealContext(tx, session.tenantId, conversationId, session.operator.id);
               // Captura inicial continua possível para o operador escolher o contexto na tela.
               if (body.expectedContextVersion !== undefined) assertDealContextVersion(state.context, body.expectedContextVersion);
@@ -253,6 +255,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
                   conversationId,
                   senderType: "system",
                   senderName: "Sistema",
+                  metaDetails: { attendanceActor: { name: session.operator.name, operatorId: session.operator.id }, attendanceSkip: true },
                   content: systemMessageText,
                   isInternalNote: true,
                   direction: "outbound",

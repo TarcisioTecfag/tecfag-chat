@@ -1,3 +1,5 @@
+import { attendanceEventLabels } from "../attendance-event-types";
+
 type DealEvent = {
   eventType?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -119,7 +121,7 @@ export function formatDealEvent(
       return { title: meta.toDealId ? (meta.direction === "released" ? "Atendimento direcionado a outra negociação" : "Negociação do atendimento definida") : "Atendimento aguardando nova negociação",
         description: meta.reason === "automatic" ? "Selecionada automaticamente por ser a única negociação em andamento." : "A alteração vale apenas para as próximas ações do atendimento." };
     case "conversation_action":
-      return { title: meta.actionType === "note" ? "Nota do atendimento" : "Ação no atendimento", description: text(meta.description) };
+      return { title: attendanceEventLabels[String(meta.actionType)] || (meta.actionType === "note" ? "Nota do atendimento" : "Ação no atendimento"), description: text(meta.description) };
     case "created":
       return { title: "Negociação criada", description: null };
 

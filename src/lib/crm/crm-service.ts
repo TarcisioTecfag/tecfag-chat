@@ -47,8 +47,8 @@ import type {
   CrmDealEmail,
 } from "../../db/schema";
 import { vertexAi } from "../vertex-ai";
-import { recordDealChangeInConversation } from "./conversation-deal-context";
 import { getContactDealRows } from "./contact-deals-query";
+import type { DealTransaction } from "./deal-associations";
 import {
   diffCustomFieldValues,
   formatCustomFieldLabel,
@@ -1689,9 +1689,10 @@ export class CrmService {
     contactId: string,
     newAccountId: string | null,
     reason?: string,
-    operatorId?: string
+    operatorId?: string,
+    transaction?: DealTransaction,
   ): Promise<{ contactId: string; accountId: string | null }> {
-    return await db.transaction(async (tx) => {
+    const run = async (tx: DealTransaction) => {
       const [contact] = await tx
         .select()
         .from(contacts)
@@ -1739,7 +1740,8 @@ export class CrmService {
       }
 
       return { contactId, accountId: newAccountId };
-    });
+    };
+    return transaction ? run(transaction) : db.transaction(run);
   }
 
   /**
@@ -4105,11 +4107,6 @@ export class CrmService {
         );
       }
 
-      const attendanceChanges: string[] = [];
-      if (statusChanged) attendanceChanges.push(`status: ${{ open: "em andamento", won: "ganha", lost: "perdida", paused: "pausada" }[effectiveNewStatus!]}`);
-      if (setPayload.stageId && setPayload.stageId !== current.stageId) attendanceChanges.push(`etapa: ${toStageName || "alterada"}`);
-      if (setPayload.operatorId !== undefined && setPayload.operatorId !== current.operatorId) attendanceChanges.push(`responsável comercial: ${toOperatorName || "não atribuído"}`);
-      if (attendanceChanges.length) await recordDealChangeInConversation(tx, tenantId, dealId, `Negociação “${updated.title}” atualizada no CRM — ${attendanceChanges.join("; ")}.`);
       if (statusChanged) await enqueueRdCommercial(tx, tenantId, updated, current.status);
       return updated;
     });
@@ -5308,8 +5305,6 @@ export class CrmService {
         .returning();
 
       // Atualiza timestamp de atividade na negociação
-      await recordDealChangeInConversation(tx, tenantId, dealId,
-        data.type === "note" ? `Nota na negociação: ${data.title.trim()}${data.description?.trim() ? "\n" + data.description.trim() : ""}` : `Atividade criada na negociação: ${data.title.trim()}.`, data.conversationId);
       await tx
         .update(crmDeals)
         .set({ lastActivityAt: now, updatedAt: now })

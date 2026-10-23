@@ -186,11 +186,11 @@ export const Route = createFileRoute("/api/chats")({
             }
             const state = isInternalNote ? await getDealContext(tx, session.tenantId, conversationId, session.operator.id) : null;
             const generalNote = body.noteScope === "general";
-            if (state && senderType !== "system" && !generalNote) {
+            if (state && senderType !== "system") {
               assertDealContextVersion(state.context, body.expectedContextVersion);
-              if (!state.context.currentDealId) throw new DealContextError("Selecione a negociação deste atendimento ou marque a nota como geral.", "DEAL_CONTEXT_REQUIRED");
+              if (!state.context.currentDealId && !generalNote) throw new DealContextError("Selecione a negociação deste atendimento ou permita salvar a nota com vínculo pendente.", "DEAL_CONTEXT_REQUIRED");
             }
-            const selectedDealId = generalNote ? null : state?.context.currentDealId || null;
+            const selectedDealId = state?.context.currentDealId || null;
             selectedRdDealId = state?.deals.find(d => d.id === selectedDealId)?.rdDealId || null;
             await tx.insert(messages).values({
               id: msgId,
@@ -198,6 +198,7 @@ export const Route = createFileRoute("/api/chats")({
               tenantId: session.tenantId,
               senderType: senderType as any,
               senderName: senderName || session.operator.name,
+              metaDetails: { attendanceActor: { name: session.operator.name, operatorId: session.operator.id } },
               content,
               isInternalNote,
               idempotencyKey: body.clientMessageId || null,

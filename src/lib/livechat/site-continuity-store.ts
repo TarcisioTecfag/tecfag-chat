@@ -346,6 +346,7 @@ export async function linkSiteContinuityInDatabase(
           funnelStage: "triagem",
           targetFunnel: null,
           ...stripHandoffState(siteMeta),
+          attendanceActorName: getAiPersona(tenantId).name,
           ...(siteContext ? { siteContext } : {}),
           continuedFrom,
           previousTriages: previousTriages.slice(-20),

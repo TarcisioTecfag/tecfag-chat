@@ -1,3 +1,4 @@
+import { AttendanceEvents } from "./AttendanceEvents";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, SystemTooltip } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -69,100 +70,6 @@ import {
   Paperclip,
 } from "lucide-react";
 
-
-interface HistoryEventInfo {
-  title: string;
-  description: string;
-  icon: any;
-  dotBg: string;
-  iconColor: string;
-}
-
-const isHistoryEvent = (msg: any) => {
-  if (msg.senderType === "system" || msg.author === "Sistema" || msg.author === "Sistema — Ligação") {
-    return true;
-  }
-  const text = msg.text || "";
-  return (
-    text.startsWith("CONVERSA INICIADA") ||
-    text.startsWith("Conversa transferida") ||
-    text.startsWith("Conversa encerrada") ||
-    text.startsWith("Clique no botão de ligação") ||
-    text.startsWith("📞 *Ligação iniciada")
-  );
-};
-
-const parseHistoryEvent = (msg: any): HistoryEventInfo => {
-  const text = msg.text || "";
-  
-  if (text.startsWith("CONVERSA INICIADA")) {
-    const operator = text.replace("CONVERSA INICIADA POR", "").trim();
-    return {
-      title: "Atendimento Iniciado",
-      description: operator ? `Atendimento capturado por ${operator}.` : "O atendimento foi iniciado.",
-      icon: CheckCircle2,
-      dotBg: "bg-emerald-500",
-      iconColor: "text-white",
-    };
-  }
-  
-  if (text.startsWith("Conversa transferida")) {
-    return {
-      title: "Atendimento Transferido",
-      description: text,
-      icon: RefreshCw,
-      dotBg: "bg-amber-500",
-      iconColor: "text-white",
-    };
-  }
-  
-  if (text.startsWith("Conversa encerrada")) {
-    return {
-      title: "Atendimento Encerrado",
-      description: "O atendimento foi encerrado.",
-      icon: XCircle,
-      dotBg: "bg-red-500",
-      iconColor: "text-white",
-    };
-  }
-  
-  if (text.includes("botão de ligação") || text.includes("botão do VigosPhone")) {
-    // Ex: "Clique no botão de ligação para o cliente por Pedro"
-    const operatorNamePart = text.split("por ")[1] || "Agente";
-    return {
-      title: "Ligação Discada",
-      description: `Ligação discada via VigosPhone para o cliente por ${operatorNamePart}.`,
-      icon: PhoneCall,
-      dotBg: "bg-teal-500",
-      iconColor: "text-white",
-    };
-  }
-  
-  if (text.startsWith("📞 *Ligação iniciada") || text.includes("Ligação iniciada")) {
-    return {
-      title: "Chamada de Voz (WebRTC)",
-      description: "Chamada de voz iniciada no navegador.",
-      icon: Phone,
-      dotBg: "bg-blue-500",
-      iconColor: "text-white",
-    };
-  }
-
-  const formatted = formatSystemAnnotation(text);
-  const conciseDescription = formatted.isSingleLine
-    ? formatted.singleLineText
-    : formatted.items.map((item) => `${item.label}: ${item.value}`).join(" · ") ||
-      formatted.alerts.join(" · ") ||
-      formatted.badgeTitle;
-
-  return {
-    title: formatted.badgeTitle || "Mensagem do Sistema",
-    description: conciseDescription,
-    icon: Shield,
-    dotBg: "bg-gray-500",
-    iconColor: "text-white",
-  };
-};
 
 export function SharedFiles() {
   const {
@@ -431,7 +338,7 @@ export function SharedFiles() {
         // Mantém sincronia secundária no contato para leitores legados
         fetch(`${BACKEND_URL}/api/contacts/${encodeURIComponent(contactId)}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Attendance-Conversation": activeChat.id },
           body: JSON.stringify({
             cnpjDetails: detailsToSave,
             ...(detailsToSave.cleanCnpj ? { cnpj: detailsToSave.cleanCnpj } : {}),
@@ -499,7 +406,7 @@ export function SharedFiles() {
         if (targetAccount?.id) {
           await fetch(`${BACKEND_URL}/api/contacts/${encodeURIComponent(contactId)}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Attendance-Conversation": activeChat.id },
             body: JSON.stringify({
               accountId: targetAccount.id,
               accountChangeReason: "Empresa vinculada automaticamente via consulta na Receita Federal",
@@ -2059,49 +1966,7 @@ export function SharedFiles() {
         )
       ) : (
         /* TAB 3: EVENTOS */
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <span className="text-[10px] font-bold text-muted-foreground uppercase mb-3 block px-1">
-            Linha do Tempo
-          </span>
-          <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin">
-            {activeChat.messages && activeChat.messages.filter(isHistoryEvent).length > 0 ? (
-              <div className="relative pl-4 border-l border-line space-y-4 py-2 ml-2">
-                {activeChat.messages.filter(isHistoryEvent).map((msg) => {
-                  const eventInfo = parseHistoryEvent(msg);
-                  return (
-                    <div key={msg.id} className="relative group">
-                      {/* Timeline dot */}
-                      <span
-                        className={`absolute -left-[21px] top-1 grid h-4.5 w-4.5 place-items-center rounded-full border border-background shadow-sm ${eventInfo.dotBg}`}
-                      >
-                        {React.createElement(eventInfo.icon, {
-                          className: `h-2.5 w-2.5 ${eventInfo.iconColor}`,
-                        })}
-                      </span>
-                      <div className="bg-muted/40 hover:bg-muted/60 transition-colors border border-line rounded-2xl p-3 space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-foreground">
-                            {eventInfo.title}
-                          </span>
-                          <span className="text-[9px] font-semibold text-muted-foreground whitespace-nowrap">
-                            {msg.time}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground leading-relaxed font-medium">
-                          {eventInfo.description}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-12 text-xs text-muted-foreground italic">
-                Nenhum evento registrado neste atendimento.
-              </div>
-            )}
-          </div>
-        </div>
+        <AttendanceEvents key={`${tenant}:${activeChat.id}`} conversationId={activeChat.id} />
       )}
     </aside>
   );

@@ -1,12 +1,13 @@
 import { beforeAll, afterAll, describe, expect, test, mock } from "bun:test";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { recordAttendanceEvent } from "../src/lib/attendance-events";
+import { appendIndustrialJournal } from "../src/lib/triage/industrial-triage-journal-store";
 import * as schema from "../src/db/schema";
 import {
   getDealContext,
   selectDealContext,
   recordConversationAction,
   endDealContext,
-  recordDealChangeInConversation,
 } from "../src/lib/crm/conversation-deal-context";
 import { DEFAULT_ADMIN_PERMISSIONS } from "../src/lib/rbac";
 import { readFile } from "node:fs/promises";
@@ -15,7 +16,16 @@ import { isCurrentDealEligible, sortContactDeals } from "../src/lib/crm/conversa
 
 // PostgreSQL WASM: esta suíte nunca abre conexões com bancos operacionais.
 describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL isolado", () => {
-  let pg: any, db: any, notes: any, queue: any, contextApi: any, taskApi: any, dealsApi: any;
+  let pg: any,
+    db: any,
+    notes: any,
+    queue: any,
+    contextApi: any,
+    taskApi: any,
+    dealsApi: any,
+    eventApi: any,
+    callApi: any,
+    contactApi: any;
   let authenticated = true;
   const session: any = {
     tenantId: "context-a",
@@ -79,6 +89,7 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
           eq(schema.crmDealEvents.tenantId, "context-a"),
           eq(schema.crmDealEvents.dealId, dealId),
           eq(schema.crmDealEvents.eventType, "conversation_action"),
+          sql`${schema.crmDealEvents.metadata}->>'actionType' IN ('attendance.started', 'attendance.transferred', 'attendance.closed', 'attendance.reopened')`,
         ),
       );
 
@@ -89,7 +100,12 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     pg = new pglite.PGlite();
     db = drizzle(pg, { schema });
     const { generateDrizzleJson, generateMigration } = await import("drizzle-kit/api");
-    const { conversationDealContexts: _newTable, ...legacySchema } = schema;
+    const {
+      conversationDealContexts: _newTable,
+      attendanceEventCycles: _cycles,
+      attendanceEvents: _events,
+      ...legacySchema
+    } = schema;
     for (const statement of await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson(legacySchema),
@@ -101,6 +117,12 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     );
     await pg.exec(migration);
     await pg.exec(migration); // DDL idempotente sobre uma base já existente.
+    const attendanceMigration = await readFile(
+      new URL("../src/db/migrations/0046_attendance_events.sql", import.meta.url),
+      "utf8",
+    );
+    await pg.exec(attendanceMigration);
+    await pg.exec(attendanceMigration);
     mock.module("../src/db", () => ({
       db,
       client: () => {
@@ -120,6 +142,10 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     mock.module("../src/lib/commercial/tma", () => ({ recordCommercialTransfer: async () => {} }));
     mock.module("../src/lib/valentina/sdr-debouncer", () => ({
       SdrDebouncer: { getInstance: () => ({ clearSession() {} }) },
+    }));
+    mock.module("../src/lib/call-transcriber", () => ({
+      transcribeAudio: async () => "Transcrição de teste",
+      formatCallNote: (text: string) => text,
     }));
     await db.insert(schema.tenants).values([
       { id: "context-a", name: "A", slug: "context-a", connectionType: "meta" },
@@ -175,6 +201,12 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     contextApi = (
       (await import("../src/routes/api/chats/$conversationId/deal-context")).Route.options as any
     ).server.handlers;
+    eventApi = (
+      (await import("../src/routes/api/chats/$conversationId/events")).Route.options as any
+    ).server.handlers;
+    callApi = ((await import("../src/routes/api/calls")).Route.options as any).server.handlers;
+    contactApi = ((await import("../src/routes/api/contacts/$contactId")).Route.options as any)
+      .server.handlers;
     taskApi = ((await import("../src/routes/api/chats/tag-task")).Route.options as any).server
       .handlers.POST;
     dealsApi = (
@@ -184,6 +216,577 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
   afterAll(async () => {
     mock.restore();
     if (pg) await pg.close();
+  });
+
+  const ledger = (id: string) =>
+    db
+      .select()
+      .from(schema.attendanceEvents)
+      .where(
+        and(
+          eq(schema.attendanceEvents.tenantId, "context-a"),
+          eq(schema.attendanceEvents.conversationId, id),
+        ),
+      )
+      .orderBy(schema.attendanceEvents.createdAt, schema.attendanceEvents.id);
+  const emit = (id: string, key: string) =>
+    db.transaction((tx: any) =>
+      recordAttendanceEvent(tx, {
+        tenantId: "context-a",
+        conversationId: id,
+        sourceKey: key,
+        eventType: "note.form_opened",
+        description: `Operador A abriu nota ${key}`,
+        actorName: "Operador A",
+        operatorId: "op-a",
+      }),
+    );
+  const getEvents = (id: string, query = "") =>
+    eventApi.GET({
+      params: { conversationId: id },
+      request: new Request(`http://localhost/api/chats/${id}/events${query}`),
+    });
+
+  test("triagem completa fica pendente antes do card e é projetada uma única vez após a seleção", async () => {
+    const f = await fixture(2);
+    await db
+      .insert(schema.agentFlowStates)
+      .values({
+        id: `flow-${f.id}`,
+        tenantId: "context-a",
+        conversationId: f.id,
+        agentType: "sdr",
+        currentStep: "Coleta",
+        metadata: { attendanceActorName: "Assistente A" },
+      });
+    await db
+      .update(schema.agentFlowStates)
+      .set({
+        collectedData: { CNPJ: { value: "12345678000190", status: "filled" } },
+        metadata: {
+          attendanceActorName: "Assistente A",
+          knownClient: { confirmed: true, source: "history" },
+        },
+      })
+      .where(
+        and(
+          eq(schema.agentFlowStates.tenantId, "context-a"),
+          eq(schema.agentFlowStates.id, `flow-${f.id}`),
+        ),
+      );
+    const before = await ledger(f.id);
+    expect(before.map((e: any) => e.eventType)).toEqual(
+      expect.arrayContaining([
+        "triage.started",
+        "triage.field_collected",
+        "triage.client_recognized",
+        "triage.data_restored",
+      ]),
+    );
+    expect(before.every((e: any) => e.pendingBinding && !e.dealId)).toBe(true);
+    const ctx = await state(f.id);
+    await db.transaction((tx: any) =>
+      selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", ctx.context.version),
+    );
+    const after = await ledger(f.id);
+    expect(after.every((e: any) => !e.pendingBinding && e.dealId === f.deals[0])).toBe(true);
+    const crm = await db
+      .select()
+      .from(schema.crmDealEvents)
+      .where(
+        and(
+          eq(schema.crmDealEvents.tenantId, "context-a"),
+          eq(schema.crmDealEvents.dealId, f.deals[0]),
+          eq(schema.crmDealEvents.eventType, "conversation_action"),
+        ),
+      );
+    expect(crm).toHaveLength(after.length);
+    expect(
+      crm.some(
+        (e: any) =>
+          e.metadata.actorName === "Assistente A" && e.metadata.actionType === "triage.started",
+      ),
+    ).toBe(true);
+    await state(f.id);
+    expect(await ledger(f.id)).toHaveLength(after.length);
+  });
+
+  test("trocar card não move eventos anteriores, inclusive recibos tardios da mesma mensagem", async () => {
+    const f = await fixture(2);
+    const ctx = await state(f.id);
+    const first = await db.transaction((tx: any) =>
+      selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", ctx.context.version),
+    );
+    await db
+      .insert(schema.messages)
+      .values({
+        id: `out-${f.id}`,
+        tenantId: "context-a",
+        conversationId: f.id,
+        senderType: "agent",
+        senderName: "Operador A",
+        content: "Mensagem",
+        direction: "outbound",
+        status: "pending",
+      });
+    await db.transaction((tx: any) =>
+      selectDealContext(tx, "context-a", f.id, f.deals[1], "op-a", first.version),
+    );
+    await db
+      .update(schema.messages)
+      .set({ status: "failed", errorMessage: "Canal indisponível" })
+      .where(and(eq(schema.messages.tenantId, "context-a"), eq(schema.messages.id, `out-${f.id}`)));
+    await emit(f.id, `new-${f.id}`);
+    const all = await ledger(f.id);
+    expect(all.find((e: any) => e.eventType === "message.failed")).toMatchObject({
+      dealId: f.deals[0],
+    });
+    expect(all.find((e: any) => e.sourceKey === `new-${f.id}`)).toMatchObject({
+      dealId: f.deals[1],
+    });
+    await db
+      .update(schema.messages)
+      .set({ status: "failed" })
+      .where(and(eq(schema.messages.tenantId, "context-a"), eq(schema.messages.id, `out-${f.id}`)));
+    expect((await ledger(f.id)).filter((e: any) => e.eventType === "message.failed")).toHaveLength(
+      1,
+    );
+  });
+
+  test("pendências de um atendimento encerrado não são enviadas ao card de um atendimento novo", async () => {
+    const f = await fixture(2);
+    await emit(f.id, "old-pending");
+    await db
+      .update(schema.conversations)
+      .set({ queueState: "finalizados" })
+      .where(
+        and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, f.id)),
+      );
+    await db.transaction((tx: any) => endDealContext(tx, "context-a", f.id));
+    await db
+      .update(schema.conversations)
+      .set({ queueState: "meus" })
+      .where(
+        and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, f.id)),
+      );
+    await emit(f.id, "new-pending");
+    const ctx = await state(f.id);
+    await db.transaction((tx: any) =>
+      selectDealContext(tx, "context-a", f.id, f.deals[1], "op-a", ctx.context.version),
+    );
+    const all = await ledger(f.id);
+    expect(all.find((e: any) => e.sourceKey === "old-pending")).toMatchObject({
+      dealId: null,
+      pendingBinding: true,
+    });
+    expect(all.find((e: any) => e.sourceKey === "new-pending")).toMatchObject({
+      dealId: f.deals[1],
+      pendingBinding: false,
+    });
+    expect(all.find((e: any) => e.sourceKey === "old-pending").cycleId).not.toBe(
+      all.find((e: any) => e.sourceKey === "new-pending").cycleId,
+    );
+  });
+
+  test("a ação e as duas projeções são revertidas juntas em caso de falha", async () => {
+    const f = await fixture();
+    await state(f.id);
+    const before = (await ledger(f.id)).length;
+    await expect(
+      db.transaction(async (tx: any) => {
+        await tx
+          .insert(schema.messages)
+          .values({
+            id: `rollback-${f.id}`,
+            tenantId: "context-a",
+            conversationId: f.id,
+            senderType: "system",
+            senderName: "Sistema",
+            content: "Operação revertida",
+            isInternalNote: true,
+          });
+        throw Error("rollback deliberado");
+      }),
+    ).rejects.toThrow("rollback deliberado");
+    expect(await ledger(f.id)).toHaveLength(before);
+    const crm = await db
+      .select()
+      .from(schema.crmDealEvents)
+      .where(
+        and(
+          eq(schema.crmDealEvents.tenantId, "context-a"),
+          eq(schema.crmDealEvents.dealId, f.deals[0]),
+        ),
+      );
+    expect(crm.some((e: any) => e.metadata?.messageId === `rollback-${f.id}`)).toBe(false);
+  });
+
+  test("CRM -> atendimento não produz mensagem nem evento operacional", async () => {
+    const f = await fixture();
+    await state(f.id);
+    const before = (await ledger(f.id)).length;
+    const messagesBefore = await db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(eq(schema.messages.tenantId, "context-a"), eq(schema.messages.conversationId, f.id)),
+      );
+    await db
+      .update(schema.crmDeals)
+      .set({ operatorId: "op-b", status: "won" })
+      .where(and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, f.deals[0])));
+    await db
+      .insert(schema.crmDealActivities)
+      .values({
+        id: `crm-only-${f.id}`,
+        tenantId: "context-a",
+        conversationId: f.id,
+        dealId: f.deals[0],
+        type: "note",
+        title: "Nota no CRM",
+        operatorId: "op-a",
+      });
+    expect(await ledger(f.id)).toHaveLength(before);
+    expect(
+      await db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(eq(schema.messages.tenantId, "context-a"), eq(schema.messages.conversationId, f.id)),
+        ),
+    ).toHaveLength(messagesBefore.length);
+  });
+
+  test("ligações registram solicitação, conexão e encerramento sem depender da transcrição", async () => {
+    const f = await fixture();
+    await state(f.id);
+    await db
+      .insert(schema.callSessions)
+      .values({
+        id: `call-${f.id}`,
+        tenantId: "context-a",
+        conversationId: f.id,
+        roomId: crypto.randomUUID(),
+        operatorId: "op-a",
+      });
+    for (const status of ["active", "ended", "ended"])
+      await db
+        .update(schema.callSessions)
+        .set({ status })
+        .where(
+          and(
+            eq(schema.callSessions.tenantId, "context-a"),
+            eq(schema.callSessions.id, `call-${f.id}`),
+          ),
+        );
+    const all = (await ledger(f.id)).filter((e: any) => e.eventType.startsWith("call."));
+    expect(all.map((e: any) => e.eventType)).toEqual(["call.waiting", "call.active", "call.ended"]);
+    expect(
+      all.every((e: any) => e.dealId === f.deals[0] && e.metadata.ownerOperatorId === "op-a"),
+    ).toBe(true);
+  });
+
+  test("Eventos tem paginação própria, datas completas e inclui notas históricas fora das mensagens carregadas", async () => {
+    const f = await fixture();
+    await state(f.id);
+    await pg.exec("ALTER TABLE messages DISABLE TRIGGER attendance_message_capture");
+    try {
+      await db.insert(schema.messages).values({ id: `legacy-${f.id}`, tenantId: "context-a", conversationId: f.id,
+        senderType: "agent", senderName: "Operador antigo", content: "Nota anterior à atualização",
+        isInternalNote: true, sentAt: new Date("2025-01-01T12:00:00Z"),
+      });
+    } finally { await pg.exec("ALTER TABLE messages ENABLE TRIGGER attendance_message_capture"); }
+    await db.transaction(async (tx: any) => {
+      for (let n = 0; n < 73; n++)
+        await recordAttendanceEvent(tx, {
+          tenantId: "context-a",
+          conversationId: f.id,
+          sourceKey: `page-${n}`,
+          eventType: "note.form_opened",
+          description: `Nota ${n}`,
+          actorName: "Operador A",
+          operatorId: "op-a",
+        });
+    });
+    const page1 = await (await getEvents(f.id)).json();
+    const page2 = await (
+      await getEvents(f.id, `?cursor=${encodeURIComponent(page1.nextCursor)}`)
+    ).json();
+    expect(page1.events).toHaveLength(50);
+    expect(page2.events).toHaveLength(26);
+    expect(new Set([...page1.events, ...page2.events].map((e: any) => e.id)).size).toBe(76);
+    expect(page2.events.at(-1)).toMatchObject({ legacy: true, description: "Nota anterior à atualização" });
+    expect(page2.nextCursor).toBeNull();
+    expect((await getEvents(f.id, "?cursor=invalid")).status).toBe(400);
+  });
+
+  test("abertura de nota é autenticada, idempotente, não aceita ator/card do cliente e rejeita conclusão inventada", async () => {
+    const f = await fixture();
+    const ctx = await state(f.id);
+    const body = {
+      eventType: "note.form_opened",
+      actionId: "same-action",
+      expectedContextVersion: ctx.context.version,
+      tenantId: "context-b",
+      operatorId: "op-b",
+      dealId: "foreign-deal",
+      description: "falso",
+    };
+    expect((await eventApi.POST(request(f.id, body))).status).toBe(200);
+    expect((await eventApi.POST(request(f.id, body))).status).toBe(200);
+    const all = (await ledger(f.id)).filter((e: any) => e.eventType === "note.form_opened");
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({
+      actorName: "Operador A",
+      operatorId: "op-a",
+      dealId: f.deals[0],
+    });
+    expect((await eventApi.POST(request(f.id, { ...body, eventType: "call.ended" }))).status).toBe(
+      400,
+    );
+    authenticated = false;
+    try {
+      expect((await getEvents(f.id)).status).toBe(401);
+      expect((await eventApi.POST(request(f.id, body))).status).toBe(401);
+    } finally {
+      authenticated = true;
+    }
+    session.tenantId = "context-b";
+    try {
+      expect((await getEvents(f.id)).status).toBe(404);
+    } finally {
+      session.tenantId = "context-a";
+    }
+  });
+
+  test("contexto adulterado de outro tenant não recebe eventos", async () => {
+    const f = await fixture(2);
+    await db
+      .insert(schema.conversationDealContexts)
+      .values({ tenantId: "context-a", conversationId: f.id, currentDealId: "foreign-deal" });
+    await emit(f.id, "foreign-context");
+    expect((await ledger(f.id)).find((e: any) => e.sourceKey === "foreign-context")).toMatchObject({
+      dealId: null,
+      pendingBinding: true,
+    });
+  });
+
+  test("reinício da triagem antes da atualização da fila já pertence ao novo atendimento", async () => {
+    const f = await fixture(2); const ctx = await state(f.id);
+    await db.transaction((tx: any) => selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", ctx.context.version));
+    await db.update(schema.conversations).set({ queueState: "finalizados" }).where(and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, f.id)));
+    expect((await state(f.id)).context.currentDealId).toBeNull();
+    await db.insert(schema.agentFlowStates).values({ id: `reopen-flow-${f.id}`, tenantId: "context-a", conversationId: f.id,
+      agentType: "sdr", currentStep: "Coleta", metadata: { attendanceActorName: "Assistente A" } });
+    await db.update(schema.conversations).set({ queueState: "meus" }).where(and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, f.id)));
+    const reopened = await state(f.id);
+    await db.transaction((tx: any) => selectDealContext(tx, "context-a", f.id, f.deals[1], "op-a", reopened.context.version));
+    expect((await ledger(f.id)).find((e: any) => e.eventType === "triage.started")).toMatchObject({ dealId: f.deals[1], pendingBinding: false });
+  });
+
+  test("nota sem card é registrada e aguarda seleção; tarefa efetiva aparece também nos Eventos", async () => {
+    const f = await fixture(2);
+    const ctx = await state(f.id);
+    expect(
+      (
+        await notes(
+          request(f.id, {
+            conversationId: f.id,
+            content: "Antes da seleção",
+            isInternalNote: true,
+            noteScope: "general",
+            expectedContextVersion: ctx.context.version,
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await ledger(f.id)).find((e: any) => e.eventType === "note.created")).toMatchObject({
+      dealId: null,
+      pendingBinding: true,
+    });
+    const chosen = await db.transaction((tx: any) =>
+      selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", ctx.context.version),
+    );
+    expect(
+      (
+        await taskApi(
+          request(f.id, {
+            conversationId: f.id,
+            tagName: "Retornar ao cliente",
+            dueDate: "2026-10-30",
+            expectedContextVersion: chosen.version,
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await ledger(f.id)).find((e: any) => e.eventType === "task.created")).toMatchObject({
+      dealId: f.deals[0],
+      actorName: "Operador A",
+    });
+  });
+
+  test("reação do operador em mensagem do cliente gera evento; reação recebida e repetição não duplicam", async () => {
+    const f = await fixture();
+    await state(f.id);
+    await db
+      .insert(schema.messages)
+      .values({
+        id: `client-${f.id}`,
+        tenantId: "context-a",
+        conversationId: f.id,
+        senderType: "client",
+        senderName: "Cliente",
+        content: "Olá",
+      });
+    const base = {
+      attendanceReactionActor: { name: "Operador A", operatorId: "op-a" },
+      reactions: { operator: { emoji: "👍", operatorId: "op-a", at: "first" } },
+    };
+    for (const metaDetails of [
+      base,
+      {
+        ...base,
+        reactions: {
+          operator: { ...base.reactions.operator, at: "retry" },
+          client: { emoji: "❤️" },
+        },
+      },
+    ])
+      await db
+        .update(schema.messages)
+        .set({ metaDetails })
+        .where(
+          and(eq(schema.messages.tenantId, "context-a"), eq(schema.messages.id, `client-${f.id}`)),
+        );
+    expect(
+      (await ledger(f.id)).filter((e: any) => e.eventType === "message.reaction_changed"),
+    ).toHaveLength(1);
+  });
+
+  test("briefing segue o card atual mesmo quando o recibo da triagem aponta para outro card", async () => {
+    const f = await fixture(2);
+    const ctx = await state(f.id);
+    await db.transaction((tx: any) =>
+      selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", ctx.context.version),
+    );
+    const startedAt = new Date("2026-10-23T10:00:00Z");
+    await db.transaction((tx: any) =>
+      appendIndustrialJournal(
+        tx,
+        null,
+        {
+          id: `journal-${f.id}`,
+          tenantId: "context-a",
+          conversationId: f.id,
+          startedAt,
+          completedAt: new Date(),
+          lastInteractionAt: new Date(),
+          currentStep: "Concluído",
+          outcome: "transferred",
+          collectedData: { CNPJ: { value: "12345678000190", status: "filled" } },
+          metadata: {
+            targetFunnel: "Máquinas",
+            handoffReceipt: {
+              cycle: startedAt.toISOString(),
+              result: {
+                status: "transferred",
+                operator: { id: "op-a", name: "Operador A" },
+                deal: { dealId: f.deals[1] },
+              },
+            },
+          },
+        },
+        "handoff",
+        "confirmed",
+      ),
+    );
+    expect((await events(f.deals[0])).filter((e: any) => e.id.startsWith("brief-"))).toHaveLength(
+      1,
+    );
+    expect(await events(f.deals[1])).toHaveLength(0);
+  });
+
+  test("edições do cliente feitas no Conversas registram autor e alterações apenas no card atual", async () => {
+    const f = await fixture();
+    await state(f.id);
+    const update = (headers: Record<string, string>, body: unknown) =>
+      contactApi.PATCH({
+        params: { contactId: f.id },
+        request: new Request(`http://localhost/api/contacts/${f.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...headers },
+          body: JSON.stringify(body),
+        }),
+      });
+    expect(
+      (
+        await update(
+          { "X-Attendance-Conversation": f.id },
+          { name: "Cliente atualizado", tags: ["Retorno"] },
+        )
+      ).status,
+    ).toBe(200);
+    const log = (await ledger(f.id)).find((e: any) => e.eventType === "contact.updated");
+    expect(log).toMatchObject({ operatorId: "op-a", dealId: f.deals[0] });
+    expect(log.metadata.changes.map((c: any) => c.field)).toEqual(
+      expect.arrayContaining(["name", "tags"]),
+    );
+    expect((await update({}, { name: "Alteração pelo cadastro" })).status).toBe(200);
+    expect((await ledger(f.id)).filter((e: any) => e.eventType === "contact.updated")).toHaveLength(
+      1,
+    );
+    const other = await fixture();
+    expect(
+      (await update({ "X-Attendance-Conversation": other.id }, { name: "Forjado" })).status,
+    ).toBe(403);
+  });
+
+  test("API de ligação usa sessão e registra estados reais; sinalização pública não expõe a transcrição", async () => {
+    const f = await fixture();
+    await state(f.id);
+    const callRequest = (action: string, body: unknown) => ({
+      request: new Request(`http://localhost/api/calls${action ? `?action=${action}` : ""}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    });
+    const response = await callApi.POST(
+      callRequest("", { conversationId: f.id, tenantId: "context-b", operatorId: "op-b" }),
+    );
+    expect(response.status).toBe(200);
+    const call = await response.json();
+    expect(call.roomId).toMatch(/^call-[0-9a-f-]{36}$/);
+    expect(
+      (
+        await callApi.POST(
+          callRequest("signal", { roomId: call.roomId, role: "client", type: "client:joined" }),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await ledger(f.id)).find((e: any) => e.eventType === "call.connecting")).toBeDefined();
+    expect((await ledger(f.id)).some((e: any) => e.eventType === "call.active")).toBe(false);
+    expect(
+      (
+        await callApi.POST(
+          callRequest("signal", { roomId: call.roomId, role: "client", type: "call:connected" }),
+        )
+      ).status,
+    ).toBe(200);
+    const publicState = await (
+      await callApi.GET({
+        request: new Request(`http://localhost/api/calls?roomId=${call.roomId}`),
+      })
+    ).json();
+    expect(publicState.transcription).toBeUndefined();
+    session.tenantId = "context-b";
+    try {
+      expect((await callApi.POST(callRequest("end", { roomId: call.roomId }))).status).toBe(404);
+    } finally {
+      session.tenantId = "context-a";
+    }
+    expect((await callApi.POST(callRequest("end", { roomId: call.roomId }))).status).toBe(200);
+    expect((await ledger(f.id)).filter((e: any) => e.eventType === "call.ended")).toHaveLength(1);
   });
 
   test("nove cards do contato aparecem mesmo com apenas dois vínculos diretos; aviso exige seleção e histórico não é elegível", async () => {
@@ -402,7 +1005,7 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
       description: "Nota comercial",
     });
   });
-  test("nota com contexto antigo é recusada sem salvar; nota geral fica só na conversa", async () => {
+  test("nota com contexto antigo é recusada inclusive no modo de vínculo pendente", async () => {
     const f = await fixture();
     const context = await state(f.id);
     const body = {
@@ -413,8 +1016,29 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     };
     expect((await notes(request(f.id, body))).status).toBe(409);
     expect(await events(f.deals[0])).toHaveLength(0);
-    expect((await notes(request(f.id, { ...body, noteScope: "general" }))).status).toBe(200);
-    expect(await events(f.deals[0])).toHaveLength(0);
+    expect((await notes(request(f.id, { ...body, noteScope: "general" }))).status).toBe(409);
+    expect(
+      (
+        await notes(
+          request(f.id, {
+            ...body,
+            noteScope: "general",
+            expectedContextVersion: context.context.version,
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    const [ledger] = await db
+      .select()
+      .from(schema.attendanceEvents)
+      .where(
+        and(
+          eq(schema.attendanceEvents.tenantId, "context-a"),
+          eq(schema.attendanceEvents.conversationId, f.id),
+          eq(schema.attendanceEvents.eventType, "note.created"),
+        ),
+      );
+    expect(ledger.dealId).toBe(f.deals[0]);
   });
   test("transferência mantém card e responsável comercial; encerramento registra sem ganhar/perder", async () => {
     const f = await fixture();
@@ -514,27 +1138,6 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     await expect(
       db.transaction((tx: any) => getDealContext(tx, "context-b", f.id, "op-a")),
     ).rejects.toThrow("não encontrada");
-  });
-  test("ações do CRM refletem apenas na conversa que usa o card como contexto", async () => {
-    const f = await fixture(2);
-    const initial = await state(f.id);
-    await db.transaction((tx: any) =>
-      selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", initial.context.version),
-    );
-    await db.transaction((tx: any) =>
-      recordDealChangeInConversation(tx, "context-a", f.deals[1], "Não deve aparecer"),
-    );
-    await db.transaction((tx: any) =>
-      recordDealChangeInConversation(tx, "context-a", f.deals[0], "Negociação ganha no CRM"),
-    );
-    const all = await db
-      .select()
-      .from(schema.messages)
-      .where(
-        and(eq(schema.messages.tenantId, "context-a"), eq(schema.messages.conversationId, f.id)),
-      );
-    expect(all.some((m: any) => m.content === "Negociação ganha no CRM")).toBe(true);
-    expect(all.some((m: any) => m.content === "Não deve aparecer")).toBe(false);
   });
   test("exclusão da negociação selecionada não promove automaticamente outro card", async () => {
     const f = await fixture(2);

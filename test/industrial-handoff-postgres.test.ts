@@ -120,6 +120,7 @@ const tables = [
   schema.crmConversationDeals,
   schema.crmDealActivities,
   schema.crmDealEvents,
+  schema.conversationDealContexts,
 ];
 const q = (value: string) => `"${value.replaceAll('"', '""')}"`;
 let passed = 0;
@@ -2347,7 +2348,7 @@ try {
     },
   );
   await check(
-    "revisar após encaminhamento preserva recibo, carteira e contador e anexa atividade ao mesmo card",
+    "revisar após encaminhamento preserva recibo, carteira e contador e respeita o card atual",
     async () => {
       const key = await fixture();
       await prepare(key);
@@ -2357,6 +2358,10 @@ try {
       const beforeMeta = before.metadata as Record<string, unknown>;
       const counters = await config();
       const beforeDeals = await count(schema.crmDeals);
+      await scopedDb.insert(schema.conversationDealContexts).values({
+        tenantId, conversationId: key.conversationId,
+        currentDealId: result.deal!.dealId!, selectionRequired: true,
+      });
       const current = await readIndustrialReview(
         scopedDb,
         tenantId,
@@ -2385,7 +2390,8 @@ try {
             eq(schema.crmDealActivities.conversationId, key.conversationId),
           ),
         );
-      assert.equal(activities.filter((row) => row.title === "Briefing final da triagem").length, 1);
+      // Ainda não havia card atual quando o briefing foi gerado.
+      assert.equal(activities.filter((row) => row.title === "Briefing final da triagem").length, 0);
       assert.equal(activities.filter((row) => row.title === "Revisão humana da triagem").length, 1);
       assert.match(
         activities.find((row) => row.title === "Revisão humana da triagem")!.description!,

@@ -130,6 +130,7 @@ export async function applyOperatorReaction(
     delete reactions.operator; // remove reação do operador
   }
   details.reactions = reactions;
+  details.attendanceReactionActor = { operatorId, name: operatorName || "Operador" };
 
   await db
     .update(messages)

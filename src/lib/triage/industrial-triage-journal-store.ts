@@ -5,6 +5,7 @@ import {
   crmConversationDeals,
   crmDeals,
   crmDealActivities,
+  conversationDealContexts,
 } from "../../db/schema";
 import { buildIndustrialBriefing } from "./industrial-briefing";
 import type { IndustrialTransaction } from "./industrial-rodizio-store";
@@ -110,7 +111,7 @@ export async function appendIndustrialJournal(
     })
     .onConflictDoNothing()
     .returning({ id: messages.id });
-  if (saved && briefing && entry.metadata.snapshot.dealId) {
+  if (saved && briefing) {
     const [linked] = await tx
       .select({ id: crmDeals.id })
       .from(crmConversationDeals)
@@ -122,8 +123,11 @@ export async function appendIndustrialJournal(
         and(
           eq(crmConversationDeals.tenantId, after.tenantId),
           eq(crmConversationDeals.conversationId, after.conversationId),
-          eq(crmConversationDeals.dealId, entry.metadata.snapshot.dealId),
+          eq(crmDeals.status, "open"),
           eq(crmConversationDeals.isActive, true),
+          sql`EXISTS (SELECT 1 FROM ${conversationDealContexts} c
+            WHERE c.tenant_id = ${after.tenantId} AND c.conversation_id = ${after.conversationId}
+              AND c.current_deal_id = ${crmDeals.id})`,
         ),
       )
       .limit(1);

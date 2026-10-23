@@ -103,6 +103,9 @@ function CallPage() {
     // 2. Criar RTCPeerConnection
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     pcRef.current = pc;
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "connected") void sendSignal(roomId, "call:connected", null);
+    };
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
     // Ao receber áudio remoto (do agente), tocar

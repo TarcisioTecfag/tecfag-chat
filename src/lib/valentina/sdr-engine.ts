@@ -313,35 +313,6 @@ export class SdrEngine {
             ...(industrialTriage ? [dEq(t.agentType, "sdr")] : [])),
       });
 
-      if (!flowState) {
-        const newFlowId = industrialTriage ? `fs-sdr-${tenantId}-${conversationId}` : `fs-sdr-${Date.now()}`;
-        const initialStartTs = batchItems[0]?.receivedAt
-          ? new Date(new Date(batchItems[0].receivedAt).getTime() - 5000)
-          : new Date(Date.now() - 60000);
-        await db.insert(agentFlowStates).values({
-          id: newFlowId,
-          tenantId,
-          conversationId,
-          agentType: "sdr",
-          currentStep: "Em Qualificação",
-          collectedData: {},
-          metadata: {
-            stepNumber: 1,
-            totalSteps: 7,
-            followUpStage: 0,
-            funnelStage: "triagem",
-            targetFunnel: industrialTriage ? null : "Máquinas",
-          },
-          startedAt: initialStartTs,
-          lastInteractionAt: new Date(),
-          outcome: "in_progress",
-        }).onConflictDoNothing();
-
-        flowState = await db.query.agentFlowStates.findFirst({
-          where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, newFlowId), dEq(t.tenantId, tenantId)),
-        });
-      }
-
       // 🛑 TRAVA DE OPERADOR: Se a conversa possui um operador humano alocado, está na aba 'meus'/'finalizados' ou a triagem terminou/parou, o SDR SILENCIA IMEDIATAMENTE!
       const convCheck = await db.query.conversations.findFirst({
         where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conversationId), dEq(t.tenantId, tenantId)),
@@ -357,6 +328,36 @@ export class SdrEngine {
       ) {
         console.log(`[SdrEngine] 🛑 TRAVA DE OPERADOR ATIVA: Conversa ${conversationId} (Cliente ${contactPhone}) possui operador alocado (${convCheck?.operatorId || 'Sim'}) ou status ${flowState?.outcome}. ${aiPersona.name} SILENCIADO(A).`);
         return false;
+      }
+
+      if (!flowState) {
+        const newFlowId = industrialTriage ? `fs-sdr-${tenantId}-${conversationId}` : `fs-sdr-${Date.now()}`;
+        const initialStartTs = batchItems[0]?.receivedAt
+          ? new Date(new Date(batchItems[0].receivedAt).getTime() - 5000)
+          : new Date(Date.now() - 60000);
+        await db.insert(agentFlowStates).values({
+          id: newFlowId,
+          tenantId,
+          conversationId,
+          agentType: "sdr",
+          currentStep: "Em Qualificação",
+          collectedData: {},
+          metadata: {
+            attendanceActorName: aiPersona.name,
+            stepNumber: 1,
+            totalSteps: 7,
+            followUpStage: 0,
+            funnelStage: "triagem",
+            targetFunnel: industrialTriage ? null : "Máquinas",
+          },
+          startedAt: initialStartTs,
+          lastInteractionAt: new Date(),
+          outcome: "in_progress",
+        }).onConflictDoNothing();
+
+        flowState = await db.query.agentFlowStates.findFirst({
+          where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, newFlowId), dEq(t.tenantId, tenantId)),
+        });
       }
 
       // A conclusão já tem checkpoint durável. O worker transacional retoma sem outra chamada de IA.
@@ -1529,6 +1530,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 },
               }
             : {}),
+          attendanceActorName: aiPersona.name,
           ...(industrialRoute ? {
             triagePolicyVersion: INDUSTRIAL_POLICY_VERSION,
             subflow: industrialRoute.subflow,
@@ -1555,6 +1557,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
         if (!industrialHandoffPersisted) {
           const persistCollection = async (executor: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
+            await executor.select({ id: conversations.id }).from(conversations)
+              .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId))).for("update");
             const persisted = await executor
               .update(agentFlowStates)
               .set({
@@ -1579,7 +1583,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             }
             return persisted;
           };
-          const persisted = industrialTriage ? await db.transaction(persistCollection) : await persistCollection(db);
+          const persisted = await db.transaction(persistCollection);
           if (industrialTriage && persisted.length === 0) return false;
         }
 

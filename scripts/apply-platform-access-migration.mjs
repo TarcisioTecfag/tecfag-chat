@@ -188,6 +188,10 @@ const migrations = [
     name: "0045_conversation_deal_context",
     url: new URL("../src/db/migrations/0045_conversation_deal_context.sql", import.meta.url),
   },
+  {
+    name: "0046_attendance_events",
+    url: new URL("../src/db/migrations/0046_attendance_events.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

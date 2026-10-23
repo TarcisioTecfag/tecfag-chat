@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import { getAiPersona } from "../ai-persona";
 import { agentFlowStates, conversations, messages } from "../../db/schema";
 import type { IndustrialDatabase, IndustrialTransaction } from "../triage/industrial-rodizio-store";
 import { SITE_CHANNEL } from "./site-channel-policy";
@@ -66,6 +67,7 @@ export async function reopenIndustrialSiteConversation(
       currentStep: "Em Qualificação",
       collectedData: {},
       metadata: {
+        attendanceActorName: getAiPersona(tenantId).name,
         stepNumber: 1,
         totalSteps: 7,
         followUpStage: 0,

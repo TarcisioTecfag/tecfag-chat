@@ -88,6 +88,7 @@ export const Route = createFileRoute("/api/chats/tag-task")({
               conversationId,
               senderType: "system",
               senderName: "Sistema",
+              metaDetails: { attendanceActor: { name: session.operator.name, operatorId: session.operator.id }, activityId },
               content: `Tarefa criada na negociação “${deal.title}”: ${tagName.trim()}.`,
               isInternalNote: true,
               direction: "outbound",

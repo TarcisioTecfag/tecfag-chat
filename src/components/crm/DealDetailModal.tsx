@@ -1601,7 +1601,9 @@ export function DealDetailModal({
     (deal.events || []).forEach((evt: any) => {
       // Ignorar evento de auditoria se for criação de nota comercial (já é exibido com o card de anotação da atividade)
       if (evt.eventType === "note_created") return;
-      if (evt.eventType === "conversation_action" && deal.activities?.some((activity: any) => activity.id === `chat-${evt.metadata?.messageId}`)) return;
+      if (evt.eventType === "conversation_action" && deal.activities?.some((activity: any) => activity.id === `chat-${evt.metadata?.messageId}` || activity.id === `brief-${evt.metadata?.messageId}`)) return;
+      if (evt.eventType === "conversation_action" && evt.metadata?.actionType === "attendance.context_selected") return;
+      if (evt.eventType === "conversation_action" && evt.metadata?.activityId && deal.activities?.some((activity: any) => activity.id === evt.metadata.activityId)) return;
 
       const { title, description } = formatDealEvent(evt, stageNames, operatorsMap);
       if (title === "Nota comercial registrada") return;
@@ -1654,7 +1656,7 @@ export function DealDetailModal({
         return;
       }
 
-      const authorName = evt.operatorId
+      const authorName = typeof evt.metadata?.actorName === "string" ? evt.metadata.actorName : evt.operatorId
         ? operatorsMap.get(evt.operatorId) || "Operador"
         : "Sistema";
 

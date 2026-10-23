@@ -1070,6 +1070,30 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   }, [activeChat?.id]);
 
   const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
+  const noteConversationRef = useRef(activeChat?.id);
+  noteConversationRef.current = activeChat?.id;
+  const openingNote = useRef(false);
+  const openInternalNote = async () => {
+    if (msgMode === "internal") return true;
+    if (!activeChat || openingNote.current) return false;
+    openingNote.current = true;
+    try {
+      const context = await dealContext.refresh();
+      if (!context) throw new Error("Não foi possível carregar o contexto do atendimento.");
+      const response = await fetch(`${BACKEND_URL}/api/chats/${encodeURIComponent(activeChat.id)}/events`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventType: "note.form_opened", actionId: crypto.randomUUID(), expectedContextVersion: context.version }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Não foi possível registrar a abertura da nota.");
+      if (noteConversationRef.current !== activeChat.id) return false;
+      setMsgMode("internal");
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao abrir a nota.");
+      return false;
+    } finally { openingNote.current = false; }
+  };
   useEffect(() => {
     draftContextVersion.current = undefined;
     setNoteScope("current");
@@ -1083,9 +1107,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [showFinishConfirmModal, setShowFinishConfirmModal] = useState(false);
   const [markingEvidenceMsg, setMarkingEvidenceMsg] = useState<{ id: string; text: string; author?: string; time?: string } | null>(null);
 
-  const handleApplyValentinaText = (newText: string, asInternalNote: boolean = false) => {
+  const handleApplyValentinaText = async (newText: string, asInternalNote: boolean = false) => {
     if (asInternalNote) {
-      setMsgMode("internal");
+      if (!await openInternalNote()) return;
       setText(newText);
     } else {
       setMsgMode("client");
@@ -3310,7 +3334,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <ConversationDealContext conversationId={activeChat.id} onSelected={version => { draftContextVersion.current = version; }} />
                 {msgMode === "internal" && <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                   <input type="checkbox" checked={noteScope === "general"} onChange={event => setNoteScope(event.target.checked ? "general" : "current")} />
-                  Nota geral do contato (salvar somente na conversa)
+                  Permitir salvar sem card atual (vínculo pendente)
                 </label>}
               </div>}
               <div className="flex flex-wrap items-center gap-3 pl-1 mb-2 text-[11px] font-bold select-none">
@@ -3354,8 +3378,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 {canSendInternalNotes && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setMsgMode("internal");
+                    onClick={async () => {
+                      if (!await openInternalNote()) return;
                       setIsCatalogOpen(false);
                       setShowMetaTemplateModal(false);
                       setShowValentinaModal(false);

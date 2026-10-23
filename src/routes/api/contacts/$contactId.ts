@@ -3,13 +3,16 @@ import { db } from "../../../db";
 import { contacts, crmDealContacts, crmDealEvents } from "../../../db/schema";
 import { and, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
+import { getDealContext, DealContextError } from "../../../lib/crm/conversation-deal-context";
+import { recordAttendanceEvent } from "../../../lib/attendance-events";
 import { diffCustomFieldValues, listCustomFields, validateFieldValues, type CustomFieldDefinition } from "../../../lib/crm/custom-fields";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms, phoneRegistrationError } from "../../../lib/utils";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PATCH, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Attendance-Conversation",
 };
 
 export const Route = createFileRoute("/api/contacts/$contactId")({
@@ -32,6 +35,11 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
           }
 
           const { contactId } = params as { contactId: string };
+          const attendanceConversationId = request.headers.get("X-Attendance-Conversation");
+          if (attendanceConversationId) {
+            const denied = await requireConversationWriteAccess(session, attendanceConversationId);
+            if (denied) return denied;
+          }
           const body = await request.json().catch(() => null) as {
             name?: string;
             phone?: string;
@@ -110,17 +118,32 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             if (duplicate) return Response.json({ error: `Outro contato já usa esses dados: ${duplicate.name}.`, code: "CONTACT_EXISTS", contactId: duplicate.id }, { status: 409 });
           }
 
-          if (body.accountId !== undefined) {
-            const { crmService } = await import("../../../lib/crm/crm-service");
-            await crmService.updateContactAccount(session.tenantId, contactId, body.accountId, body.accountChangeReason, session.operator.id);
-          }
-
-          if (Object.keys(updates).length > 0) {
-            await db
-              .update(contacts)
-              .set(updates)
-              .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)));
-          }
+          await db.transaction(async tx => {
+            if (attendanceConversationId) {
+              const state = await getDealContext(tx, session.tenantId, attendanceConversationId, session.operator.id);
+              if (state.conversation.contactId !== contactId || state.conversation.operatorId !== session.operator.id || state.conversation.queueState !== "meus")
+                throw new DealContextError("Contato ou responsável do atendimento mudou.", "FORBIDDEN", 403);
+            }
+            const [before] = await tx.select().from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId))).for("update").limit(1);
+            if (!before) throw new DealContextError("Contato não encontrado.", "NOT_FOUND", 404);
+            if (body.accountId !== undefined) {
+              const { crmService } = await import("../../../lib/crm/crm-service");
+              await crmService.updateContactAccount(session.tenantId, contactId, body.accountId, body.accountChangeReason, session.operator.id, tx);
+            }
+            if (Object.keys(updates).length) await tx.update(contacts).set(updates).where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)));
+            if (attendanceConversationId) {
+              const changes = Object.entries({ ...updates, ...(body.accountId !== undefined ? { accountId: body.accountId } : {}) })
+                .filter(([key, value]) => JSON.stringify(before[key as keyof typeof before]) !== JSON.stringify(value))
+                .map(([field, to]) => ({ field, from: before[field as keyof typeof before], to }));
+              if (changes.length) await recordAttendanceEvent(tx, {
+                tenantId: session.tenantId, conversationId: attendanceConversationId,
+                sourceKey: `contact:${crypto.randomUUID()}`, eventType: "contact.updated",
+                actorName: session.operator.name, operatorId: session.operator.id,
+                description: `${session.operator.name} atualizou os dados do cliente pelo atendimento: ${changes.map(change => change.field).join(", ")}.`,
+                metadata: { contactId, changes },
+              });
+            }
+          });
 
           const [updatedContact] = await db
             .select()
@@ -158,7 +181,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
               }
             }
 
-            if (changes.length > 0) {
+            if (changes.length > 0 && !attendanceConversationId) {
               const linkedDealContacts = await db
                 .select({ dealId: crmDealContacts.dealId })
                 .from(crmDealContacts)
