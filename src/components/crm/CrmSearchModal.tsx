@@ -64,7 +64,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, index)}
-      <mark className="rounded-sm bg-sky-200/80 px-0.5 text-inherit dark:bg-sky-700/70">
+      <mark className="rounded-sm bg-primary/20 px-1 text-primary dark:bg-primary/75 dark:text-primary-foreground">
         {text.slice(index, index + query.length)}
       </mark>
       {text.slice(index + query.length)}
@@ -77,11 +77,13 @@ export function CrmSearchModal({
   onOpenChange,
   onOpenDeal,
   onOpenCompany,
+  initialQuery = "",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenDeal: (id: string) => void;
   onOpenCompany: (id: string) => void;
+  initialQuery?: string;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Results>(emptyResults);
@@ -94,7 +96,11 @@ export function CrmSearchModal({
   const trimmedQuery = query.trim();
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      if (initialQuery) {
+        setQuery(initialQuery);
+      }
+    } else {
       requestId.current += 1;
       setQuery("");
       setResults(emptyResults());
@@ -103,7 +109,7 @@ export function CrmSearchModal({
       setLoading(false);
       setLoadingMore(null);
     }
-  }, [open]);
+  }, [open, initialQuery]);
 
   useEffect(() => {
     if (!open || trimmedQuery.length < 2) {

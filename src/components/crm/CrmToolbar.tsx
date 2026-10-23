@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   Columns3,
   List,
@@ -67,6 +67,8 @@ interface CrmToolbarProps {
   onAdvancedFiltersChange: (filters: AdvancedFiltersState) => void;
   onOpenAdvancedFilters: () => void;
   onClearFilters: () => void;
+  searchQuery?: string;
+  onSearchQueryChange?: (query: string) => void;
   onOpenSearch: () => void;
   onNewDealClick: () => void;
   onCreateCompanyClick: () => void;
@@ -106,6 +108,8 @@ export function CrmToolbar({
   onAdvancedFiltersChange,
   onOpenAdvancedFilters,
   onClearFilters,
+  searchQuery = "",
+  onSearchQueryChange,
   onOpenSearch,
   onNewDealClick,
   onCreateCompanyClick,
@@ -113,11 +117,14 @@ export function CrmToolbar({
   onCreateTaskClick,
 }: CrmToolbarProps) {
   const [compactFiltersOpen, setCompactFiltersOpen] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const activeAdvancedCount = countActiveAdvancedFilters(advancedFilters);
   const activeFilterCount =
     activeAdvancedCount + Number(statusFilter !== "all") + Number(selectedOperatorIds.length > 0);
-  const hasFilters = activeFilterCount > 0;
+  const hasFilters = activeFilterCount > 0 || Boolean(searchQuery.trim());
   const selectedPipeline = pipelines.find((pipeline) => pipeline.id === selectedPipelineId);
   const selectedSort = sortOptions.find((option) => option.value === sortBy) || sortOptions[0];
   const filterChips: Array<{ key: keyof AdvancedFiltersState; label: string }> = [];
@@ -395,15 +402,108 @@ export function CrmToolbar({
       </div>
 
       <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
-        <button
-          type="button"
-          onClick={onOpenSearch}
-          aria-label="Buscar negociações, empresas e contatos"
-          className="flex h-9 min-w-0 flex-1 items-center gap-3 rounded-lg border border-border bg-background px-3 text-left text-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Search className="h-4 w-4 shrink-0" />
-          <span className="truncate">Buscar negociações, empresas ou contatos...</span>
-        </button>
+        <div ref={searchContainerRef} className="relative min-w-0 flex-1">
+          <div
+            onClick={() => {
+              searchInputRef.current?.focus();
+              setIsSearchFocused(true);
+            }}
+            className={`flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg border bg-background px-3 text-sm transition-all cursor-text ${
+              isSearchFocused
+                ? "border-primary/50 ring-2 ring-primary/20"
+                : searchQuery.trim()
+                  ? "border-primary/40 bg-primary/[0.02]"
+                  : "border-border hover:bg-muted/40"
+            }`}
+          >
+            <Search
+              className={`h-4 w-4 shrink-0 transition-colors ${
+                isSearchFocused || searchQuery.trim() ? "text-primary" : "text-muted-foreground"
+              }`}
+            />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={(e) => {
+                if (searchContainerRef.current?.contains(e.relatedTarget as Node)) {
+                  return;
+                }
+                setIsSearchFocused(false);
+              }}
+              onChange={(e) => {
+                onSearchQueryChange?.(e.target.value);
+                if (!isSearchFocused) setIsSearchFocused(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  if (searchQuery) {
+                    onSearchQueryChange?.("");
+                  } else {
+                    setIsSearchFocused(false);
+                    searchInputRef.current?.blur();
+                  }
+                }
+              }}
+              aria-label={
+                selectedPipeline?.name
+                  ? `Buscar negociações no funil ${selectedPipeline.name}`
+                  : "Buscar negociações neste funil"
+              }
+              placeholder={
+                selectedPipeline?.name
+                  ? `Buscar negociações em ${selectedPipeline.name}...`
+                  : "Buscar negociações neste funil..."
+              }
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                aria-label="Limpar busca do funil"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSearchQueryChange?.("");
+                  searchInputRef.current?.focus();
+                }}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {isSearchFocused && (
+            <div className="absolute left-0 top-full z-40 mt-1.5 w-full max-w-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 duration-150">
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                }}
+                onClick={() => {
+                  setIsSearchFocused(false);
+                  searchInputRef.current?.blur();
+                  onOpenSearch();
+                }}
+                className="group flex w-full items-center justify-between gap-3 rounded-xl border border-border/90 bg-popover/95 px-3.5 py-2 text-left text-xs font-medium text-muted-foreground shadow-lg backdrop-blur-md transition-all hover:border-primary/40 hover:bg-muted/90 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                    <Search className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="truncate">
+                    Gostaria de procurar em todos os funis? contatos e empresas também?
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-primary transition-colors group-hover:bg-primary/15">
+                  Abrir →
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
         <div className="hidden shrink-0 items-center gap-2 @[64rem]/crm-toolbar:flex">
           <div className="w-auto shrink-0">{renderResponsibleFilter()}</div>
           <div className="w-auto min-w-[11rem] shrink-0">{renderStatusFilter()}</div>
