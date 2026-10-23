@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  Briefcase,
   Check,
   CheckCheck,
   ChevronDown,
@@ -30,6 +31,7 @@ import {
   Minus,
   Paperclip,
   Pause,
+  PhoneCall,
   Pin,
   Play,
   Search,
@@ -78,6 +80,24 @@ import { getConversationSortTimestamp, type Conversation, type Message } from "@
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
+export function getVigosPhoneLink(phone?: string | null): string {
+  if (!phone) return "#";
+  let n = phone.replace(/\D/g, "");
+  if (n.startsWith("55") && n.length > 10) n = n.substring(2);
+  if (n.startsWith("0")) n = n.substring(1);
+  if (n.startsWith("14")) n = n.substring(2);
+  return `tel:${n}`;
+}
+
+export function formatDisplayPhone(phone?: string | null): string {
+  if (!phone) return "";
+  let d = phone.replace(/\D/g, "");
+  if (d.startsWith("55") && d.length >= 12) d = d.slice(2);
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return phone;
+}
+
 // Cores determinísticas e vibrantes para avatares sem foto
 const AVATAR_PALETTE = [
   "linear-gradient(135deg, #ef4444, #b91c1c)",
@@ -103,7 +123,7 @@ function getAvatarBg(name: string, fallback?: string): string {
 function previewSnippet(text: string) {
   if (!text) return "Sem mensagens";
   if (!text.startsWith("[MEDIA:") && !text.startsWith("[LOCAL_MEDIA:")) {
-    return stripNotificationEmojis(text).replace(/\*\*/g, "").replace(/\*/g, "");
+    return stripNotificationEmojis(text).replace(/\*\*/g, "").replace(/\*/g, "").replace(/`/g, "");
   }
   const type = text.match(/^\[(?:LOCAL_)?MEDIA:([^\]:]+)/)?.[1];
   const labels: Record<string, string> = {
@@ -118,11 +138,15 @@ function previewSnippet(text: string) {
 }
 
 function renderInlineBoldSegments(segment: string, keyPrefix: string) {
-  if (!segment || !segment.includes("*")) return segment;
-  const normalized = segment.replace(/\*([^*\n]*)\*([^*\n]+)\*([^*\n]*)\*/g, "*$1$2$3*");
+  if (!segment) return segment;
+  const withBackticksConverted = segment.includes("`")
+    ? segment.replace(/`([^`\n]+)`/g, "*$1*")
+    : segment;
+  if (!withBackticksConverted.includes("*")) return withBackticksConverted;
+  const normalized = withBackticksConverted.replace(/\*([^*\n]*)\*([^*\n]+)\*([^*\n]*)\*/g, "*$1$2$3*");
   const tokenRegex = /(\*\*[^*\n]+\*\*|\*[^\s*](?:[^*\n]*[^\s*])?\*)/g;
   const tokens = normalized.split(tokenRegex);
-  if (tokens.length === 1) return segment;
+  if (tokens.length === 1) return withBackticksConverted;
 
   return tokens.map((tok, i) => {
     if (!tok) return null;
@@ -980,6 +1004,7 @@ export function CrmChatWidget() {
     conversations,
     currentOperatorId,
     isAuthenticated,
+    logSystemEvent,
     markAsRead,
     markAsUnread,
     operatorProfile,
@@ -2015,6 +2040,31 @@ export function CrmChatWidget() {
     );
   };
 
+  const handleOpenCrmDeal = (dealId?: string) => {
+    const cleanDealId = dealId?.trim();
+    if (!cleanDealId) return;
+    setActiveView("crm");
+    navigate({
+      to: "/crm/deals/$dealId",
+      params: { dealId: cleanDealId },
+      search: { from: "crm" },
+    });
+  };
+
+  const handleVigosCallClick = (clientName?: string, conversationId?: string) => {
+    const operatorName =
+      operatorProfile?.name ||
+      operators.find((op) => op.id === currentOperatorId)?.name ||
+      "Agente";
+    if (conversationId) {
+      logSystemEvent(
+        conversationId,
+        `Clique no botão de ligação (VigosPhone) para ${clientName || "o cliente"} por ${operatorName}`,
+      );
+    }
+    toast.success(`Abrindo VigosPhone para ligar para ${clientName || "o cliente"}...`);
+  };
+
   const metaRestricted =
     selected?.id !== "valentina" &&
     selected?.id !== "__resolving__" &&
@@ -2606,6 +2656,163 @@ export function CrmChatWidget() {
                                         )}
                                       </div>
                                     )}
+
+                                  {/* Balão/Card interativo: Ligação Direta via VigosPhone */}
+                                  {message.relatedCalls && message.relatedCalls.length > 0 && (
+                                    <div
+                                      className="mt-2.5 p-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/35 border border-emerald-500/35 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
+                                        <span className="flex items-center gap-1">
+                                          <PhoneCall className="h-3 w-3" />
+                                          {message.relatedCalls.length === 1
+                                            ? "Discagem Direta • VigosPhone"
+                                            : `Discagem Direta • VigosPhone (${message.relatedCalls.length})`}
+                                        </span>
+                                        <span className="text-[9px] font-semibold">
+                                          Clique para ligar
+                                        </span>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                        {message.relatedCalls.map((callItem) => (
+                                          <a
+                                            key={callItem.id || callItem.phone}
+                                            href={getVigosPhoneLink(callItem.phone)}
+                                            onClick={() =>
+                                              handleVigosCallClick(
+                                                callItem.clientName,
+                                                callItem.conversationId,
+                                              )
+                                            }
+                                            className="group/call p-2 rounded-lg bg-card/95 hover:bg-emerald-500/15 border border-emerald-500/30 hover:border-emerald-500/60 flex items-center justify-between gap-2 transition cursor-pointer no-underline"
+                                          >
+                                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                                              <div className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 group-hover/call:bg-emerald-500 group-hover/call:text-white transition">
+                                                <PhoneCall className="h-3.5 w-3.5" />
+                                              </div>
+                                              <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                  <span className="text-[11px] font-bold text-foreground truncate">
+                                                    {callItem.clientName}
+                                                  </span>
+                                                  {callItem.company &&
+                                                    callItem.company !== callItem.clientName && (
+                                                      <span className="text-[9px] text-muted-foreground truncate">
+                                                        • {callItem.company}
+                                                      </span>
+                                                    )}
+                                                </div>
+                                                <div className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                                  {formatDisplayPhone(callItem.phone)}
+                                                </div>
+                                                {(callItem.dealTitle || callItem.reason) && (
+                                                  <div className="text-[9px] text-muted-foreground truncate">
+                                                    {callItem.dealTitle
+                                                      ? `${callItem.dealTitle}${callItem.dealValueFormatted ? ` • ${callItem.dealValueFormatted}` : ""}`
+                                                      : callItem.reason}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-emerald-600 group-hover/call:bg-emerald-500 text-white text-[10px] font-bold shadow-soft transition">
+                                              <PhoneCall className="h-3 w-3" />
+                                              <span>Ligar</span>
+                                            </div>
+                                          </a>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Card interativo: Lista de Negociações do CRM Citadas */}
+                                  {message.relatedDeals && message.relatedDeals.length > 0 && (
+                                    <div
+                                      className="mt-2.5 p-2 rounded-xl bg-card/95 border border-border/80 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                                        <span className="flex items-center gap-1">
+                                          <Briefcase className="h-3 w-3 text-primary" />
+                                          {`Negociações do CRM (${message.relatedDeals.length})`}
+                                        </span>
+                                        <span className="text-[9px] font-semibold text-primary">
+                                          Clique para abrir o card
+                                        </span>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-0.5 scrollbar-thin">
+                                        {message.relatedDeals.map((deal) => (
+                                          <div
+                                            key={deal.dealId}
+                                            className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2 transition"
+                                          >
+                                            <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="text-[11px] font-bold text-foreground truncate">
+                                                  {deal.title}
+                                                </span>
+                                                <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-primary/15 text-primary border border-primary/30">
+                                                  {deal.valueFormatted}
+                                                </span>
+                                              </div>
+                                              <div className="text-[9.5px] font-semibold text-muted-foreground truncate">
+                                                {[
+                                                  deal.stageLabel,
+                                                  deal.company && deal.company !== "Sem empresa"
+                                                    ? deal.company
+                                                    : null,
+                                                  deal.contactName && deal.contactName !== deal.company
+                                                    ? deal.contactName
+                                                    : null,
+                                                ]
+                                                  .filter(Boolean)
+                                                  .join(" • ")}
+                                              </div>
+                                              {deal.contactPhone ? (
+                                                <div className="text-[9.5px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                                                  📞 {formatDisplayPhone(deal.contactPhone)}
+                                                </div>
+                                              ) : (
+                                                <div className="text-[9px] text-muted-foreground/80 italic">
+                                                  Sem telefone vinculado no card
+                                                </div>
+                                              )}
+                                              {deal.lastActivitySummary && (
+                                                <div className="text-[9.5px] text-muted-foreground truncate italic">
+                                                  "{deal.lastActivitySummary}"
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div className="shrink-0 flex items-center gap-1">
+                                              {deal.contactPhone && (
+                                                <a
+                                                  href={getVigosPhoneLink(deal.contactPhone)}
+                                                  onClick={() =>
+                                                    handleVigosCallClick(
+                                                      deal.contactName || deal.company || deal.title,
+                                                      deal.conversationId,
+                                                    )
+                                                  }
+                                                  title={`Ligar para ${formatDisplayPhone(deal.contactPhone)} via VigosPhone`}
+                                                  className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/15 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white border border-emerald-500/30 transition cursor-pointer"
+                                                >
+                                                  <PhoneCall className="h-3.5 w-3.5" />
+                                                </a>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={() => handleOpenCrmDeal(deal.dealId)}
+                                                className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                                              >
+                                                <span>Abrir CRM</span>
+                                                <ArrowRight className="h-3 w-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
 
                                   {/* Card interativo: Lista de Conversas Citadas (Sobrecarga / Respostas da IA) */}
                                   {(() => {

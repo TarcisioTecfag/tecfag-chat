@@ -4,6 +4,7 @@ export type QueueType = "meus" | "todos" | "fila" | "automacao" | "finalizados";
 export type RelatedConversationItem = {
   clientId: string;
   clientName: string;
+  clientPhone?: string | null;
   company?: string | null;
   lastMessage?: string | null;
   waitMinutes?: number | null;
@@ -11,6 +12,33 @@ export type RelatedConversationItem = {
   dealTitle?: string | null;
   funnelName?: string | null;
   temperature?: "quente" | "morno" | "frio" | null;
+  statusLabel?: string | null;
+};
+
+export type RelatedDealItem = {
+  dealId: string;
+  title: string;
+  value?: number | null;
+  stageName?: string | null;
+  pipelineName?: string | null;
+  accountName?: string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  conversationId?: string | null;
+  daysIdle?: number | null;
+  status?: string | null;
+};
+
+export type RelatedCallActionItem = {
+  id: string;
+  clientName: string;
+  phone: string;
+  company?: string | null;
+  dealId?: string | null;
+  dealTitle?: string | null;
+  dealValue?: number | null;
+  conversationId?: string | null;
+  reason?: string | null;
 };
 
 export type Message = {
@@ -46,6 +74,8 @@ export type Message = {
     conversations?: RelatedConversationItem[];
   };
   relatedConversations?: RelatedConversationItem[];
+  relatedDeals?: RelatedDealItem[];
+  relatedCalls?: RelatedCallActionItem[];
 };
 
 export type Conversation = {

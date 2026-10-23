@@ -1525,6 +1525,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         !isWarning && conversationsList && conversationsList.length > 0
           ? conversationsList
           : undefined;
+      const relatedDeals =
+        !isWarning && Array.isArray(meta.relatedDeals) && meta.relatedDeals.length > 0
+          ? meta.relatedDeals
+          : !isWarning && Array.isArray(r.relatedDeals) && r.relatedDeals.length > 0
+          ? r.relatedDeals
+          : undefined;
+      const relatedCalls =
+        !isWarning && Array.isArray(meta.relatedCalls) && meta.relatedCalls.length > 0
+          ? meta.relatedCalls
+          : !isWarning && Array.isArray(r.relatedCalls) && r.relatedCalls.length > 0
+          ? r.relatedCalls
+          : undefined;
 
       return {
         id: r.id,
@@ -1541,6 +1553,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(warningType ? { warningType } : {}),
         ...(warningMetadata ? { warningMetadata } : {}),
         ...(relatedConversations ? { relatedConversations } : {}),
+        ...(relatedDeals ? { relatedDeals } : {}),
+        ...(relatedCalls ? { relatedCalls } : {}),
       };
     },
     [tenant]
@@ -1751,6 +1765,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               isInternalNote: false,
               ...(Array.isArray(frag.relatedConversations) && frag.relatedConversations.length > 0
                 ? { relatedConversations: frag.relatedConversations }
+                : {}),
+              ...(Array.isArray(frag.relatedDeals) && frag.relatedDeals.length > 0
+                ? { relatedDeals: frag.relatedDeals }
+                : {}),
+              ...(Array.isArray(frag.relatedCalls) && frag.relatedCalls.length > 0
+                ? { relatedCalls: frag.relatedCalls }
                 : {}),
             };
 

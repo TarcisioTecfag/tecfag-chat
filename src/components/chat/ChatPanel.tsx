@@ -331,11 +331,15 @@ function DocumentCard({ src, fileName }: { src: string; fileName: string }) {
 }
 
 function renderInlineBoldSegments(segment: string, keyPrefix: string) {
-  if (!segment || !segment.includes("*")) return segment;
-  const normalized = segment.replace(/\*([^*\n]*)\*([^*\n]+)\*([^*\n]*)\*/g, "*$1$2$3*");
+  if (!segment) return segment;
+  const withBackticksConverted = segment.includes("`")
+    ? segment.replace(/`([^`\n]+)`/g, "*$1*")
+    : segment;
+  if (!withBackticksConverted.includes("*")) return withBackticksConverted;
+  const normalized = withBackticksConverted.replace(/\*([^*\n]*)\*([^*\n]+)\*([^*\n]*)\*/g, "*$1$2$3*");
   const tokenRegex = /(\*\*[^*\n]+\*\*|\*[^\s*](?:[^*\n]*[^\s*])?\*)/g;
   const tokens = normalized.split(tokenRegex);
-  if (tokens.length === 1) return segment;
+  if (tokens.length === 1) return withBackticksConverted;
 
   return tokens.map((tok, i) => {
     if (!tok) return null;
