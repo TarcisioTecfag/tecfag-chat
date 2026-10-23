@@ -21,6 +21,7 @@ import { MessageReactionPicker } from "./MessageReactionPicker";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
 import { SystemAnnotationBubble } from "./SystemAnnotationBubble";
+import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { Message } from "@/lib/mockData";
 import {
   renderTextWithLinks,
@@ -561,6 +562,12 @@ function ChatMessageBubbleComponent({
                         : `Aviso de ${aiPersona.name}`}
                     </span>
                   </div>
+                )}
+                {activeChat.id === "valentina" && m.thoughtTrace && (
+                  <AgenticThoughtTrace
+                    trace={m.thoughtTrace}
+                    mode="completed"
+                  />
                 )}
                 {displayQuotedContent && (
                   <QuotedMessagePreview

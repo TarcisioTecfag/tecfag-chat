@@ -70,6 +70,7 @@ import { ProductCatalogPicker } from "./ProductCatalogPicker";
 import { MarkEvidenceModal } from "@/components/crm/MarkEvidenceModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ChatMessageBubble } from "./ChatMessageBubble";
+import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { io as socketIO, type Socket } from "socket.io-client";
 import {
   Tooltip,
@@ -932,6 +933,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     messageStatusOverrides,
     operatorTypingStatus,
     isValentinaTyping,
+    valentinaThoughtTrace,
     toggleReaction,
   } = useChat();
 
@@ -2165,7 +2167,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             {activeChat.id === "valentina" && isValentinaTyping ? (
               <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
                 <Zap className="h-3 w-3 text-primary animate-bounce" />
-                <span>{aiPersona.name} está digitando...</span>
+                <span>{valentinaThoughtTrace?.taskTitle || `${aiPersona.name} executando ações...`}</span>
               </span>
             ) : activeTyping ? (
               <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
@@ -2900,28 +2902,25 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           </div>
         )}
 
-        {/* Indicador da IA Digitando */}
+        {/* Árvore Agêntica de Pensamento e Ações em Tempo Real (Estilo Antigravity) */}
         <AnimatePresence>
-          {activeChat.id === "valentina" && isValentinaTyping && (
+          {activeChat.id === "valentina" && isValentinaTyping && valentinaThoughtTrace && (
             <motion.div
-              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+              initial={{ opacity: 0, y: 8, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
+              exit={{ opacity: 0, scale: 0.96 }}
               transition={{ duration: 0.2 }}
-              className="flex items-end gap-2 my-2.5 w-full"
+              className="flex items-start gap-2.5 my-2.5 w-full"
             >
               <AiAvatar
                 tenantId={tenant}
-                className="h-7 w-7 rounded-full border border-border shrink-0 shadow-soft"
+                className="h-7 w-7 rounded-full border border-border shrink-0 shadow-soft mt-0.5"
               />
-              <div className="rounded-2xl rounded-bl-[5px] bg-primary-soft border border-primary/20 px-4 py-2 text-xs font-bold text-primary shadow-soft flex items-center gap-2">
-                <span>{aiPersona.name} está digitando</span>
-                <motion.span
-                  animate={{ opacity: [0.3, 1, 0.3] }}
-                  transition={{ duration: 1.2, repeat: Infinity }}
-                >
-                  ...
-                </motion.span>
+              <div className="flex-1 min-w-0">
+                <AgenticThoughtTrace
+                  trace={valentinaThoughtTrace}
+                  mode="live"
+                />
               </div>
             </motion.div>
           )}

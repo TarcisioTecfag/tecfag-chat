@@ -76,6 +76,7 @@ export type Message = {
   relatedConversations?: RelatedConversationItem[];
   relatedDeals?: RelatedDealItem[];
   relatedCalls?: RelatedCallActionItem[];
+  thoughtTrace?: import("./valentina/agentic-thought-trace").AgenticThoughtTraceData;
 };
 
 export type Conversation = {

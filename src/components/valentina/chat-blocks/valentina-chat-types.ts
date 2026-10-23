@@ -88,6 +88,8 @@ export interface AttachedImageInfo {
   name: string;
 }
 
+import type { AgenticThoughtTraceData } from "@/lib/valentina/agentic-thought-trace";
+
 export interface ValentinaChatMessage {
   id: string;
   sender: "operator" | "valentina";
@@ -96,6 +98,7 @@ export interface ValentinaChatMessage {
   blocks?: ValentinaMessageBlock[];
   attachedFileInfo?: AttachedFileInfo;
   attachedImageInfo?: AttachedImageInfo;
+  thoughtTrace?: AgenticThoughtTraceData;
 }
 
 export interface ValentinaThread {

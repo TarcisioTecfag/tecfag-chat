@@ -65,6 +65,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
@@ -1017,6 +1018,8 @@ export function CrmChatWidget() {
     setSelectedChatId,
     tenant,
     transferChat,
+    isValentinaTyping,
+    valentinaThoughtTrace,
   } = useChat();
   const { canAccessView, canViewCrm } = usePermissions();
 
@@ -2545,6 +2548,14 @@ export function CrmChatWidget() {
                                     </div>
                                   )}
 
+                                  {selected.id === "valentina" && message.thoughtTrace && (
+                                    <AgenticThoughtTrace
+                                      trace={message.thoughtTrace}
+                                      mode="completed"
+                                      compact
+                                    />
+                                  )}
+
                                   {resolvedQuotedContent && (
                                     <QuotedMessagePreview
                                       sender={resolvedQuotedSender}
@@ -2907,6 +2918,25 @@ export function CrmChatWidget() {
                             );
                           })
                         )}
+
+                        {selected?.id === "valentina" &&
+                          isValentinaTyping &&
+                          valentinaThoughtTrace && (
+                            <div className="flex items-start gap-2 w-full py-1">
+                              <AiAvatar
+                                tenantId={tenant}
+                                className="h-6 w-6 shrink-0 rounded-full border border-border/80 shadow-xs mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <AgenticThoughtTrace
+                                  trace={valentinaThoughtTrace}
+                                  mode="live"
+                                  compact
+                                />
+                              </div>
+                            </div>
+                          )}
+
                         <div ref={endRef} />
                       </div>
 

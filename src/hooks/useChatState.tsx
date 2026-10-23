@@ -13,6 +13,10 @@ import {
 import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
 import { parseAppRoute } from "@/lib/app-routes";
 import { getAiPersona } from "@/lib/ai-persona";
+import {
+  buildAgenticThoughtTrace,
+  type AgenticThoughtTraceData,
+} from "@/lib/valentina/agentic-thought-trace";
 import { playNotificationSound } from "@/lib/sound-notifications";
 import {
   renderFormattedNotificationText,
@@ -256,6 +260,7 @@ type ChatContextType = {
     { operatorId: string; operatorName: string; timestamp: number } | null
   >;
   isValentinaTyping: boolean;
+  valentinaThoughtTrace: AgenticThoughtTraceData | null;
   disconnectBaileys: () => void;
   connectBaileys: (forceNew?: boolean) => void;
 
@@ -378,6 +383,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [messageStatusOverrides, setMessageStatusOverrides] = useState<Record<string, { status: string; error?: string | null }>>({});
   const [operatorTypingStatus, setOperatorTypingStatus] = useState<Record<string, { operatorId: string; operatorName: string; timestamp: number } | null>>({});
   const [isValentinaTyping, setIsValentinaTyping] = useState(false);
+  const [valentinaThoughtTrace, setValentinaThoughtTrace] = useState<AgenticThoughtTraceData | null>(null);
   // Ref para controle de cancelamento da resposta da Valentina
   // Cada nova mensagem incrementa a geração e aborta o fetch anterior
   const valentinaPendingRef = useRef<{ controller: AbortController; generation: number } | null>(null);
@@ -1555,6 +1561,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(relatedConversations ? { relatedConversations } : {}),
         ...(relatedDeals ? { relatedDeals } : {}),
         ...(relatedCalls ? { relatedCalls } : {}),
+        ...(!isWarning && (meta.thoughtTrace || r.thoughtTrace) ? { thoughtTrace: meta.thoughtTrace || r.thoughtTrace } : {}),
       };
     },
     [tenant]
@@ -1685,8 +1692,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Chamar API real /api/valentina/messages (com signal de cancelamento)
       (async () => {
-        setIsValentinaTyping(true);
         const currentPersona = getAiPersona(tenant || "valem");
+        const initialTrace = buildAgenticThoughtTrace({
+          userQuery: displayUserText,
+          scope: "operator",
+          personaName: currentPersona.name,
+          attachedFileName:
+            firstAttachment && !firstAttachment.type.startsWith("image/")
+              ? firstAttachment.name
+              : null,
+          hasAttachedImage: Boolean(
+            firstAttachment && firstAttachment.type.startsWith("image/")
+          ),
+        });
+        setValentinaThoughtTrace(initialTrace);
+        setIsValentinaTyping(true);
         try {
           let attachmentPayload: { name: string; mimeType: string; base64: string } | undefined;
           let imageBase64Payload: string | undefined;
@@ -1733,6 +1753,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Processar fragmentos com delays incrementais para simular digitação
           const fragments = data.fragments || [];
           const alerts = data.alerts || [];
+          const resolvedTrace: AgenticThoughtTraceData =
+            data.thoughtTrace || fragments[0]?.thoughtTrace || initialTrace;
 
           for (let i = 0; i < fragments.length; i++) {
             // Verificar cancelamento antes de cada fragmento
@@ -1755,8 +1777,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (valentinaGenerationRef.current !== myGeneration) return;
 
             const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            if (i === 0) {
+              setValentinaThoughtTrace(null);
+              setIsValentinaTyping(false);
+            }
             const valentinaMsg: Message = {
               id: frag.id || `msg-val-${Date.now()}-${i}`,
+              ...(i === 0 ? { thoughtTrace: frag.thoughtTrace || resolvedTrace } : {}),
               author: currentPersona.name,
               text: frag.content || frag.text || "",
               time: respTime,
@@ -1850,6 +1877,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Só desligar o indicador se esta geração ainda é a ativa
           if (valentinaGenerationRef.current === myGeneration) {
             setIsValentinaTyping(false);
+            setValentinaThoughtTrace(null);
           }
         }
       })();
@@ -4016,6 +4044,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         messageStatusOverrides,
         operatorTypingStatus,
         isValentinaTyping,
+        valentinaThoughtTrace,
         disconnectBaileys,
         connectBaileys,
 
