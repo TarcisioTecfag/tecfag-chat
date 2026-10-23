@@ -19,14 +19,18 @@ export type RelatedDealItem = {
   dealId: string;
   title: string;
   value?: number | null;
+  valueFormatted?: string | null;
   stageName?: string | null;
   pipelineName?: string | null;
+  stageLabel?: string | null;
   accountName?: string | null;
+  company?: string | null;
   contactName?: string | null;
   contactPhone?: string | null;
   conversationId?: string | null;
   daysIdle?: number | null;
   status?: string | null;
+  lastActivitySummary?: string | null;
 };
 
 export type RelatedCallActionItem = {
@@ -37,6 +41,8 @@ export type RelatedCallActionItem = {
   dealId?: string | null;
   dealTitle?: string | null;
   dealValue?: number | null;
+  dealValueFormatted?: string | null;
+  stageLabel?: string | null;
   conversationId?: string | null;
   reason?: string | null;
 };

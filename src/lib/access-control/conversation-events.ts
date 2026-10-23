@@ -27,6 +27,10 @@ export async function filterConversationEvent(session: AuthSessionContext, event
     if (conversationId && await requireConversationAccess(session, conversationId)) return null;
     return event;
   }
+  if (event.type === "valentina_thought_progress") {
+    if (event.operatorId !== session.operator.id) return null;
+    return event;
+  }
   if (permissions?.views?.chat !== true) return null;
   const byConversation: Record<string, unknown> = {
     message: event.message?.conversationId, chat_updated: event.chat?.id,

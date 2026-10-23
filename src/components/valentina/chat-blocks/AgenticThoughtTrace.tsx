@@ -160,7 +160,7 @@ export function AgenticThoughtTrace({
       setElapsedMs(Date.now() - startedAt);
     }, 120);
     return () => clearInterval(interval);
-  }, [mode, trace.taskTitle]);
+  }, [mode]);
 
   const triggerFollowScroll = useCallback(() => {
     onStepRevealRef.current?.();
@@ -187,18 +187,21 @@ export function AgenticThoughtTrace({
     }));
   };
 
-  // Filtra etapas visíveis de acordo com o progresso ao vivo
+  // Filtra etapas visíveis: se vier em tempo real via SSE do servidor (isRealTimeStream), exibe imediatamente cada etapa real conforme o backend conclui; caso contrário, usa fallback progressivo
   const visibleSteps: AgenticThoughtStep[] =
     mode === "live"
-      ? trace.steps.filter((s, idx) => idx === 0 || elapsedMs >= (s.revealAfterMs ?? idx * 700))
+      ? trace.isRealTimeStream
+        ? trace.steps
+        : trace.steps.filter((s, idx) => idx === 0 || elapsedMs >= (s.revealAfterMs ?? idx * 700))
       : trace.steps;
 
-  // Auto-scroll progressivo sempre que uma nova linha aparece no modo "live"
+  // Auto-scroll progressivo sempre que uma nova linha aparece ou atualiza no modo "live"
+  const stepsSignature = visibleSteps.map((s) => `${s.id}:${s.scopeTag || ""}`).join("|");
   useEffect(() => {
     if (mode !== "live" || !isOpen) return;
     const cleanup = triggerFollowScroll();
     return cleanup;
-  }, [mode, isOpen, visibleSteps.length, triggerFollowScroll]);
+  }, [mode, isOpen, visibleSteps.length, stepsSignature, triggerFollowScroll]);
 
   const actionStepsCount = trace.steps.filter((s) => s.kind !== "thought").length;
   const liveSeconds = Math.max(1, Math.floor(elapsedMs / 1000));

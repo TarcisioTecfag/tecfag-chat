@@ -17,6 +17,7 @@ import { ValentinaThreadRail } from "./chat-blocks/ValentinaThreadRail";
 import { AgenticThoughtTrace } from "./chat-blocks/AgenticThoughtTrace";
 import {
   buildAgenticThoughtTrace,
+  isCasualConversationQuery,
   type AgenticThoughtTraceData,
 } from "@/lib/valentina/agentic-thought-trace";
 import type {
@@ -236,6 +237,18 @@ export function ValentinaChatTab() {
     }
   }, [activeMessages, isTyping]);
 
+  // Escuta progresso real do servidor via SSE (valentina:thought-progress)
+  useEffect(() => {
+    const handleThoughtProgress = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.scope === "admin" && detail?.trace) {
+        setLiveThoughtTrace(detail.trace);
+      }
+    };
+    window.addEventListener("valentina:thought-progress", handleThoughtProgress);
+    return () => window.removeEventListener("valentina:thought-progress", handleThoughtProgress);
+  }, []);
+
   // Manipulação de Threads
   const createNewThread = (folderId: string | null = null): string => {
     const newId = `thread_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -306,7 +319,7 @@ export function ValentinaChatTab() {
     if (file.type.startsWith("video/")) {
       alert("Vídeos não são suportados. Apenas imagens.");
       return;
-    }
+    };
     const reader = new FileReader();
     reader.onloadend = () => {
       setAttachedImage({ name: file.name, dataUrl: reader.result as string });
@@ -375,14 +388,27 @@ export function ValentinaChatTab() {
       })
     );
 
-    const initialTrace = buildAgenticThoughtTrace({
-      userQuery: userMessageText,
+    const isCasualMsg = !fileSnap && !imageSnap && isCasualConversationQuery(userMessageText);
+    const initialTrace: AgenticThoughtTraceData = {
+      taskTitle: isCasualMsg
+        ? "Respondendo mensagem"
+        : `Analisando indicadores da operação em tempo real`,
+      finishedTitle: isCasualMsg ? "Resposta direta enviada" : "Consulta executiva concluída",
+      totalDurationSeconds: 1,
       scope: "admin",
-      personaName: persona.name,
-      knowledgeBase: selectedBase,
-      attachedFileName: fileSnap?.name || null,
-      hasAttachedImage: Boolean(imageSnap),
-    });
+      isRealTimeStream: true,
+      steps: [
+        {
+          id: "step-init",
+          kind: "thought",
+          actionVerb: "Pensou por 1s",
+          targetLabel: isCasualMsg
+            ? "Reconhecendo mensagem rápida sem necessidade de varrer tabelas"
+            : "Planejando consultas reais nos indicadores operacionais e comerciais",
+          detailText: `Iniciando processamento real de "${userMessageText.slice(0, 80)}".`,
+        },
+      ],
+    };
 
     setInput("");
     setAttachedFile(null);

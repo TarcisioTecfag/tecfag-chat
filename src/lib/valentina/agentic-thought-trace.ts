@@ -48,6 +48,8 @@ export interface AgenticThoughtTraceData {
   totalDurationSeconds: number;
   scope: "admin" | "operator";
   steps: AgenticThoughtStep[];
+  /** Quando true, as etapas estão sendo transmitidas ao vivo pelo backend via SSE conforme executam */
+  isRealTimeStream?: boolean;
 }
 
 export interface BuildTraceOptions {
@@ -60,6 +62,8 @@ export interface BuildTraceOptions {
   totalDurationMs?: number;
   contextDurationMs?: number;
   aiDurationMs?: number;
+  /** Etapas reais medidas no servidor durante a execução das queries */
+  executedSteps?: AgenticThoughtStep[];
   extraSummary?: {
     dealsCount?: number;
     waitingCount?: number;
@@ -77,9 +81,29 @@ function normalizeQuery(text: string): string {
 }
 
 /**
+ * Detecta se a mensagem do usuário é apenas um agradecimento, confirmação rápida
+ * ou cumprimento casual que NÃO exige varredura de banco (ex: "ta obrigado", "valeu", "beleza", "ok").
+ */
+export function isCasualConversationQuery(text: string): boolean {
+  const clean = normalizeQuery(text).replace(/[!?.,;:]+/g, "").trim();
+  if (!clean) return false;
+  if (clean.split(/\s+/).length > 6) return false;
+  // Se contém interrogação ou termos de consulta operacional/comercial, NÃO é casual
+  if (
+    /\?|\b(?:qual|quais|como|quanto|quantos|quantas|quem|onde|quando|cade|puxa|puxe|mostra|mostre|manda|mande|lista|liste|tem|tenho|outra|outras|outro|outros|negociac|card|crm|fila|meta|tarefa|ligar|ligac|telefone|cliente|empresa|sla|tma|funil|sdr|relatorio|grafico)\b/.test(
+      clean
+    )
+  ) {
+    return false;
+  }
+  return /^(?:(?:ta|tá|ah|opa|ei|ola|oi)\s+)?(?:obrigad[oa]|muito\s+obrigad[oa]|valeu|vlw|ok|okay|beleza|blz|show|fechou|entendi|entendido|combinado|perfeito|certo|certinho|tudo\s+certo|ta\s+bom|ta\s+otimo|maravilha|boa|top|ate\s+mais|tchau|bom\s+dia|boa\s+tarde|boa\s+noite| imagina|de\s+nada)(?:\s+(?:fagner|valentina|ai|mesmo|entao|agora|por\s+enquanto))?$/.test(
+    clean
+  );
+}
+
+/**
  * Gera a árvore de ações e raciocínio contextualizada para a pergunta do usuário.
- * Usado tanto em tempo real (enquanto aguarda a resposta) quanto na consolidação
- * final salva junto com a mensagem no banco/histórico.
+ * Quando `executedSteps` é fornecido pelo servidor, usa 100% as etapas reais executadas no banco.
  */
 export function buildAgenticThoughtTrace(options: BuildTraceOptions): AgenticThoughtTraceData {
   const {
@@ -92,33 +116,73 @@ export function buildAgenticThoughtTrace(options: BuildTraceOptions): AgenticTho
     totalDurationMs,
     contextDurationMs,
     aiDurationMs,
+    executedSteps,
     extraSummary,
   } = options;
 
   const q = normalizeQuery(userQuery);
-  const steps: AgenticThoughtStep[] = [];
+  const isCasual =
+    !attachedFileName && !hasAttachedImage && isCasualConversationQuery(userQuery);
 
   const totalSec = totalDurationMs
-    ? Math.max(2, Math.round(totalDurationMs / 1000))
-    : scope === "admin"
-      ? 5
-      : 4;
+    ? Math.max(1, Math.round(totalDurationMs / 1000))
+    : isCasual
+      ? 1
+      : scope === "admin"
+        ? 5
+        : 4;
+
+  // Se for uma mensagem casual (ex: "ta obrigado", "valeu", "ok"), retorna trilha enxuta e real sem consultas falsas ao banco
+  if (isCasual && (!executedSteps || executedSteps.length === 0)) {
+    return {
+      taskTitle: `Respondendo mensagem`,
+      finishedTitle: `Resposta direta enviada`,
+      totalDurationSeconds: totalSec,
+      scope,
+      steps: [
+        {
+          id: "step-casual-reply",
+          kind: "synthesize",
+          actionVerb: "Respondeu via",
+          targetLabel: "gemini-2.5-flash",
+          scopeTag: "#conversa-direta",
+          badgeType: "ai",
+          detailText: `Mensagem casual reconhecida ("${userQuery.slice(0, 60)}") — respondida diretamente sem necessidade de reconsultar tabelas do banco.`,
+          revealAfterMs: 0,
+        },
+      ],
+    };
+  }
 
   const thought1Sec = contextDurationMs
     ? Math.max(1, Math.round((contextDurationMs * 0.45) / 1000))
     : 1;
   const thought2Sec = aiDurationMs
     ? Math.max(1, Math.round(aiDurationMs / 1000))
-    : Math.max(2, totalSec - thought1Sec - 1);
+    : Math.max(1, totalSec - thought1Sec);
 
   let taskTitle =
     scope === "admin"
       ? "Analisando indicadores da operação em tempo real"
-      : "Consultando sua carteira e atendimentos ativos";
+      : "Consultando dados da sua operação";
   let finishedTitle =
     scope === "admin"
       ? "Consulta executiva de BI concluída"
-      : "Consulta da carteira comercial concluída";
+      : "Consulta comercial concluída";
+
+  // Se o servidor já mediu e executou as etapas reais, usa exatamente as etapas reais!
+  if (executedSteps && executedSteps.length > 0) {
+    return {
+      taskTitle,
+      finishedTitle,
+      totalDurationSeconds: totalSec,
+      scope,
+      isRealTimeStream: true,
+      steps: executedSteps,
+    };
+  }
+
+  const steps: AgenticThoughtStep[] = [];
 
   // ── 1. Anexos (Arquivo / Imagem) se presentes ──────────────────────────────
   if (attachedFileName) {

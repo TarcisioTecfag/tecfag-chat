@@ -16,6 +16,7 @@ import { parseAppRoute } from "@/lib/app-routes";
 import { getAiPersona } from "@/lib/ai-persona";
 import {
   buildAgenticThoughtTrace,
+  isCasualConversationQuery,
   type AgenticThoughtTraceData,
 } from "@/lib/valentina/agentic-thought-trace";
 import { playNotificationSound } from "@/lib/sound-notifications";
@@ -1794,18 +1795,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Chamar API real /api/valentina/messages (com signal de cancelamento)
       (async () => {
         const currentPersona = getAiPersona(tenant || "valem");
-        const initialTrace = buildAgenticThoughtTrace({
-          userQuery: displayUserText,
+        const isCasualMsg =
+          !firstAttachment && isCasualConversationQuery(displayUserText);
+        const initialTrace: AgenticThoughtTraceData = {
+          taskTitle: isCasualMsg
+            ? "Respondendo mensagem"
+            : `Analisando solicitação para ${currentPersona.name}`,
+          finishedTitle: isCasualMsg ? "Resposta direta enviada" : "Consulta concluída",
+          totalDurationSeconds: 1,
           scope: "operator",
-          personaName: currentPersona.name,
-          attachedFileName:
-            firstAttachment && !firstAttachment.type.startsWith("image/")
-              ? firstAttachment.name
-              : null,
-          hasAttachedImage: Boolean(
-            firstAttachment && firstAttachment.type.startsWith("image/")
-          ),
-        });
+          isRealTimeStream: true,
+          steps: [
+            {
+              id: "step-init",
+              kind: "thought",
+              actionVerb: "Pensou por 1s",
+              targetLabel: isCasualMsg
+                ? "Reconhecendo mensagem rápida sem necessidade de varrer tabelas"
+                : "Interpretando sua pergunta e selecionando consultas reais no servidor",
+              detailText: `Iniciando processamento real de "${displayUserText.slice(0, 70)}".`,
+            },
+          ],
+        };
         setValentinaThoughtTrace(initialTrace);
         setIsValentinaTyping(true);
         try {
@@ -2764,7 +2775,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Attendance-Conversation": id },
         body: JSON.stringify({ tags }),
       });
       if (!res.ok) {
@@ -2894,7 +2905,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Attendance-Conversation": id },
         body: JSON.stringify(fields),
       });
       if (!res.ok) {
@@ -3944,6 +3955,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ),
             { id: notifToastId, duration: 9000, position: "top-right" },
           );
+        } else if (data.type === "valentina_thought_progress" && data.trace) {
+          if (data.operatorId && data.operatorId !== currentOperatorIdRef.current) return;
+          if (data.scope !== "admin") {
+            setValentinaThoughtTrace(data.trace);
+          }
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("valentina:thought-progress", { detail: data })
+            );
+          }
         }
       } catch (err) {
         console.error("Erro ao processar dados recebidos do SSE:", err);

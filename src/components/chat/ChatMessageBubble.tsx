@@ -10,6 +10,7 @@ import {
   AlertCircle,
   ArrowRight,
   Clock,
+  MessageSquare,
   PhoneCall,
   UserCheck,
   Users,
@@ -677,229 +678,339 @@ function ChatMessageBubbleComponent({
                   </div>
                 )}
 
-                {/* Balão/Card interativo: Ligação Direta via VigosPhone */}
-                {m.relatedCalls && m.relatedCalls.length > 0 && (
-                  <div
-                    className="mt-2.5 p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/35 border border-emerald-500/35 shadow-sm flex flex-col gap-2 cursor-default text-xs"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <PhoneCall className="h-3 w-3" />
-                        {m.relatedCalls.length === 1
-                          ? "Discagem Direta • VigosPhone"
-                          : `Discagem Direta • VigosPhone (${m.relatedCalls.length})`}
-                      </span>
-                      <span className="text-[9px] font-semibold">
-                        Clique para ligar
-                      </span>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      {m.relatedCalls.map((callItem) => (
-                        <a
-                          key={callItem.id || callItem.phone}
-                          href={getVigosPhoneLink(callItem.phone)}
-                          className="group/call p-2 rounded-lg bg-card/95 hover:bg-emerald-500/15 border border-emerald-500/30 hover:border-emerald-500/60 flex items-center justify-between gap-2.5 transition cursor-pointer no-underline"
-                        >
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <div className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 group-hover/call:bg-emerald-500 group-hover/call:text-white transition">
-                              <PhoneCall className="h-3.5 w-3.5" />
-                            </div>
-                            <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[11px] font-bold text-foreground truncate">
-                                  {callItem.clientName}
-                                </span>
-                                {callItem.company &&
-                                  callItem.company !== callItem.clientName && (
-                                    <span className="text-[9px] text-muted-foreground truncate">
-                                      • {callItem.company}
-                                    </span>
-                                  )}
-                              </div>
-                              <div className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                {formatDisplayPhone(callItem.phone)}
-                              </div>
-                              {(callItem.dealTitle || callItem.reason) && (
-                                <div className="text-[9px] text-muted-foreground truncate">
-                                  {callItem.dealTitle
-                                    ? `${callItem.dealTitle}${callItem.dealValueFormatted ? ` • ${callItem.dealValueFormatted}` : ""}`
-                                    : callItem.reason}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-emerald-600 group-hover/call:bg-emerald-500 text-white text-[10px] font-bold shadow-soft transition">
-                            <PhoneCall className="h-3 w-3" />
-                            <span>Ligar</span>
-                          </div>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Card interativo: Lista de Negociações do CRM Citadas */}
-                {m.relatedDeals && m.relatedDeals.length > 0 && (
-                  <div
-                    className="mt-2.5 p-2.5 rounded-xl bg-card/95 border border-border/80 shadow-sm flex flex-col gap-2 cursor-default text-xs"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <Briefcase className="h-3 w-3 text-primary" />
-                        {`Negociações do CRM (${m.relatedDeals.length})`}
-                      </span>
-                      <span className="text-[9px] font-semibold text-primary">
-                        Clique para abrir o card
-                      </span>
-                    </div>
-                    <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto pr-0.5">
-                      {m.relatedDeals.map((deal) => (
-                        <div
-                          key={deal.dealId}
-                          className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2.5 transition"
-                        >
-                          <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[11px] font-bold text-foreground truncate">
-                                {deal.title}
-                              </span>
-                              <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-primary/15 text-primary border border-primary/30">
-                                {deal.valueFormatted}
-                              </span>
-                            </div>
-                            <div className="text-[9.5px] font-semibold text-muted-foreground truncate">
-                              {[
-                                deal.stageLabel,
-                                deal.company && deal.company !== "Sem empresa" ? deal.company : null,
-                                deal.contactName && deal.contactName !== deal.company
-                                  ? deal.contactName
-                                  : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" • ")}
-                            </div>
-                            {deal.contactPhone ? (
-                              <div className="text-[9.5px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                                📞 {formatDisplayPhone(deal.contactPhone)}
-                              </div>
-                            ) : (
-                              <div className="text-[9px] text-muted-foreground/80 italic">
-                                Sem telefone vinculado no card
-                              </div>
-                            )}
-                            {deal.lastActivitySummary && (
-                              <div className="text-[9.5px] text-muted-foreground truncate italic">
-                                "{deal.lastActivitySummary}"
-                              </div>
-                            )}
-                          </div>
-                          <div className="shrink-0 flex items-center gap-1">
-                            {deal.contactPhone && (
-                              <a
-                                href={getVigosPhoneLink(deal.contactPhone)}
-                                title={`Ligar para ${formatDisplayPhone(deal.contactPhone)} via VigosPhone`}
-                                className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/15 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white border border-emerald-500/30 transition cursor-pointer"
-                              >
-                                <PhoneCall className="h-3.5 w-3.5" />
-                              </a>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                navigate({
-                                  to: "/crm/deals/$dealId",
-                                  params: { dealId: deal.dealId },
-                                  search: { from: "crm" },
-                                })
-                              }
-                              className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
-                            >
-                              <span>Abrir CRM</span>
-                              <ArrowRight className="h-3 w-3" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Card interativo: Lista de Conversas Citadas (Sobrecarga / Respostas da IA) */}
+                {/* Cards interativos unificados e sem duplicidade (CRM / VigosPhone / Conversas) */}
                 {(() => {
-                  const list =
+                  const dealsList = m.relatedDeals || [];
+                  const dealIdsSet = new Set(dealsList.map((d) => d.dealId).filter(Boolean));
+                  const dealConvIdsSet = new Set(
+                    dealsList.map((d) => d.conversationId).filter(Boolean) as string[]
+                  );
+                  const dealPhonesSet = new Set(
+                    dealsList
+                      .map((d) => (d.contactPhone || "").replace(/\D/g, "").slice(-8))
+                      .filter((p) => p.length >= 8)
+                  );
+                  const dealNamesSet = new Set(
+                    dealsList
+                      .flatMap((d) => [d.accountName, d.company, d.contactName])
+                      .map((n) => (n || "").trim().toLowerCase())
+                      .filter((n) => n.length >= 3)
+                  );
+
+                  // Filtra ligações que JÁ possuem card em Negociações do CRM (pois o card do CRM já tem o botão VigosPhone!)
+                  const dedupedCalls = (m.relatedCalls || []).filter((c) => {
+                    if (c.dealId && dealIdsSet.has(c.dealId)) return false;
+                    if (c.conversationId && dealConvIdsSet.has(c.conversationId)) return false;
+                    const phoneKey = (c.phone || "").replace(/\D/g, "").slice(-8);
+                    if (phoneKey.length >= 8 && dealPhonesSet.has(phoneKey)) return false;
+                    const nameKey = (c.clientName || "").trim().toLowerCase();
+                    if (nameKey.length >= 3 && dealNamesSet.has(nameKey)) return false;
+                    return true;
+                  });
+
+                  const callConvIdsSet = new Set(
+                    dedupedCalls.map((c) => c.conversationId).filter(Boolean) as string[]
+                  );
+                  const callPhonesSet = new Set(
+                    dedupedCalls
+                      .map((c) => (c.phone || "").replace(/\D/g, "").slice(-8))
+                      .filter((p) => p.length >= 8)
+                  );
+                  const callNamesSet = new Set(
+                    dedupedCalls
+                      .map((c) => (c.clientName || "").trim().toLowerCase())
+                      .filter((n) => n.length >= 3)
+                  );
+
+                  const rawConvList =
                     m.warningType === "overload" && m.warningMetadata?.conversations?.length
                       ? m.warningMetadata.conversations
                       : m.relatedConversations?.length
                         ? m.relatedConversations
                         : null;
-                  if (!list || list.length === 0) return null;
+
+                  // Se não for card de sobrecarga, remove conversas cujo contato JÁ está em Negociações do CRM ou Discagem Direta
+                  const dedupedConvs =
+                    rawConvList && m.warningType !== "overload"
+                      ? rawConvList.filter((conv) => {
+                          if (
+                            conv.clientId &&
+                            (dealConvIdsSet.has(conv.clientId) || callConvIdsSet.has(conv.clientId))
+                          ) {
+                            return false;
+                          }
+                          const phoneKey = (conv.clientPhone || "").replace(/\D/g, "").slice(-8);
+                          if (
+                            phoneKey.length >= 8 &&
+                            (dealPhonesSet.has(phoneKey) || callPhonesSet.has(phoneKey))
+                          ) {
+                            return false;
+                          }
+                          const nameKey = (conv.clientName || "").trim().toLowerCase();
+                          if (
+                            nameKey.length >= 3 &&
+                            (dealNamesSet.has(nameKey) || callNamesSet.has(nameKey))
+                          ) {
+                            return false;
+                          }
+                          return true;
+                        })
+                      : rawConvList;
 
                   return (
-                    <div
-                      className="mt-2.5 p-2.5 rounded-xl bg-card/95 border border-border/80 shadow-sm flex flex-col gap-2 cursor-default text-xs"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                        <span>
-                          {m.warningType === "overload"
-                            ? `Atendimentos Ativos (${list.length})`
-                            : `Conversas Citadas (${list.length})`}
-                        </span>
-                        <span className="text-[9px] font-semibold text-primary">
-                          Clique para abrir
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto pr-0.5">
-                        {list.map((conv) => (
-                          <div
-                            key={conv.clientId}
-                            className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2.5 transition"
-                          >
-                            <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[11px] font-bold text-foreground truncate">
-                                  {conv.clientName}
-                                </span>
-                                {conv.company && (
-                                  <span className="text-[9px] text-muted-foreground truncate">
-                                    • {conv.company}
-                                  </span>
-                                )}
-                                {conv.isWaiting && (
-                                  <span className="px-1.5 py-0.2 rounded-full text-[8px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30">
-                                    {conv.waitMinutes && conv.waitMinutes > 0
-                                      ? `Aguardando há ${conv.waitMinutes}min`
-                                      : "Aguardando resposta"}
-                                  </span>
+                    <>
+                      {/* 1. Balão/Card interativo: Ligação Direta via VigosPhone (apenas para contatos fora dos cards de CRM) */}
+                      {dedupedCalls.length > 0 && (
+                        <div
+                          className="mt-2.5 p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/35 border border-emerald-500/35 shadow-sm flex flex-col gap-2 cursor-default text-xs"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <PhoneCall className="h-3 w-3" />
+                              {dedupedCalls.length === 1
+                                ? "Discagem Direta • VigosPhone"
+                                : `Discagem Direta • VigosPhone (${dedupedCalls.length})`}
+                            </span>
+                            <span className="text-[9px] font-semibold">Clique para ligar</span>
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            {dedupedCalls.map((callItem) => (
+                              <a
+                                key={callItem.id || callItem.phone}
+                                href={getVigosPhoneLink(callItem.phone)}
+                                className="group/call p-2 rounded-lg bg-card/95 hover:bg-emerald-500/15 border border-emerald-500/30 hover:border-emerald-500/60 flex items-center justify-between gap-2.5 transition cursor-pointer no-underline"
+                              >
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <div className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 group-hover/call:bg-emerald-500 group-hover/call:text-white transition">
+                                    <PhoneCall className="h-3.5 w-3.5" />
+                                  </div>
+                                  <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-[11px] font-bold text-foreground truncate">
+                                        {callItem.clientName}
+                                      </span>
+                                      {callItem.company &&
+                                        callItem.company !== callItem.clientName && (
+                                          <span className="text-[9px] text-muted-foreground truncate">
+                                            • {callItem.company}
+                                          </span>
+                                        )}
+                                    </div>
+                                    <div className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                      {formatDisplayPhone(callItem.phone)}
+                                    </div>
+                                    {(callItem.dealTitle || callItem.reason) && (
+                                      <div className="text-[9px] text-muted-foreground truncate">
+                                        {callItem.dealTitle
+                                          ? `${callItem.dealTitle}${callItem.dealValueFormatted ? ` • ${callItem.dealValueFormatted}` : ""}`
+                                          : callItem.reason}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-emerald-600 group-hover/call:bg-emerald-500 text-white text-[10px] font-bold shadow-soft transition">
+                                  <PhoneCall className="h-3 w-3" />
+                                  <span>Ligar</span>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. Card interativo unificado: Negociações do CRM (com VigosPhone + Chat + Abrir CRM em 1 único card!) */}
+                      {dealsList.length > 0 && (
+                        <div
+                          className="mt-2.5 p-2.5 rounded-xl bg-card/95 border border-border/80 shadow-sm flex flex-col gap-2 cursor-default text-xs"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <Briefcase className="h-3 w-3 text-primary" />
+                              {`Negociações do CRM (${dealsList.length})`}
+                            </span>
+                            <span className="text-[9px] font-semibold text-primary">
+                              Ações rápidas
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto pr-0.5">
+                            {dealsList.map((deal) => {
+                              const formattedVal =
+                                deal.valueFormatted ||
+                                (deal.value != null && Number(deal.value) > 0
+                                  ? Number(deal.value).toLocaleString("pt-BR", {
+                                      style: "currency",
+                                      currency: "BRL",
+                                    })
+                                  : null);
+                              const stageText =
+                                deal.stageLabel ||
+                                [deal.pipelineName, deal.stageName].filter(Boolean).join(" › ") ||
+                                null;
+                              const companyText = deal.company || deal.accountName || null;
+
+                              return (
+                                <div
+                                  key={deal.dealId}
+                                  className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2.5 transition"
+                                >
+                                  <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-[11px] font-bold text-foreground truncate">
+                                        {deal.title}
+                                      </span>
+                                      {formattedVal && (
+                                        <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-primary/15 text-primary border border-primary/30">
+                                          {formattedVal}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[9.5px] font-semibold text-muted-foreground truncate">
+                                      {[
+                                        stageText,
+                                        companyText && companyText !== "Sem empresa"
+                                          ? companyText
+                                          : null,
+                                        deal.contactName && deal.contactName !== companyText
+                                          ? deal.contactName
+                                          : null,
+                                        deal.daysIdle && deal.daysIdle >= 3
+                                          ? `Parada há ${deal.daysIdle}d`
+                                          : null,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" • ")}
+                                    </div>
+                                    {deal.contactPhone ? (
+                                      <div className="text-[9.5px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                                        📞 {formatDisplayPhone(deal.contactPhone)}
+                                      </div>
+                                    ) : (
+                                      <div className="text-[9px] text-muted-foreground/80 italic">
+                                        Sem telefone vinculado no card
+                                      </div>
+                                    )}
+                                    {deal.lastActivitySummary && (
+                                      <div className="text-[9.5px] text-muted-foreground truncate italic">
+                                        "{deal.lastActivitySummary}"
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="shrink-0 flex items-center gap-1">
+                                    {deal.contactPhone && (
+                                      <a
+                                        href={getVigosPhoneLink(deal.contactPhone)}
+                                        title={`Ligar para ${formatDisplayPhone(deal.contactPhone)} via VigosPhone`}
+                                        className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/15 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white border border-emerald-500/30 transition cursor-pointer"
+                                      >
+                                        <PhoneCall className="h-3.5 w-3.5" />
+                                      </a>
+                                    )}
+                                    {deal.conversationId && onOpenWarningChat && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onOpenWarningChat(
+                                            deal.conversationId!,
+                                            deal.contactName || deal.accountName || deal.title
+                                          )
+                                        }
+                                        title="Abrir conversa no WhatsApp"
+                                        className="grid h-7 w-7 place-items-center rounded-lg bg-primary/12 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/25 transition cursor-pointer"
+                                      >
+                                        <MessageSquare className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        navigate({
+                                          to: "/crm/deals/$dealId",
+                                          params: { dealId: deal.dealId },
+                                          search: { from: "crm" },
+                                        })
+                                      }
+                                      className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                                    >
+                                      <span>Abrir CRM</span>
+                                      <ArrowRight className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. Card interativo: Lista de Conversas Citadas (apenas conversas que não estão nos cards acima) */}
+                      {dedupedConvs && dedupedConvs.length > 0 && (
+                        <div
+                          className="mt-2.5 p-2.5 rounded-xl bg-card/95 border border-border/80 shadow-sm flex flex-col gap-2 cursor-default text-xs"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                            <span>
+                              {m.warningType === "overload"
+                                ? `Atendimentos Ativos (${dedupedConvs.length})`
+                                : `Conversas Citadas (${dedupedConvs.length})`}
+                            </span>
+                            <span className="text-[9px] font-semibold text-primary">
+                              Clique para abrir
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto pr-0.5">
+                            {dedupedConvs.map((conv) => (
+                              <div
+                                key={conv.clientId}
+                                className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2.5 transition"
+                              >
+                                <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[11px] font-bold text-foreground truncate">
+                                      {conv.clientName}
+                                    </span>
+                                    {conv.company && (
+                                      <span className="text-[9px] text-muted-foreground truncate">
+                                        • {conv.company}
+                                      </span>
+                                    )}
+                                    {conv.isWaiting && (
+                                      <span className="px-1.5 py-0.2 rounded-full text-[8px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                                        {conv.waitMinutes && conv.waitMinutes > 0
+                                          ? `Aguardando há ${conv.waitMinutes}min`
+                                          : "Aguardando resposta"}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {(conv.dealTitle || conv.funnelName) && (
+                                    <div className="text-[9px] font-semibold text-primary/90 truncate">
+                                      {[conv.funnelName, conv.dealTitle].filter(Boolean).join(" • ")}
+                                    </div>
+                                  )}
+                                  {conv.lastMessage && (
+                                    <div className="text-[10px] text-muted-foreground truncate italic">
+                                      "{conv.lastMessage}"
+                                    </div>
+                                  )}
+                                </div>
+                                {onOpenWarningChat && conv.clientId && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenWarningChat(conv.clientId)}
+                                    className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                                  >
+                                    <span>Abrir</span>
+                                    <ArrowRight className="h-3 w-3" />
+                                  </button>
                                 )}
                               </div>
-                              {(conv.dealTitle || conv.funnelName) && (
-                                <div className="text-[9px] font-semibold text-primary/90 truncate">
-                                  {[conv.funnelName, conv.dealTitle].filter(Boolean).join(" • ")}
-                                </div>
-                              )}
-                              {conv.lastMessage && (
-                                <div className="text-[10px] text-muted-foreground truncate italic">
-                                  "{conv.lastMessage}"
-                                </div>
-                              )}
-                            </div>
-                            {onOpenWarningChat && conv.clientId && (
-                              <button
-                                type="button"
-                                onClick={() => onOpenWarningChat(conv.clientId)}
-                                className="shrink-0 flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
-                              >
-                                <span>Abrir</span>
-                                <ArrowRight className="h-3 w-3" />
-                              </button>
-                            )}
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
               </div>
