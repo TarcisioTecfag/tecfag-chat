@@ -1,5 +1,5 @@
-import { createFileRoute, Link, useLocation } from "@tanstack/react-router";
-import { isAppShellPath } from "@/lib/app-routes";
+import { createFileRoute, Link, useLocation, useRouterState } from "@tanstack/react-router";
+import { isAppShellPath, isKnownStandalonePath } from "@/lib/app-routes";
 
 export const Route = createFileRoute("/$")({
   ssr: true,
@@ -8,9 +8,22 @@ export const Route = createFileRoute("/$")({
 
 function AppCatchAllRoute() {
   const location = useLocation();
+  const { resolvedPathname, isTransitioning } = useRouterState({
+    select: (state) => ({
+      resolvedPathname: state.resolvedLocation?.pathname,
+      isTransitioning: state.isTransitioning || state.status === "pending",
+    }),
+  });
 
-  if (isAppShellPath(location.pathname)) {
+  if (
+    isAppShellPath(location.pathname) ||
+    isKnownStandalonePath(location.pathname) ||
+    (resolvedPathname &&
+      (isAppShellPath(resolvedPathname) || isKnownStandalonePath(resolvedPathname))) ||
+    isTransitioning
+  ) {
     // Renderizado de forma persistente (0ms remount) pelo PersistentAppShell em __root.tsx
+    // ou em transição ativa para rota dedicada (ex: /crm/deals/$dealId)
     return null;
   }
 

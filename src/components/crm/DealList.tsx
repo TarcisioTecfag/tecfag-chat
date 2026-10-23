@@ -392,7 +392,8 @@ export function DealList({
                     <tr
                       key={deal.id}
                       onClick={() => onDealClick(deal)}
-                      onMouseEnter={() => prefetchDealDetail(deal.id)}
+                      onPointerDown={() => prefetchDealDetail(deal.id, deal)}
+                      onMouseEnter={() => prefetchDealDetail(deal.id, deal)}
                       className={`content-visibility-auto transition-colors cursor-pointer group ${
                         isSelected
                           ? "bg-primary/5 dark:bg-primary/10 hover:bg-primary/10 dark:hover:bg-primary/15"

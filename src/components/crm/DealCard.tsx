@@ -133,6 +133,7 @@ export const DealCard = React.memo(function DealCard({
     if (target.closest('button, a, input, select, textarea, [role="button"], [data-no-drag]')) {
       return;
     }
+    prefetchDealDetail(deal.id, deal);
     if (onStartDrag) {
       onStartDrag(e, deal);
     }
@@ -140,6 +141,7 @@ export const DealCard = React.memo(function DealCard({
 
   const handleCardClick = () => {
     if (isOverlay || isDragging) return;
+    prefetchDealDetail(deal.id, deal);
     if (!onStartDrag && onClick) {
       onClick(deal);
     }
@@ -247,7 +249,7 @@ export const DealCard = React.memo(function DealCard({
       data-stage-id={deal.stageId}
       onPointerDown={handlePointerDown}
       onClick={handleCardClick}
-      onMouseEnter={() => prefetchDealDetail(deal.id)}
+      onMouseEnter={() => prefetchDealDetail(deal.id, deal)}
       className={`group relative flex flex-col justify-between h-[196px] min-h-[196px] max-h-[196px] rounded-xl border p-3 select-none overflow-hidden data-[is-ghost=true]:opacity-25 data-[is-ghost=true]:border-dashed data-[is-ghost=true]:border-2 data-[is-ghost=true]:border-primary/50 data-[is-ghost=true]:bg-primary/[0.04] data-[is-ghost=true]:scale-[0.98] data-[is-ghost=true]:pointer-events-none ${
         isOverlay
           ? "border-primary bg-card shadow-2xl ring-2 ring-primary/80 cursor-grabbing pointer-events-none transition-none"

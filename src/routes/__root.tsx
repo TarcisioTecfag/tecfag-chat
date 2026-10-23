@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
   useLocation,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/asset-recovery";
 
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
-import { isAppShellPath } from "@/lib/app-routes";
+import { isAppShellPath, isKnownStandalonePath } from "@/lib/app-routes";
 import { Index } from "./index";
 
 installAssetRecovery();
@@ -39,8 +40,17 @@ const CrmChatWidget = lazy(() =>
 );
 
 function PersistentAppShell() {
-  const location = useLocation();
-  if (!isAppShellPath(location.pathname)) {
+  const { currentPathname, resolvedPathname, isTransitioning } = useRouterState({
+    select: (state) => ({
+      currentPathname: state.location.pathname,
+      resolvedPathname: state.resolvedLocation?.pathname,
+      isTransitioning: state.isTransitioning || state.status === "pending",
+    }),
+  });
+
+  // Mantém o shell visível enquanto a nova rota dedicada (ex: /crm/deals/$dealId) ainda está resolvendo/carregando chunk
+  const effectivePathname = isTransitioning && resolvedPathname ? resolvedPathname : currentPathname;
+  if (!isAppShellPath(effectivePathname)) {
     return null;
   }
   return <Index />;
@@ -67,20 +77,38 @@ function MaybeCrmChatWidget() {
 }
 
 function NotFoundComponent() {
+  const location = useLocation();
+  const { resolvedPathname, isTransitioning } = useRouterState({
+    select: (state) => ({
+      resolvedPathname: state.resolvedLocation?.pathname,
+      isTransitioning: state.isTransitioning || state.status === "pending",
+    }),
+  });
+
+  if (
+    isAppShellPath(location.pathname) ||
+    isKnownStandalonePath(location.pathname) ||
+    (resolvedPathname &&
+      (isAppShellPath(resolvedPathname) || isKnownStandalonePath(resolvedPathname))) ||
+    isTransitioning
+  ) {
+    return null;
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">Página não encontrada</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+          A rota acessada não existe ou foi movida.
         </p>
         <div className="mt-6">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Go home
+            Voltar ao início
           </Link>
         </div>
       </div>

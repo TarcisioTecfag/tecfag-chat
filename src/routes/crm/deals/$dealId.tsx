@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
 import { DealDetailModal } from "@/components/crm/DealDetailModal";
-import { fetchPipelinesCached } from "@/lib/crm/deal-prefetch";
+import { fetchPipelinesCached, getCachedPipelinesSync } from "@/lib/crm/deal-prefetch";
 
 export const Route = createFileRoute("/crm/deals/$dealId")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -22,15 +22,29 @@ function DealPage() {
   const { dealId } = Route.useParams();
   const { from } = Route.useSearch();
   const navigate = useNavigate();
-  const { tenant, isAuthenticated, refreshConversations, setActiveView, setSelectedChatId } = useChat();
-  const [sessionChecked, setSessionChecked] = useState(false);
-  const [authorized, setAuthorized] = useState(false);
+  const {
+    tenant,
+    isAuthenticated,
+    operators: globalOperators,
+    refreshConversations,
+    setActiveView,
+    setSelectedChatId,
+  } = useChat();
+  const [sessionChecked, setSessionChecked] = useState(() => Boolean(isAuthenticated));
+  const [authorized, setAuthorized] = useState(() => Boolean(isAuthenticated));
   const [pipelines, setPipelines] = useState<
     Array<{ id: string; stages: Array<{ id: string; name: string; orderIndex: number }> }>
-  >([]);
-  const [operators, setOperators] = useState<Array<{ id: string; name: string }>>([]);
+  >(() => getCachedPipelinesSync() || []);
+  const [operators, setOperators] = useState<Array<{ id: string; name: string }>>(
+    () => (Array.isArray(globalOperators) && globalOperators.length > 0 ? globalOperators : []),
+  );
 
   useEffect(() => {
+    if (isAuthenticated) {
+      setAuthorized(true);
+      setSessionChecked(true);
+      return;
+    }
     let active = true;
     fetch("/api/auth/session", { credentials: "include" })
       .then((response) => {
@@ -49,22 +63,27 @@ function DealPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!authorized && !isAuthenticated) return;
-    Promise.all([
-      fetchPipelinesCached().then((pipelines) => ({ pipelines })),
-      fetch("/api/operators").then((response) =>
-        response.ok ? response.json() : { operators: [] },
-      ),
-    ])
-      .then(([pipelineData, operatorData]) => {
-        setPipelines(pipelineData.pipelines || []);
-        setOperators(Array.isArray(operatorData) ? operatorData : operatorData.operators || []);
+    fetchPipelinesCached()
+      .then((cachedList) => {
+        if (Array.isArray(cachedList)) setPipelines(cachedList);
       })
       .catch(() => {});
-  }, [authorized, isAuthenticated]);
+
+    if (Array.isArray(globalOperators) && globalOperators.length > 0) {
+      setOperators(globalOperators);
+    } else {
+      fetch("/api/operators")
+        .then((response) => (response.ok ? response.json() : { operators: [] }))
+        .then((operatorData) => {
+          setOperators(Array.isArray(operatorData) ? operatorData : operatorData.operators || []);
+        })
+        .catch(() => {});
+    }
+  }, [authorized, isAuthenticated, globalOperators]);
 
   const operatorsMap = useMemo(
     () => new Map(operators.map((operator) => [operator.id, operator.name])),

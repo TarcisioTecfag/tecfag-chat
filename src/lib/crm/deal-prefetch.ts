@@ -20,18 +20,73 @@ const PIPELINES_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // Cache em memória de detalhes de negociação
 const dealCache = new Map<string, CacheEntry<any>>();
+const dealPreviewCache = new Map<string, CacheEntry<any>>();
 const inFlightDealFetches = new Map<string, Promise<any>>();
 
 // Cache em memória de funis e etapas
 let cachedPipelines: CacheEntry<any[]> | null = null;
 let inFlightPipelinesFetch: Promise<any[]> | null = null;
+let dealRouteChunkPreloaded = false;
 
 /**
- * Pré-carrega os dados detalhados de um deal quando o cursor passa sobre ele (hover).
+ * Pré-carrega o chunk JS da rota /crm/deals/$dealId para evitar delay de rede no primeiro clique.
+ */
+export function preloadDealRouteChunk(): void {
+  if (dealRouteChunkPreloaded || typeof window === "undefined") return;
+  dealRouteChunkPreloaded = true;
+  import("@/routes/crm/deals/$dealId").catch(() => {
+    dealRouteChunkPreloaded = false;
+  });
+}
+
+/**
+ * Salva uma prévia instantânea do card (título, status, valor, etapa, empresa)
+ * para exibição em 0ms caso o clique ocorra antes do término do fetch completo.
+ */
+export function seedDealPreview(dealCard: any): void {
+  if (!dealCard?.id) return;
+  dealPreviewCache.set(dealCard.id, {
+    data: dealCard,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Retorna sincronamente a prévia do card se disponível.
+ */
+export function getDealPreviewSync(dealId: string | null | undefined): any | null {
+  if (!dealId) return null;
+  const cachedFull = getCachedDealDetailSync(dealId);
+  if (cachedFull?.deal) return cachedFull.deal;
+  const preview = dealPreviewCache.get(dealId);
+  if (preview && Date.now() - preview.timestamp < PIPELINES_CACHE_TTL_MS) {
+    return preview.data;
+  }
+  return null;
+}
+
+/**
+ * Retorna sincronamente os detalhes completos da negociação se já estiverem em cache fresco.
+ */
+export function getCachedDealDetailSync(dealId: string | null | undefined): any | null {
+  if (!dealId) return null;
+  const cached = dealCache.get(dealId);
+  if (cached && Date.now() - cached.timestamp < DEAL_CACHE_TTL_MS) {
+    return cached.data;
+  }
+  return null;
+}
+
+/**
+ * Pré-carrega os dados detalhados de um deal quando o cursor passa sobre ele (hover) ou no pointerDown.
  * Executa em background de forma silenciosa e não-bloqueante.
  */
-export function prefetchDealDetail(dealId: string): void {
+export function prefetchDealDetail(dealId: string, dealPreview?: any): void {
   if (!dealId) return;
+  preloadDealRouteChunk();
+  if (dealPreview) {
+    seedDealPreview(dealPreview);
+  }
 
   const now = Date.now();
   const cached = dealCache.get(dealId);
@@ -113,6 +168,27 @@ export function invalidateDealCache(dealId?: string): void {
     dealCache.clear();
     inFlightDealFetches.clear();
   }
+}
+
+/**
+ * Alimenta o cache em memória de funis a partir de carregamentos já feitos no CrmView.
+ */
+export function seedPipelinesCache(pipelines: any[]): void {
+  if (!Array.isArray(pipelines) || pipelines.length === 0) return;
+  cachedPipelines = {
+    data: pipelines,
+    timestamp: Date.now(),
+  };
+}
+
+/**
+ * Retorna sincronamente a lista de funis se já estiver em cache.
+ */
+export function getCachedPipelinesSync(): any[] | null {
+  if (cachedPipelines && Date.now() - cachedPipelines.timestamp < PIPELINES_CACHE_TTL_MS) {
+    return cachedPipelines.data;
+  }
+  return null;
 }
 
 /**

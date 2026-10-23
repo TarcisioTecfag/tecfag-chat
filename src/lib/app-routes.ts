@@ -486,6 +486,22 @@ export function parseAppRoute(pathname: string | undefined | null): ParsedAppRou
 }
 
 /**
+ * Returns true if the pathname is a valid standalone route outside the persistent <Index /> shell
+ * (e.g. /crm/deals/:dealId, /call/:roomId).
+ */
+export function isKnownStandalonePath(pathname: string | undefined | null): boolean {
+  const clean = (pathname || "/").split("?")[0].split("#")[0].replace(/\/+$/, "") || "/";
+  return (
+    clean.startsWith("/crm/deals/") ||
+    clean === "/crm/deals" ||
+    clean.startsWith("/call/") ||
+    clean === "/call" ||
+    clean.startsWith("/api/") ||
+    clean === "/api"
+  );
+}
+
+/**
  * Returns true if the pathname should be rendered by the persistent <Index /> shell.
  */
 export function isAppShellPath(pathname: string | undefined | null): boolean {

@@ -95,6 +95,9 @@ import { formatDealEvent } from "@/lib/crm/deal-event-format";
 import {
   fetchDealDetailWithCache,
   fetchPipelinesCached,
+  getCachedDealDetailSync,
+  getCachedPipelinesSync,
+  getDealPreviewSync,
   invalidateDealCache,
 } from "@/lib/crm/deal-prefetch";
 
@@ -484,9 +487,11 @@ export function DealDetailModal({
   const operatorProfile = chatContext?.operatorProfile;
   const operators = chatContext?.operators;
 
-  const [loading, setLoading] = useState(true);
+  const initialCachedDeal = getCachedDealDetailSync(dealId)?.deal || null;
+  const dealPreview = getDealPreviewSync(dealId);
+  const [loading, setLoading] = useState(() => !initialCachedDeal);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [deal, setDeal] = useState<any>(null);
+  const [deal, setDeal] = useState<any>(() => initialCachedDeal);
   const [customFieldDraft, setCustomFieldDraft] = useState<Record<string, unknown>>({});
   useEffect(() => { setCustomFieldDraft((deal?.customFields || {}) as Record<string, unknown>); }, [deal?.id, deal?.customFields]);
   const [activeTab, setActiveTab] = useState<
@@ -773,7 +778,9 @@ export function DealDetailModal({
   }, [isCreatingNote]);
 
   // Lista de funis para troca rápida pelo cabeçalho
-  const [availablePipelines, setAvailablePipelines] = useState<Array<{ id: string; name: string; stages?: any[] }>>([]);
+  const [availablePipelines, setAvailablePipelines] = useState<Array<{ id: string; name: string; stages?: any[] }>>(
+    () => getCachedPipelinesSync() || [],
+  );
 
   const loadPipelines = async () => {
     try {
@@ -1592,6 +1599,7 @@ export function DealDetailModal({
     (deal.events || []).forEach((evt: any) => {
       // Ignorar evento de auditoria se for criação de nota comercial (já é exibido com o card de anotação da atividade)
       if (evt.eventType === "note_created") return;
+      if (evt.eventType === "conversation_action" && deal.activities?.some((activity: any) => activity.id === `chat-${evt.metadata?.messageId}`)) return;
 
       const { title, description } = formatDealEvent(evt, stageNames, operatorsMap);
       if (title === "Nota comercial registrada") return;
@@ -1816,8 +1824,8 @@ export function DealDetailModal({
               <div className="h-4 w-px bg-border/80 shrink-0 hidden sm:block" />
 
               {/* Nome da Negociação */}
-              <h2 className="text-base font-extrabold text-foreground truncate max-w-xs sm:max-w-md" title={deal?.title}>
-                {loading ? "Carregando negociação..." : deal?.title}
+              <h2 className="text-base font-extrabold text-foreground truncate max-w-xs sm:max-w-md" title={deal?.title || dealPreview?.title}>
+                {deal?.title || dealPreview?.title || (loading ? "Carregando negociação..." : "")}
               </h2>
 
               {!loading && deal && (

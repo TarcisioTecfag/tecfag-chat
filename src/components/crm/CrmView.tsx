@@ -15,7 +15,12 @@ import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { CrmKanbanSkeleton } from "./CrmKanbanSkeleton";
-import { invalidateDealCache } from "@/lib/crm/deal-prefetch";
+import {
+  invalidateDealCache,
+  preloadDealRouteChunk,
+  seedDealPreview,
+  seedPipelinesCache,
+} from "@/lib/crm/deal-prefetch";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
 type CrmViewSnapshot = {
@@ -308,6 +313,8 @@ export function CrmView() {
       const data = await res.json();
       const list = data.pipelines || [];
       setPipelines(list);
+      seedPipelinesCache(list);
+      preloadDealRouteChunk();
       if (list.length > 0) {
         setSelectedPipelineId((current) => {
           // 1. Se o funil em estado for válido na lista recebida, mantém e persiste
@@ -679,13 +686,14 @@ export function CrmView() {
               stageSettings={stageSettings}
               stagesSummaryMap={stagesSummaryMap}
               operatorsMap={operatorsMap}
-              onDealClick={(d) =>
+              onDealClick={(d) => {
+                seedDealPreview(d);
                 navigate({
                   to: "/crm/deals/$dealId",
                   params: { dealId: d.id },
                   search: { from: "crm" },
-                })
-              }
+                });
+              }}
               onMoveDeal={handleMoveDeal}
               onNewDealAtStage={(stageId) => {
                 setCreateAtStageId(stageId);
@@ -710,13 +718,14 @@ export function CrmView() {
               pipelines={pipelines}
               currentPipelineId={selectedPipelineId}
               filterParams={Object.fromEntries(buildFilterQueryParams().entries())}
-              onDealClick={(d) =>
+              onDealClick={(d) => {
+                seedDealPreview(d);
                 navigate({
                   to: "/crm/deals/$dealId",
                   params: { dealId: d.id },
                   search: { from: "crm" },
-                })
-              }
+                });
+              }}
               total={totalDeals}
               limit={listLimit}
               offset={listOffset}
