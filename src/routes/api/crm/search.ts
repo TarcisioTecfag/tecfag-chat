@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, count, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { contacts, crmAccounts, crmDeals, crmPipelines, crmStages } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
-import { requireCrmPermission } from "../../../lib/rbac";
+import { getAllowedPipelineIds, requireCrmPermission } from "../../../lib/rbac";
 
 const PAGE_SIZE = 8;
 const MORE_PAGE_SIZE = 20;
@@ -18,6 +18,7 @@ export const Route = createFileRoute("/api/crm/search")({
         const tenantId = session.tenantId;
         const permissionError = requireCrmPermission(session, "canViewCrm");
         if (permissionError) return permissionError;
+        const allowedPipelineIds = getAllowedPipelineIds(session);
 
         const url = new URL(request.url);
         const query = (url.searchParams.get("q") || "").trim().slice(0, 100);
@@ -52,6 +53,11 @@ export const Route = createFileRoute("/api/crm/search")({
           eq(crmDeals.tenantId, tenantId),
           session.operator.role !== "admin" && !session.permissions?.crm?.canViewAllDeals
             ? eq(crmDeals.operatorId, session.operator.id)
+            : undefined,
+          allowedPipelineIds !== null
+            ? allowedPipelineIds.length > 0
+              ? inArray(crmDeals.pipelineId, allowedPipelineIds)
+              : sql`1 = 0`
             : undefined,
           or(
             ilike(crmDeals.title, pattern),

@@ -57,9 +57,28 @@ describe("preservação de configurações de acesso", () => {
     assert.notEqual(groupRevision(group), groupRevision({ ...group, permissions: { views: { chat: true } } }));
   });
   it("rejeita tipos indevidos, escopo inválido e chaves de protótipo", () => {
-    for (const patch of [null, [], { chat: { canCaptureChat: "false" } }, { contacts: { contactScope: "anything" } }, JSON.parse('{"__proto__":{"polluted":true}}')]) {
+    for (const patch of [
+      null,
+      [],
+      { chat: { canCaptureChat: "false" } },
+      { contacts: { contactScope: "anything" } },
+      { crm: { pipelineScope: "invalid" } },
+      { crm: { allowedPipelineIds: [""] } },
+      JSON.parse('{"__proto__":{"polluted":true}}'),
+    ]) {
       assert.ok(validatePermissionPatch(patch));
     }
+    assert.equal(
+      validatePermissionPatch({ crm: { pipelineScope: "selected", allowedPipelineIds: ["pipe-1"] } }),
+      null
+    );
+    const normalized = normalizeGroupPermissions({
+      id: "g-funil",
+      name: "Vendas Máquinas",
+      permissions: { views: { crm: true }, crm: { pipelineScope: "selected", allowedPipelineIds: ["pipe-1", "pipe-1"] } },
+    });
+    assert.equal(normalized.crm.pipelineScope, "selected");
+    assert.deepEqual(normalized.crm.allowedPipelineIds, ["pipe-1"]);
   });
   it("backup usa transação somente leitura, filtra cada consulta e exclui credenciais", async () => {
     const queries = [];

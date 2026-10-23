@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
-import { requireCrmPermission } from "../../../lib/rbac";
+import { getAllowedPipelineIds, isPipelineAllowed, requireCrmPermission } from "../../../lib/rbac";
 import { crmService, handleCrmError, parseExtraDealFilters } from "../../../lib/crm/crm-service";
 
 const corsHeaders = {
@@ -18,6 +18,7 @@ export const Route = createFileRoute("/api/crm/deals")({
        * GET /api/crm/deals
        * Lista negociações paginadas com filtros por funil, etapa, status, vendedor e busca.
        * Exige permissão canViewCrm. Se não tiver canViewAllDeals, restringe aos próprios negócios.
+       * Respeita o escopo de funis do grupo (`allowedPipelineIds`).
        */
       GET: async ({ request }) => {
         try {
@@ -31,6 +32,18 @@ export const Route = createFileRoute("/api/crm/deals")({
 
           const url = new URL(request.url);
           const pipelineId = url.searchParams.get("pipelineId") || undefined;
+          const allowedPipelineIds = getAllowedPipelineIds(session);
+
+          if (pipelineId && !isPipelineAllowed(session, pipelineId)) {
+            return new Response(
+              JSON.stringify({
+                error: "Permissão insuficiente: seu grupo não possui visibilidade sobre este funil.",
+                code: "FORBIDDEN",
+              }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
           const stageId = url.searchParams.get("stageId") || undefined;
           const stageIdsParam = url.searchParams.get("stageIds");
           const stageIds = stageIdsParam ? stageIdsParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
@@ -80,6 +93,7 @@ export const Route = createFileRoute("/api/crm/deals")({
           const result = await crmService.getDeals(tenantId, {
             ...parseExtraDealFilters(url.searchParams),
             pipelineId,
+            allowedPipelineIds: allowedPipelineIds ?? undefined,
             stageId,
             stageIds,
             status,
@@ -114,7 +128,7 @@ export const Route = createFileRoute("/api/crm/deals")({
       /**
        * POST /api/crm/deals
        * Cria uma nova negociação comercial com auditoria e vínculo opcional.
-       * Exige permissão canCreateDeals.
+       * Exige permissão canCreateDeals e acesso ao funil informado.
        */
       POST: async ({ request }) => {
         try {
@@ -127,6 +141,16 @@ export const Route = createFileRoute("/api/crm/deals")({
           if (permError) return permError;
 
           const body = await request.json();
+
+          if (!isPipelineAllowed(session, body.pipelineId)) {
+            return new Response(
+              JSON.stringify({
+                error: "Permissão insuficiente: seu grupo não possui autorização para criar negociações neste funil.",
+                code: "FORBIDDEN",
+              }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
 
           const targetOperatorId = body.operatorId !== undefined ? body.operatorId : (body.ownerId !== undefined ? body.ownerId : session.operator.id);
 

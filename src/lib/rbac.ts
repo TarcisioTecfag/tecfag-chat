@@ -143,6 +143,10 @@ export interface SettingsPermissions {
 }
 
 export interface CrmPermissions {
+  /** Escopo de visibilidade de funis: 'all' (todos os funis) | 'selected' (apenas funis selecionados) */
+  pipelineScope?: "all" | "selected";
+  /** Lista de IDs de funis liberados quando pipelineScope === 'selected' */
+  allowedPipelineIds?: string[];
   canViewCrm: boolean;
   canViewAllDeals: boolean;
   canCreateDeals: boolean;
@@ -207,6 +211,8 @@ export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
     canDeleteMessages: true,
   },
   crm: {
+    pipelineScope: "all",
+    allowedPipelineIds: undefined,
     canViewCrm: true,
     canViewAllDeals: true,
     canCreateDeals: true,
@@ -782,7 +788,16 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
 
 export const DEFAULT_DENY_PERMISSIONS: GroupPermissions = Object.fromEntries(
   Object.entries(DEFAULT_ADMIN_PERMISSIONS).map(([category, values]) => [category,
-    Object.fromEntries(Object.keys(values).map((key) => [key, key === "contactScope" ? "wallet_only" : false])),
+    Object.fromEntries(Object.keys(values).map((key) => [
+      key,
+      key === "contactScope"
+        ? "wallet_only"
+        : key === "pipelineScope"
+          ? "all"
+          : key === "allowedPipelineIds"
+            ? undefined
+            : false,
+    ])),
   ]),
 ) as unknown as GroupPermissions;
 
@@ -813,6 +828,19 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
     rawGroup.canOverrideChat === true;
 
   const baseFallback = isLegacyAdmin ? DEFAULT_ADMIN_PERMISSIONS : (ROLE_PRESETS.vendedor?.permissions || DEFAULT_ADMIN_PERMISSIONS);
+
+  const normalizedPipelineScope: "all" | "selected" =
+    existingPerms.crm?.pipelineScope === "selected" ? "selected" : "all";
+  const normalizedAllowedPipelineIds = Array.isArray(existingPerms.crm?.allowedPipelineIds)
+    ? Array.from(
+        new Set(
+          existingPerms.crm.allowedPipelineIds
+            .filter((id: unknown): id is string => typeof id === "string")
+            .map((id: string) => id.trim())
+            .filter(Boolean)
+        )
+      )
+    : undefined;
 
   return {
     views: {
@@ -850,6 +878,8 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
       canDeleteMessages: existingPerms.chat?.canDeleteMessages ?? isLegacyAdmin,
     },
     crm: {
+      pipelineScope: normalizedPipelineScope,
+      allowedPipelineIds: normalizedAllowedPipelineIds,
       canViewCrm: existingPerms.crm?.canViewCrm ?? (isLegacyAdmin || Boolean(baseFallback.crm.canViewCrm)),
       canViewAllDeals: existingPerms.crm?.canViewAllDeals ?? (isLegacyAdmin || baseFallback.crm.canViewAllDeals),
       canCreateDeals: existingPerms.crm?.canCreateDeals ?? (isLegacyAdmin || baseFallback.crm.canCreateDeals),
@@ -923,6 +953,48 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
       canManageLiveChatSettings: existingPerms.settings?.canManageLiveChatSettings ?? isLegacyAdmin,
     },
   };
+}
+
+/**
+ * Retorna os IDs dos funis autorizados para a sessão quando o grupo restringe por funil (`pipelineScope === "selected"`).
+ * Retorna `null` quando o operador possui acesso a todos os funis da empresa (`pipelineScope !== "selected"`).
+ */
+export function getAllowedPipelineIds(session?: {
+  permissions?: { crm?: Partial<CrmPermissions> } | null;
+  operator?: { role?: string } | null;
+} | null): string[] | null {
+  const crm = session?.permissions?.crm;
+  if (crm?.pipelineScope !== "selected") {
+    return null;
+  }
+  const raw = crm.allowedPipelineIds;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      raw
+        .filter((id): id is string => typeof id === "string")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+/**
+ * Verifica se um funil específico (`pipelineId`) está autorizado para o operador na sessão atual.
+ */
+export function isPipelineAllowed(
+  session: {
+    permissions?: { crm?: Partial<CrmPermissions> } | null;
+    operator?: { role?: string } | null;
+  } | null | undefined,
+  pipelineId: string | null | undefined
+): boolean {
+  const allowed = getAllowedPipelineIds(session);
+  if (allowed === null) return true;
+  if (!pipelineId) return false;
+  return allowed.includes(pipelineId.trim());
 }
 
 /**

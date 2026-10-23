@@ -136,4 +136,14 @@ describe("negociações: autorização do pai e transição efetiva", () => {
     assert.equal(requireCrmPermission(f.session, "canExportDeals").status, 403);
     assert.equal(requireCrmPermission(f.session, "canEditDeals"), null);
   });
+  it("restringe acesso e transição de negociação aos funis permitidos no grupo", async () => {
+    const f = fixtures({ role: "agent", rows: [{ id: "deal-1", pipelineId: "pipe-pecas" }] });
+    f.session.permissions.crm.pipelineScope = "selected";
+    f.session.permissions.crm.allowedPipelineIds = ["pipe-maquinas"];
+    // Negócio de outro funil não é acessível (404)
+    assert.equal((await guard(f).requireCrmDealAccess(f.session, "deal-1")).status, 404);
+    // Transição para funil não autorizado é negada (403)
+    assert.equal((await guard(f).requireCrmTransitionAccess(f.session, { pipelineId: "pipe-pecas" })).status, 403);
+  });
 });
+

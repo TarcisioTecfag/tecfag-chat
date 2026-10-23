@@ -21,6 +21,17 @@ export function validatePermissionPatch(patch: unknown, current?: unknown): stri
       }
       if (category === "contacts" && key === "contactScope") {
         if (value !== "all" && value !== "wallet_only") return "Escopo de contatos inválido.";
+      } else if (category === "crm" && key === "pipelineScope") {
+        if (value !== "all" && value !== "selected") return "Escopo de funis inválido.";
+      } else if (category === "crm" && key === "allowedPipelineIds") {
+        if (
+          value !== undefined &&
+          (!Array.isArray(value) ||
+            value.length > 200 ||
+            value.some((item) => typeof item !== "string" || !item.trim() || item.length > 160))
+        ) {
+          return "Lista de funis permitidos inválida.";
+        }
       } else if (typeof value !== "boolean") return `Permissão ${category}.${key} deve ser verdadeira ou falsa.`;
     }
   }

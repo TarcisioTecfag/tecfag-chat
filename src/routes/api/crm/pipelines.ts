@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
-import { requireCrmPermission } from "../../../lib/rbac";
+import { getAllowedPipelineIds, requireCrmPermission } from "../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../lib/crm/crm-service";
 import { handleConditionalResponse } from "../../../lib/http-cache";
 
@@ -18,7 +18,8 @@ export const Route = createFileRoute("/api/crm/pipelines")({
       /**
        * GET /api/crm/pipelines
        * Lista os funis de vendas com suas etapas ordenadas para o tenant ativo.
-       * Leitura pura e idempotente sem efeitos colaterais.
+       * Respeita o escopo de funis do grupo do operador (`pipelineScope` / `allowedPipelineIds`),
+       * exceto quando consultado pelo painel administrativo de grupos (`?forPermissions=true`).
        */
       GET: async ({ request }) => {
         try {
@@ -27,10 +28,27 @@ export const Route = createFileRoute("/api/crm/pipelines")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          const permError = requireCrmPermission(session, "canViewCrm");
-          if (permError) return permError;
+          const url = new URL(request.url);
+          const forPermissions =
+            url.searchParams.get("forPermissions") === "true" ||
+            url.searchParams.get("scope") === "admin";
+          const canManageGroupsOrPipelines =
+            session.operator.role === "admin" ||
+            Boolean(session.permissions?.security?.canManageAccessGroups) ||
+            Boolean(session.permissions?.crm?.canManagePipelines);
 
-          const pipelines = await crmService.getPipelines(tenantId);
+          if (!forPermissions || !canManageGroupsOrPipelines) {
+            const permError = requireCrmPermission(session, "canViewCrm");
+            if (permError) return permError;
+          }
+
+          const allPipelines = await crmService.getPipelines(tenantId);
+          const allowedPipelineIds =
+            forPermissions && canManageGroupsOrPipelines ? null : getAllowedPipelineIds(session);
+          const pipelines =
+            allowedPipelineIds === null
+              ? allPipelines
+              : allPipelines.filter((p) => allowedPipelineIds.includes(p.id));
 
           return handleConditionalResponse(request, { pipelines }, { headers: corsHeaders });
         } catch (err: any) {

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
-import { requireCrmPermission } from "../../../../../lib/rbac";
+import { isPipelineAllowed, requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError, parseExtraDealFilters } from "../../../../../lib/crm/crm-service";
 
 const corsHeaders = {
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/api/crm/pipelines/$pipelineId/stages-summ
        * GET /api/crm/pipelines/:pipelineId/stages-summary
        * Retorna contagem real distinta e soma de valores monetários por etapa do funil.
        * Agregação realizada puramente no banco de dados sem distorções por N:N de contatos/conversas.
-       * Exige canViewCrm e respeita canViewAllDeals.
+       * Exige canViewCrm e respeita canViewAllDeals e escopo de funis.
        */
       GET: async ({ request, params }) => {
         try {
@@ -31,6 +31,15 @@ export const Route = createFileRoute("/api/crm/pipelines/$pipelineId/stages-summ
           if (permError) return permError;
 
           const { pipelineId } = params as unknown as { pipelineId: string };
+          if (!isPipelineAllowed(session, pipelineId)) {
+            return new Response(
+              JSON.stringify({
+                error: "Permissão insuficiente: seu grupo não possui visibilidade sobre este funil.",
+                code: "FORBIDDEN",
+              }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
           const url = new URL(request.url);
 
           const status = url.searchParams.get("status") as any;

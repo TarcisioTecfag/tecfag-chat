@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
-import { requireCrmPermission } from "../../../../lib/rbac";
+import { isPipelineAllowed, requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
 import { recordCrmAction } from "../../../../lib/crm/action-history";
 
@@ -30,6 +30,15 @@ export const Route = createFileRoute("/api/crm/pipelines/$pipelineId")({
           if (permError) return permError;
 
           const { pipelineId } = params as unknown as { pipelineId: string };
+          if (!isPipelineAllowed(session, pipelineId)) {
+            return new Response(
+              JSON.stringify({
+                error: "Permissão insuficiente: seu grupo não possui visibilidade sobre este funil.",
+                code: "FORBIDDEN",
+              }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
           const pipeline = await crmService.getPipelineById(tenantId, pipelineId);
 
           return new Response(JSON.stringify({ pipeline }), {

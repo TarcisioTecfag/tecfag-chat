@@ -234,6 +234,7 @@ export function handleCrmError(err: any, corsHeaders: Record<string, string> = {
 
 export interface CrmDealFilters {
   pipelineId?: string;
+  allowedPipelineIds?: string[];
   stageId?: string;
   stageIds?: string[];
   status?: "open" | "won" | "lost" | "paused" | "not_paused" | "all";
@@ -242,6 +243,7 @@ export interface CrmDealFilters {
   accountId?: string;
   contactId?: string;
   search?: string;
+  dealSearch?: string;
   minValue?: number;
   maxValue?: number;
   createdAfter?: string | Date;
@@ -270,7 +272,7 @@ export interface CrmDealFilters {
 }
 
 export function parseExtraDealFilters(params: URLSearchParams): Pick<CrmDealFilters,
-  "withoutTask" | "rdStationOnly" | "emptyFields" | "title" | "rating" | "companyId" |
+  "withoutTask" | "rdStationOnly" | "emptyFields" | "title" | "dealSearch" | "rating" | "companyId" |
   "contactId" | "campaign" | "source" | "productId" | "lastContactFrom" | "lastContactTo" |
   "nextTaskFrom" | "nextTaskTo" | "closedFrom" | "closedTo" |
   "expectedCloseFrom" | "expectedCloseTo"> {
@@ -285,6 +287,7 @@ export function parseExtraDealFilters(params: URLSearchParams): Pick<CrmDealFilt
     rdStationOnly: params.get("rdStationOnly") === "true" || undefined,
     emptyFields: params.get("emptyFields")?.split(",").filter(Boolean),
     title: params.get("title")?.slice(0, 200) || undefined,
+    dealSearch: params.get("dealSearch")?.slice(0, 200) || undefined,
     rating,
     companyId: params.get("companyId") || undefined,
     contactId: params.get("contactId")?.trim() || undefined,
@@ -322,6 +325,17 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
 
   if (typeof filters.title === "string" && filters.title.trim()) {
     conditions.push(ilike(crmDeals.title, `%${filters.title.trim()}%`));
+  }
+
+  if (typeof filters.dealSearch === "string" && filters.dealSearch.trim()) {
+    const cleanDealSearch = filters.dealSearch.trim().replace(/[\\%_]/g, "\\$&");
+    const dealPattern = `%${cleanDealSearch}%`;
+    conditions.push(
+      or(
+        ilike(crmDeals.title, dealPattern),
+        ilike(crmDeals.id, dealPattern),
+      )!,
+    );
   }
 
   const ratingNum = filters.rating !== undefined && filters.rating !== null && filters.rating !== ""
@@ -379,6 +393,19 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
 
   if (typeof filters.pipelineId === "string" && filters.pipelineId.trim()) {
     conditions.push(eq(crmDeals.pipelineId, filters.pipelineId.trim()));
+  }
+
+  if (Array.isArray(filters.allowedPipelineIds)) {
+    const cleanAllowed = filters.allowedPipelineIds
+      .map((id: any) => String(id).trim())
+      .filter(Boolean);
+    if (cleanAllowed.length === 0) {
+      conditions.push(sql`1 = 0`);
+    } else if (cleanAllowed.length === 1) {
+      conditions.push(eq(crmDeals.pipelineId, cleanAllowed[0]));
+    } else {
+      conditions.push(inArray(crmDeals.pipelineId, cleanAllowed));
+    }
   }
 
   // Normalização defensiva de stageIds (suporta array nativo ou string serializada)
@@ -4110,6 +4137,7 @@ export class CrmService {
         description?: string;
         operatorId?: string;
       };
+      authorizedPipelineIds?: string[];
     },
     operatorName: string,
     authorizedOperatorId?: string
@@ -4124,10 +4152,16 @@ export class CrmService {
       };
       // 1. Busca todos os deals no tenant
       let foundDeals: CrmDeal[] = [];
+      const pipelineCondition = Array.isArray(params.authorizedPipelineIds)
+        ? params.authorizedPipelineIds.length === 0
+          ? sql`1 = 0`
+          : inArray(crmDeals.pipelineId, params.authorizedPipelineIds)
+        : undefined;
 
       if (params.allFiltered) {
         const conditions = buildDealFilterConditions(tenantId, params.filterParams || {});
         if (authorizedOperatorId) conditions.push(eq(crmDeals.operatorId, authorizedOperatorId));
+        if (pipelineCondition) conditions.push(pipelineCondition);
         foundDeals = await tx
           .select()
           .from(crmDeals)
@@ -4138,7 +4172,15 @@ export class CrmService {
           const chunkDeals = await tx
             .select()
             .from(crmDeals)
-            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk), authorizedOperatorId ? eq(crmDeals.operatorId, authorizedOperatorId) : undefined)).for("update");
+            .where(
+              and(
+                eq(crmDeals.tenantId, tenantId),
+                inArray(crmDeals.id, chunk),
+                authorizedOperatorId ? eq(crmDeals.operatorId, authorizedOperatorId) : undefined,
+                pipelineCondition
+              )
+            )
+            .for("update");
           foundDeals.push(...chunkDeals);
         }
       } else {
@@ -6962,6 +7004,7 @@ export class CrmService {
       filterParams?: Record<string, any>;
       format?: "csv" | "xlsx";
       authorizedOperatorId?: string;
+      authorizedPipelineIds?: string[];
     }
   ): Promise<{
     format: "csv" | "xlsx";
@@ -6979,10 +7022,16 @@ export class CrmService {
 
     // 1. Busca os deals no tenant sem travas ou cortes
     let deals: (typeof crmDeals.$inferSelect)[] = [];
+    const pipelineCondition = Array.isArray(params.authorizedPipelineIds)
+      ? params.authorizedPipelineIds.length === 0
+        ? sql`1 = 0`
+        : inArray(crmDeals.pipelineId, params.authorizedPipelineIds)
+      : undefined;
 
     if (params.allFiltered) {
       const conditions = buildDealFilterConditions(tenantId, params.filterParams || {});
       if (params.authorizedOperatorId) conditions.push(eq(crmDeals.operatorId, params.authorizedOperatorId));
+      if (pipelineCondition) conditions.push(pipelineCondition);
       deals = await db
         .select()
         .from(crmDeals)
@@ -6994,7 +7043,14 @@ export class CrmService {
         const chunkDeals = await db
           .select()
           .from(crmDeals)
-          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk), params.authorizedOperatorId ? eq(crmDeals.operatorId, params.authorizedOperatorId) : undefined))
+          .where(
+            and(
+              eq(crmDeals.tenantId, tenantId),
+              inArray(crmDeals.id, chunk),
+              params.authorizedOperatorId ? eq(crmDeals.operatorId, params.authorizedOperatorId) : undefined,
+              pipelineCondition
+            )
+          )
           .orderBy(desc(crmDeals.createdAt));
         deals.push(...chunkDeals);
       }
@@ -7002,7 +7058,13 @@ export class CrmService {
       deals = await db
         .select()
         .from(crmDeals)
-        .where(and(eq(crmDeals.tenantId, tenantId), params.authorizedOperatorId ? eq(crmDeals.operatorId, params.authorizedOperatorId) : undefined))
+        .where(
+          and(
+            eq(crmDeals.tenantId, tenantId),
+            params.authorizedOperatorId ? eq(crmDeals.operatorId, params.authorizedOperatorId) : undefined,
+            pipelineCondition
+          )
+        )
         .orderBy(desc(crmDeals.createdAt));
     }
 

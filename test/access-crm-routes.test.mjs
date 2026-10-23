@@ -101,3 +101,94 @@ describe("proposta deve pertencer ao negócio autorizado no endereço", () => {
     assert.equal(calls[0][5], "allowed-deal");
   });
 });
+
+describe("controle de acesso e visibilidade por funil (pipelineScope / allowedPipelineIds)", () => {
+  it("GET /api/crm/pipelines filtra apenas funis autorizados quando pipelineScope === 'selected'", async () => {
+    const session = {
+      tenantId: "tenant-a",
+      operator: { id: "op-1", role: "agent" },
+      permissions: structuredClone(DEFAULT_ADMIN_PERMISSIONS),
+    };
+    session.permissions.crm.pipelineScope = "selected";
+    session.permissions.crm.allowedPipelineIds = ["pipe-maquinas"];
+    session.permissions.crm.canManagePipelines = false;
+    session.permissions.security.canManageAccessGroups = false;
+
+    const handlers = loadAccessSource("src/routes/api/crm/pipelines.ts", {
+      "@tanstack/react-router": routeStub,
+      "../../../lib/auth-session": { requireSession: async () => ({ session }) },
+      "../../../lib/crm/crm-service": {
+        crmService: {
+          getPipelines: async () => [
+            { id: "pipe-maquinas", name: "Máquinas", stages: [] },
+            { id: "pipe-pecas", name: "Peças", stages: [] },
+          ],
+        },
+        handleCrmError: (err) => { throw err; },
+      },
+      "../../../lib/http-cache": {
+        handleConditionalResponse: (_req, payload) => Response.json(payload),
+      },
+    }).Route.server.handlers;
+
+    const res = await handlers.GET({ request: apiRequest(undefined, "GET", "http://test/api/crm/pipelines") });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.deepEqual(data.pipelines.map((p) => p.id), ["pipe-maquinas"]);
+  });
+
+  it("GET /api/crm/deals e POST /api/crm/deals bloqueiam funil fora de allowedPipelineIds", async () => {
+    const calls = [];
+    const session = {
+      tenantId: "tenant-a",
+      operator: { id: "op-1", role: "agent" },
+      permissions: structuredClone(DEFAULT_ADMIN_PERMISSIONS),
+    };
+    session.permissions.crm.pipelineScope = "selected";
+    session.permissions.crm.allowedPipelineIds = ["pipe-maquinas"];
+
+    const handlers = loadAccessSource("src/routes/api/crm/deals.ts", {
+      "@tanstack/react-router": routeStub,
+      "../../../lib/auth-session": { requireSession: async () => ({ session }) },
+      "../../../lib/crm/crm-service": {
+        crmService: {
+          getDeals: async (...args) => { calls.push(["getDeals", args]); return { deals: [], total: 0 }; },
+          createDeal: async (...args) => { calls.push(["createDeal", args]); return { id: "d1" }; },
+        },
+        parseExtraDealFilters: () => ({}),
+        handleCrmError: (err) => { throw err; },
+      },
+    }).Route.server.handlers;
+
+    // Tentativa de consultar funil não autorizado -> 403
+    const deniedGet = await handlers.GET({
+      request: apiRequest(undefined, "GET", "http://test/api/crm/deals?pipelineId=pipe-pecas"),
+    });
+    assert.equal(deniedGet.status, 403);
+    assert.equal(calls.length, 0);
+
+    // Consulta no funil autorizado -> 200 e repassa allowedPipelineIds
+    const allowedGet = await handlers.GET({
+      request: apiRequest(undefined, "GET", "http://test/api/crm/deals?pipelineId=pipe-maquinas"),
+    });
+    assert.equal(allowedGet.status, 200);
+    assert.deepEqual(calls[0][1][1].allowedPipelineIds, ["pipe-maquinas"]);
+
+    // Tentativa de criar negociação em funil não autorizado -> 403
+    const deniedPost = await handlers.POST({
+      request: apiRequest({ title: "Teste", pipelineId: "pipe-pecas", stageId: "stg-1" }, "POST"),
+    });
+    assert.equal(deniedPost.status, 403);
+    assert.equal(calls.length, 1);
+  });
+
+  it("bulk repassa authorizedPipelineIds quando grupo restringe funis", async () => {
+    const h = bulkHarness();
+    h.session.permissions.crm.pipelineScope = "selected";
+    h.session.permissions.crm.allowedPipelineIds = ["pipe-unico"];
+    const res = await h.run({ allFiltered: true, filterParams: {}, rating: 4 });
+    assert.equal(res.status, 200);
+    assert.deepEqual(h.calls[0][2].authorizedPipelineIds, ["pipe-unico"]);
+  });
+});
+

@@ -150,8 +150,22 @@ export function CrmView() {
   const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<string>("updated_desc");
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFiltersState>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchAccountId, setSearchAccountId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setDebouncedSearchQuery("");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchQuery(trimmed);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   // Paginação separada para a Lista
   const [listLimit, setListLimit] = useState(50);
@@ -244,6 +258,9 @@ export function CrmView() {
     if (sortBy) {
       params.set("sortBy", sortBy);
     }
+    if (debouncedSearchQuery) {
+      params.set("dealSearch", debouncedSearchQuery);
+    }
 
     // Filtros Avançados
     if (advancedFilters.stageIds && advancedFilters.stageIds.length > 0) {
@@ -281,7 +298,7 @@ export function CrmView() {
     }
 
     return params;
-  }, [selectedPipelineId, statusFilter, selectedOperatorIds, sortBy, advancedFilters]);
+  }, [selectedPipelineId, statusFilter, selectedOperatorIds, sortBy, debouncedSearchQuery, advancedFilters]);
 
   // Carrega pipelines
   const fetchPipelines = useCallback(async () => {
@@ -309,6 +326,9 @@ export function CrmView() {
           return fallbackId;
         });
       } else {
+        setSelectedPipelineId("");
+        setDeals([]);
+        setStagesSummary([]);
         setLoading(false);
       }
     } catch (err: any) {
@@ -477,13 +497,13 @@ export function CrmView() {
   useEffect(() => {
     if (loading || !selectedPipelineId || !pipelines.length || viewMode !== "kanban" ||
       statusFilter !== "open" || selectedOperatorIds.length || sortBy !== "updated_desc" ||
-      Object.keys(advancedFilters).length) return;
+      debouncedSearchQuery || Object.keys(advancedFilters).length) return;
     crmViewSnapshots.set(snapshotKey, {
       savedAt: Date.now(), pipelines, pipelineId: selectedPipelineId, deals,
       stagesSummary, stageSettings, operators: effectiveOperators,
     });
   }, [snapshotKey, loading, pipelines, selectedPipelineId, deals, stagesSummary, stageSettings, effectiveOperators,
-    viewMode, statusFilter, selectedOperatorIds, sortBy, advancedFilters]);
+    viewMode, statusFilter, selectedOperatorIds, sortBy, debouncedSearchQuery, advancedFilters]);
 
   useEffect(() => {
     fetchPipelines();
@@ -566,6 +586,8 @@ export function CrmView() {
     setStatusFilter("all");
     setSelectedOperatorIds([]);
     setAdvancedFilters({});
+    setSearchQuery("");
+    setDebouncedSearchQuery("");
     setListOffset(0);
   };
 
@@ -604,6 +626,11 @@ export function CrmView() {
           }}
           onOpenAdvancedFilters={() => setIsAdvancedFiltersOpen(true)}
           onClearFilters={handleClearAllFilters}
+          searchQuery={searchQuery}
+          onSearchQueryChange={(val) => {
+            setSearchQuery(val);
+            setListOffset(0);
+          }}
           onOpenSearch={() => setIsSearchOpen(true)}
           onNewDealClick={() => {
             setCreateAtStageId(undefined);
@@ -620,7 +647,7 @@ export function CrmView() {
 
       {/* Conteúdo Principal */}
       <div className="min-h-0 flex-1 overflow-hidden relative">
-        {loading && deals.length === 0 ? (
+        {loading && deals.length === 0 && !debouncedSearchQuery ? (
           <CrmKanbanSkeleton />
         ) : !activePipeline ? (
           <div className="flex h-full w-full items-center justify-center p-8 text-center pr-5">
@@ -783,6 +810,7 @@ export function CrmView() {
       <CrmSearchModal
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}
+        initialQuery={searchQuery}
         onOpenDeal={(dealId) => {
           setIsSearchOpen(false);
           navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });

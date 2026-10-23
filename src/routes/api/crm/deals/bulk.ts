@@ -1,7 +1,7 @@
 import { requireCrmTransitionAccess } from "../../../../lib/access-control/crm-record-access";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
-import { requireCrmPermission } from "../../../../lib/rbac";
+import { getAllowedPipelineIds, requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
 import { db } from "../../../../db";
 import { crmActionHistory } from "../../../../db/schema";
@@ -33,6 +33,8 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
           const transitionDenied = await requireCrmTransitionAccess(session, body);
           if (transitionDenied) return transitionDenied;
 
+          const authorizedPipelineIds = getAllowedPipelineIds(session) ?? undefined;
+
           if (body.action === "export") {
             const permError = requireCrmPermission(session, "canExportDeals") || requireCrmPermission(session, "canViewCrm");
             if (permError) return permError;
@@ -45,6 +47,7 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
               filterParams: body.filterParams,
               format,
               authorizedOperatorId: session.operator.role !== "admin" && !session.permissions?.crm?.canViewAllDeals ? session.operator.id : undefined,
+              authorizedPipelineIds,
             });
 
             await db.insert(crmActionHistory).values({
@@ -108,6 +111,7 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
             productId: body.productId,
             action: body.action,
             taskData: body.taskData,
+            authorizedPipelineIds,
           }, session.operator.name, session.operator.role !== "admin" && !session.permissions?.crm?.canViewAllDeals ? session.operator.id : undefined);
 
           return new Response(JSON.stringify(result), {

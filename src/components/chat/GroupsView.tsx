@@ -838,6 +838,38 @@ export function GroupsView() {
     updateAccessGroup(groupId, legacyUpdates);
   };
 
+  const updateGroupCategoryPatch = <K extends keyof GroupPermissions>(
+    groupId: string,
+    category: K,
+    patch: Partial<GroupPermissions[K]>
+  ) => {
+    const targetGroup = accessGroups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    const currentPerms = normalizeGroupPermissions(targetGroup);
+    const updatedPerms: GroupPermissions = {
+      ...currentPerms,
+      [category]: {
+        ...(currentPerms[category] as any),
+        ...patch,
+      },
+    };
+
+    const legacyUpdates: Partial<AccessGroup> = {
+      permissions: updatedPerms,
+      canCreateUser: updatedPerms.security.canManageUsers,
+      canResetPassword: updatedPerms.security.canResetUserPasswords,
+      canEditProfile: updatedPerms.chat.canEditClientInfo,
+      canCaptureChat: updatedPerms.chat.canCaptureChat,
+      canTransferChat: updatedPerms.chat.canTransferChat,
+      canFinishChat: updatedPerms.chat.canFinishChat,
+      canViewAllChats: updatedPerms.chat.canViewAllChats,
+      canOverrideChat: updatedPerms.chat.canOverrideChat,
+    };
+
+    updateAccessGroup(groupId, legacyUpdates);
+  };
+
   const applyRolePreset = async (groupId: string, presetKey: string) => {
     const preset = ROLE_PRESETS[presetKey];
     if (!preset) return;
@@ -1719,8 +1751,12 @@ export function GroupsView() {
                     )}
                   </div>
 
-                  <CrmGroupPermissions permissions={perms.crm} search={permissionSearch}
-                    onChange={(key, value) => updateGroupGranular(selectedGroupId, "crm", key, value)} />
+                  <CrmGroupPermissions
+                    permissions={perms.crm}
+                    search={permissionSearch}
+                    onChange={(key, value) => updateGroupGranular(selectedGroupId, "crm", key, value)}
+                    onPatch={(patch) => updateGroupCategoryPatch(selectedGroupId, "crm", patch)}
+                  />
 
                   {/* ── Bloco 5: Base de Clientes & Carteira ── */}
                   <div className="rounded-2xl border border-border bg-card overflow-hidden">
