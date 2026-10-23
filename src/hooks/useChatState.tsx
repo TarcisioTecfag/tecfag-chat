@@ -1552,7 +1552,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (r: any): Message => {
       const personaName = getAiPersona(tenant || "valem").name;
       const meta = r.metadata || {};
-      const rawContent = String(r.content || "");
+      const rawContent =
+        typeof r.content === "string"
+          ? r.content.replace(/\[object Object\]/gi, "").trim()
+          : "";
       const isLeadTransfer = meta.type === "lead_transfer" || meta.warningType === "new_lead";
       const isSlaDelay =
         meta.type === "sla_alert" ||
@@ -1644,6 +1647,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const mediaTag = `[LOCAL_MEDIA:image:${meta.attachedImageInfo.dataUrl}:${imgName}]`;
         const cleanCaption = rawContent
           .replace(/^\[(?:Arquivo|Imagem)\s+(?:anexad[oa]|enviad[oa])[^\]]*\]\s*/i, "")
+          .replace(/\[object Object\]/gi, "")
           .trim();
         displayContent = cleanCaption ? `${mediaTag}\n${cleanCaption}` : mediaTag;
       } else if (!rawContent.startsWith("[LOCAL_MEDIA:")) {
@@ -1654,7 +1658,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         if (legacyImgMatch) {
           const fName = legacyImgMatch[1].trim();
-          const caption = (legacyImgMatch[2] || "").trim();
+          const caption = (legacyImgMatch[2] || "").replace(/\[object Object\]/gi, "").trim();
           const fallbackUrl = `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(fName)}`;
           const mediaTag = `[LOCAL_MEDIA:image:${fallbackUrl}:${fName}]`;
           displayContent = caption ? `${mediaTag}\n${caption}` : mediaTag;
@@ -1697,7 +1701,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!res.ok) return;
         const rows: any[] = await res.json();
         if (Array.isArray(rows) && rows.length > 0) {
-          const mappedMessages: Message[] = rows.map((r) => mapInternalRowToMessage(r));
+          const validRows = rows.filter((r) => {
+            const rawTxt =
+              typeof r?.content === "string"
+                ? r.content.replace(/\[object Object\]/gi, "").trim()
+                : "";
+            const metaObj =
+              typeof r?.metadata === "string"
+                ? (() => {
+                    try {
+                      return JSON.parse(r.metadata);
+                    } catch {
+                      return {};
+                    }
+                  })()
+                : r?.metadata || {};
+            const hasAttachment = Boolean(
+              metaObj?.attachedImageInfo?.dataUrl || metaObj?.attachedFileInfo?.name
+            );
+            return hasAttachment || rawTxt.length > 0;
+          });
+          const mappedMessages: Message[] = validRows.map((r) => mapInternalRowToMessage(r));
           valentinaHistoryRef.current = mappedMessages;
 
           setConversations((prev) =>
@@ -1770,6 +1794,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     metaTemplate?: { name: string; language: string; parameters: string[] },
     intent?: { id: string; conversationId: string; tenantId: string; expectedContextVersion?: number; noteScope?: "current" | "general" },
   ) => {
+    const safeInputText =
+      typeof text === "string" && text.trim() !== "[object Object]" ? text : "";
     const targetChatId = intent?.conversationId || selectedChatId;
     if (intent && intent.tenantId !== tenant) return false;
     if (!targetChatId) return false;
@@ -1805,13 +1831,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const localPreviewUrl = URL.createObjectURL(firstAttachment);
         const mediaTag = `[LOCAL_MEDIA:${mediaType}:${localPreviewUrl}:${firstAttachment.name || "Imagem.jpg"}]`;
-        bubbleMediaText = text.trim() ? `${mediaTag}\n${text.trim()}` : mediaTag;
+        bubbleMediaText = safeInputText.trim()
+          ? `${mediaTag}\n${safeInputText.trim()}`
+          : mediaTag;
       }
 
       const displayUserText =
-        text.trim() || (firstAttachment ? `[Arquivo anexado: ${firstAttachment.name}]` : "");
+        safeInputText.trim() ||
+        (firstAttachment ? `[Arquivo anexado: ${firstAttachment.name}]` : "");
 
-      const tempUserMsgId = `msg-${nowDate.getTime()}`;
+      const tempUserMsgId = `msg-${nowDate.getTime()}-${Math.random().toString(36).slice(2, 6)}`;
       const userMsg: Message = {
         id: tempUserMsgId,
         author: "Você",
@@ -1860,7 +1889,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       valentinaQueuedInputsRef.current.push({
         tempUserMsgId,
-        text,
+        text: safeInputText,
         displayUserText,
         nowISO,
         firstAttachment,
@@ -1875,11 +1904,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (batch.length === 0) return;
 
         const combinedText = batch
-          .map((b) => b.text.trim())
+          .map((b) => (typeof b.text === "string" ? b.text.trim() : ""))
           .filter(Boolean)
           .join("\n");
         const combinedDisplayUserText = batch
-          .map((b) => b.displayUserText.trim())
+          .map((b) => (typeof b.displayUserText === "string" ? b.displayUserText.trim() : ""))
           .filter(Boolean)
           .join(" • ");
         const batchAttachment =

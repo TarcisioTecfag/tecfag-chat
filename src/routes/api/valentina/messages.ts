@@ -3166,25 +3166,208 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 );
             }
 
-            const sorted = deduplicatedDesc
+            const sortedChronological = deduplicatedDesc
               .reverse()
               .sort((a, b) => {
                 const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
                 const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
                 return ta - tb;
               });
-            return new Response(JSON.stringify(sorted), {
+
+            // ── Auto-reparo definitivo de mensagens do operador gravadas como "[object Object]" ──
+            const parseMetaObj = (rawMeta: unknown): Record<string, any> => {
+              if (!rawMeta) return {};
+              if (typeof rawMeta === "string") {
+                try {
+                  const p = JSON.parse(rawMeta);
+                  return p && typeof p === "object" ? p : {};
+                } catch {
+                  return {};
+                }
+              }
+              return typeof rawMeta === "object" ? (rawMeta as Record<string, any>) : {};
+            };
+
+            const extractRecoveredUserQuery = (agentRow: (typeof sortedChronological)[number]): string | null => {
+              const m = parseMetaObj(agentRow.metadata);
+              if (
+                typeof m.userQuery === "string" &&
+                m.userQuery.trim() &&
+                !m.userQuery.includes("[object Object]")
+              ) {
+                return m.userQuery.trim();
+              }
+              const steps: any[] = Array.isArray(m?.thoughtTrace?.steps) ? m.thoughtTrace.steps : [];
+              for (const st of steps) {
+                const dt = typeof st?.detailText === "string" ? st.detailText : "";
+                if (!dt) continue;
+                const matchAnalyze = dt.match(/Analisando\s+"([\s\S]+?)"\s+para\s+consultar/i);
+                if (matchAnalyze?.[1]?.trim() && !matchAnalyze[1].includes("[object Object]")) {
+                  return matchAnalyze[1].trim();
+                }
+                const matchCasual = dt.match(/Mensagem\s+casual\s+reconhecida\s+\("([\s\S]+?)"\)/i);
+                if (matchCasual?.[1]?.trim() && !matchCasual[1].includes("[object Object]")) {
+                  return matchCasual[1].trim();
+                }
+                const matchInit = dt.match(/Iniciando\s+processamento\s+real\s+de\s+"([\s\S]+?)"/i);
+                if (matchInit?.[1]?.trim() && !matchInit[1].includes("[object Object]")) {
+                  return matchInit[1].trim();
+                }
+              }
+              return null;
+            };
+
+            const repairedUpdates: Array<{ id: string; content: string }> = [];
+            const orphanObjectRowIds = new Set<string>();
+
+            let idx = 0;
+            while (idx < sortedChronological.length) {
+              const row = sortedChronological[idx];
+              if (row.direction !== "to_agent") {
+                idx++;
+                continue;
+              }
+
+              // Coleta sequência contígua de mensagens to_agent antes da próxima resposta from_agent
+              let runEnd = idx;
+              while (
+                runEnd < sortedChronological.length &&
+                sortedChronological[runEnd].direction === "to_agent"
+              ) {
+                runEnd++;
+              }
+
+              const runRows = sortedChronological.slice(idx, runEnd);
+              const brokenTextRunRows: typeof runRows = [];
+
+              for (const r of runRows) {
+                const rawTxt = typeof r.content === "string" ? r.content.trim() : "";
+                if (!rawTxt.includes("[object Object]") && rawTxt.length > 0) {
+                  continue;
+                }
+                const rMeta = parseMetaObj(r.metadata);
+                const hasAttachment = Boolean(
+                  rMeta?.attachedImageInfo?.dataUrl || rMeta?.attachedFileInfo?.name
+                );
+                if (hasAttachment) {
+                  const cleanedCaption = rawTxt.replace(/\[object Object\]/gi, "").trim();
+                  const fallbackLabel = `[Arquivo anexado: ${
+                    rMeta?.attachedImageInfo?.name || rMeta?.attachedFileInfo?.name || "Imagem.jpg"
+                  }]`;
+                  const repairedText = cleanedCaption || fallbackLabel;
+                  r.content = repairedText;
+                  repairedUpdates.push({ id: r.id, content: repairedText });
+                } else {
+                  brokenTextRunRows.push(r);
+                }
+              }
+
+              if (brokenTextRunRows.length > 0) {
+                // Procura na resposta from_agent imediatamente seguinte o texto original em thoughtTrace
+                let recoveredQuery: string | null = null;
+                let lookIdx = runEnd;
+                while (
+                  lookIdx < sortedChronological.length &&
+                  sortedChronological[lookIdx].direction === "from_agent"
+                ) {
+                  recoveredQuery = extractRecoveredUserQuery(sortedChronological[lookIdx]);
+                  if (recoveredQuery) break;
+                  lookIdx++;
+                }
+
+                const recoveredLines = recoveredQuery
+                  ? recoveredQuery
+                      .split(/\n+/)
+                      .map((l) => l.trim())
+                      .filter((l) => l.length > 0 && !l.includes("[object Object]"))
+                  : [];
+
+                if (recoveredLines.length > 0) {
+                  if (brokenTextRunRows.length <= recoveredLines.length) {
+                    for (let b = 0; b < brokenTextRunRows.length; b++) {
+                      const textForRow =
+                        b === brokenTextRunRows.length - 1
+                          ? recoveredLines.slice(b).join("\n")
+                          : recoveredLines[b];
+                      brokenTextRunRows[b].content = textForRow;
+                      repairedUpdates.push({ id: brokenTextRunRows[b].id, content: textForRow });
+                    }
+                  } else {
+                    // Mais linhas [object Object] do que mensagens no turno (ex: tentativas órfãs anteriores):
+                    // preserva e restaura as últimas N (imediatamente antes da resposta) e remove as órfãs
+                    const orphanCount = brokenTextRunRows.length - recoveredLines.length;
+                    for (let b = 0; b < orphanCount; b++) {
+                      orphanObjectRowIds.add(brokenTextRunRows[b].id);
+                      duplicateIdsToDelete.push(brokenTextRunRows[b].id);
+                    }
+                    for (let b = 0; b < recoveredLines.length; b++) {
+                      const targetRow = brokenTextRunRows[orphanCount + b];
+                      const textForRow = recoveredLines[b];
+                      targetRow.content = textForRow;
+                      repairedUpdates.push({ id: targetRow.id, content: textForRow });
+                    }
+                  }
+                } else {
+                  // Sem resposta correspondente ou sem texto recuperável -> remove bolhas [object Object] órfãs
+                  for (const br of brokenTextRunRows) {
+                    orphanObjectRowIds.add(br.id);
+                    duplicateIdsToDelete.push(br.id);
+                  }
+                }
+              }
+
+              idx = runEnd;
+            }
+
+            if (repairedUpdates.length > 0) {
+              Promise.all(
+                repairedUpdates.map((u) =>
+                  db
+                    .update(internalMessages)
+                    .set({ content: u.content })
+                    .where(
+                      and(
+                        eq(internalMessages.tenantId, tenantId),
+                        eq(internalMessages.id, u.id)
+                      )
+                    )
+                )
+              ).catch((err) =>
+                console.warn("[valentina/messages] Falha ao persistir auto-reparo de mensagens:", err?.message)
+              );
+            }
+
+            // Limpa do banco em background os alertas duplicados e bolhas [object Object] órfãs para nunca mais voltarem
+            if (duplicateIdsToDelete.length > 0) {
+              db.delete(internalMessages)
+                .where(
+                  and(
+                    eq(internalMessages.tenantId, tenantId),
+                    inArray(internalMessages.id, duplicateIdsToDelete)
+                  )
+                )
+                .catch((err) =>
+                  console.warn("[valentina/messages] Falha ao limpar duplicatas antigas:", err?.message)
+                );
+            }
+
+            const finalSorted = sortedChronological.filter((r) => !orphanObjectRowIds.has(r.id));
+            return new Response(JSON.stringify(finalSorted), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
 
           const isBrokenAdminMessage = (txt: string) =>
-            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa/i.test(
-              txt || ""
+            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa|^\[object Object\]$/i.test(
+              (txt || "").trim()
             );
 
           const brokenAdminIds = msgs
-            .filter((m) => m.direction === "from_agent" && isBrokenAdminMessage(m.content || ""))
+            .filter(
+              (m) =>
+                (m.direction === "from_agent" && isBrokenAdminMessage(m.content || "")) ||
+                (m.direction === "to_agent" && (m.content || "").trim() === "[object Object]")
+            )
             .map((m) => m.id);
 
           if (brokenAdminIds.length > 0) {
@@ -3199,7 +3382,11 @@ export const Route = createFileRoute("/api/valentina/messages")({
           }
 
           const sorted = msgs
-            .filter((m) => !(m.direction === "from_agent" && isBrokenAdminMessage(m.content || "")))
+            .filter(
+              (m) =>
+                !(m.direction === "from_agent" && isBrokenAdminMessage(m.content || "")) &&
+                !(m.direction === "to_agent" && (m.content || "").trim() === "[object Object]")
+            )
             .reverse()
             .sort((a, b) => {
               const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -3317,7 +3504,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const operatorName = session.operator.name || await getOperatorName(operatorId);
           const operatorEmail = (session.operator as any).email || null;
           const contextTenantId = tenantId;
-          const rawContentTrimmed = stripAttachmentTagsFromQuery((content || "").trim());
+          const rawContentString =
+            typeof content === "string" && content.trim() !== "[object Object]" ? content.trim() : "";
+          const rawContentTrimmed = stripAttachmentTagsFromQuery(rawContentString);
           const userText =
             rawContentTrimmed ||
             (hasAttachedImage
@@ -3327,6 +3516,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           // ── Busca histórico recente da conversa antes de inserir a nova ─────
           const recentChatRows = await db
             .select({
+              id: internalMessages.id,
               direction: internalMessages.direction,
               content: internalMessages.content,
               createdAt: internalMessages.createdAt,
@@ -3361,7 +3551,13 @@ export const Route = createFileRoute("/api/valentina/messages")({
           let chatHistoryText = "";
           if (useManagerContext && Array.isArray(threadHistory)) {
             chatHistoryText = threadHistory
-              .filter((m: any) => m && typeof m.content === "string" && !isLegacyRefusal(m.content))
+              .filter(
+                (m: any) =>
+                  m &&
+                  typeof m.content === "string" &&
+                  m.content.trim() !== "[object Object]" &&
+                  !isLegacyRefusal(m.content)
+              )
               .slice(-10)
               .map((m: any) => {
                 const speaker = m.sender === "operator" ? operatorName : persona.name;
@@ -3371,7 +3567,11 @@ export const Route = createFileRoute("/api/valentina/messages")({
               .join("\n");
           } else {
             chatHistoryText = chronologicalRecentRows
-              .filter((r) => !(r.direction === "from_agent" && isLegacyRefusal(r.content || "")))
+              .filter(
+                (r) =>
+                  (r.content || "").trim() !== "[object Object]" &&
+                  !(r.direction === "from_agent" && isLegacyRefusal(r.content || ""))
+              )
               .map((r) => {
                 const speaker = r.direction === "to_agent" ? operatorName : persona.name;
                 const timeTag = formatHistoryTimeTag(r.createdAt);
@@ -3382,13 +3582,18 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
           // Texto recente da conversa (últimas 6 mensagens cronológicas) + dealIds das mensagens recentes para resolver follow-ups como "puxe por favor", "que informações a mais vc possui dela?" ou "ela não tem algum campo customizado preenchido?"
           const recentAiContextText = chronologicalRecentRows
-            .filter((r) => !(r.direction === "from_agent" && isLegacyRefusal(r.content || "")))
+            .filter(
+              (r) =>
+                (r.content || "").trim() !== "[object Object]" &&
+                !(r.direction === "from_agent" && isLegacyRefusal(r.content || ""))
+            )
             .slice(-6)
             .map((r) => r.content || "")
             .join("\n");
 
           const recentDealIdsFromHistory: string[] = [];
-          for (const r of [...chronologicalRecentRows].reverse().slice(0, 8)) {
+          const existingByTempId = new Map<string, { id: string; content: string; createdAt: Date }>();
+          for (const r of [...chronologicalRecentRows].reverse().slice(0, 12)) {
             const meta: any =
               typeof r.metadata === "string"
                 ? (() => {
@@ -3399,6 +3604,13 @@ export const Route = createFileRoute("/api/valentina/messages")({
                     }
                   })()
                 : r.metadata || {};
+            if (typeof meta?.tempId === "string" && meta.tempId.trim() && r.direction === "to_agent") {
+              existingByTempId.set(meta.tempId.trim(), {
+                id: r.id,
+                content: r.content || "",
+                createdAt: r.createdAt || now,
+              });
+            }
             if (Array.isArray(meta?.relatedDeals)) {
               for (const rd of meta.relatedDeals) {
                 const dId = rd?.dealId || rd?.id;
@@ -3409,24 +3621,85 @@ export const Route = createFileRoute("/api/valentina/messages")({
             }
           }
 
-          // ── Salva mensagem(ns) do usuário no banco (suportando lote do debounce de 8s) ──
+          // ── Salva mensagem(ns) do usuário no banco (suportando objetos { tempId, content, createdAt } ou strings do lote de 8s) ──
           const defaultStoredUserText =
-            (content || "").trim() ||
+            rawContentString ||
             (hasAttachedImage
               ? `[Arquivo anexado: ${effectiveImageFileName || "Foto.jpg"}]`
               : `[Arquivo enviado: ${effectiveAttachment?.name ?? "documento"}]`);
-          const cleanBatchedTexts: string[] =
-            Array.isArray(batchedUserMessages) && batchedUserMessages.length > 0
-              ? batchedUserMessages.map((m: any) => String(m || "").trim()).filter(Boolean)
-              : [defaultStoredUserText];
-          if (cleanBatchedTexts.length === 0) cleanBatchedTexts.push(defaultStoredUserText);
 
-          const savedUserMessages: { id: string; content: string; direction: "to_agent"; createdAt: Date }[] = [];
-          for (let bIdx = 0; bIdx < cleanBatchedTexts.length; bIdx++) {
-            const msgText = cleanBatchedTexts[bIdx];
-            const isLastInBatch = bIdx === cleanBatchedTexts.length - 1;
+          interface NormalizedBatchedUserMsg {
+            tempId?: string;
+            content: string;
+            createdAt?: string;
+          }
+
+          const normalizedBatch: NormalizedBatchedUserMsg[] =
+            Array.isArray(batchedUserMessages) && batchedUserMessages.length > 0
+              ? batchedUserMessages
+                  .map((m: any): NormalizedBatchedUserMsg | null => {
+                    if (typeof m === "string") {
+                      const trimmed = m.trim();
+                      return trimmed && trimmed !== "[object Object]" ? { content: trimmed } : null;
+                    }
+                    if (m && typeof m === "object") {
+                      const candidate =
+                        typeof m.content === "string"
+                          ? m.content
+                          : typeof m.text === "string"
+                          ? m.text
+                          : typeof m.displayUserText === "string"
+                          ? m.displayUserText
+                          : "";
+                      const trimmed = candidate.trim();
+                      if (!trimmed || trimmed === "[object Object]") return null;
+                      return {
+                        tempId: typeof m.tempId === "string" ? m.tempId : undefined,
+                        content: trimmed,
+                        createdAt: typeof m.createdAt === "string" ? m.createdAt : undefined,
+                      };
+                    }
+                    return null;
+                  })
+                  .filter((item): item is NormalizedBatchedUserMsg => item !== null)
+              : [{ content: defaultStoredUserText }];
+
+          if (normalizedBatch.length === 0) {
+            normalizedBatch.push({ content: defaultStoredUserText });
+          }
+
+          const savedUserMessages: {
+            id: string;
+            tempId?: string;
+            content: string;
+            direction: "to_agent";
+            createdAt: Date;
+          }[] = [];
+
+          for (let bIdx = 0; bIdx < normalizedBatch.length; bIdx++) {
+            const batchItem = normalizedBatch[bIdx];
+            const msgText = batchItem.content;
+            const isLastInBatch = bIdx === normalizedBatch.length - 1;
+
+            // Se esta mensagem do lote já havia sido gravada por uma requisição anterior abortada, reaproveita sem duplicar
+            if (batchItem.tempId && existingByTempId.has(batchItem.tempId)) {
+              const existing = existingByTempId.get(batchItem.tempId)!;
+              savedUserMessages.push({
+                id: existing.id,
+                tempId: batchItem.tempId,
+                content: msgText,
+                direction: "to_agent",
+                createdAt: existing.createdAt,
+              });
+              continue;
+            }
+
             const msgId = `val-msg-${Date.now()}-${bIdx}-${Math.random().toString(36).slice(2, 7)}`;
-            const msgCreatedAt = new Date(now.getTime() + bIdx * 10);
+            const parsedItemDate = batchItem.createdAt ? new Date(batchItem.createdAt) : null;
+            const msgCreatedAt =
+              parsedItemDate && !isNaN(parsedItemDate.getTime())
+                ? parsedItemDate
+                : new Date(now.getTime() + bIdx * 10);
 
             await db.insert(internalMessages).values({
               id: msgId,
@@ -3438,6 +3711,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
               metadata: {
                 isChat: true,
                 scope,
+                tempId: batchItem.tempId,
+                userQuery: msgText,
                 knowledgeBase: knowledgeBase || tenantId,
                 attachedFileInfo:
                   isLastInBatch && effectiveAttachment
@@ -3453,6 +3728,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             });
             savedUserMessages.push({
               id: msgId,
+              tempId: batchItem.tempId,
               content: msgText,
               direction: "to_agent",
               createdAt: msgCreatedAt,
@@ -3797,6 +4073,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 scope,
                 fragmentIndex: i,
                 totalFragments: fragments.length,
+                userQuery: isFirstFrag ? userText : undefined,
                 blocks: frag.blocks || undefined,
                 relatedConversations: fragRelated,
                 relatedDeals: fragRelatedDeals,
