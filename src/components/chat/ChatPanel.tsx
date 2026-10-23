@@ -2993,7 +2993,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               initial={{ opacity: 0, y: 8, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.96 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.25 }}
               className="flex items-start gap-2.5 my-2.5 w-full"
             >
               <AiAvatar
@@ -3004,6 +3004,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <AgenticThoughtTrace
                   trace={valentinaThoughtTrace}
                   mode="live"
+                  onStepReveal={() => {
+                    if (shouldStickToBottomRef.current) {
+                      scrollToBottom(false);
+                    }
+                  }}
                 />
               </div>
             </motion.div>

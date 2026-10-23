@@ -2952,6 +2952,11 @@ export function CrmChatWidget() {
                                   trace={valentinaThoughtTrace}
                                   mode="live"
                                   compact
+                                  onStepReveal={() => {
+                                    if (shouldStickThreadToBottomRef.current) {
+                                      scrollThreadToBottom(false);
+                                    }
+                                  }}
                                 />
                               </div>
                             </div>
@@ -3502,17 +3507,19 @@ export function CrmChatWidget() {
                 style={{ top: contextMenu.y, left: contextMenu.x }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    pinChat(chat.id);
-                    setContextMenu(null);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                >
-                  <Pin className="h-3.5 w-3.5 text-primary" />
-                  {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
-                </button>
+                {chat.id !== "valentina" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pinChat(chat.id);
+                      setContextMenu(null);
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                  >
+                    <Pin className="h-3.5 w-3.5 text-primary" />
+                    {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -3524,29 +3531,33 @@ export function CrmChatWidget() {
                   <BookOpen className="h-3.5 w-3.5 text-primary" />
                   Marcar como não lido
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTransferTargetChat(chat);
-                    setContextMenu(null);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                >
-                  <Forward className="h-3.5 w-3.5 text-primary" />
-                  Transferir atendimento
-                </button>
-                <div className="my-1 border-t border-border/60" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    archiveFromMiniChat(chat.id);
-                    setContextMenu(null);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
-                >
-                  <Archive className="h-3.5 w-3.5 text-amber-500" />
-                  Arquivar do mini chat
-                </button>
+                {chat.id !== "valentina" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTransferTargetChat(chat);
+                        setContextMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                    >
+                      <Forward className="h-3.5 w-3.5 text-primary" />
+                      Transferir atendimento
+                    </button>
+                    <div className="my-1 border-t border-border/60" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        archiveFromMiniChat(chat.id);
+                        setContextMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
+                    >
+                      <Archive className="h-3.5 w-3.5 text-amber-500" />
+                      Arquivar do mini chat
+                    </button>
+                  </>
+                )}
               </motion.div>
             </DismissableLayerBranch>
           );

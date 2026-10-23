@@ -839,6 +839,14 @@ export function ValentinaChatTab() {
                       <AgenticThoughtTrace
                         trace={liveThoughtTrace}
                         mode="live"
+                        onStepReveal={() => {
+                          if (scrollRef.current) {
+                            scrollRef.current.scrollTo({
+                              top: scrollRef.current.scrollHeight,
+                              behavior: "smooth",
+                            });
+                          }
+                        }}
                       />
                     </div>
                   </div>
