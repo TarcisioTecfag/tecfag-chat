@@ -19,7 +19,9 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaAssistantModal } from "../chat/ValentinaAssistantModal";
 import { ProductCatalogPicker } from "../chat/ProductCatalogPicker";
+import { QuickResponsesPopover } from "../chat/QuickResponsesPopover";
 import { getAiPersona } from "@/lib/ai-persona";
+import { usePermissions } from "@/hooks/usePermissions";
 import { ConversationDealContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
 
 interface MobileMessageInputProps {
@@ -35,7 +37,23 @@ const COMMON_EMOJIS = [
 export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   onSendMessage,
 }) => {
-  const { sendMessage, templates, selectedChatId, conversations, tenant, operatorProfile } = useChat();
+  const {
+    sendMessage,
+    quickResponses,
+    templates,
+    createQuickResponse,
+    updateQuickResponse,
+    deleteQuickResponse,
+    createTemplate,
+    updateTemplate,
+    deleteTemplate,
+    selectedChatId,
+    conversations,
+    tenant,
+    operatorProfile,
+    setActiveView,
+  } = useChat();
+  const { canManageGlobalTemplates } = usePermissions();
   const aiPersona = getAiPersona(tenant || "valem");
 
   const [activeTab, setActiveTab] = useState<"message" | "internal_note">("message");
@@ -210,45 +228,41 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
         {/* ── POPUP: RESPOSTAS RÁPIDAS (⚡) ── */}
         <AnimatePresence>
           {showQuickTemplates && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="absolute bottom-full left-3.5 right-3.5 mb-2 bg-card border border-border rounded-2xl p-3 shadow-2xl z-50 max-h-56 overflow-y-auto flex flex-col gap-1.5"
-            >
-              <div className="flex items-center justify-between pb-1.5 border-b border-border text-xs font-bold text-foreground">
-                <span className="flex items-center gap-1.5 text-primary">
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>Respostas Rápidas</span>
-                </span>
-                <button
-                  onClick={() => setShowQuickTemplates(false)}
-                  className="p-1 rounded-full text-muted-foreground hover:text-foreground"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {templates.length > 0 ? (
-                templates.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    onClick={() => {
-                      setText((prev) => (prev ? `${prev} ${tpl.text}` : tpl.text));
-                      setShowQuickTemplates(false);
-                    }}
-                    className="text-left p-2 rounded-xl bg-muted/50 hover:bg-primary-soft transition flex flex-col gap-0.5"
-                  >
-                    <span className="text-xs font-bold text-foreground">{tpl.title}</span>
-                    <span className="text-[11px] text-muted-foreground line-clamp-1">{tpl.text}</span>
-                  </button>
-                ))
-              ) : (
-                <div className="py-4 text-center text-xs text-muted-foreground font-medium">
-                  Nenhum template cadastrado.
-                </div>
-              )}
-            </motion.div>
+            <QuickResponsesPopover
+              isOpen={showQuickTemplates}
+              onClose={() => setShowQuickTemplates(false)}
+              onSelect={(rawResponse) => {
+                let parsedText = rawResponse;
+                if (parsedText.includes("<<1>>")) {
+                  parsedText = parsedText.replaceAll("<<1>>", operatorProfile.name);
+                }
+                if (parsedText.includes("<<2>>")) {
+                  parsedText = parsedText.replaceAll("<<2>>", activeChat?.name || "Cliente");
+                }
+                setText((prev) => {
+                  const trimmed = prev.trim();
+                  if (!trimmed || trimmed.startsWith("/")) {
+                    return parsedText;
+                  }
+                  return `${prev.trimEnd()} ${parsedText}`;
+                });
+                setShowQuickTemplates(false);
+              }}
+              quickResponses={quickResponses}
+              templates={templates || []}
+              slashQuery={text.startsWith("/") ? text.slice(1) : ""}
+              canManageGlobalTemplates={canManageGlobalTemplates}
+              onCreateTemplate={createTemplate}
+              onUpdateTemplate={updateTemplate}
+              onDeleteTemplate={deleteTemplate}
+              onCreateQuickResponse={createQuickResponse}
+              onUpdateQuickResponse={updateQuickResponse}
+              onDeleteQuickResponse={deleteQuickResponse}
+              onOpenFullManager={() => {
+                setShowQuickTemplates(false);
+                setActiveView("configuracoes");
+              }}
+            />
           )}
         </AnimatePresence>
 
@@ -461,6 +475,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                 <motion.button
                   whileTap={{ scale: 0.88 }}
                   type="button"
+                  data-quick-responses-trigger="true"
                   onClick={() => {
                     setShowQuickTemplates((prev) => !prev);
                     setShowEmojiPicker(false);

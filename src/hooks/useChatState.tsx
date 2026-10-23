@@ -599,8 +599,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch((err) => console.error("Erro ao sincronizar setores do banco:", err));
 
-      fetch(`${BACKEND_URL}/api/quick-responses`, { credentials: "include" })
-        .then((res) => res.json())
+      fetch(`${BACKEND_URL}/api/quick-responses`, { credentials: "include", cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (Array.isArray(data)) {
             setQuickResponses(data);
@@ -614,8 +614,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // tenantId e operatorId são resolvidos pelo servidor a partir da sessão autenticada.
   useEffect(() => {
     if (typeof window !== "undefined" && isAuthenticated && currentOperatorId) {
-      fetch(`${BACKEND_URL}/api/templates`, { credentials: "include" })
-        .then((res) => res.json())
+      fetch(`${BACKEND_URL}/api/templates`, { credentials: "include", cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (Array.isArray(data)) {
             setTemplates(data);
@@ -1159,26 +1159,34 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setQuickResponses((prev) => [...prev, newQr]);
 
     try {
-      await fetch(`${BACKEND_URL}/api/quick-responses`, {
+      const res = await fetch(`${BACKEND_URL}/api/quick-responses`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newQr),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || "Erro ao salvar resposta rápida.");
+      }
       toast.success("Resposta rápida criada com sucesso!");
-    } catch (err) {
+    } catch (err: any) {
+      setQuickResponses((prev) => prev.filter((qr) => qr.id !== id));
       console.error("Erro ao criar resposta rápida no DB:", err);
-      toast.error("Erro ao salvar resposta rápida.");
+      toast.error(err?.message || "Erro ao salvar resposta rápida.");
     }
   };
 
   const updateQuickResponse = async (id: string, fields: Partial<QuickResponse>) => {
+    const previousList = quickResponses;
     setQuickResponses((prev) => prev.map((qr) => (qr.id === id ? { ...qr, ...fields } : qr)));
 
     const targetQr = quickResponses.find((qr) => qr.id === id);
     if (targetQr) {
       try {
-        await fetch(`${BACKEND_URL}/api/quick-responses`, {
+        const res = await fetch(`${BACKEND_URL}/api/quick-responses`, {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...targetQr,
@@ -1186,23 +1194,37 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             tenantId: tenant ?? undefined,
           }),
         });
-      } catch (err) {
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData?.error || "Erro ao atualizar resposta rápida.");
+        }
+        toast.success("Resposta rápida atualizada com sucesso!");
+      } catch (err: any) {
+        setQuickResponses(previousList);
         console.error("Erro ao atualizar resposta rápida no DB:", err);
+        toast.error(err?.message || "Erro ao atualizar resposta rápida.");
       }
     }
   };
 
   const deleteQuickResponse = async (id: string) => {
+    const previousList = quickResponses;
     setQuickResponses((prev) => prev.filter((qr) => qr.id !== id));
 
     try {
-      await fetch(`${BACKEND_URL}/api/quick-responses?id=${id}`, {
+      const res = await fetch(`${BACKEND_URL}/api/quick-responses?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
+        credentials: "include",
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || "Erro ao excluir resposta rápida.");
+      }
       toast.success("Resposta rápida excluída com sucesso!");
-    } catch (err) {
+    } catch (err: any) {
+      setQuickResponses(previousList);
       console.error("Erro ao excluir resposta rápida no DB:", err);
-      toast.error("Erro ao excluir resposta rápida.");
+      toast.error(err?.message || "Erro ao excluir resposta rápida.");
     }
   };
 
@@ -1210,7 +1232,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const id = `tpl-${Date.now()}`;
     const newTpl: OperatorTemplate = {
       id,
-      tenantId: tenant || "valem",
+      tenantId: tenant ?? "",
       operatorId: currentOperatorId,
       title,
       text,
@@ -1218,24 +1240,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTemplates((prev) => [...prev, newTpl]);
 
     try {
-      await fetch(`${BACKEND_URL}/api/templates`, {
+      const res = await fetch(`${BACKEND_URL}/api/templates`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newTpl),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || "Erro ao criar template.");
+      }
       toast.success("Template criado com sucesso!");
-    } catch (err) {
+    } catch (err: any) {
+      setTemplates((prev) => prev.filter((tpl) => tpl.id !== id));
       console.error("Erro ao criar template no DB:", err);
-      toast.error("Erro ao criar template.");
+      toast.error(err?.message || "Erro ao criar template.");
     }
   };
 
   const updateTemplate = async (id: string, title: string, text: string) => {
+    const previousList = templates;
     setTemplates((prev) => prev.map((tpl) => (tpl.id === id ? { ...tpl, title, text } : tpl)));
 
     try {
-      await fetch(`${BACKEND_URL}/api/templates`, {
+      const res = await fetch(`${BACKEND_URL}/api/templates`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id,
@@ -1245,24 +1275,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           text,
         }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || "Erro ao atualizar template.");
+      }
       toast.success("Template atualizado com sucesso!");
-    } catch (err) {
+    } catch (err: any) {
+      setTemplates(previousList);
       console.error("Erro ao atualizar template no DB:", err);
-      toast.error("Erro ao atualizar template.");
+      toast.error(err?.message || "Erro ao atualizar template.");
     }
   };
 
   const deleteTemplate = async (id: string) => {
+    const previousList = templates;
     setTemplates((prev) => prev.filter((tpl) => tpl.id !== id));
 
     try {
-      await fetch(`${BACKEND_URL}/api/templates?id=${id}`, {
+      const res = await fetch(`${BACKEND_URL}/api/templates?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
+        credentials: "include",
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || "Erro ao excluir template.");
+      }
       toast.success("Template excluído com sucesso!");
-    } catch (err) {
+    } catch (err: any) {
+      setTemplates(previousList);
       console.error("Erro ao excluir template no DB:", err);
-      toast.error("Erro ao excluir template.");
+      toast.error(err?.message || "Erro ao excluir template.");
     }
   };
 
@@ -1400,6 +1442,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
 
           const aiPersona = getAiPersona(tenant);
+          const existingValHistory = valentinaHistoryRef.current.filter((m) => m.id !== "val_welcome");
+          const firstHistMsg = existingValHistory[0];
+          const nowDateObj = new Date();
+          const welcomeTimeStr =
+            firstHistMsg?.time ||
+            nowDateObj.toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
+            });
+          const welcomeDateStr =
+            firstHistMsg?.date ||
+            nowDateObj.toLocaleDateString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+            });
+          const welcomeIsoStr = firstHistMsg?.sentAtISO || nowDateObj.toISOString();
+
           const welcomeMsg: Message = {
             id: "val_welcome",
             author: aiPersona.name,
@@ -1414,12 +1473,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const name = operatorProfile?.name || "consultor";
               return `Olá! ${greeting} ${name}, sou seu copiloto comercial. Acompanho suas metas, tarefas, ligações agendadas, negociações paradas e te aviso sempre que um cliente for transferido ou passar do SLA. Como posso te ajudar agora?`;
             })(),
-            time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            time: welcomeTimeStr,
+            date: welcomeDateStr,
+            sentAtISO: welcomeIsoStr,
             side: "in",
             isInternalNote: false,
           };
 
-          const existingValHistory = valentinaHistoryRef.current.filter((m) => m.id !== "val_welcome");
           const initialValMessages = [welcomeMsg, ...existingValHistory];
           const lastValMsg = initialValMessages[initialValMessages.length - 1];
 
@@ -1437,7 +1497,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             channel: "whatsapp",
             queue: "meus",
             messages: initialValMessages,
-            lastMessageTime: lastValMsg?.time || new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            lastMessageTime:
+              lastValMsg?.time ||
+              nowDateObj.toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
+              }),
             unreadCount: 0,
             operatorId: currentOperatorId,
             walletOperatorId: currentOperatorId,
@@ -1545,16 +1611,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : !isWarning && Array.isArray(r.relatedCalls) && r.relatedCalls.length > 0
           ? r.relatedCalls
           : undefined;
+      const thoughtTrace =
+        !isWarning && meta.thoughtTrace
+          ? meta.thoughtTrace
+          : !isWarning && r.thoughtTrace
+          ? r.thoughtTrace
+          : undefined;
+
+      const parsedDate = r.createdAt ? new Date(r.createdAt) : new Date();
+      const validDate = !isNaN(parsedDate.getTime()) ? parsedDate : new Date();
 
       return {
         id: r.id,
         author: r.direction === "to_agent" ? "Você" : personaName,
         text: r.content,
-        time: new Date(r.createdAt || Date.now()).toLocaleTimeString("pt-BR", {
+        time: validDate.toLocaleTimeString("pt-BR", {
           hour: "2-digit",
           minute: "2-digit",
+          timeZone: "America/Sao_Paulo",
         }),
-        sentAtISO: r.createdAt ? new Date(r.createdAt).toISOString() : undefined,
+        date: validDate.toLocaleDateString("pt-BR", {
+          timeZone: "America/Sao_Paulo",
+        }),
+        sentAtISO: validDate.toISOString(),
         side: r.direction === "to_agent" ? "out" : "in",
         isInternalNote: false,
         ...(isWarning ? { isWarning: true } : {}),
@@ -1563,7 +1642,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(relatedConversations ? { relatedConversations } : {}),
         ...(relatedDeals ? { relatedDeals } : {}),
         ...(relatedCalls ? { relatedCalls } : {}),
-        ...(!isWarning && (meta.thoughtTrace || r.thoughtTrace) ? { thoughtTrace: meta.thoughtTrace || r.thoughtTrace } : {}),
+        ...(thoughtTrace ? { thoughtTrace } : {}),
       };
     },
     [tenant]
@@ -1585,9 +1664,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             prev.map((c) => {
               if (c.id !== "valentina") return c;
               const welcome = c.messages.find((m) => m.id === "val_welcome");
-              const merged = welcome
-                ? [welcome, ...mappedMessages.filter((m) => m.id !== "val_welcome")]
-                : mappedMessages;
+              const realMessages = mappedMessages.filter((m) => m.id !== "val_welcome");
+              const firstReal = realMessages[0];
+              const syncedWelcome = welcome
+                ? {
+                    ...welcome,
+                    time: firstReal?.time || welcome.time,
+                    date: firstReal?.date || welcome.date,
+                    sentAtISO: firstReal?.sentAtISO || welcome.sentAtISO,
+                  }
+                : null;
+              const merged = syncedWelcome ? [syncedWelcome, ...realMessages] : realMessages;
               const lastMsg = merged[merged.length - 1];
               return {
                 ...c,
@@ -1651,16 +1738,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentChat) return false;
 
     if (targetChatId === "valentina") {
-      const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const nowDate = new Date();
+      const now = nowDate.toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "America/Sao_Paulo",
+      });
+      const nowDateStr = nowDate.toLocaleDateString("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+      });
+      const nowISO = nowDate.toISOString();
       const firstAttachment = attachments && attachments.length > 0 ? attachments[0] : null;
       const displayUserText =
         text.trim() || (firstAttachment ? `[Arquivo anexado: ${firstAttachment.name}]` : "");
 
+      const tempUserMsgId = `msg-${nowDate.getTime()}`;
       const userMsg: Message = {
-        id: `msg-${Date.now()}`,
+        id: tempUserMsgId,
         author: "Você",
         text: displayUserText,
         time: now,
+        date: nowDateStr,
+        sentAtISO: nowISO,
         side: "out",
         isInternalNote,
         quotedMessageId: quotedMessage?.id || null,
@@ -1752,11 +1851,47 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
 
+          // Sincroniza o ID e data da mensagem do operador salva no servidor
+          if (data?.userMessage?.id) {
+            const serverUserDate = data.userMessage.createdAt
+              ? new Date(data.userMessage.createdAt)
+              : nowDate;
+            const validServerUserDate = !isNaN(serverUserDate.getTime()) ? serverUserDate : nowDate;
+            const syncedISO = validServerUserDate.toISOString();
+            const syncedDateStr = validServerUserDate.toLocaleDateString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+            });
+            valentinaHistoryRef.current = valentinaHistoryRef.current.map((m) =>
+              m.id === tempUserMsgId
+                ? { ...m, id: data.userMessage.id, sentAtISO: syncedISO, date: syncedDateStr }
+                : m
+            );
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.id === "valentina"
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m) =>
+                        m.id === tempUserMsgId
+                          ? { ...m, id: data.userMessage.id, sentAtISO: syncedISO, date: syncedDateStr }
+                          : m
+                      ),
+                    }
+                  : c
+              )
+            );
+          }
+
           // Processar fragmentos com delays incrementais para simular digitação
           const fragments = data.fragments || [];
           const alerts = data.alerts || [];
           const resolvedTrace: AgenticThoughtTraceData =
             data.thoughtTrace || fragments[0]?.thoughtTrace || initialTrace;
+          const combinedPreviewText = fragments
+            .map((f: any) => f.content || f.text || "")
+            .filter(Boolean)
+            .join(" ");
+          let hasNotifiedOutOfChat = false;
 
           for (let i = 0; i < fragments.length; i++) {
             // Verificar cancelamento antes de cada fragmento
@@ -1778,20 +1913,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Verificar cancelamento novamente após o delay
             if (valentinaGenerationRef.current !== myGeneration) return;
 
-            const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
             if (i === 0) {
               setValentinaThoughtTrace(null);
               setIsValentinaTyping(false);
             }
+
+            const fragDateObj = frag.createdAt ? new Date(frag.createdAt) : new Date();
+            const validFragDate = !isNaN(fragDateObj.getTime()) ? fragDateObj : new Date();
+            const respTime = validFragDate.toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
+            });
+            const respDateStr = validFragDate.toLocaleDateString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+            });
             const valentinaMsg: Message = {
               id: frag.id || `msg-val-${Date.now()}-${i}`,
-              ...(i === 0 ? { thoughtTrace: frag.thoughtTrace || resolvedTrace } : {}),
               author: currentPersona.name,
               text: frag.content || frag.text || "",
               time: respTime,
-              sentAtISO: frag.createdAt ? new Date(frag.createdAt).toISOString() : new Date().toISOString(),
+              date: respDateStr,
+              sentAtISO: validFragDate.toISOString(),
               side: "in",
               isInternalNote: false,
+              ...(i === 0 ? { thoughtTrace: frag.thoughtTrace || resolvedTrace } : {}),
               ...(Array.isArray(frag.relatedConversations) && frag.relatedConversations.length > 0
                 ? { relatedConversations: frag.relatedConversations }
                 : {}),
@@ -1805,29 +1951,161 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             valentinaHistoryRef.current = [...valentinaHistoryRef.current, valentinaMsg];
 
+            const isViewingVal = isCurrentlyViewingConversation("valentina");
+
             setConversations((prev) =>
               prev.map((c) => {
                 if (c.id === "valentina") {
                   return {
                     ...c,
                     lastMessageTime: respTime,
+                    unreadCount: isViewingVal ? 0 : (c.unreadCount || 0) + 1,
                     messages: [...c.messages, valentinaMsg],
                   };
                 }
                 return c;
               })
             );
+
+            // Se o operador saiu do chat do Fagner/Valentina enquanto pensava, dispara notificação única
+            if (!isViewingVal && !hasNotifiedOutOfChat) {
+              hasNotifiedOutOfChat = true;
+              playNotificationSound();
+
+              const previewSnippetText = cleanPlainNotificationText(
+                combinedPreviewText || valentinaMsg.text,
+                { maxLength: 140 }
+              );
+              const isTecfag = tenantRef.current === "tecfag";
+
+              if (
+                typeof window !== "undefined" &&
+                "Notification" in window &&
+                Notification.permission === "granted" &&
+                document.hidden
+              ) {
+                try {
+                  const n = new Notification(currentPersona.name, {
+                    body: previewSnippetText,
+                    icon: currentPersona.avatarUrl || (isTecfag ? "/logo_tecfag.png" : "/logo_valem.jpg"),
+                    tag: "chat-valentina",
+                  });
+                  n.onclick = () => {
+                    window.focus();
+                    setSelectedChatId("valentina");
+                    setActiveView("chat");
+                    markAsRead("valentina");
+                    n.close();
+                  };
+                } catch (err) {
+                  console.warn("[Notification] Erro ao disparar notificação nativa da IA:", err);
+                }
+              }
+
+              toast.custom(
+                (t) => (
+                  <div className="flex flex-col gap-2.5 w-[388px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border border-border rounded-2xl p-3.5 shadow-card animate-in slide-in-from-top-3 duration-200 border-l-[4px] border-l-primary text-foreground">
+                    <div className="flex items-start gap-3">
+                      <div className="relative shrink-0">
+                        <img
+                          src={currentPersona.avatarUrl}
+                          alt={currentPersona.name}
+                          className="h-10 w-10 rounded-xl object-cover border border-border shadow-2xs"
+                        />
+                        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary border-2 border-card" />
+                      </div>
+
+                      <div className="flex-1 min-w-0 pr-1">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-xs font-bold text-primary truncate">
+                              {currentPersona.name}
+                            </p>
+                            <span className="px-1.5 py-0.2 rounded bg-primary text-primary-foreground text-[8px] font-black uppercase tracking-wider shrink-0">
+                              IA
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                            Agora
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
+                          {previewSnippetText}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => toast.dismiss(t)}
+                        className="h-6 w-6 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
+                        title="Fechar aviso"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
+                      <button
+                        onClick={() => {
+                          setSelectedChatId("valentina");
+                          markAsRead("valentina");
+                          window.dispatchEvent(
+                            new CustomEvent("crm:open-mini-chat", {
+                              detail: { conversationId: "valentina" },
+                            })
+                          );
+                          toast.dismiss(t);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/80 transition shadow-2xs cursor-pointer"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5 text-primary" />
+                        Abrir Mini Chat
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setSelectedChatId("valentina");
+                          setActiveView("chat");
+                          markAsRead("valentina");
+                          if (
+                            typeof window !== "undefined" &&
+                            window.location.pathname.startsWith("/crm/deals/")
+                          ) {
+                            window.location.href = "/chat/assistente";
+                          }
+                          toast.dismiss(t);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition shadow-2xs cursor-pointer"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Abrir Chat
+                      </button>
+                    </div>
+                  </div>
+                ),
+                { id: "chat-msg-valentina", duration: 8000, position: "top-right" }
+              );
+            }
           }
 
           // Processar alertas como mensagens de warning
           for (const alert of alerts) {
             if (valentinaGenerationRef.current !== myGeneration) return;
-            const respTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            const alertNow = new Date();
+            const respTime = alertNow.toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
+            });
+            const respDateStr = alertNow.toLocaleDateString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+            });
             const alertMsg: Message = {
-              id: `msg-alert-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              id: `msg-alert-${alertNow.getTime()}-${Math.random().toString(36).slice(2, 6)}`,
               author: currentPersona.name,
               text: `[${alert.type === "sla_warning" ? "SLA" : "Alerta"}] ${alert.clientName || "Cliente"} está aguardando há ${alert.waitMinutes || "?"} minutos`,
               time: respTime,
+              date: respDateStr,
+              sentAtISO: alertNow.toISOString(),
               side: "in",
               isInternalNote: false,
               isWarning: true,
@@ -1839,12 +2117,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               },
             };
 
+            const isViewingVal = isCurrentlyViewingConversation("valentina");
+
             setConversations((prev) =>
               prev.map((c) => {
                 if (c.id === "valentina") {
                   return {
                     ...c,
                     lastMessageTime: respTime,
+                    unreadCount: isViewingVal ? 0 : (c.unreadCount || 0) + 1,
                     messages: [...c.messages, alertMsg],
                   };
                 }
@@ -1858,12 +2139,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error("[useChatState] Erro ao chamar API Valentina:", err);
           // Fallback local em caso de erro de rede real
           if (valentinaGenerationRef.current !== myGeneration) return;
-          const fallbackTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const fallbackNow = new Date();
+          const fallbackTime = fallbackNow.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "America/Sao_Paulo",
+          });
+          const fallbackDateStr = fallbackNow.toLocaleDateString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+          });
           const fallbackMsg: Message = {
-            id: `msg-val-fallback-${Date.now()}`,
+            id: `msg-val-fallback-${fallbackNow.getTime()}`,
             author: currentPersona.name,
             text: "Ops, tive um problema ao processar sua mensagem. Pode tentar de novo?",
             time: fallbackTime,
+            date: fallbackDateStr,
+            sentAtISO: fallbackNow.toISOString(),
             side: "in",
             isInternalNote: false,
           };
@@ -2493,6 +2784,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
     );
 
+    if (id === "valentina") return;
+
     // Persistir no banco de dados via PATCH
     fetch(`${BACKEND_URL}/api/chats`, {
       method: "PATCH",
@@ -2504,10 +2797,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  // Zera automaticamente o contador de não lidas do Fagner/Valentina quando o operador abre o chat
+  useEffect(() => {
+    if (selectedChatId === "valentina" && activeView === "chat") {
+      setConversations((prev) =>
+        prev.some((c) => c.id === "valentina" && (c.unreadCount || 0) > 0)
+          ? prev.map((c) => (c.id === "valentina" ? { ...c, unreadCount: 0 } : c))
+          : prev
+      );
+    }
+  }, [selectedChatId, activeView, setConversations]);
+
   const markAsUnread = (id: string) => {
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, unreadCount: Math.max(c.unreadCount, 1) } : c))
     );
+
+    if (id === "valentina") return;
 
     // Persistir no banco de dados via PATCH
     fetch(`${BACKEND_URL}/api/chats`, {
@@ -3426,9 +3732,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           const existingIdx = valentinaHistoryRef.current.findIndex(isSameLogicalAlert);
           if (existingIdx !== -1) {
-            valentinaHistoryRef.current = valentinaHistoryRef.current.map((m, i) =>
-              i === existingIdx ? aiMsg : m
-            );
+            valentinaHistoryRef.current = [
+              ...valentinaHistoryRef.current.filter((_, i) => i !== existingIdx),
+              aiMsg,
+            ];
           } else {
             valentinaHistoryRef.current = [...valentinaHistoryRef.current, aiMsg];
           }
@@ -3442,7 +3749,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const matchIdx = c.messages.findIndex(isSameLogicalAlert);
               const nextMessages =
                 matchIdx !== -1
-                  ? c.messages.map((m, i) => (i === matchIdx ? aiMsg : m))
+                  ? [...c.messages.filter((_, i) => i !== matchIdx), aiMsg]
                   : [...c.messages, aiMsg];
               return {
                 ...c,

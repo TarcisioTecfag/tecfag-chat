@@ -1131,7 +1131,7 @@ async function getOperatorContext(
 
     // ── 6. MÉTRICAS DE ATENDIMENTO DO DIA ────────────────────────────────────
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
       const dailyMetrics = await db
         .select()
         .from(operatorDailyMetrics)
@@ -1205,6 +1205,23 @@ async function getManagerContext(
 // PROMPTS DAS PERSONAS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+function getBrasiliaNowLabel(): string {
+  const now = new Date();
+  const datePart = now.toLocaleDateString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const timePart = now.toLocaleTimeString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${datePart}, às ${timePart} (Horário de Brasília - America/Sao_Paulo)`;
+}
+
 function buildSupervisorPrompt(
   persona: ReturnType<typeof getAiPersona>,
   operatorName: string,
@@ -1217,9 +1234,11 @@ function buildSupervisorPrompt(
     persona.gender === "male"
       ? "o Diretor de Business Intelligence, Operações e Gestão Comercial em Tempo Real"
       : "a Diretora de Business Intelligence, Operações e Gestão Comercial em Tempo Real";
+  const brtNowLabel = getBrasiliaNowLabel();
 
   return `Você é ${persona.name}, ${genderRole} da ${persona.company}.
 Você está conversando diretamente com "${operatorName}" (Diretoria / Gestão Executiva) no painel administrativo exclusivo da Diretoria.
+📅 DATA E HORA ATUAL (HORÁRIO DE BRASÍLIA): ${brtNowLabel}.
 
 ## 🏛️ SEU PAPEL E ACESSO TOTAL À OPERAÇÃO:
 1. **ACESSO 100% COMPLETO E EM TEMPO REAL**:
@@ -1240,7 +1259,7 @@ Você está conversando diretamente com "${operatorName}" (Diretoria / Gestão E
    - **PROIBIÇÃO ABSOLUTA DE ALUCINAÇÃO (FIDELIDADE 100% AO DOSSIÊ)**: Você SÓ pode citar nomes de operadores/vendedores, nomes de clientes/empresas, CNPJs, valores em R$ e quantidades que estejam **literalmente escritos** no dossiê abaixo (\`DADOS REAIS DA OPERAÇÃO AGORA\`). **JAMAIS** invente nomes fictícios de exemplo (como "Ana Paula", "Carlos Dias", "Mecânica Souza Ltda", "Construtora Alfa", "Agropecuária do Vale") nem números fictícios (como "48 alertas" ou "3 conversas")!
    - Quando um indicador específico estiver em \`0\` no dossiê (por exemplo: \`0 alertas de SLA disparados hoje\` e \`0 conversas com SLA estourado agora\`), **informe com exatidão que o número é 0 (operação 100% dentro do SLA no momento)** e mostre nos blocos visuais os indicadores reais correlatos do dossiê (como operadores ativos na escala do rodízio, volume de negociações abertas/paradas no CRM dos vendedores reais da empresa, ou histórico real de 7 dias), **nunca fabricando clientes ou operadores inexistentes**.
 
-3. **USO OBRIGATÓRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\` COM DADOS 100% REAIS DO DOSSIÊ)**:
+3. **USO OBRIGATRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\` COM DADOS 100% REAIS DO DOSSIÊ)**:
    - Sempre que a pergunta envolver métricas, comparativos, rankings, funil, relatórios ou objeções, enriqueça sua resposta com **1 ou 2 blocos visuais** dentro do array \`"blocks"\` usando **exclusivamente** os números e nomes reais do dossiê:
      * **Perguntas sobre TMA**: Traga a análise executiva em \`"text"\` + um \`InsightBlock\` (com os valores reais do dossiê de TMA Hoje, 7d, 30d e Pós-SDR) + um \`ChartBlock\` (\`"bar"\`, unit \`"min"\` ou \`"s"\`) se houver operadores com TMA medido (se todos estiverem em 0/N/A, use um \`ReportBlock\` com os operadores reais da equipe e seu status atual).
      * **Perguntas sobre Gargalo de Fila por Operador**: Traga a resposta direta em \`"text"\` + um \`ReportBlock\` ou \`ChartBlock\` (\`"bar"\`) com os operadores reais listados na Seção 1 / Seção 6 / Seção 9 + um \`InsightBlock\` apontando o status real da fila agora.
@@ -1288,9 +1307,12 @@ function buildColeaguePrompt(
   const isMale = persona.gender === "male";
   const colleagueRole = isMale ? "colega de equipe e copiloto comercial" : "colega de equipe e copiloto comercial";
   const firstName = operatorName.split(" ")[0] || operatorName;
+  const brtNowLabel = getBrasiliaNowLabel();
 
   return `Você é ${persona.name}, ${colleagueRole} de vendas e atendimento da ${persona.company}.
 Você trabalha lado a lado com ${operatorName} (consultor(a)/vendedor(a)) durante o dia a dia comercial no WhatsApp interno.
+📅 DATA E HORA ATUAL (HORÁRIO DE BRASÍLIA): ${brtNowLabel}.
+⚠️ ATENÇÃO TEMPORAL: No histórico da conversa abaixo, cada mensagem possui um marcador temporal exato (\`[Hoje HH:mm]\`, \`[Ontem DD/MM HH:mm]\` ou \`[DD/MM/YYYY HH:mm]\`). Nunca trate assuntos ou perguntas marcadas como \`[Hoje ...]\` como se fossem de ontem, e nunca trate alertas antigos de \`[Ontem ...]\` como se estivessem acontecendo agora.
 
 ## SEU PAPEL NO DIA A DIA DO VENDEDOR:
 Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets"). Você é um colega de trabalho afiado, direto e prestativo que ajuda ${firstName} com:
@@ -1902,7 +1924,13 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 );
             }
 
-            const sorted = deduplicatedDesc.reverse();
+            const sorted = deduplicatedDesc
+              .reverse()
+              .sort((a, b) => {
+                const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return ta - tb;
+              });
             return new Response(JSON.stringify(sorted), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -1930,7 +1958,12 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
           const sorted = msgs
             .filter((m) => !(m.direction === "from_agent" && isBrokenAdminMessage(m.content || "")))
-            .reverse();
+            .reverse()
+            .sort((a, b) => {
+              const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+              const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+              return ta - tb;
+            });
 
           return new Response(JSON.stringify(sorted), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1983,7 +2016,36 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const useManagerContext = isSupervisor && isActuallyAdmin;
 
           const now = new Date();
-          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+          const brtTodayYmd = now.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+          const todayStart = new Date(`${brtTodayYmd}T00:00:00-03:00`);
+          const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+          const brtYesterdayYmd = yesterdayStart.toLocaleDateString("en-CA", {
+            timeZone: "America/Sao_Paulo",
+          });
+
+          const formatHistoryTimeTag = (rawDate: Date | string | null | undefined): string => {
+            if (!rawDate) return "";
+            const d = new Date(rawDate);
+            if (isNaN(d.getTime())) return "";
+            const ymd = d.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+            const hm = d.toLocaleTimeString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            if (ymd === brtTodayYmd) return `[Hoje ${hm}] `;
+            if (ymd === brtYesterdayYmd) {
+              const dm = d.toLocaleDateString("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+                day: "2-digit",
+                month: "2-digit",
+              });
+              return `[Ontem ${dm} ${hm}] `;
+            }
+            const dmy = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+            return `[${dmy} ${hm}] `;
+          };
+
           const persona = getAiPersona(tenantId);
           const operatorName = session.operator.name || await getOperatorName(operatorId);
           const operatorEmail = (session.operator as any).email || null;
@@ -2022,6 +2084,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
               txt || ""
             );
 
+          const chronologicalRecentRows = [...recentChatRows].reverse();
+
           let chatHistoryText = "";
           if (useManagerContext && Array.isArray(threadHistory)) {
             chatHistoryText = threadHistory
@@ -2029,22 +2093,23 @@ export const Route = createFileRoute("/api/valentina/messages")({
               .slice(-10)
               .map((m: any) => {
                 const speaker = m.sender === "operator" ? operatorName : persona.name;
-                return `${speaker}: ${m.content.slice(0, 500)}`;
+                const timeTag = formatHistoryTimeTag(m.createdAt || m.timestamp || m.sentAtISO);
+                return `${timeTag}${speaker}: ${m.content.slice(0, 500)}`;
               })
               .join("\n");
           } else {
-            chatHistoryText = recentChatRows
-              .reverse()
+            chatHistoryText = chronologicalRecentRows
               .filter((r) => !(useManagerContext && r.direction === "from_agent" && isLegacyRefusal(r.content || "")))
               .map((r) => {
                 const speaker = r.direction === "to_agent" ? operatorName : persona.name;
-                return `${speaker}: ${(r.content || "").slice(0, 500)}`;
+                const timeTag = formatHistoryTimeTag(r.createdAt);
+                return `${timeTag}${speaker}: ${(r.content || "").slice(0, 500)}`;
               })
               .join("\n");
           }
 
-          // Texto recente da conversa (últimas 4 mensagens) para resolver follow-ups como "puxe por favor" ou "qual o telefone dela?"
-          const recentAiContextText = recentChatRows
+          // Texto recente da conversa (últimas 4 mensagens cronológicas) para resolver follow-ups como "puxe por favor" ou "qual o telefone dela?"
+          const recentAiContextText = chronologicalRecentRows
             .slice(-4)
             .map((r) => r.content || "")
             .join("\n");

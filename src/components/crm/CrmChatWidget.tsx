@@ -1449,10 +1449,12 @@ export function CrmChatWidget() {
     "fagner".includes(query) ||
     "valentina".includes(query);
 
-  const unread = assigned.reduce(
-    (total, conversation) => total + (conversation.unreadCount || 0),
-    0,
-  );
+  const aiUnreadCount = aiConversation?.unreadCount || 0;
+  const unread =
+    assigned.reduce(
+      (total, conversation) => total + (conversation.unreadCount || 0),
+      0,
+    ) + aiUnreadCount;
 
   // Garante guarda de eventos no body (wheel, touchmove, focusin/focusout) para uso simultâneo com modais
   useEffect(() => {
@@ -1586,6 +1588,12 @@ export function CrmChatWidget() {
           : undefined);
 
       const initialConvId = detail.conversationId || localMatch?.id;
+      if (initialConvId === "valentina") {
+        setResolvingThread(null);
+        setSelectedChatId("valentina");
+        markAsRead("valentina");
+        return;
+      }
       setResolvingThread({
         conversationId: initialConvId,
         name: detail.name || localMatch?.name || "Atendimento",
@@ -2313,7 +2321,11 @@ export function CrmChatWidget() {
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full animate-pulse ${
+                                  selected.id === "valentina" ? "bg-primary" : "bg-emerald-500"
+                                }`}
+                              />
                               {selected.id !== "valentina" && selected.phone ? (
                                 <button
                                   type="button"
@@ -2330,9 +2342,17 @@ export function CrmChatWidget() {
                                     : `${selected.phone} · Em atendimento`}
                                 </button>
                               ) : (
-                                <span className="truncate">
+                                <span
+                                  className={`truncate ${
+                                    selected.id === "valentina" && isValentinaTyping
+                                      ? "text-primary font-semibold"
+                                      : ""
+                                  }`}
+                                >
                                   {selected.id === "valentina"
-                                    ? "Assistente Inteligente · Online"
+                                    ? isValentinaTyping
+                                      ? "Assistente Inteligente · Pensando..."
+                                      : "Assistente Inteligente · Online"
                                     : selected.id === "__resolving__"
                                       ? "WhatsApp · Preparando atendimento..."
                                       : "WhatsApp · Em atendimento"}
@@ -3226,6 +3246,13 @@ export function CrmChatWidget() {
                             setDraft("");
                             setView("thread");
                           }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const x = Math.min(e.clientX, window.innerWidth - 220);
+                            const y = Math.min(e.clientY, window.innerHeight - 200);
+                            setContextMenu({ chatId: "valentina", x, y });
+                          }}
                           className="group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition hover:bg-muted/70 active:scale-[0.99] cursor-pointer mb-1 border border-primary/20 bg-primary/5"
                         >
                           <div className="relative shrink-0 select-none">
@@ -3233,6 +3260,14 @@ export function CrmChatWidget() {
                               tenantId={tenant}
                               className="h-9 w-9 rounded-full border border-primary/40 shadow-xs"
                             />
+                            {aiUnreadCount > 0 && (
+                              <span
+                                title={`${aiUnreadCount} ${aiUnreadCount === 1 ? "mensagem não lida" : "mensagens não lidas"}`}
+                                className="absolute -top-1 -left-1 z-10 flex h-4.5 min-w-4.5 items-center justify-center rounded-full border-2 border-card bg-primary px-1 text-[9px] font-black text-primary-foreground shadow-soft animate-in zoom-in-50"
+                              >
+                                {aiUnreadCount > 99 ? "99+" : aiUnreadCount}
+                              </span>
+                            )}
                             <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card bg-primary text-primary-foreground shadow-soft">
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
@@ -3248,20 +3283,37 @@ export function CrmChatWidget() {
                                 </span>
                               </span>
                               <span className="shrink-0 text-[10px] text-muted-foreground font-medium">
-                                Agora
+                                {aiConversation?.lastMessageTime || "Agora"}
                               </span>
                             </div>
 
                             <div className="mt-0.5 flex items-center justify-between gap-2">
-                              <span className="truncate text-[11px] text-muted-foreground">
-                                {aiConversation?.messages?.at(-1)?.text
-                                  ? previewSnippet(aiConversation.messages.at(-1)!.text)
-                                  : "Assistente virtual pronto para ajudar"}
+                              <span
+                                className={`truncate text-[11px] ${
+                                  isValentinaTyping
+                                    ? "text-primary font-semibold animate-pulse"
+                                    : aiUnreadCount > 0
+                                      ? "text-foreground font-semibold"
+                                      : "text-muted-foreground"
+                                }`}
+                              >
+                                {isValentinaTyping
+                                  ? "Pensando..."
+                                  : aiConversation?.messages?.at(-1)?.text
+                                    ? previewSnippet(aiConversation.messages.at(-1)!.text)
+                                    : "Assistente virtual pronto para ajudar"}
                               </span>
-                              <span className="shrink-0 text-[10px] font-bold text-emerald-500 flex items-center gap-1">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                Online
-                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="shrink-0 text-[10px] font-bold text-primary flex items-center gap-1">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                                  {isValentinaTyping ? "Pensando" : "Online"}
+                                </span>
+                                {aiUnreadCount > 0 && (
+                                  <span className="shrink-0 grid h-4.5 min-w-4.5 place-items-center rounded-full bg-primary px-1 text-[9px] font-extrabold text-primary-foreground shadow-xs animate-in zoom-in-50">
+                                    {aiUnreadCount > 99 ? "99+" : aiUnreadCount}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </button>

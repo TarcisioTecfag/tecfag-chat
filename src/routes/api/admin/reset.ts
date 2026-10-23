@@ -40,7 +40,6 @@ import {
   crmProducts,
   crmActionHistory,
   crmMigrationRuns,
-  quickResponses,
   pendingInbounds,
 } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
@@ -404,8 +403,6 @@ export const Route = createFileRoute("/api/admin/reset")({
           const r_migRuns = await db.delete(crmMigrationRuns).where(eq(crmMigrationRuns.tenantId, tenantId)).returning({ id: crmMigrationRuns.id });
           results.crm_migration_runs = r_migRuns.length;
 
-          const r_quick = await db.delete(quickResponses).where(eq(quickResponses.tenantId, tenantId)).returning({ id: quickResponses.id });
-          results.quick_responses = r_quick.length;
           if (r_contacts.length) await recordCrmAction({ tenantId,
             operatorId: session.operator.id, operatorName: session.operator.name,
             action: "delete_contact", entityType: "contact", itemCount: r_contacts.length,

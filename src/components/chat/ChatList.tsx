@@ -98,8 +98,15 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     markAsUnread,
     pinChat,
     logout,
+    isValentinaTyping,
   } = useChat();
   const aiPersona = getAiPersona(tenant);
+  const aiConv = React.useMemo(
+    () => conversations.find((c) => c.id === "valentina"),
+    [conversations]
+  );
+  const aiUnreadCount = aiConv?.unreadCount || 0;
+  const aiLastMsg = aiConv?.messages?.[aiConv.messages.length - 1];
   const { permissions } = usePermissions();
   const readPrincipal = React.useMemo(() => ({ tenantId: tenant ?? "", operator: { id: currentOperatorId }, permissions, accessGroup: currentGroup }),
     [tenant, currentOperatorId, permissions, currentGroup]);
@@ -437,17 +444,22 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className="relative"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu({ chatId: "valentina", x: e.clientX, y: e.clientY });
+            }}
           >
             <button
               onClick={() => {
                 setSelectedChatId("valentina");
                 if (!embedded) setActiveView("chat");
+                markAsRead("valentina");
               }}
               className={`flex w-full items-center gap-2 rounded-2xl p-2 text-left transition-colors duration-150 cursor-pointer ${
                 selectedChatId === "valentina" && (embedded || activeView === "chat") ? "bg-muted" : "hover:bg-muted/50"
               }`}
             >
-              {/* Avatar da IA com indicador de canal/presença */}
+              {/* Avatar da IA com indicador de canal/presença e contador de não lidas */}
               <div className="relative shrink-0">
                 <AiAvatar
                   tenantId={tenant}
@@ -459,6 +471,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary"></span>
                 </span>
+
+                {/* Badge de mensagens novas não lidas em cima da foto */}
+                {aiUnreadCount > 0 && (
+                  <span className="absolute -top-1 -left-1 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[8px] font-extrabold text-primary-foreground border border-card shadow-soft animate-in zoom-in-50">
+                    {aiUnreadCount > 99 ? "99+" : aiUnreadCount}
+                  </span>
+                )}
               </div>
 
               {/* Info Text */}
@@ -470,12 +489,29 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                       IA
                     </span>
                   </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground font-medium">Agora</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground font-medium">
+                    {aiConv?.lastMessageTime || "Agora"}
+                  </span>
                 </div>
-                <div className="flex items-center justify-between mt-0.5">
-                  <p className="truncate text-[10px] text-primary font-bold">
-                    Online
+                <div className="flex items-center justify-between mt-0.5 gap-1.5">
+                  <p className="truncate text-[10px] text-primary font-bold pr-1">
+                    {isValentinaTyping ? (
+                      <span className="animate-pulse">Pensando...</span>
+                    ) : aiUnreadCount > 0 && aiLastMsg?.text ? (
+                      <span className="text-foreground font-semibold">
+                        {formatLastMessage(aiLastMsg.text).label}
+                      </span>
+                    ) : (
+                      "Online"
+                    )}
                   </p>
+
+                  {/* Unread Count Badge (mesmo padrão dos demais clientes) */}
+                  {aiUnreadCount > 0 && (
+                    <span className="grid h-4.5 min-w-4.5 shrink-0 place-items-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground animate-in zoom-in-50">
+                      {aiUnreadCount > 99 ? "99+" : aiUnreadCount}
+                    </span>
+                  )}
                 </div>
               </div>
             </button>
@@ -635,13 +671,15 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             style={{ top: contextMenu.y, left: contextMenu.x }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={() => { pinChat(chat.id); setContextMenu(null); }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
-            >
-              <Pin className="h-3.5 w-3.5 text-primary" />
-              {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
-            </button>
+            {chat.id !== "valentina" && (
+              <button
+                onClick={() => { pinChat(chat.id); setContextMenu(null); }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"
+              >
+                <Pin className="h-3.5 w-3.5 text-primary" />
+                {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
+              </button>
+            )}
             <button
               onClick={() => { markAsUnread(chat.id); setContextMenu(null); }}
               className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition"

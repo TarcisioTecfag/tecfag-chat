@@ -14,6 +14,7 @@ import { useChat } from "@/hooks/useChatState";
 import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
+import { QuickResponsesPopover } from "./QuickResponsesPopover";
 import { MetaTemplateSelectModal, Meta24hInfoModal, type ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -923,6 +924,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     operators,
     quickResponses,
     templates,
+    createQuickResponse,
+    updateQuickResponse,
+    deleteQuickResponse,
+    createTemplate,
+    updateTemplate,
+    deleteTemplate,
     currentOperatorId,
     operatorProfile,
     currentGroup,
@@ -953,6 +960,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     canManageTags,
     canManageRdCrm,
     canChangeWalletOperator,
+    canManageGlobalTemplates,
   } = usePermissions();
 
   // ── Flags de permissão derivadas do grupo de acesso ──────────────────────
@@ -2128,9 +2136,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       parsedText = parsedText.replaceAll("<<2>>", activeChat?.name || "Cliente");
     }
 
-    setText(parsedText);
+    setText((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed || trimmed.startsWith("/")) {
+        return parsedText;
+      }
+      return `${prev.trimEnd()} ${parsedText}`;
+    });
     setShowQuickMenu(false);
-    inputRef.current?.focus();
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
   };
 
   return (
@@ -2723,22 +2739,75 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             return (h || 0) * 60 + (m || 0);
           };
 
+          // ── Helper de Data por Período / Dia (Ex: 07/10/2026, 08/10/2026) no fuso de Brasília ──
+          const extractRawMessageDateStr = (msg: (typeof displayed)[0] | null | undefined): string | null => {
+            if (!msg) return null;
+            if (msg.date && /^\d{2}\/\d{2}\/\d{4}$/.test(msg.date)) return msg.date;
+            if (msg.sentAtISO) {
+              try {
+                const d = new Date(msg.sentAtISO);
+                if (!isNaN(d.getTime())) {
+                  return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+                }
+              } catch {
+                // ignore
+              }
+            }
+            if ((msg as any).sentAt) {
+              try {
+                const d = new Date((msg as any).sentAt);
+                if (!isNaN(d.getTime())) {
+                  return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+                }
+              } catch {
+                // ignore
+              }
+            }
+            return msg.date || null;
+          };
+
+          const firstRealMsgDateStr = (() => {
+            for (const item of displayed) {
+              if (item.id === "val_welcome") continue;
+              const dStr = extractRawMessageDateStr(item);
+              if (dStr) return dStr;
+            }
+            return null;
+          })();
+
+          const getMessageDateStr = (msg: (typeof displayed)[0] | null | undefined): string | null => {
+            if (!msg) return null;
+            if (msg.id === "val_welcome" && firstRealMsgDateStr) {
+              return firstRealMsgDateStr;
+            }
+            return extractRawMessageDateStr(msg);
+          };
+
           // Decide se duas mensagens adjacentes pertencem ao mesmo grupo visual
           const canLink = (
             a: (typeof displayed)[0],
             b: (typeof displayed)[0],
-          ) =>
-            a.side === b.side &&
-            a.author === b.author &&
-            a.author !== "Sistema" &&
-            a.id !== "val_welcome" &&
-            b.id !== "val_welcome" &&
-            !a.isWarning &&
-            !b.isWarning &&
-            !a.isInternalNote &&
-            !b.isInternalNote &&
-            !b.quotedMessageContent &&
-            Math.abs(toMin(a.time) - toMin(b.time)) <= 3;
+          ) => {
+            const dateA = getMessageDateStr(a);
+            const dateB = getMessageDateStr(b);
+            if (dateA && dateB && dateA !== dateB) return false;
+            return (
+              a.side === b.side &&
+              a.author === b.author &&
+              a.author !== "Sistema" &&
+              a.id !== "val_welcome" &&
+              b.id !== "val_welcome" &&
+              !a.isWarning &&
+              !b.isWarning &&
+              !a.isInternalNote &&
+              !b.isInternalNote &&
+              !b.quotedMessageContent &&
+              Math.abs(toMin(a.time) - toMin(b.time)) <= 3
+            );
+          };
+
+          let lastRenderedDate: string | null = null;
+          const renderedDates = new Set<string>();
 
           return displayed.map((m, i) => {
             const prev = i > 0 ? displayed[i - 1] : null;
@@ -2765,30 +2834,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               ? "mt-3"
               : "";
 
-            // ── Separador de Data por Período / Dia (Ex: 07/10/2026, 08/10/2026) ──
-            const getMessageDateStr = (msg: (typeof displayed)[0] | null | undefined): string | null => {
-              if (!msg) return null;
-              if (msg.date && /^\d{2}\/\d{2}\/\d{4}$/.test(msg.date)) return msg.date;
-              if (msg.sentAtISO) {
-                try {
-                  return new Date(msg.sentAtISO).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-                } catch {
-                  // ignore
-                }
-              }
-              if ((msg as any).sentAt) {
-                try {
-                  return new Date((msg as any).sentAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
-                } catch {
-                  // ignore
-                }
-              }
-              return msg.date || null;
-            };
-
-            const prevDate = prev ? getMessageDateStr(prev) : null;
+            // ── Separador de Data por Período / Dia (Ex: 22/10/2026, 23/10/2026) — Único por dia ──
             const currDate = getMessageDateStr(m);
-            const showDateSeparator = Boolean(currDate && (!prevDate || currDate !== prevDate));
+            const showDateSeparator = Boolean(
+              currDate &&
+              (!lastRenderedDate || currDate !== lastRenderedDate) &&
+              !renderedDates.has(currDate)
+            );
+            if (currDate) {
+              lastRenderedDate = currDate;
+              renderedDates.add(currDate);
+            }
             const dateLabel = showDateSeparator ? currDate : null;
 
             const quotedTarget = m.quotedMessageId ? messageMap.get(m.quotedMessageId) : null;
@@ -2998,81 +3054,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         </AnimatePresence>
         <div ref={messagesEndRef} />
       </div>
-
-      {/* Floating Quick Replies Menu */}
-      <AnimatePresence>
-        {(() => {
-          const filterText = text.startsWith("/") ? text.slice(1).toLowerCase() : "";
-          const filteredQrs = quickResponses.filter((qr) => 
-            qr.shortcut.toLowerCase().includes(filterText) ||
-            qr.text.toLowerCase().includes(filterText)
-          );
-          const filteredTpls = (templates || []).filter((tpl) => 
-            tpl.title.toLowerCase().includes(filterText) ||
-            tpl.text.toLowerCase().includes(filterText)
-          );
-          const showFloatingMenu = showQuickMenu && (filteredQrs.length > 0 || filteredTpls.length > 0);
-
-          if (!showFloatingMenu) return null;
-
-          return (
-            <motion.div
-              initial={{ opacity: 0, y: 15, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 15, scale: 0.98 }}
-              transition={{ type: "spring", damping: 20, stiffness: 300 }}
-              className="absolute bottom-20 left-6 right-6 z-50 rounded-2xl bg-card p-4 border border-border shadow-card max-h-60 overflow-y-auto scrollbar-thin flex flex-col gap-4"
-            >
-              {filteredQrs.length > 0 && (
-                <div className="flex flex-col gap-1">
-                  <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60 border-b border-line mb-1">
-                    Respostas Rápidas (Gerais)
-                  </div>
-                  {filteredQrs.map((qr) => (
-                    <button
-                      key={qr.id || qr.shortcut}
-                      onClick={() => selectQuickResponse(qr.text)}
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
-                    >
-                      <span className="text-xs font-bold text-primary font-mono">
-                        {qr.shortcut}
-                      </span>
-                      <span className="truncate text-xs text-foreground/80 max-w-[280px] font-medium ml-2">
-                        {qr.text}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground italic shrink-0">
-                        {qr.description}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {filteredTpls.length > 0 && (
-                <div className="flex flex-col gap-1">
-                  <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60 border-b border-line mb-1">
-                    Meus Templates (Individuais)
-                  </div>
-                  {filteredTpls.map((tpl) => (
-                    <button
-                      key={tpl.id}
-                      onClick={() => selectQuickResponse(tpl.text)}
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-muted transition cursor-pointer"
-                    >
-                      <span className="text-xs font-bold text-foreground font-medium">
-                        {tpl.title}
-                      </span>
-                      <span className="truncate text-xs text-muted-foreground max-w-[320px] ml-2">
-                        {tpl.text}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          );
-        })()}
-      </AnimatePresence>
 
       {/* Message Composer */}
       {activeChat.queue !== "finalizados" ? (
@@ -3557,6 +3538,31 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             : "bg-white/80 dark:bg-muted/40 border-border/70 backdrop-blur-md focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 shadow-xs"
                     }`}
                   >
+                    {/* Popover de Respostas Rápidas ancorado acima do input */}
+                    <AnimatePresence>
+                      {showQuickMenu && (
+                        <QuickResponsesPopover
+                          isOpen={showQuickMenu}
+                          onClose={() => setShowQuickMenu(false)}
+                          onSelect={selectQuickResponse}
+                          quickResponses={quickResponses}
+                          templates={templates || []}
+                          slashQuery={text.startsWith("/") ? text.slice(1) : ""}
+                          canManageGlobalTemplates={canManageGlobalTemplates}
+                          onCreateTemplate={createTemplate}
+                          onUpdateTemplate={updateTemplate}
+                          onDeleteTemplate={deleteTemplate}
+                          onCreateQuickResponse={createQuickResponse}
+                          onUpdateQuickResponse={updateQuickResponse}
+                          onDeleteQuickResponse={deleteQuickResponse}
+                          onOpenFullManager={() => {
+                            setShowQuickMenu(false);
+                            setActiveView("configuracoes");
+                          }}
+                        />
+                      )}
+                    </AnimatePresence>
+
                     {/* Hidden file input */}
                     <input
                       ref={fileInputRef}
@@ -3624,14 +3630,18 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <motion.button
-                                onClick={() => setShowQuickMenu(!showQuickMenu)}
+                                type="button"
+                                data-quick-responses-trigger="true"
+                                onClick={() => setShowQuickMenu((prev) => !prev)}
                                 whileHover={{ scale: 1.15 }}
                                 whileTap={{ scale: 0.88 }}
                                 animate={{ rotate: showQuickMenu ? -15 : 0 }}
                                 className={`transition cursor-pointer ${
-                                  msgMode === "internal"
-                                    ? "text-amber-500 hover:text-amber-700"
-                                    : "text-muted-foreground hover:text-foreground"
+                                  showQuickMenu
+                                    ? "text-primary"
+                                    : msgMode === "internal"
+                                      ? "text-amber-500 hover:text-amber-700"
+                                      : "text-muted-foreground hover:text-foreground"
                                 }`}
                               >
                                 <Zap className="h-4.5 w-4.5" strokeWidth={2} />
