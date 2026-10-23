@@ -1344,6 +1344,26 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
             localCrmResult = industrialHandoff.deal;
 
             if (allocatedOp?.id) {
+              if (!localCrmResult?.dealId) {
+                const fallbackDeal = await ensureLocalCrmDealBeforeTransfer({
+                  tenantId,
+                  conversationId,
+                  contactId: convCheck?.contactId || null,
+                  contactPhone,
+                  clientName,
+                  companyName: company,
+                  targetOperatorId: allocatedOp.id,
+                  targetOperatorName: allocatedOp.name,
+                  targetFunnel: industrialRoute.targetFunnel || "Atendimento Geral",
+                  funnelStage: industrialRoute.funnelStage || "Qualificação",
+                  collectedData: updatedCollectedData,
+                  requireConfiguredPipeline: false,
+                });
+                if (fallbackDeal.success) {
+                  localCrmResult = fallbackDeal;
+                }
+              }
+
               SessionManager.getInstance().notifyPublic(tenantId, {
                 type: "chat_updated", chat: { id: conversationId, contactId: convCheck?.contactId || null,
                   queue: "meus", operatorId: allocatedOp.id, walletOperatorId: allocatedOp.id, responsibleName: allocatedOp.name,
@@ -1361,9 +1381,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 targetFunnel: industrialRoute.targetFunnel || null,
                 dealId: localCrmResult?.dealId || null,
                 dealTitle: localCrmResult?.dealTitle || null,
+                taskId: localCrmResult?.taskId || null,
+                taskTitle: localCrmResult?.taskTitle || null,
                 temperature: "quente",
                 transferSource: "sdr_auto",
                 cycle: key.cycle,
+                collectedData: updatedCollectedData,
               });
               if (opNotified) {
                 await store.ackPostCommit(key, { operatorNotified: true });
@@ -1399,6 +1422,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 interest: targetProduct,
                 temperature: "quente",
                 transferSource: "sdr_auto",
+                collectedData: updatedCollectedData,
               });
             }
 

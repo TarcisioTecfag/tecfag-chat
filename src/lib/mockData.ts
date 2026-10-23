@@ -77,6 +77,10 @@ export type Message = {
     lastMessage?: string;
     temperature?: "quente" | "morno" | "frio";
     interest?: string;
+    dealId?: string;
+    dealTitle?: string;
+    taskId?: string;
+    taskTitle?: string;
     conversations?: RelatedConversationItem[];
   };
   relatedConversations?: RelatedConversationItem[];

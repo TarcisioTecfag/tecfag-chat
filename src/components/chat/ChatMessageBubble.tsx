@@ -657,27 +657,56 @@ function ChatMessageBubbleComponent({
                     {m.warningMetadata.interest && (
                       <div className="text-[10px] text-muted-foreground flex flex-col gap-0.5 bg-muted/40 p-2 rounded-lg">
                         <span className="font-semibold text-foreground text-[8px] uppercase tracking-wider text-muted-foreground">
-                          Interesse:
+                          Resumo / Interesse:
                         </span>
                         <span>{m.warningMetadata.interest}</span>
                       </div>
                     )}
-                    {onOpenWarningChat &&
-                      (m.warningMetadata.clientId || m.warningMetadata.clientName) && (
+                    <div className="text-[10px] text-foreground flex items-center justify-between gap-2 bg-primary/8 border border-primary/20 px-2.5 py-1.5 rounded-lg">
+                      <span className="font-bold">
+                        Tarefa na Negociação:{" "}
+                        <span className="text-primary">
+                          {m.warningMetadata.taskTitle || "Responder o contato"}
+                        </span>
+                      </span>
+                      <span className="text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                        Pendente
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      {onOpenWarningChat &&
+                        (m.warningMetadata.clientId || m.warningMetadata.clientName) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenWarningChat(
+                                m.warningMetadata!.clientId,
+                                m.warningMetadata!.clientName,
+                              )
+                            }
+                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                          >
+                            <span>Abrir Atendimento</span>
+                            <ArrowRight className="h-3 w-3" />
+                          </button>
+                        )}
+                      {m.warningMetadata.dealId && (
                         <button
                           type="button"
                           onClick={() =>
-                            onOpenWarningChat(
-                              m.warningMetadata!.clientId,
-                              m.warningMetadata!.clientName,
-                            )
+                            navigate({
+                              to: "/crm/deals/$dealId",
+                              params: { dealId: m.warningMetadata!.dealId! },
+                              search: { from: "crm" },
+                            })
                           }
-                          className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[10px] font-bold shadow-soft transition cursor-pointer border-none"
+                          className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-[10px] font-bold border border-border/80 transition cursor-pointer"
                         >
-                          <span>Abrir Atendimento</span>
-                          <ArrowRight className="h-3 w-3" />
+                          <Briefcase className="h-3 w-3 text-primary" />
+                          <span>Ver Negociação</span>
                         </button>
                       )}
+                    </div>
                   </div>
                 )}
 

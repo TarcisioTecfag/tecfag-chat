@@ -63,6 +63,8 @@ export interface EnsureLocalCrmDealParams {
   collectedData: Record<string, { value: string; status: "filled" | "pending" }>;
 }
 
+export const LEAD_TRANSFER_TASK_TITLE = "Responder o contato";
+
 export interface EnsureLocalCrmDealResult {
   success: boolean;
   action: "reused_within_3h" | "created_new";
@@ -76,7 +78,153 @@ export interface EnsureLocalCrmDealResult {
   accountId: string | null;
   reusedWithin3Hours: boolean;
   createdNew: boolean;
+  taskId?: string | null;
+  taskTitle?: string | null;
   error?: string;
+}
+
+async function upsertLeadTransferTaskInTx(
+  tx: any,
+  params: {
+    tenantId: string;
+    dealId: string;
+    conversationId: string;
+    operatorId: string | null;
+    operatorName?: string | null;
+    clientName?: string | null;
+    contactPhone?: string | null;
+    targetFunnel?: string | null;
+    now: Date;
+  },
+): Promise<{ taskId: string; taskTitle: string }> {
+  const {
+    tenantId,
+    dealId,
+    conversationId,
+    operatorId,
+    operatorName,
+    clientName,
+    contactPhone,
+    targetFunnel,
+    now,
+  } = params;
+
+  const taskTitle = LEAD_TRANSFER_TASK_TITLE;
+  const descriptionParts = [
+    `Responder o contato ${clientName || "do atendimento"}${contactPhone ? ` (${contactPhone})` : ""} referente ao atendimento transferido.`,
+    targetFunnel ? `Setor / Funil: ${targetFunnel}` : null,
+    operatorName ? `Responsável: ${operatorName}` : null,
+  ].filter(Boolean);
+  const taskDescription = descriptionParts.join(" | ");
+
+  const [existingPendingTask] = await tx
+    .select()
+    .from(crmDealActivities)
+    .where(
+      and(
+        eq(crmDealActivities.tenantId, tenantId),
+        eq(crmDealActivities.dealId, dealId),
+        eq(crmDealActivities.type, "task"),
+        eq(crmDealActivities.status, "pending"),
+        eq(crmDealActivities.title, taskTitle),
+      ),
+    )
+    .orderBy(desc(crmDealActivities.createdAt))
+    .limit(1);
+
+  if (existingPendingTask) {
+    const resolvedOperatorId =
+      operatorId ||
+      existingPendingTask.assignedToOperatorId ||
+      existingPendingTask.operatorId ||
+      null;
+    await tx
+      .update(crmDealActivities)
+      .set({
+        conversationId: conversationId || existingPendingTask.conversationId || null,
+        description: taskDescription,
+        operatorId: resolvedOperatorId,
+        assignedToOperatorId: resolvedOperatorId,
+        dueDate: existingPendingTask.dueDate || now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(crmDealActivities.id, existingPendingTask.id),
+          eq(crmDealActivities.tenantId, tenantId),
+        ),
+      );
+    return { taskId: existingPendingTask.id, taskTitle };
+  }
+
+  const taskId = `act-task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  await tx.insert(crmDealActivities).values({
+    id: taskId,
+    tenantId,
+    dealId,
+    conversationId: conversationId || null,
+    type: "task",
+    title: taskTitle,
+    description: taskDescription,
+    status: "pending",
+    dueDate: now,
+    operatorId: operatorId || null,
+    assignedToOperatorId: operatorId || null,
+    completedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await tx.insert(crmDealEvents).values({
+    id: `ev-task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    tenantId,
+    dealId,
+    eventType: "activity_logged",
+    operatorId: operatorId || null,
+    metadata: {
+      activityId: taskId,
+      type: "task",
+      title: taskTitle,
+      conversationId,
+      assignedToOperatorId: operatorId || null,
+      assignedToOperatorName: operatorName || null,
+    },
+    createdAt: now,
+  });
+
+  return { taskId, taskTitle };
+}
+
+/**
+ * Garante que a negociação possua a tarefa pendente "Responder o contato"
+ * vinculada ao atendimento e com responsável definido como o operador recebedor do lead.
+ */
+export async function ensureLeadTransferTaskOnDeal(params: {
+  tenantId: string;
+  dealId: string;
+  conversationId: string;
+  operatorId: string | null;
+  operatorName?: string | null;
+  clientName?: string | null;
+  contactPhone?: string | null;
+  targetFunnel?: string | null;
+}): Promise<{ taskId: string; taskTitle: string } | null> {
+  if (!params.tenantId || !params.dealId) return null;
+  try {
+    const now = new Date();
+    return await db.transaction(async (tx) =>
+      upsertLeadTransferTaskInTx(tx, {
+        ...params,
+        now,
+      }),
+    );
+  } catch (err: any) {
+    console.error(
+      "[SdrCrmLocal] Erro ao garantir tarefa 'Responder o contato' na negociação:",
+      err?.message || err,
+    );
+    return null;
+  }
 }
 
 function getCollectedValue(
@@ -568,19 +716,34 @@ export async function ensureLocalCrmDealBeforeTransfer(
           .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
 
         // A4. Adicionar nota de triagem nas atividades do card
+        const resolvedOwnerId = targetOperatorId || recentDealWithin3h.operatorId || null;
         const noteDescription = buildTriageSummaryNote(normalizedParams, persona.name, true);
         await tx.insert(crmDealActivities).values({
           id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           tenantId,
           dealId,
+          conversationId: conversationId || null,
           type: "note",
           title: `Triagem SDR (${persona.name}) — Atendimento Vinculado (< 3h)`,
           description: noteDescription,
           status: "completed",
-          operatorId: targetOperatorId || recentDealWithin3h.operatorId || null,
+          operatorId: resolvedOwnerId,
           completedAt: now,
           createdAt: now,
           updatedAt: now,
+        });
+
+        // A4.1. Garantir tarefa pendente "Responder o contato" atribuída ao operador recebedor do lead
+        const reusedTaskInfo = await upsertLeadTransferTaskInTx(tx, {
+          tenantId,
+          dealId,
+          conversationId,
+          operatorId: resolvedOwnerId,
+          operatorName: targetOperatorName,
+          clientName,
+          contactPhone,
+          targetFunnel,
+          now,
         });
 
         // A5. Registrar evento de auditoria imutável no histórico do card
@@ -589,7 +752,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
           tenantId,
           dealId,
           eventType: "conversation_linked",
-          operatorId: targetOperatorId || recentDealWithin3h.operatorId || null,
+          operatorId: resolvedOwnerId,
           metadata: {
             conversationId,
             contactName: clientName,
@@ -597,6 +760,8 @@ export async function ensureLocalCrmDealBeforeTransfer(
             origin: "auto_sdr",
             reusedWithin3Hours: true,
             targetFunnel,
+            taskId: reusedTaskInfo.taskId,
+            taskTitle: reusedTaskInfo.taskTitle,
           },
           createdAt: now,
         });
@@ -618,6 +783,8 @@ export async function ensureLocalCrmDealBeforeTransfer(
           accountId: recentDealWithin3h.accountId || resolvedAccountId,
           reusedWithin3Hours: true,
           createdNew: false,
+          taskId: reusedTaskInfo.taskId,
+          taskTitle: reusedTaskInfo.taskTitle,
         };
       }
 
@@ -755,6 +922,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
         id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         tenantId,
         dealId: newDealId,
+        conversationId: conversationId || null,
         type: "note",
         title: `Relatório de Triagem SDR (${persona.name})`,
         description: noteDescription,
@@ -763,6 +931,19 @@ export async function ensureLocalCrmDealBeforeTransfer(
         completedAt: now,
         createdAt: now,
         updatedAt: now,
+      });
+
+      // B7.1. Criar tarefa pendente "Responder o contato" atribuída ao operador recebedor do lead
+      const createdTaskInfo = await upsertLeadTransferTaskInTx(tx, {
+        tenantId,
+        dealId: newDealId,
+        conversationId,
+        operatorId: targetOperatorId || null,
+        operatorName: targetOperatorName,
+        clientName,
+        contactPhone,
+        targetFunnel,
+        now,
       });
 
       // B8. Registrar eventos de auditoria ("created" e "conversation_linked") em crm_deal_events
@@ -797,6 +978,8 @@ export async function ensureLocalCrmDealBeforeTransfer(
             origin: "auto_sdr",
             reusedWithin3Hours: false,
             targetFunnel,
+            taskId: createdTaskInfo.taskId,
+            taskTitle: createdTaskInfo.taskTitle,
           },
           createdAt: now,
         },
@@ -819,6 +1002,8 @@ export async function ensureLocalCrmDealBeforeTransfer(
         accountId: resolvedAccountId,
         reusedWithin3Hours: false,
         createdNew: true,
+        taskId: createdTaskInfo.taskId,
+        taskTitle: createdTaskInfo.taskTitle,
       };
     };
     // O handoff industrial compartilha a mesma transação do card, carteira e rodízio.

@@ -580,7 +580,15 @@ export class RodizioEngine {
           })
           .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, dealIdList)));
 
+        const { ensureLeadTransferTaskOnDeal } = await import("./sdr-crm-local");
         for (const dealId of dealIdList) {
+          await ensureLeadTransferTaskOnDeal({
+            tenantId,
+            dealId,
+            conversationId: conv?.id || "",
+            operatorId: toOperatorId,
+            operatorName: toOperatorName,
+          });
           await db.insert(crmDealEvents).values({
             id: `cdev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             tenantId,

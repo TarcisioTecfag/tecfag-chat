@@ -1604,6 +1604,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               lastMessage: meta.lastMessage || r.warningMetadata?.lastMessage || undefined,
               interest: meta.interest || r.warningMetadata?.interest || undefined,
               temperature: meta.temperature || r.warningMetadata?.temperature || undefined,
+              dealId: meta.dealId || r.warningMetadata?.dealId || undefined,
+              dealTitle: meta.dealTitle || r.warningMetadata?.dealTitle || undefined,
+              taskId: meta.taskId || r.warningMetadata?.taskId || undefined,
+              taskTitle: meta.taskTitle || r.warningMetadata?.taskTitle || undefined,
               conversations: conversationsList,
             }
           : undefined;
