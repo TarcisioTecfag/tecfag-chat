@@ -40,16 +40,35 @@ interface SystemTooltipProps extends Omit<React.ComponentPropsWithoutRef<typeof 
 }
 
 const SystemTooltip = ({ content, children, delayDuration = 150, side = "top", ...props }: SystemTooltipProps) => {
+  const [open, setOpen] = React.useState(false);
+
+  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+    if (
+      nextOpen &&
+      typeof document !== "undefined" &&
+      document.body?.dataset?.crmInteracting === "true"
+    ) {
+      setOpen(false);
+      return;
+    }
+    setOpen(nextOpen);
+  }, []);
+
   if (!content) return <>{children}</>;
   return (
-    <TooltipProvider delayDuration={delayDuration}>
-      <Tooltip>
-        <TooltipTrigger asChild>{children}</TooltipTrigger>
+    <Tooltip
+      open={open}
+      onOpenChange={handleOpenChange}
+      delayDuration={delayDuration}
+      disableHoverableContent
+    >
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      {open ? (
         <TooltipContent side={side} {...props}>
           {content}
         </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+      ) : null}
+    </Tooltip>
   );
 };
 

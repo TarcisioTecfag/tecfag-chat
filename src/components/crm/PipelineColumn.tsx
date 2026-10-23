@@ -1,7 +1,15 @@
 import React, { useRef, useEffect } from "react";
-import { DealCard, DealCardData } from "./DealCard";
+import { DealCard, DealCardData, CardTooltip } from "./DealCard";
 import { Plus, ChevronDown, Loader2, ArrowDown } from "lucide-react";
-import { SystemTooltip } from "@/components/ui/tooltip";
+
+const COLUMN_BRL_FORMATTER = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
+
+const COLUMN_CONTAIN_STYLE: React.CSSProperties = {
+  contain: "layout paint style",
+};
 
 export interface PipelineStageData {
   id: string;
@@ -33,8 +41,6 @@ interface PipelineColumnProps {
   onCreateTaskClick?: (deal: DealCardData) => void;
   onLoadMore?: () => void;
   loadingMore?: boolean;
-  draggedDealId?: string | null;
-  targetStageId?: string | null;
   onStartCardDrag?: (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => void;
 }
 
@@ -52,12 +58,8 @@ export const PipelineColumn = React.memo(function PipelineColumn({
   onCreateTaskClick,
   onLoadMore,
   loadingMore = false,
-  draggedDealId,
-  targetStageId,
   onStartCardDrag,
 }: PipelineColumnProps) {
-  const isTarget = targetStageId === stage.id;
-  const isSourceStage = deals.some((d) => d.id === draggedDealId);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -101,53 +103,52 @@ export const PipelineColumn = React.memo(function PipelineColumn({
   };
 
   // Soma de valores: prioriza agregação do servidor se disponível
-  let totalKnownValue = 0;
-  let hasKnownValue = false;
-
-  for (const d of deals) {
-    if (d.value !== null && d.value !== undefined) {
-      const num = Number(d.value);
-      if (!isNaN(num) && num > 0) {
-        totalKnownValue += num;
-        hasKnownValue = true;
+  let displayFormattedTotal = "-";
+  if (summary) {
+    displayFormattedTotal = summary.formattedTotalValue;
+  } else {
+    let totalKnownValue = 0;
+    let hasKnownValue = false;
+    for (const d of deals) {
+      if (d.value !== null && d.value !== undefined) {
+        const num = Number(d.value);
+        if (!isNaN(num) && num > 0) {
+          totalKnownValue += num;
+          hasKnownValue = true;
+        }
       }
+    }
+    if (hasKnownValue) {
+      displayFormattedTotal = COLUMN_BRL_FORMATTER.format(totalKnownValue);
     }
   }
 
-  const localFormattedTotal = hasKnownValue
-    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(totalKnownValue)
-    : "-";
-
   const displayCount = summary ? summary.dealsCount : deals.length;
-  const displayFormattedTotal = summary ? summary.formattedTotalValue : localFormattedTotal;
 
   return (
     <div
       data-stage-column={stage.id}
-      className={`group/column flex flex-col h-full min-w-[330px] max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-colors duration-150 border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs data-[is-target=true]:border-primary data-[is-target=true]:ring-2 data-[is-target=true]:ring-primary/40 data-[is-target=true]:bg-primary/[0.04] data-[is-target=true]:shadow-lg ${
-        isTarget
-          ? "border-primary ring-2 ring-primary/40 bg-primary/[0.04] shadow-lg"
-          : ""
-      }`}
+      style={COLUMN_CONTAIN_STYLE}
+      className="group/column flex flex-col h-full min-w-[330px] max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-colors duration-100 border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs data-[is-target=true]:border-primary data-[is-target=true]:ring-2 data-[is-target=true]:ring-primary/45 data-[is-target=true]:bg-primary/[0.04]"
     >
       {/* Cabeçalho da Coluna com sólido aprimorado e cursor-grab para pan scroll do quadro */}
       <div className="shrink-0 px-3.5 py-3 border-b border-border/70 bg-muted/85 dark:bg-muted/45 rounded-t-2xl cursor-grab active:cursor-grabbing select-none">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <SystemTooltip content={stage.name}>
+            <CardTooltip content={stage.name}>
               <h3 className="text-sm font-bold text-foreground line-clamp-2 break-words">
                 {stage.name}
               </h3>
-            </SystemTooltip>
-            <SystemTooltip content={`${displayCount} negociações no total nesta etapa`}>
+            </CardTooltip>
+            <CardTooltip content={`${displayCount} negociações no total nesta etapa`}>
               <span className="flex h-6 shrink-0 items-center justify-center rounded-md bg-background/90 border border-border/70 px-2 text-xs font-semibold tabular-nums text-foreground/80">
                 {displayCount}
               </span>
-            </SystemTooltip>
+            </CardTooltip>
           </div>
 
           {onNewDealAtStage && (
-            <SystemTooltip content={`Nova negociação em ${stage.name}`}>
+            <CardTooltip content={`Nova negociação em ${stage.name}`}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -155,11 +156,11 @@ export const PipelineColumn = React.memo(function PipelineColumn({
                 }}
                 type="button"
                 aria-label={`Nova negociação em ${stage.name}`}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
-            </SystemTooltip>
+            </CardTooltip>
           )}
         </div>
 
@@ -170,96 +171,102 @@ export const PipelineColumn = React.memo(function PipelineColumn({
         </div>
       </div>
 
-      {/* Lista de Cards da Etapa com scroll vertical e isolamento do mouse wheel */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        data-column-card-list="true"
-        className="min-h-0 flex-1 overflow-y-auto p-2.5 pb-6 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
-      >
-        {/* Indicador visual de soltura quando arrastando para esta coluna (suporta DOM direto e estado) */}
+      {/* Container relativo da coluna: permite overlay de drop em 0ms (sem empurrar os cards nem causar reflow) */}
+      <div className="relative min-h-0 flex-1 flex flex-col overflow-hidden">
+        {/* Indicador visual de soltura via GPU Overlay (Zero Layout Shift / Zero Reflow nos cards da coluna) */}
         <div
           data-drop-zone="true"
-          className={`${
-            isTarget && draggedDealId && !isSourceStage ? "flex" : "hidden"
-          } group-data-[is-target=true]/column:flex shrink-0 h-[196px] min-h-[196px] rounded-xl border-2 border-dashed border-primary/70 bg-primary/[0.08] flex-col items-center justify-center gap-2.5 text-primary p-4 shadow-inner select-none pointer-events-none`}
+          className="opacity-0 group-data-[is-target=true]/column:opacity-100 transition-opacity duration-100 pointer-events-none select-none absolute inset-x-2.5 top-2.5 z-20 h-[108px] rounded-xl border-2 border-dashed border-primary bg-card/95 flex flex-col items-center justify-center gap-1.5 text-primary p-3 shadow-lg"
         >
-          <div className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary">
-            <ArrowDown className="h-5 w-5 animate-bounce" />
+          <div className="h-8 w-8 rounded-full bg-primary/15 flex items-center justify-center text-primary">
+            <ArrowDown className="h-4 w-4" />
           </div>
-          <span className="text-xs font-bold tracking-wide">Mover para {stage.name}</span>
+          <span className="text-xs font-bold tracking-wide text-center line-clamp-1">
+            Soltar em {stage.name}
+          </span>
         </div>
 
-        {deals.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center px-4 space-y-2.5 select-none">
-            <p className="text-xs text-muted-foreground">
-              Nenhuma negociação nesta etapa
-            </p>
-            {summary && summary.dealsCount > 0 && onLoadMore && (
-              <button
-                type="button"
-                onClick={onLoadMore}
-                disabled={loadingMore}
-                className="inline-flex items-center gap-1.5 text-xs text-primary font-semibold hover:underline cursor-pointer disabled:opacity-50"
-              >
-                {loadingMore ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Carregando...</span>
-                  </>
-                ) : (
-                  <span>Carregar {summary.dealsCount} negociações</span>
-                )}
-              </button>
-            )}
-          </div>
-        ) : (
-          <>
-            {deals.map((deal) => (
-              <DealCard
-                key={deal.id}
-                deal={deal}
-                coolingDays={coolingDays}
-                coolingEnabled={coolingEnabled}
-                operatorName={(deal.operatorId || deal.ownerId) ? operatorsMap.get((deal.operatorId || deal.ownerId)!) : undefined}
-                onClick={onDealClick}
-                onQuickMove={onDropDeal}
-                allStages={allStages}
-                onCreateTaskClick={onCreateTaskClick}
-                isDragging={deal.id === draggedDealId}
-                onStartDrag={onStartCardDrag}
-              />
-            ))}
+        {/* Lista de Cards da Etapa com scroll vertical e isolamento do mouse wheel */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          data-column-card-list="true"
+          className="min-h-0 flex-1 overflow-y-auto p-2.5 pb-6 space-y-2.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
+        >
+          {deals.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center px-4 space-y-2.5 select-none">
+              <p className="text-xs text-muted-foreground">
+                Nenhuma negociação nesta etapa
+              </p>
+              {summary && summary.dealsCount > 0 && onLoadMore && (
+                <button
+                  type="button"
+                  onClick={onLoadMore}
+                  disabled={loadingMore}
+                  className="inline-flex items-center gap-1.5 text-xs text-primary font-semibold hover:underline cursor-pointer disabled:opacity-50"
+                >
+                  {loadingMore ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Carregando...</span>
+                    </>
+                  ) : (
+                    <span>Carregar {summary.dealsCount} negociações</span>
+                  )}
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              {deals.map((deal) => (
+                <DealCard
+                  key={deal.id}
+                  deal={deal}
+                  coolingDays={coolingDays}
+                  coolingEnabled={coolingEnabled}
+                  operatorName={
+                    deal.operatorId || deal.ownerId
+                      ? operatorsMap.get((deal.operatorId || deal.ownerId)!)
+                      : undefined
+                  }
+                  onClick={onDealClick}
+                  onQuickMove={onDropDeal}
+                  allStages={allStages}
+                  onCreateTaskClick={onCreateTaskClick}
+                  onStartDrag={onStartCardDrag}
+                />
+              ))}
 
-            {summary && summary.dealsCount > deals.length && (
-              <div
-                ref={sentinelRef}
-                className="pt-2 pb-1 text-center space-y-1.5 border-t border-dashed border-border/50"
-              >
-                {loadingMore ? (
-                  <div className="flex items-center justify-center gap-2 text-xs font-medium text-primary py-1.5 animate-in fade-in duration-200">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Carregando mais negociações...</span>
-                  </div>
-                ) : (
-                  <div className="text-[11px] text-muted-foreground flex flex-col items-center gap-0.5">
-                    <span>Mostrando {deals.length} de {summary.dealsCount} negociações</span>
-                    <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
-                      <ChevronDown className="h-3 w-3" />
-                      <span>Role para carregar mais</span>
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
+              {summary && summary.dealsCount > deals.length && (
+                <div
+                  ref={sentinelRef}
+                  className="pt-2 pb-1 text-center space-y-1.5 border-t border-dashed border-border/50"
+                >
+                  {loadingMore ? (
+                    <div className="flex items-center justify-center gap-2 text-xs font-medium text-primary py-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Carregando mais negociações...</span>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-muted-foreground flex flex-col items-center gap-0.5">
+                      <span>Mostrando {deals.length} de {summary.dealsCount} negociações</span>
+                      <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+                        <ChevronDown className="h-3 w-3" />
+                        <span>Role para carregar mais</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
-            {summary && summary.dealsCount <= deals.length && deals.length > 50 && (
-              <div className="pt-2 pb-1 text-center text-[10px] text-muted-foreground/60 border-t border-dashed border-border/40">
-                Todas as {deals.length} negociações carregadas
-              </div>
-            )}
-          </>
-        )}
+              {summary && summary.dealsCount <= deals.length && deals.length > 50 && (
+                <div className="pt-2 pb-1 text-center text-[10px] text-muted-foreground/60 border-t border-dashed border-border/40">
+                  Todas as {deals.length} negociações carregadas
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

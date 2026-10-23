@@ -82,7 +82,15 @@ const crmViewSnapshots = new Map<string, CrmViewSnapshot>();
 const CRM_SNAPSHOT_TTL_MS = 10 * 60 * 1000;
 
 export function CrmView() {
-  const { tenant, currentOperatorId, operators: globalOperators, operatorProfile } = useChat();
+  const {
+    tenant,
+    currentOperatorId,
+    operators: globalOperators,
+    operatorProfile,
+    refreshConversations,
+    setActiveView,
+    setSelectedChatId,
+  } = useChat();
   const navigate = useNavigate();
   const snapshotKey = `${tenant}:${currentOperatorId}`;
   const initialSnapshot = useRef<CrmViewSnapshot | null>(
@@ -217,13 +225,22 @@ export function CrmView() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskModalDeal, setTaskModalDeal] = useState<DealCardData | null>(null);
 
-  // Mapas para consulta rápida
+  // Mapas para consulta rápida (referência estabilizada para não invalidar React.memo a cada heartbeat SSE)
+  const prevOperatorsMapRef = useRef<Map<string, string>>(new Map());
   const operatorsMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const op of effectiveOperators) {
-      map.set(op.id, op.name);
+    const prev = prevOperatorsMapRef.current;
+    if (
+      prev.size === effectiveOperators.length &&
+      effectiveOperators.every((op) => prev.get(op.id) === op.name)
+    ) {
+      return prev;
     }
-    return map;
+    const next = new Map<string, string>();
+    for (const op of effectiveOperators) {
+      next.set(op.id, op.name);
+    }
+    prevOperatorsMapRef.current = next;
+    return next;
   }, [effectiveOperators]);
 
   // Funil ativo
@@ -523,80 +540,163 @@ export function CrmView() {
     if (viewMode === "kanban") fetchStagesSummary();
   }, [fetchDeals, fetchStagesSummary, viewMode]);
 
-  // Movimentação de Card (Kanban) com concorrência otimista
-  const handleMoveDeal = async (
-    dealId: string,
-    newStageId: string,
-    currentVersion: number,
-    terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null },
-  ) => {
-    // Atualização otimista imediata na UI
-    setDeals((prev) =>
-      prev.map((d) =>
-        d.id === dealId
-          ? {
-              ...d,
-              stageId: newStageId,
-              version: d.version + 1,
-              status: terminalData?.status || d.status,
-              value: terminalData?.value !== undefined ? terminalData.value : d.value,
-            }
-          : d,
-      ),
-    );
+  // Movimentação de Card (Kanban) com concorrência otimista (Estabilizado com useCallback)
+  const handleMoveDeal = useCallback(
+    async (
+      dealId: string,
+      newStageId: string,
+      currentVersion: number,
+      terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null },
+    ) => {
+      // Atualização otimista imediata na UI
+      setDeals((prev) =>
+        prev.map((d) =>
+          d.id === dealId
+            ? {
+                ...d,
+                stageId: newStageId,
+                version: d.version + 1,
+                status: terminalData?.status || d.status,
+                value: terminalData?.value !== undefined ? terminalData.value : d.value,
+              }
+            : d,
+        ),
+      );
 
-    try {
-      const payload: Record<string, any> = {
-        stageId: newStageId,
-        expectedVersion: currentVersion,
-      };
+      try {
+        const payload: Record<string, any> = {
+          stageId: newStageId,
+          expectedVersion: currentVersion,
+        };
 
-      if (terminalData) {
-        if (terminalData.status) payload.status = terminalData.status;
-        if (terminalData.lossReason) payload.lossReason = terminalData.lossReason;
-        if (terminalData.value !== undefined) payload.value = terminalData.value;
-      }
+        if (terminalData) {
+          if (terminalData.status) payload.status = terminalData.status;
+          if (terminalData.lossReason) payload.lossReason = terminalData.lossReason;
+          if (terminalData.value !== undefined) payload.value = terminalData.value;
+        }
 
-      const res = await fetch(`/api/crm/deals/${dealId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+        const res = await fetch(`/api/crm/deals/${dealId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      if (res.status === 409) {
-        toast.error(
-          "Conflito: esta negociação foi alterada por outro usuário. Atualizando quadro...",
-        );
+        if (res.status === 409) {
+          toast.error(
+            "Conflito: esta negociação foi alterada por outro usuário. Atualizando quadro...",
+          );
+          fetchDeals();
+          fetchStagesSummary();
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error("Erro ao atualizar etapa.");
+        }
+
+        const data = await res.json();
+        invalidateDealCache(dealId);
+        setDeals((prev) => prev.map((d) => (d.id === dealId ? { ...d, ...data.deal } : d)));
+        fetchStagesSummary();
+        toast.success("Negociação movida com sucesso!");
+      } catch (err: any) {
+        console.error("[CrmView] Falha ao mover deal:", err);
+        toast.error("Falha ao mover negociação.");
         fetchDeals();
         fetchStagesSummary();
-        return;
       }
+    },
+    [fetchDeals, fetchStagesSummary],
+  );
 
-      if (!res.ok) {
-        throw new Error("Erro ao atualizar etapa.");
-      }
+  const handleDealClick = useCallback(
+    (d: DealCardData) => {
+      seedDealPreview(d);
+      navigate({
+        to: "/crm/deals/$dealId",
+        params: { dealId: d.id },
+        search: { from: "crm" },
+      });
+    },
+    [navigate],
+  );
 
-      const data = await res.json();
-      invalidateDealCache(dealId);
-      setDeals((prev) => prev.map((d) => (d.id === dealId ? { ...d, ...data.deal } : d)));
-      fetchStagesSummary();
-      toast.success("Negociação movida com sucesso!");
-    } catch (err: any) {
-      console.error("[CrmView] Falha ao mover deal:", err);
-      toast.error("Falha ao mover negociação.");
-      fetchDeals();
-      fetchStagesSummary();
-    }
-  };
+  const handleNewDealAtStage = useCallback((stageId: string) => {
+    setCreateAtStageId(stageId);
+    setIsCreateDialogOpen(true);
+  }, []);
 
-  const handleClearAllFilters = () => {
+  const handleCreateTaskClick = useCallback((deal: DealCardData) => {
+    setTaskModalDeal(deal);
+    setIsTaskModalOpen(true);
+  }, []);
+
+  const handleClearAllFilters = useCallback(() => {
     setStatusFilter("all");
     setSelectedOperatorIds([]);
     setAdvancedFilters({});
     setSearchQuery("");
     setDebouncedSearchQuery("");
     setListOffset(0);
-  };
+  }, []);
+
+  // Listener centralizado para abrir conversa completa no Chat (evita assinar useChat em cada DealCard)
+  useEffect(() => {
+    const handleOpenFullChatEvent = async (ev: Event) => {
+      const customEv = ev as CustomEvent<DealCardData>;
+      const deal = customEv.detail;
+      if (!deal) return;
+      try {
+        let targetConversationId = deal.primaryConversationId || null;
+
+        if (!targetConversationId && deal.primaryContactId) {
+          const res = await fetch(
+            `/api/contacts/${encodeURIComponent(deal.primaryContactId)}/conversations`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ dealId: deal.id, autoCapture: true }),
+            },
+          );
+          if (res.ok) {
+            const data = await res.json();
+            targetConversationId = data?.conversationId || null;
+          }
+        }
+
+        if (!targetConversationId) {
+          const res = await fetch(`/api/crm/deals/${encodeURIComponent(deal.id)}/conversations`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              ensure: true,
+              autoCapture: true,
+              phone: deal.account?.phone || undefined,
+              name: deal.account?.name || deal.title,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            targetConversationId = data?.conversationId || null;
+          }
+        }
+
+        if (targetConversationId) {
+          await refreshConversations(targetConversationId);
+          setSelectedChatId(targetConversationId);
+        }
+      } catch {
+        // prossegue para tela de chat
+      }
+      setActiveView("chat");
+      if (window.location.pathname !== "/") navigate({ to: "/" });
+    };
+
+    window.addEventListener("crm:open-full-chat", handleOpenFullChatEvent);
+    return () => window.removeEventListener("crm:open-full-chat", handleOpenFullChatEvent);
+  }, [refreshConversations, setSelectedChatId, setActiveView, navigate]);
 
   return (
     <div className="flex flex-col h-full w-full gap-4 overflow-hidden pt-1 pb-0 pl-1 pr-0">
@@ -686,23 +786,10 @@ export function CrmView() {
               stageSettings={stageSettings}
               stagesSummaryMap={stagesSummaryMap}
               operatorsMap={operatorsMap}
-              onDealClick={(d) => {
-                seedDealPreview(d);
-                navigate({
-                  to: "/crm/deals/$dealId",
-                  params: { dealId: d.id },
-                  search: { from: "crm" },
-                });
-              }}
+              onDealClick={handleDealClick}
               onMoveDeal={handleMoveDeal}
-              onNewDealAtStage={(stageId) => {
-                setCreateAtStageId(stageId);
-                setIsCreateDialogOpen(true);
-              }}
-              onCreateTaskClick={(deal) => {
-                setTaskModalDeal(deal);
-                setIsTaskModalOpen(true);
-              }}
+              onNewDealAtStage={handleNewDealAtStage}
+              onCreateTaskClick={handleCreateTaskClick}
               onLoadMoreStage={handleLoadMoreStage}
               loadingMoreStages={loadingMoreStages}
             />
@@ -718,14 +805,7 @@ export function CrmView() {
               pipelines={pipelines}
               currentPipelineId={selectedPipelineId}
               filterParams={Object.fromEntries(buildFilterQueryParams().entries())}
-              onDealClick={(d) => {
-                seedDealPreview(d);
-                navigate({
-                  to: "/crm/deals/$dealId",
-                  params: { dealId: d.id },
-                  search: { from: "crm" },
-                });
-              }}
+              onDealClick={handleDealClick}
               total={totalDeals}
               limit={listLimit}
               offset={listOffset}
@@ -742,10 +822,7 @@ export function CrmView() {
                 fetchDeals();
                 fetchStagesSummary();
               }}
-              onCreateTaskClick={(deal) => {
-                setTaskModalDeal(deal);
-                setIsTaskModalOpen(true);
-              }}
+              onCreateTaskClick={handleCreateTaskClick}
             />
           </div>
         )}

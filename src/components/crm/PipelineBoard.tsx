@@ -1,7 +1,15 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
 import { createPortal } from "react-dom";
 import { PipelineColumn, PipelineStageData, PipelineStageSummary } from "./PipelineColumn";
-import { DealCard, DealCardData } from "./DealCard";
+import { DealCard, DealCardData, hideSharedCardTooltip } from "./DealCard";
 import { StageTerminalConfirmDialog } from "./StageTerminalConfirmDialog";
 
 interface PipelineBoardProps {
@@ -35,9 +43,66 @@ interface ActiveDragInfo {
   cardHeight: number;
   initialX: number;
   initialY: number;
+  coolingDays: number;
+  coolingEnabled: boolean;
+  operatorName?: string;
+  allStages: Array<{ id: string; name: string }>;
 }
 
-export function PipelineBoard({
+interface DragOverlayHandle {
+  start: (info: ActiveDragInfo) => void;
+  stop: () => void;
+  getElement: () => HTMLDivElement | null;
+}
+
+// Portal isolado para o card flutuante: montar/desmontar este componente NÃO re-renderiza o PipelineBoard nem as colunas!
+const DragOverlayPortal = forwardRef<DragOverlayHandle, {}>(function DragOverlayPortal(_, ref) {
+  const [activeDrag, setActiveDrag] = useState<ActiveDragInfo | null>(null);
+  const overlayElRef = useRef<HTMLDivElement | null>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      start: (info: ActiveDragInfo) => setActiveDrag(info),
+      stop: () => setActiveDrag(null),
+      getElement: () => overlayElRef.current,
+    }),
+    []
+  );
+
+  if (!activeDrag || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={overlayElRef}
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: `${activeDrag.cardWidth}px`,
+        height: `${activeDrag.cardHeight}px`,
+        transform: `translate3d(${Math.round(activeDrag.initialX)}px, ${Math.round(activeDrag.initialY)}px, 0)`,
+        zIndex: 999999,
+        pointerEvents: "none",
+        willChange: "transform",
+        contain: "layout paint style",
+      }}
+      className="select-none shadow-xl ring-2 ring-primary border border-primary rounded-xl bg-card overflow-hidden"
+    >
+      <DealCard
+        deal={activeDrag.deal}
+        coolingDays={activeDrag.coolingDays}
+        coolingEnabled={activeDrag.coolingEnabled}
+        operatorName={activeDrag.operatorName}
+        allStages={activeDrag.allStages}
+        isOverlay={true}
+      />
+    </div>,
+    document.body
+  );
+});
+
+export const PipelineBoard = React.memo(function PipelineBoard({
   pipeline,
   deals,
   stageSettings,
@@ -64,20 +129,23 @@ export function PipelineBoard({
 
   // Ref principal do container rolável do Kanban
   const boardContainerRef = useRef<HTMLDivElement>(null);
-
-  // ── ESTADO 1: PAN SCROLL (CLICAR E ARRASTAR A TELA COM O MOUSE) ──
-  const [isPanning, setIsPanning] = useState(false);
-  const panStateRef = useRef<{
-    startX: number;
-    startY: number;
-    scrollLeft: number;
-    hasMoved: boolean;
-  } | null>(null);
-
-  // ── ESTADO 2: DRAG & DROP ZERO-RERENDER (120 FPS DIRETO NO DOM VIA GPU + RAF) ──
-  const [activeDrag, setActiveDrag] = useState<ActiveDragInfo | null>(null);
+  const dragOverlayRef = useRef<DragOverlayHandle>(null);
   const hoveredStageIdRef = useRef<string | null>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+
+  // Refs para evitar recriação de callbacks quando deals/settings mudam
+  const dealsRef = useRef(deals);
+  dealsRef.current = deals;
+  const sortedStagesRef = useRef(sortedStages);
+  sortedStagesRef.current = sortedStages;
+  const stageSettingsRef = useRef(stageSettings);
+  stageSettingsRef.current = stageSettings;
+  const operatorsMapRef = useRef(operatorsMap);
+  operatorsMapRef.current = operatorsMap;
+  const allStagesRef = useRef(allStages);
+  allStagesRef.current = allStages;
+  const pipelineCoolingDaysRef = useRef(pipeline.coolingDays);
+  pipelineCoolingDaysRef.current = pipeline.coolingDays;
 
   // Estado para diálogo de confirmação em etapa terminal (Ganho/Perda)
   const [terminalConfirm, setTerminalConfirm] = useState<{
@@ -90,32 +158,49 @@ export function PipelineBoard({
     type: "win" | "loss";
   } | null>(null);
 
-  // Agrupa deals por stageId (Memoizado estritamente para não quebrar React.memo das colunas)
+  // Agrupa deals por stageId preservando a referência do array de etapas não alteradas (mantém React.memo 100% intacto!)
+  const prevDealsByStageRef = useRef<Map<string, DealCardData[]>>(new Map());
   const dealsByStage = useMemo(() => {
-    const map = new Map<string, DealCardData[]>();
+    const rawMap = new Map<string, DealCardData[]>();
     for (const s of sortedStages) {
-      map.set(s.id, []);
+      rawMap.set(s.id, []);
     }
 
     for (const deal of deals) {
-      const list = map.get(deal.stageId);
+      const list = rawMap.get(deal.stageId);
       if (list) {
         list.push(deal);
       } else {
         const firstStage = sortedStages[0];
         if (firstStage) {
-          map.get(firstStage.id)?.push(deal);
+          rawMap.get(firstStage.id)?.push(deal);
         }
       }
     }
-    return map;
+
+    const prevMap = prevDealsByStageRef.current;
+    const stableMap = new Map<string, DealCardData[]>();
+    for (const [stageId, nextList] of rawMap.entries()) {
+      const prevList = prevMap.get(stageId);
+      if (
+        prevList &&
+        prevList.length === nextList.length &&
+        prevList.every((item, idx) => item === nextList[idx])
+      ) {
+        stableMap.set(stageId, prevList);
+      } else {
+        stableMap.set(stageId, nextList);
+      }
+    }
+    prevDealsByStageRef.current = stableMap;
+    return stableMap;
   }, [sortedStages, deals]);
 
-  // Intercepta movimentação para verificar etapa terminal
+  // Intercepta movimentação para verificar etapa terminal (Estável: não depende de `deals` por valor)
   const handleInterceptMove = useCallback(
     (dealId: string, newStageId: string, version: number) => {
-      const targetStage = sortedStages.find((s) => s.id === newStageId);
-      const deal = deals.find((d) => d.id === dealId);
+      const targetStage = sortedStagesRef.current.find((s) => s.id === newStageId);
+      const deal = dealsRef.current.find((d) => d.id === dealId);
 
       if (targetStage?.isWinStage) {
         setTerminalConfirm({
@@ -146,44 +231,35 @@ export function PipelineBoard({
       // Etapa padrão não terminal
       onMoveDeal(dealId, newStageId, version);
     },
-    [sortedStages, deals, onMoveDeal]
+    [onMoveDeal]
   );
 
-  // Cancelamento via tecla ESC
+  // Limpeza global de flags de interação ao desmontar
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && activeDrag) {
+    return () => {
+      if (typeof document !== "undefined") {
+        delete document.body.dataset.crmInteracting;
         document.body.style.userSelect = "";
         document.body.style.cursor = "";
-
-        // Remove highlights e fantasmas do DOM
-        const container = boardContainerRef.current;
-        if (container) {
-          const targets = container.querySelectorAll<HTMLElement>("[data-is-target]");
-          targets.forEach((el) => el.removeAttribute("data-is-target"));
-          const ghosts = container.querySelectorAll<HTMLElement>("[data-is-ghost]");
-          ghosts.forEach((el) => el.removeAttribute("data-is-ghost"));
-        }
-
-        hoveredStageIdRef.current = null;
-        setActiveDrag(null);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeDrag]);
+  }, []);
 
-  // ── INÍCIO DO ARRASTO DE CARD 120 FPS NATIVO (ZERO RE-RENDERS DURANTE O ARRASTE) ──
+  // ── INÍCIO DO ARRASTO DE CARD 120 FPS NATIVO (ZERO RE-RENDERS DO QUADRO E DAS COLUNAS) ──
   const handleStartCardDrag = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => {
       if (e.button !== 0) return; // apenas clique primário
       const cardEl = e.currentTarget;
-      const rect = cardEl.getBoundingClientRect();
-      const grabOffsetX = e.clientX - rect.left;
-      const grabOffsetY = e.clientY - rect.top;
-
       const container = boardContainerRef.current;
       if (!container) return;
+
+      hideSharedCardTooltip();
+
+      const rect = cardEl.getBoundingClientRect();
+      // Compensação automática de CSS zoom (ex: zoom: 0.8 em telas <= 1536px)
+      const cssScale = cardEl.offsetWidth > 0 ? rect.width / cardEl.offsetWidth : 1;
+      const cardWidth = cardEl.offsetWidth || Math.round(rect.width / (cssScale || 1));
+      const cardHeight = cardEl.offsetHeight || Math.round(rect.height / (cssScale || 1));
 
       const candidate = {
         cardEl,
@@ -191,10 +267,11 @@ export function PipelineBoard({
         originStageId: deal.stageId,
         startX: e.clientX,
         startY: e.clientY,
-        cardWidth: rect.width,
-        cardHeight: rect.height,
-        grabOffsetX,
-        grabOffsetY,
+        startRectLeft: rect.left,
+        startRectTop: rect.top,
+        cardWidth,
+        cardHeight,
+        cssScale: cssScale || 1,
         isDragging: false,
       };
 
@@ -204,22 +281,23 @@ export function PipelineBoard({
       let latestY = e.clientY;
       let currentTargetCol: HTMLElement | null = null;
 
-      // GEOMETRIA ESTÁTICA EM CACHE (Lida 1 única vez no início do arraste, eliminando Layout Thrashing)
+      // GEOMETRIA ESTÁTICA EM CACHE (Lida 1 única vez no início do arrasto, na mesma escala de clientX)
       let containerLeft = 0;
       let containerRight = 0;
+      let initialScrollLeft = 0;
       let maxScrollLeft = 0;
       let cachedColumns: Array<{
         stageId: string;
-        offsetLeft: number;
-        width: number;
+        initialLeft: number;
+        initialRight: number;
         el: HTMLElement;
       }> = [];
 
       const initGeometryCache = () => {
-        if (!container) return;
         const cRect = container.getBoundingClientRect();
         containerLeft = cRect.left;
         containerRight = cRect.right;
+        initialScrollLeft = container.scrollLeft;
         maxScrollLeft = container.scrollWidth - container.clientWidth;
 
         cachedColumns = [];
@@ -227,14 +305,35 @@ export function PipelineBoard({
         cols.forEach((col) => {
           const stageId = col.getAttribute("data-stage-column");
           if (stageId) {
+            const colRect = col.getBoundingClientRect();
             cachedColumns.push({
               stageId,
-              offsetLeft: col.offsetLeft,
-              width: col.offsetWidth,
+              initialLeft: colRect.left,
+              initialRight: colRect.right,
               el: col,
             });
           }
         });
+      };
+
+      const cleanupDragVisuals = () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        isDraggingRef.current = false;
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        delete document.body.dataset.crmInteracting;
+        container.removeAttribute("data-interacting");
+        candidate.cardEl.removeAttribute("data-is-ghost");
+
+        if (currentTargetCol) {
+          currentTargetCol.removeAttribute("data-is-target");
+          currentTargetCol = null;
+        }
+        hoveredStageIdRef.current = null;
+        dragOverlayRef.current?.stop();
       };
 
       // LOOP rAF QUE EXECUTA EM 60/120Hz NO VSYNC DO MONITOR (SEM BLOQUEIO DA THREAD PRINCIPAL)
@@ -242,11 +341,15 @@ export function PipelineBoard({
         rafId = null;
         if (!candidate.isDragging) return;
 
-        // 1. Atualização do Overlay diretamente via Transform da GPU (0ms, 0 re-renders)
-        const curX = latestX - candidate.grabOffsetX;
-        const curY = latestY - candidate.grabOffsetY;
-        if (overlayRef.current) {
-          overlayRef.current.style.transform = `translate3d(${curX}px, ${curY}px, 0) rotate(1.8deg) scale(1.02)`;
+        // 1. Atualização do Overlay diretamente via Transform da GPU (0ms, 0 re-renders, compensado por cssScale)
+        const dx = latestX - candidate.startX;
+        const dy = latestY - candidate.startY;
+        const curX = (candidate.startRectLeft + dx) / candidate.cssScale;
+        const curY = (candidate.startRectTop + dy) / candidate.cssScale;
+
+        const overlayEl = dragOverlayRef.current?.getElement();
+        if (overlayEl) {
+          overlayEl.style.transform = `translate3d(${Math.round(curX)}px, ${Math.round(curY)}px, 0)`;
         }
 
         // 2. Auto-scroll suave horizontal nas bordas do Kanban
@@ -258,10 +361,7 @@ export function PipelineBoard({
         if (leftDist < edgeMargin && container.scrollLeft > 0) {
           const factor = Math.min(1, Math.max(0.1, (edgeMargin - leftDist) / edgeMargin));
           edgeSpeed = -Math.round(factor * 22);
-        } else if (
-          rightDist < edgeMargin &&
-          container.scrollLeft < maxScrollLeft - 1
-        ) {
+        } else if (rightDist < edgeMargin && container.scrollLeft < maxScrollLeft - 1) {
           const factor = Math.min(1, Math.max(0.1, (edgeMargin - rightDist) / edgeMargin));
           edgeSpeed = Math.round(factor * 22);
         }
@@ -270,21 +370,22 @@ export function PipelineBoard({
           container.scrollLeft += edgeSpeed;
         }
 
-        // 3. Detecção aritmética pura de coluna alvo (4 operações matemáticas, zero getBoundingClientRect)
-        const currentScroll = container.scrollLeft;
+        // 3. Detecção aritmética pura de coluna alvo na mesma escala de clientX (zero getBoundingClientRect)
+        const scrollDeltaScreen =
+          (container.scrollLeft - initialScrollLeft) * candidate.cssScale;
         let hoveredCol: { stageId: string; el: HTMLElement } | null = null;
 
         for (let i = 0; i < cachedColumns.length; i++) {
           const col = cachedColumns[i];
-          const colScreenLeft = containerLeft + col.offsetLeft - currentScroll;
-          const colScreenRight = colScreenLeft + col.width;
+          const colScreenLeft = col.initialLeft - scrollDeltaScreen;
+          const colScreenRight = col.initialRight - scrollDeltaScreen;
           if (latestX >= colScreenLeft && latestX <= colScreenRight) {
             hoveredCol = col;
             break;
           }
         }
 
-        // 4. Highlight e Drop Indicator atualizados instantaneamente no DOM (0 re-renders no React!)
+        // 4. Highlight e Drop Indicator atualizados instantaneamente no DOM (0 re-renders e 0 reflow!)
         if (hoveredCol) {
           if (hoveredCol.el !== currentTargetCol) {
             if (currentTargetCol) {
@@ -321,8 +422,14 @@ export function PipelineBoard({
         // Limiar de 5px para diferenciar clique de arrasto
         if (!candidate.isDragging && Math.hypot(dx, dy) >= 5) {
           candidate.isDragging = true;
+          isDraggingRef.current = true;
+          hideSharedCardTooltip();
+
+          // Bloqueia hit-testing, :hover e prefetch nos 150+ cards do fundo durante todo o arrasto
+          document.body.dataset.crmInteracting = "true";
           document.body.style.userSelect = "none";
           document.body.style.cursor = "grabbing";
+          container.setAttribute("data-interacting", "true");
 
           // Marca o card de origem como silhueta fantasma direto no DOM
           candidate.cardEl.setAttribute("data-is-ghost", "true");
@@ -330,14 +437,21 @@ export function PipelineBoard({
           // Inicializa cache geométrico 1 única vez
           initGeometryCache();
 
-          // Monta o Portal flutuante (único re-render do ciclo)
-          setActiveDrag({
+          const stSettings = stageSettingsRef.current?.[candidate.deal.stageId];
+          const opId = candidate.deal.operatorId || candidate.deal.ownerId;
+
+          // Monta apenas o Portal isolado (ZERO re-renders do PipelineBoard e das PipelineColumns!)
+          dragOverlayRef.current?.start({
             deal: candidate.deal,
             originStageId: candidate.originStageId,
             cardWidth: candidate.cardWidth,
             cardHeight: candidate.cardHeight,
-            initialX: ev.clientX - candidate.grabOffsetX,
-            initialY: ev.clientY - candidate.grabOffsetY,
+            initialX: (candidate.startRectLeft + dx) / candidate.cssScale,
+            initialY: (candidate.startRectTop + dy) / candidate.cssScale,
+            coolingDays: stSettings?.coolingDays ?? pipelineCoolingDaysRef.current ?? 10,
+            coolingEnabled: stSettings?.coolingEnabled ?? true,
+            operatorName: opId ? operatorsMapRef.current.get(opId) : undefined,
+            allStages: allStagesRef.current,
           });
         }
 
@@ -349,28 +463,25 @@ export function PipelineBoard({
         }
       };
 
+      const handleKeyDownCancel = (keyEv: KeyboardEvent) => {
+        if (keyEv.key === "Escape" && candidate.isDragging) {
+          window.removeEventListener("pointermove", handleCardPointerMove);
+          window.removeEventListener("pointerup", handleCardPointerUp);
+          window.removeEventListener("pointercancel", handleCardPointerUp);
+          window.removeEventListener("keydown", handleKeyDownCancel);
+          cleanupDragVisuals();
+        }
+      };
+
       const handleCardPointerUp = () => {
         window.removeEventListener("pointermove", handleCardPointerMove);
         window.removeEventListener("pointerup", handleCardPointerUp);
         window.removeEventListener("pointercancel", handleCardPointerUp);
-
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
-        }
-
-        document.body.style.userSelect = "";
-        document.body.style.cursor = "";
+        window.removeEventListener("keydown", handleKeyDownCancel);
 
         if (candidate.isDragging) {
-          // Remove silhueta fantasma do card de origem
-          candidate.cardEl.removeAttribute("data-is-ghost");
-
-          // Remove highlight da coluna alvo
-          if (currentTargetCol) {
-            currentTargetCol.removeAttribute("data-is-target");
-            currentTargetCol = null;
-          }
+          const targetStage = hoveredStageIdRef.current;
+          cleanupDragVisuals();
 
           // Suprime clique residual
           const suppressClick = (clickEv: MouseEvent) => {
@@ -380,33 +491,32 @@ export function PipelineBoard({
           };
           window.addEventListener("click", suppressClick, true);
 
-          const targetStage = hoveredStageIdRef.current;
-          hoveredStageIdRef.current = null;
-
           if (targetStage && targetStage !== candidate.originStageId) {
             handleInterceptMove(candidate.deal.id, targetStage, candidate.deal.version);
           }
-          setActiveDrag(null);
         } else {
           // Movimento menor que 5px: clique intencional para abrir modal do deal
           onDealClick(candidate.deal);
         }
       };
 
-      window.addEventListener("pointermove", handleCardPointerMove);
+      window.addEventListener("pointermove", handleCardPointerMove, { passive: true });
       window.addEventListener("pointerup", handleCardPointerUp);
       window.addEventListener("pointercancel", handleCardPointerUp);
+      window.addEventListener("keydown", handleKeyDownCancel);
     },
     [onDealClick, handleInterceptMove]
   );
 
-  // ── MOTOR DE PAN SCROLL HORIZONTAL (CLICAR E ARRASTAR O FUNDO OU TOPO DA TELA) ──
-  const handleBoardPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return; // apenas clique esquerdo
+  // ── MOTOR DE PAN SCROLL HORIZONTAL 120FPS (ZERO RE-RENDERS + RAF COALESCENCE + BLOQUEIO DE HIT-TEST) ──
+  const handleBoardPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const isMiddleClick = e.button === 1;
+    if (e.button !== 0 && !isMiddleClick) return;
     const target = e.target as HTMLElement;
 
-    // Ignora se clicou em um card ou elemento interativo
+    // Com clique esquerdo, ignora se clicou em um card ou elemento interativo (botão do meio permite pan em qualquer lugar)
     if (
+      !isMiddleClick &&
       target.closest(
         '[data-deal-card], button, a, input, select, textarea, [role="button"], [data-no-pan]'
       )
@@ -414,29 +524,52 @@ export function PipelineBoard({
       return;
     }
 
+    if (isMiddleClick) {
+      e.preventDefault();
+    }
+
     const container = boardContainerRef.current;
     if (!container) return;
 
-    panStateRef.current = {
+    hideSharedCardTooltip();
+
+    const cRect = container.getBoundingClientRect();
+    const cssScale = container.offsetWidth > 0 ? cRect.width / container.offsetWidth : 1;
+
+    const panState = {
       startX: e.clientX,
       startY: e.clientY,
-      scrollLeft: container.scrollLeft,
+      initialScrollLeft: container.scrollLeft,
+      cssScale: cssScale || 1,
       hasMoved: false,
+      latestX: e.clientX,
+      rafId: null as number | null,
+    };
+
+    const flushPanScroll = () => {
+      panState.rafId = null;
+      if (!panState.hasMoved || !boardContainerRef.current) return;
+      const dx = (panState.latestX - panState.startX) / panState.cssScale;
+      boardContainerRef.current.scrollLeft = panState.initialScrollLeft - dx;
     };
 
     const handlePointerMove = (ev: PointerEvent) => {
-      if (!panStateRef.current || !boardContainerRef.current) return;
-      const dx = ev.clientX - panStateRef.current.startX;
-      const dy = ev.clientY - panStateRef.current.startY;
+      panState.latestX = ev.clientX;
+      const dx = ev.clientX - panState.startX;
+      const dy = ev.clientY - panState.startY;
 
-      if (!panStateRef.current.hasMoved && Math.hypot(dx, dy) > 4) {
-        panStateRef.current.hasMoved = true;
-        setIsPanning(true);
+      if (!panState.hasMoved && Math.hypot(dx, dy) > 4) {
+        panState.hasMoved = true;
+        hideSharedCardTooltip();
+        document.body.dataset.crmInteracting = "true";
         document.body.style.userSelect = "none";
+        document.body.style.cursor = "grabbing";
+        container.setAttribute("data-interacting", "true");
+        container.setAttribute("data-panning", "true");
       }
 
-      if (panStateRef.current.hasMoved) {
-        boardContainerRef.current.scrollLeft = panStateRef.current.scrollLeft - dx;
+      if (panState.hasMoved && panState.rafId === null) {
+        panState.rafId = requestAnimationFrame(flushPanScroll);
       }
     };
 
@@ -445,11 +578,18 @@ export function PipelineBoard({
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
 
-      document.body.style.userSelect = "";
-      setIsPanning(false);
+      if (panState.rafId !== null) {
+        cancelAnimationFrame(panState.rafId);
+        panState.rafId = null;
+      }
 
-      if (panStateRef.current?.hasMoved) {
-        // Suprime clique se foi arrasto de tela
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      delete document.body.dataset.crmInteracting;
+      container.removeAttribute("data-interacting");
+      container.removeAttribute("data-panning");
+
+      if (panState.hasMoved) {
         const suppressClick = (clickEv: MouseEvent) => {
           clickEv.stopImmediatePropagation();
           clickEv.preventDefault();
@@ -457,25 +597,24 @@ export function PipelineBoard({
         };
         window.addEventListener("click", suppressClick, true);
       }
-      panStateRef.current = null;
     };
 
-    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerUp);
-  };
+  }, []);
 
   // Scroll horizontal suave com rodinha do mouse sobre cabeçalhos ou fundo
-  const handleBoardWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+  const handleBoardWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     const cardList = target.closest("[data-column-card-list]");
-    if (cardList && cardList.scrollHeight > cardList.clientHeight) {
+    if (cardList && cardList.scrollHeight > cardList.clientHeight && !e.shiftKey) {
       return; // Permite scroll vertical nativo na lista de cards
     }
     if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && boardContainerRef.current) {
       boardContainerRef.current.scrollLeft += e.deltaY;
     }
-  };
+  }, []);
 
   // Mapa estável de callbacks de carregar mais por etapa (evita novas funções inline a cada render)
   const onLoadMoreMap = useMemo(() => {
@@ -494,9 +633,7 @@ export function PipelineBoard({
         data-board-container="true"
         onPointerDown={handleBoardPointerDown}
         onWheel={handleBoardWheel}
-        className={`flex h-full w-full gap-4 overflow-x-auto overflow-y-hidden pb-3 pt-1 pl-1 pr-5 select-none transition-colors ${
-          isPanning ? "cursor-grabbing" : "cursor-grab"
-        } [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full`}
+        className="flex h-full w-full gap-4 overflow-x-auto overflow-y-hidden pb-3 pt-1 pl-1 pr-5 select-none cursor-grab data-[panning=true]:cursor-grabbing data-[interacting=true]:[&_[data-deal-card]]:pointer-events-none data-[interacting=true]:[&_[data-column-card-list]]:pointer-events-none [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full"
       >
         {sortedStages.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border/80 p-8 text-center">
@@ -524,51 +661,14 @@ export function PipelineBoard({
               onCreateTaskClick={onCreateTaskClick}
               onLoadMore={onLoadMoreMap[stage.id]}
               loadingMore={!!loadingMoreStages?.[stage.id]}
-              draggedDealId={activeDrag?.deal.id}
               onStartCardDrag={handleStartCardDrag}
             />
           ))
         )}
       </div>
 
-      {/* ── DRAG OVERLAY FLUTUANTE EM ALTA DEFINIÇÃO E 120 FPS NATIVO (ZERO RE-RENDERS) ── */}
-      {activeDrag &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            ref={overlayRef}
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              width: `${activeDrag.cardWidth}px`,
-              height: `${activeDrag.cardHeight}px`,
-              transform: `translate3d(${activeDrag.initialX}px, ${activeDrag.initialY}px, 0) rotate(1.8deg) scale(1.02)`,
-              zIndex: 999999,
-              pointerEvents: "none",
-              willChange: "transform",
-            }}
-            className="select-none shadow-2xl shadow-black/90 ring-2 ring-primary border border-primary/90 rounded-xl bg-card overflow-hidden"
-          >
-            <DealCard
-              deal={activeDrag.deal}
-              coolingDays={
-                stageSettings?.[activeDrag.deal.stageId]?.coolingDays ??
-                pipeline.coolingDays ??
-                10
-              }
-              coolingEnabled={stageSettings?.[activeDrag.deal.stageId]?.coolingEnabled ?? true}
-              operatorName={
-                activeDrag.deal.operatorId || activeDrag.deal.ownerId
-                  ? operatorsMap.get((activeDrag.deal.operatorId || activeDrag.deal.ownerId)!)
-                  : undefined
-              }
-              allStages={allStages}
-              isOverlay={true}
-            />
-          </div>,
-          document.body
-        )}
+      {/* ── DRAG OVERLAY FLUTUANTE ISOLADO EM 120 FPS (ZERO RE-RENDERS DO QUADRO) ── */}
+      <DragOverlayPortal ref={dragOverlayRef} />
 
       {/* Confirmação explícita de Ganho / Perda em Etapas Terminais */}
       {terminalConfirm && (
@@ -592,4 +692,4 @@ export function PipelineBoard({
       )}
     </>
   );
-}
+});
