@@ -22,6 +22,10 @@ import { SdrFilterState, DEFAULT_SDR_FILTER_STATE } from "./sdr-kanban-data";
 import type { IndustrialMonitoring } from "@/lib/triage/industrial-monitor";
 import type { AgentMonitoringSummary } from "@/lib/triage/agent-monitor-store";
 import { IndustrialMonitoringPanel } from "./IndustrialMonitoringPanel";
+import {
+  computeIndustrialTriageProgress,
+  getAdaptiveIndustrialCollectedData,
+} from "@/lib/triage/industrial-policy";
 
 export interface SdrTriageMessage {
   id?: string;
@@ -44,7 +48,23 @@ export interface SdrPreviousTriage {
   completedAt: string;
   outcome?: string;
   targetFunnel?: string;
+  subflow?: string;
+  company?: string;
+  document?: string;
+  clientName?: string;
+  interest?: string;
   responsibleName?: string;
+}
+
+export interface SdrKnownClient {
+  companyName: string;
+  document?: string | null;
+  contactName?: string | null;
+  accountId?: string | null;
+  lastSector?: string | null;
+  lastInterest?: string | null;
+  source?: string;
+  confirmed?: boolean;
 }
 
 export interface SdrTriageSession {
@@ -64,8 +84,16 @@ export interface SdrTriageSession {
   outcome?: string;
   responsibleName?: string;
   monitoring?: IndustrialMonitoring;
+  subflow?: string;
   funnelStage?: string;
   targetFunnel?: string;
+  triageProgress?: {
+    filledCount: number;
+    totalCount: number;
+    percentage: number;
+    targetFields: string[];
+  };
+  knownClient?: SdrKnownClient | null;
   linkedDeal?: {
     dealId: string;
     dealTitle: string;
@@ -439,9 +467,69 @@ function normalizeKey(key: string, tenantId: string = "valem"): string {
   return key.trim().toUpperCase();
 }
 
-function getMergedCollectedData(rawCollected: Record<string, any> = {}, tenantId: string = "valem") {
+function getMergedCollectedData(
+  rawCollected: Record<string, any> = {},
+  tenantId: string = "valem",
+  session?: Partial<SdrTriageSession> | null,
+) {
+  if (tenantId === "tecfag") {
+    const canonicalRaw: Record<string, { value?: string; status?: string }> = {};
+    for (const [rawKey, rawVal] of Object.entries(rawCollected || {})) {
+      if (!rawVal) continue;
+      if (rawKey.startsWith("_")) {
+        canonicalRaw[rawKey] =
+          typeof rawVal === "string" ? { value: rawVal, status: "filled" } : rawVal;
+        continue;
+      }
+      const textVal = typeof rawVal === "string" ? rawVal : rawVal.value;
+      const isFilled =
+        typeof rawVal === "object" && rawVal.status === "filled"
+          ? true
+          : Boolean(
+              textVal &&
+                String(textVal).trim() !== "" &&
+                String(textVal) !== "Aguardando..." &&
+                !String(textVal).toLowerCase().includes("mantem"),
+            );
+      if (isFilled && textVal) {
+        const canonicalKey = normalizeKey(rawKey, "tecfag");
+        canonicalRaw[canonicalKey] = {
+          value: String(textVal).trim(),
+          status: "filled",
+        };
+      }
+    }
+
+    const isCompleted =
+      session?.status === "completed" ||
+      session?.outcome === "completed" ||
+      session?.outcome === "transferred";
+
+    const adaptive = getAdaptiveIndustrialCollectedData({
+      subflow: session?.subflow || null,
+      funnelStage: session?.funnelStage || null,
+      targetFunnel: session?.targetFunnel || null,
+      collectedData: canonicalRaw,
+      company:
+        session?.company && session.company !== "Empresa não informada"
+          ? session.company
+          : session?.knownClient?.companyName || null,
+      document: session?.knownClient?.document || null,
+      isCompleted,
+    });
+
+    const result: Record<string, { value: string; status: "filled" | "pending" }> = {};
+    for (const [k, entry] of Object.entries(adaptive)) {
+      result[k] = {
+        value: entry?.value || "Aguardando...",
+        status: entry?.status === "filled" ? "filled" : "pending",
+      };
+    }
+    return result;
+  }
+
   const merged: Record<string, { value: string; status: "filled" | "pending" }> = {};
-  const targetFields = tenantId === "tecfag" ? TECFAG_SDR_FIELDS : VALEM_SDR_FIELDS;
+  const targetFields = VALEM_SDR_FIELDS;
 
   for (const field of targetFields) {
     merged[field] = {
@@ -895,8 +983,11 @@ export function SdrTab({
               monitoring: s.monitoring,
               previousTriages: Array.isArray(s.previousTriages) ? s.previousTriages : [],
               messages: s.messages || [],
+              ...(s.subflow ? { subflow: s.subflow } : {}),
               ...(s.funnelStage ? { funnelStage: s.funnelStage } : {}),
               ...(s.targetFunnel ? { targetFunnel: s.targetFunnel } : {}),
+              ...(s.triageProgress ? { triageProgress: s.triageProgress } : {}),
+              ...(s.knownClient ? { knownClient: s.knownClient } : {}),
               ...(s.linkedDeal ? { linkedDeal: s.linkedDeal } : {}),
               ...(s.unreadCount !== undefined ? { unreadCount: s.unreadCount } : {}),
               ...(s.channel ? { channel: s.channel === "livechat" ? "site" : s.channel } : {}),
@@ -966,6 +1057,67 @@ export function SdrTab({
       toast.error("Erro de comunicação com o servidor.");
     } finally {
       setIsSavingConfig(false);
+    }
+  };
+
+  const [isLinkingKnownClient, setIsLinkingKnownClient] = useState(false);
+
+  const handleLinkKnownClient = async () => {
+    if (!selectedSession) return;
+    setIsLinkingKnownClient(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/valentina/sdr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "link_known_client",
+          conversationId: selectedSession.conversationId,
+          companyName:
+            selectedSession.knownClient?.companyName ||
+            (selectedSession.company !== "Empresa não informada" ? selectedSession.company : undefined),
+          document: selectedSession.knownClient?.document || undefined,
+          contactName: selectedSession.knownClient?.contactName || selectedSession.contactName || undefined,
+          accountId: selectedSession.knownClient?.accountId || undefined,
+        }),
+      });
+      if (res.ok) {
+        const payload = await res.json();
+        toast.success(
+          `Cadastro vinculado com sucesso: ${payload.knownClient?.companyName || selectedSession.company}!`,
+        );
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === selectedSession.id
+              ? {
+                  ...s,
+                  company: payload.knownClient?.companyName || s.company,
+                  collectedData: payload.collectedData || s.collectedData,
+                  knownClient: payload.knownClient || s.knownClient,
+                  triageProgress: payload.triageProgress || s.triageProgress,
+                }
+              : s,
+          ),
+        );
+        setSelectedSession((prev) =>
+          prev
+            ? {
+                ...prev,
+                company: payload.knownClient?.companyName || prev.company,
+                collectedData: payload.collectedData || prev.collectedData,
+                knownClient: payload.knownClient || prev.knownClient,
+                triageProgress: payload.triageProgress || prev.triageProgress,
+              }
+            : null,
+        );
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || "Não foi possível vincular o cadastro deste cliente.");
+      }
+    } catch (e) {
+      console.error("Erro ao vincular cliente recorrente:", e);
+      toast.error("Erro de conexão ao vincular cadastro.");
+    } finally {
+      setIsLinkingKnownClient(false);
     }
   };
 
@@ -1403,11 +1555,17 @@ export function SdrTab({
               ) : (
                 filteredSessions.map((session) => {
                   const isSelected = selectedSession?.id === session.id;
-                  const mergedData = getMergedCollectedData(session.collectedData, tenant || "valem");
+                  const mergedData = getMergedCollectedData(session.collectedData, tenant || "valem", session);
                   const completedCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
                   const totalCount = Object.keys(mergedData).length;
-                  const progressPct = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
-                  const hasPreviousCycles = (session.previousTriages?.length || 0) > 0;
+                  const progressPct =
+                    session.triageProgress?.percentage ??
+                    (session.status === "completed" || session.outcome === "completed" || session.outcome === "transferred"
+                      ? 100
+                      : totalCount > 0
+                        ? (completedCount / totalCount) * 100
+                        : 0);
+                  const hasPreviousCycles = (session.previousTriages?.length || 0) > 0 || Boolean(session.knownClient?.companyName);
 
                   return (
                     <button
@@ -1911,9 +2069,27 @@ export function SdrTab({
             >
               {selectedSession ? (
                 (() => {
-                  const mergedData = getMergedCollectedData(selectedSession.collectedData, tenant || "valem");
+                  const mergedData = getMergedCollectedData(
+                    selectedSession.collectedData,
+                    tenant || "valem",
+                    selectedSession,
+                  );
                   const filledCount = Object.values(mergedData).filter((d) => d.status === "filled").length;
                   const totalCount = Object.keys(mergedData).length;
+                  const knownCompany =
+                    selectedSession.knownClient?.companyName ||
+                    selectedSession.previousTriages?.find((p) => p.company)?.company ||
+                    (selectedSession.company && selectedSession.company !== "Empresa não informada"
+                      ? selectedSession.company
+                      : null);
+                  const knownDoc =
+                    selectedSession.knownClient?.document ||
+                    selectedSession.previousTriages?.find((p) => p.document)?.document ||
+                    null;
+                  const isKnownConfirmed =
+                    Boolean(selectedSession.knownClient?.confirmed) ||
+                    (mergedData["EMPRESA"]?.status === "filled" &&
+                      (!mergedData["CNPJ OU CPF"] || mergedData["CNPJ OU CPF"]?.status === "filled"));
 
                   return (
                     <>
@@ -1925,6 +2101,7 @@ export function SdrTab({
                           </h3>
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             {filledCount} de {totalCount} campos
+                            {selectedSession.targetFunnel ? ` · ${selectedSession.targetFunnel}` : ""}
                           </p>
                         </div>
 
@@ -2059,6 +2236,38 @@ export function SdrTab({
                       </div>
 
                       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
+                        {tenant === "tecfag" && knownCompany && (
+                          <div className="rounded-xl border border-primary/25 bg-primary-soft/40 p-2.5 space-y-1.5">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="text-[9px] font-extrabold uppercase tracking-wide text-primary flex items-center gap-1">
+                                <RefreshCw className="h-2.5 w-2.5" />
+                                Cliente Recorrente na Base
+                              </span>
+                              {isKnownConfirmed ? (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                  Vinculado
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={handleLinkKnownClient}
+                                  disabled={isLinkingKnownClient}
+                                  className="text-[9px] font-extrabold px-2 py-0.5 rounded-md bg-primary text-primary-foreground hover:bg-primary-hover transition cursor-pointer disabled:opacity-50"
+                                >
+                                  {isLinkingKnownClient ? "Vinculando..." : "Vincular Triagem"}
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-[11px] font-extrabold text-foreground truncate" title={knownCompany}>
+                              {knownCompany}
+                            </p>
+                            {knownDoc && (
+                              <p className="text-[9px] text-muted-foreground font-mono">
+                                Doc: {knownDoc}
+                              </p>
+                            )}
+                          </div>
+                        )}
                         {Object.entries(mergedData).map(([key, data]) => (
                           <div
                             key={key}

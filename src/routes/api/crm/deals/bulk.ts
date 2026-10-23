@@ -1,3 +1,4 @@
+import { requireCrmTransitionAccess } from "../../../../lib/access-control/crm-record-access";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
@@ -29,9 +30,11 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
           const tenantId = session.tenantId;
 
           const body = await request.json();
+          const transitionDenied = await requireCrmTransitionAccess(session, body);
+          if (transitionDenied) return transitionDenied;
 
           if (body.action === "export") {
-            const permError = requireCrmPermission(session, "canViewCrm");
+            const permError = requireCrmPermission(session, "canExportDeals") || requireCrmPermission(session, "canViewCrm");
             if (permError) return permError;
 
             const format = body.format === "xlsx" ? "xlsx" : "csv";
@@ -41,6 +44,7 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
               allFiltered: body.allFiltered,
               filterParams: body.filterParams,
               format,
+              authorizedOperatorId: session.operator.role !== "admin" && !session.permissions?.crm?.canViewAllDeals ? session.operator.id : undefined,
             });
 
             await db.insert(crmActionHistory).values({
@@ -75,8 +79,12 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
             );
           }
 
-          const permError = requireCrmPermission(session, "canEditDeals");
+          const deleting = body.action === "delete_trash" || body.action === "delete_permanent";
+          const permError = requireCrmPermission(session, deleting ? "canDeleteDeals" : "canEditDeals");
           if (permError) return permError;
+          if (body.stageId || body.pipelineId) { const denied = requireCrmPermission(session, "canMoveStages"); if (denied) return denied; }
+          if (body.status === "won" || body.status === "lost") { const denied = requireCrmPermission(session, "canCloseDeals"); if (denied) return denied; }
+          if (body.action === "create_deals_for_companies") { const denied = requireCrmPermission(session, "canCreateDeals"); if (denied) return denied; }
 
           if (!body.allFiltered && (!body.dealIds || !Array.isArray(body.dealIds) || body.dealIds.length === 0)) {
             return new Response(
@@ -100,7 +108,7 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
             productId: body.productId,
             action: body.action,
             taskData: body.taskData,
-          }, session.operator.name);
+          }, session.operator.name, session.operator.role !== "admin" && !session.permissions?.crm?.canViewAllDeals ? session.operator.id : undefined);
 
           return new Response(JSON.stringify(result), {
             status: 200,

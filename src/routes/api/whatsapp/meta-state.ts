@@ -6,6 +6,7 @@ import { requireSession } from "../../../lib/auth-session";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { getMetaServiceWindow } from "../../../lib/whatsapp/meta-policy";
 import { listMetaTemplateGroups } from "../../../lib/whatsapp/meta-templates";
+import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 
 export const Route = createFileRoute("/api/whatsapp/meta-state")({
   server: {
@@ -20,6 +21,8 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
         if (conversationId === "valentina") {
           return Response.json({ activeProvider: "internal", window: null });
         }
+        const denied = await requireConversationAccess(auth.session, conversationId);
+        if (denied) return denied;
 
         const [conversation] = await db.select({ id: conversations.id }).from(conversations).where(and(
           eq(conversations.id, conversationId),

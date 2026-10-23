@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
+import { conversationReadCondition, requireConversationAccess } from "../../../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,7 +30,7 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId/conversations
           if (permError) return permError;
 
           const { accountId } = params as any;
-          const conversations = await crmService.getAccountConversations(tenantId, accountId);
+          const conversations = await crmService.getAccountConversations(tenantId, accountId, conversationReadCondition(session));
 
           return new Response(JSON.stringify({ conversations }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -64,6 +65,8 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId/conversations
             );
           }
 
+          const denied = await requireConversationAccess(session, body.conversationId);
+          if (denied) return denied;
           const link = await crmService.linkAccountConversation(
             tenantId,
             accountId,
@@ -108,6 +111,8 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId/conversations
             );
           }
 
+          const denied = await requireConversationAccess(session, conversationId);
+          if (denied) return denied;
           const result = await crmService.unlinkAccountConversation(tenantId, accountId, conversationId);
 
           return new Response(JSON.stringify(result), {

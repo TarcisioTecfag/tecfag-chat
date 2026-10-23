@@ -225,6 +225,7 @@ function wsHarness(industrial = true) {
     "./livechatDebouncer": { LiveChatDebouncer: { getInstance: () => ({ clearSession() {} }) } },
     "./livechatDocumentReader": {},
     "../auth-session": {},
+    "../access-control/channel-permissions": { canMonitorAllSiteVisitors: () => true },
     "../ai-persona": { isSdrTenant: () => true },
     "./site-gateway": { siteGateway: { register: () => () => {} } },
     "./site-channel-policy": channelPolicy,

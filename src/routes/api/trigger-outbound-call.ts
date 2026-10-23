@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireSession, requirePermission } from "../../lib/auth-session";
 import { triggerOutboundCallInternal } from "../../lib/voice/outbound-call-service";
 
 const corsHeaders = {
@@ -21,21 +22,24 @@ export const Route = createFileRoute("/api/trigger-outbound-call")({
 
       POST: async ({ request }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+          const denied = requirePermission(session, (p) => p.views?.ligacoes === true && p.ligacoes?.canTriggerTestCall === true);
+          if (denied) return denied;
           const body = await request.json().catch(() => ({}));
 
-          if (!body.tenantId) {
-            return jsonResponse({ error: "tenantId é obrigatório" }, 400);
-          }
           if (!body.phone) {
             return jsonResponse({ error: "phone é obrigatório" }, 400);
           }
 
           const result = await triggerOutboundCallInternal({
+            tenantId,
             phone: body.phone,
-            fromPhone: body.fromPhone,
-            accountSid: body.accountSid,
-            authToken: body.authToken,
-            twimlUrl: body.twimlUrl,
+            fromPhone: session.operator.role === "admin" ? body.fromPhone : undefined,
+            accountSid: session.operator.role === "admin" ? body.accountSid : undefined,
+            authToken: session.operator.role === "admin" ? body.authToken : undefined,
           });
 
           if (!result.success) {

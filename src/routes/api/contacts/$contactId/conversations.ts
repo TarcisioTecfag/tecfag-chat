@@ -13,6 +13,8 @@ import {
 } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
 import { buildPhoneSearchTerms } from "../../../../lib/utils";
+import { conversationReadCondition } from "../../../../lib/access-control/conversation-access";
+import { canReadConversation } from "../../../../lib/access-control/conversation-policy";
 
 export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
   server: {
@@ -22,7 +24,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
-        if (session.operator.role !== "admin" && !session.permissions?.views?.chat) {
+        if (session.permissions?.views?.chat !== true) {
           return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
         }
         const contactId = params.contactId;
@@ -38,7 +40,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
           const [channel] = await db.select({ activeProvider: channelConfigs.activeProvider })
             .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId)).limit(1);
           const requiresExplicitCapture = channel?.activeProvider === "meta";
-          const canCapture = session.operator.role === "admin" || session.permissions?.chat?.canCaptureChat !== false;
+          const canCapture = session.permissions?.chat?.canCaptureChat === true;
 
           const result = await db.transaction(async (tx) => {
             await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId}))`);
@@ -46,6 +48,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               id: contacts.id,
               walletOperatorId: contacts.walletOperatorId,
               phone: contacts.phone,
+              mainChannel: contacts.mainChannel,
             })
               .from(contacts)
               .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)))
@@ -116,6 +119,12 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               }
             }
 
+            if (targetConv) {
+              const [visible] = await tx.select({ id: conversations.id }).from(conversations).where(and(
+                eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId), conversationReadCondition(session),
+              )).limit(1);
+              if (!visible) return { forbidden: true } as const;
+            }
             const actualContactId = targetConv?.contactId || contactId;
             if (requestedDealId || body?.newDeal) await registerContactDeal(tx, session, actualContactId, null, body);
             if (targetConv && !await syncConversationWithDeals(targetConv.id, actualContactId)) {
@@ -174,7 +183,11 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               return { conversationId: targetConv.id, created: false, readOnly: false, queueState: "meus" };
             }
 
-            const assignNewConv = !requiresExplicitCapture || (autoCapture && canCapture);
+            const assignNewConv = canCapture && (!requiresExplicitCapture || autoCapture);
+            if (!canReadConversation(session, { tenantId, operatorId: assignNewConv ? session.operator.id : null,
+              queueState: assignNewConv ? "meus" : "fila", mainChannel: contact.mainChannel })) {
+              throw Object.assign(new Error("Permissão insuficiente para iniciar este atendimento."), { statusCode: 403 });
+            }
             const conversationId = `conv-${crypto.randomUUID()}`;
             await tx.insert(conversations).values({
               id: conversationId,

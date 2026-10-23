@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { operators, conversations, contacts, messages } from "../../../db/schema";
 import { eq, and, ne, desc, inArray, gte } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,7 +22,7 @@ export const Route = createFileRoute("/api/gestao/live")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        if (session.permissions?.views?.monitor !== true || session.permissions?.monitor?.canAccessLive !== true) {
           return new Response(
             JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem visualizar o painel ao vivo.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -59,6 +60,7 @@ export const Route = createFileRoute("/api/gestao/live")({
           // 3. Buscar TODAS as conversas ativas (não finalizadas) do tenant
           const baseWhere = and(
             eq(conversations.tenantId, tenantId),
+            conversationReadCondition(session),
             ne(conversations.queueState, "finalizados"),
             ...(dateCondition ? [dateCondition] : [])
           );
@@ -76,7 +78,7 @@ export const Route = createFileRoute("/api/gestao/live")({
               lastMessageText: conversations.lastMessageText,
             })
             .from(conversations)
-            .leftJoin(contacts, eq(conversations.contactId, contacts.id))
+            .leftJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
             .where(baseWhere)
             .orderBy(desc(conversations.lastMessageTime));
 

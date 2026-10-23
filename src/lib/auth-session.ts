@@ -2,8 +2,9 @@ import { db } from "../db/index.js";
 import { authSessions, operators, accessGroups } from "../db/schema.js";
 import { eq, and, gt, isNull } from "drizzle-orm";
 import { generateSessionToken, hashSessionToken } from "./auth-crypto.js";
-import { DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "./rbac.js";
+import { normalizeGroupPermissions } from "./rbac.js";
 import { getAvailableTenants } from "./platform-access.js";
+import { effectiveLegacyGroup } from "./access-control/legacy-session-group";
 
 export const SESSION_COOKIE_NAME = "session_token";
 export const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
@@ -173,24 +174,7 @@ export async function getAuthSessionByToken(token: string): Promise<AuthSessionC
   ]);
   if (!availableTenants.includes(sessionRow.tenantId)) return null;
 
-  const defaultAdmin = {
-    id: "group-admin",
-    name: "Administrador",
-    tenantId: sessionRow.tenantId,
-    allowedTenants: [sessionRow.tenantId],
-    allowedChannels: ["whatsapp", "instagram", "messenger", "livechat"],
-    canCreateUser: true,
-    canResetPassword: true,
-    canEditProfile: true,
-    canCaptureChat: true,
-    canTransferChat: true,
-    canFinishChat: true,
-    canViewAllChats: true,
-    canOverrideChat: true,
-    permissions: DEFAULT_ADMIN_PERMISSIONS,
-  };
-
-  const currentGroup = groupRow || defaultAdmin;
+  const currentGroup = effectiveLegacyGroup(groupRow, operatorRow.role, sessionRow.tenantId);
   const permissions = normalizeGroupPermissions(currentGroup);
 
   return {

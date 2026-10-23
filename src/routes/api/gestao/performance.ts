@@ -6,8 +6,9 @@ import {
   sectors,
   contacts
 } from "../../../db/schema";
-import { eq, and, gte, lte, isNotNull, count, avg } from "drizzle-orm";
+import { eq, and, exists, gte, lte, isNotNull, count, avg } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,12 +27,13 @@ export const Route = createFileRoute("/api/gestao/performance")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        if (session.permissions?.views?.analytics !== true || session.permissions?.analytics?.canAccessPerformance !== true) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem acessar métricas de performance.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para acessar métricas de performance.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+        const readScope = conversationReadCondition(session);
 
         const url = new URL(request.url);
         const queryTenantId = url.searchParams.get("tenantId");
@@ -71,6 +73,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                   .where(
                     and(
                       eq(conversations.tenantId, tenantId),
+                      readScope,
                       gte(conversations.createdAt, day.start),
                       lte(conversations.createdAt, day.end)
                     )
@@ -81,6 +84,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                   .where(
                     and(
                       eq(conversations.tenantId, tenantId),
+                      readScope,
                       eq(conversations.queueState, "finalizados"),
                       gte(conversations.lastMessageTime, day.start),
                       lte(conversations.lastMessageTime, day.end)
@@ -89,9 +93,11 @@ export const Route = createFileRoute("/api/gestao/performance")({
                 db
                   .select({ isOverdue: responseTimeLogs.isOverdue })
                   .from(responseTimeLogs)
+                  .innerJoin(conversations, and(eq(conversations.id, responseTimeLogs.conversationId), eq(conversations.tenantId, tenantId)))
                   .where(
                     and(
                       eq(responseTimeLogs.tenantId, tenantId),
+                      readScope,
                       gte(responseTimeLogs.createdAt, day.start),
                       lte(responseTimeLogs.createdAt, day.end)
                     )
@@ -118,12 +124,21 @@ export const Route = createFileRoute("/api/gestao/performance")({
           const allContacts = await db
             .select({ mainChannel: contacts.mainChannel })
             .from(contacts)
-            .where(eq(contacts.tenantId, tenantId));
+            .where(and(
+              eq(contacts.tenantId, tenantId),
+              exists(
+                db.select({ id: conversations.id }).from(conversations).where(and(
+                  eq(conversations.contactId, contacts.id),
+                  eq(conversations.tenantId, tenantId),
+                  readScope,
+                ))
+              ),
+            ));
 
           const [totalConvsRes] = await db
             .select({ count: count() })
             .from(conversations)
-            .where(eq(conversations.tenantId, tenantId));
+            .where(and(eq(conversations.tenantId, tenantId), readScope));
 
           const totalConvs = Number(totalConvsRes?.count ?? 0);
 
@@ -169,6 +184,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                     .where(
                       and(
                         eq(conversations.tenantId, tenantId),
+                        readScope,
                         eq(conversations.sectorId, sec.id),
                         eq(conversations.queueState, "finalizados")
                       )
@@ -179,10 +195,11 @@ export const Route = createFileRoute("/api/gestao/performance")({
                       isOverdue: responseTimeLogs.isOverdue,
                     })
                     .from(responseTimeLogs)
-                    .innerJoin(conversations, eq(responseTimeLogs.conversationId, conversations.id))
+                    .innerJoin(conversations, and(eq(responseTimeLogs.conversationId, conversations.id), eq(conversations.tenantId, tenantId)))
                     .where(
                       and(
                         eq(responseTimeLogs.tenantId, tenantId),
+                        readScope,
                         eq(conversations.sectorId, sec.id),
                         isNotNull(responseTimeLogs.responseTimeSeconds)
                       )
@@ -218,6 +235,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                   .where(
                     and(
                       eq(conversations.tenantId, tenantId),
+                      readScope,
                       eq(conversations.queueState, "finalizados")
                     )
                   );

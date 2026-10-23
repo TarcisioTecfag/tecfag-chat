@@ -1,3 +1,4 @@
+import { requireCrmDealAccess } from "../../../../../lib/access-control/crm-record-access";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
@@ -24,6 +25,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
 
           const permError = requireCrmPermission(session, "canViewCrm");
           if (permError) return permError;
@@ -62,6 +65,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
 
           const permError = requireCrmPermission(session, "canEditDeals");
           if (permError) return permError;

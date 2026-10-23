@@ -2,6 +2,8 @@ import webpush from "web-push";
 import { db } from "@/db";
 import { pushSubscriptions } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
+import { loadOperatorAccess } from "./access-control/operator-context";
+import { requireConversationAccess } from "./access-control/conversation-access";
 
 function sanitizeUrlSafeBase64(val: string): string {
   return val.trim().replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -55,12 +57,14 @@ export async function sendPushToOperator(
   operatorId: string,
   payload: PushNotificationPayload
 ) {
-  if (!tenantId || !operatorId) {
+  if (!tenantId || !operatorId || payload.tenantId !== tenantId || !payload.conversationId) {
     console.warn("[Push] TenantId e OperatorId são obrigatórios.");
     return { success: false, sentCount: 0 };
   }
 
   try {
+    const principal = await loadOperatorAccess(tenantId, operatorId);
+    if (!principal || await requireConversationAccess(principal, payload.conversationId)) return { success: false, sentCount: 0 };
     // Buscar assinaturas ativas do operador filtradas estritamente pelo tenant
     const subscriptions = await db
       .select()

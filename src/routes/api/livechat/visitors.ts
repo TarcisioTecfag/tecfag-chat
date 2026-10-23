@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getActiveVisitors } from "@/lib/livechat/livechatStorage";
 import { requireSession } from "@/lib/auth-session";
+import { canMonitorAllSiteVisitors } from "@/lib/access-control/channel-permissions";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,7 @@ export const Route = createFileRoute("/api/livechat/visitors")({
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
+        if (!canMonitorAllSiteVisitors(session)) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
 
         try {
           const visitors = await getActiveVisitors(tenantId);

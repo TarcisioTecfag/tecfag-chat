@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../../db";
 import { messages, conversations } from "../../../../db/schema";
-import { eq, and, desc, lt } from "drizzle-orm";
+import { eq, and, desc, lt, exists } from "drizzle-orm";
+import { conversationReadCondition, requireConversationAccess } from "../../../../lib/access-control/conversation-access";
 import { requireSession } from "../../../../lib/auth-session";
 import { readReactions } from "../../../../lib/whatsapp/meta-reactions";
 
@@ -17,6 +18,8 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
           const session = auth.session;
 
           const { chatId } = params as { chatId: string };
+          const denied = await requireConversationAccess(session, chatId);
+          if (denied) return denied;
           const url = new URL(request.url);
 
           const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10), 1), 100);
@@ -44,6 +47,9 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
           const conditions = [
             eq(messages.tenantId, session.tenantId),
             eq(messages.conversationId, chatId),
+            exists(db.select({ id: conversations.id }).from(conversations).where(and(
+              eq(conversations.id, messages.conversationId), eq(conversations.tenantId, session.tenantId), conversationReadCondition(session),
+            ))),
           ];
 
           if (beforeStr) {
@@ -95,7 +101,7 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
             }),
             {
               status: 200,
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
             }
           );
         } catch (err: any) {

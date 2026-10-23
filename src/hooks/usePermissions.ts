@@ -4,6 +4,7 @@
 
 import { useMemo } from "react";
 import { useChat } from "./useChatState";
+import { canMonitorAllSiteVisitors } from "@/lib/access-control/channel-permissions";
 import {
   GroupPermissions,
   ViewId,
@@ -16,79 +17,20 @@ import {
 } from "@/lib/rbac";
 
 export function usePermissions() {
-  const { currentGroup, operatorProfile, tenant, sessionPermissions, sessionRole, isCommercialConsultant } = useChat();
+  const { currentGroup, tenant, sessionPermissions, sessionRole, isCommercialConsultant, currentOperatorId } = useChat();
 
-  // Proteção Master: Dono da conta / Suporte Tecfag nunca pode ser trancado fora das telas de gestão
-  const isMasterAccount = Boolean(
-    operatorProfile?.email?.toLowerCase() === "suporte2@tecfag.com.br" ||
-    operatorProfile?.email?.toLowerCase().includes("admin@") ||
-    operatorProfile?.name?.toLowerCase().includes("tarcisio")
-  );
-
+  // Session permissions are the authority; editable names/emails never grant access.
   const permissions: GroupPermissions = useMemo(() => {
     const sessionBased = sessionPermissions ?? normalizeGroupPermissions(currentGroup);
-    const norm = sessionRole === "admin"
-      ? {
-          ...sessionBased,
-          chat: {
-            ...sessionBased.chat,
-            canCaptureChat: true,
-            canOverrideChat: true,
-            canTransferChat: true,
-            canFinishChat: true,
-            canSendInternalNotes: true,
-          },
-        }
-      : sessionBased;
-    if (isMasterAccount) {
-      return {
-        ...norm,
-        views: {
-          ...norm.views,
-          chat: true,
-          commercialHome: true,
-          commercialManagement: true,
-          commercialBi: true,
-          crm: true,
-          tasks: true,
-          contacts: true,
-          wallet: true,
-          valentina: true,
-          ligacoes: true,
-          monitor: true,
-          analytics: true,
-          groups: true,
-          settings: true,
-        },
-        security: {
-          ...norm.security,
-          canManageUsers: true,
-          canResetUserPasswords: true,
-          canImpersonateUsers: true,
-          canManageAccessGroups: true,
-          canManageSectors: true,
-          canManageWallets: true,
-          canManageGlobalTemplates: true,
-        },
-        settings: {
-          ...norm.settings,
-          canManageWhatsapp: true,
-          canManageVoiceSettings: true,
-          canManageRdCrmSettings: true,
-          canManageEmailSmtp: true,
-          canManageLiveChatSettings: true,
-        },
-      };
-    }
-    return norm;
-  }, [currentGroup, isMasterAccount, sessionPermissions, sessionRole]);
+    return sessionBased;
+  }, [currentGroup, sessionPermissions, sessionRole]);
 
   // Checagem de Módulos (Menu Lateral)
   const canAccessView = (viewId: ViewId): boolean => {
     if (viewId === "commercialHome") {
-      return tenant === "tecfag" && Boolean(isCommercialConsultant);
+      return tenant === "tecfag" && Boolean(isCommercialConsultant) && permissions.views.commercialHome;
     }
-    if (!permissions?.views) return true;
+    if (!permissions?.views) return false;
     return !!permissions.views[viewId];
   };
 
@@ -120,7 +62,7 @@ export function usePermissions() {
       case "operators": return m.canAccessRanking;
       case "audits": return m.canAccessAudits;
       case "tasks": return m.canAccessTeamTasks;
-      case "site": return m.canAccessSiteVisitors;
+      case "site": return canMonitorAllSiteVisitors({ tenantId: tenant ?? "", operator: { id: currentOperatorId }, accessGroup: currentGroup, permissions });
       default: return true;
     }
   };
@@ -166,7 +108,7 @@ export function usePermissions() {
       case "dashboard": return l.canAccessDashboard;
       case "agenda": return l.canAccessAgenda;
       case "historico": return l.canAccessHistory;
-      case "clientes": return true;
+      case "clientes": return l.canAccessClients !== false;
       case "campanhas": return l.canManageCampaigns;
       case "objetivos": return l.canManageObjectives;
       default: return true;

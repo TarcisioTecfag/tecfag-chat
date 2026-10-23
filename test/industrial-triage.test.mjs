@@ -11,7 +11,18 @@ import {
   hasPendingTriageQuestion,
   isEligibleIndustrialOperator,
   requestsHuman,
+  requestsGenericHuman,
+  isPastPersonReference,
+  resolveDirectOperatorRequest,
+  getIndustrialTargetFields,
+  getAdaptiveIndustrialCollectedData,
+  computeIndustrialTriageProgress,
 } from "../src/lib/triage/industrial-policy.ts";
+import {
+  evaluateKnownCompanyConfirmation,
+  applyKnownClientConfirmationToData,
+  buildKnownClientPromptDirective,
+} from "../src/lib/triage/known-client-lookup.ts";
 import {
   executeIndustrialHandoff,
   industrialHandoffOutcome,
@@ -466,3 +477,306 @@ describe("equipes autorizadas e comunicação de pendências", () => {
     assert.deepEqual(messages, ["Pode me informar seu nome?"]);
   });
 });
+
+describe("transferência direta nominal por contexto (directOperatorRequest)", () => {
+  const systemOperators = [
+    {
+      id: "op-jhordan",
+      name: "Jhordan Silva",
+      role: "operator",
+      status: "online",
+      isOnLeave: false,
+      funnels: ["Máquinas"],
+    },
+    {
+      id: "op-jessica-ausente",
+      name: "Jessica Oliveira",
+      role: "operator",
+      status: "ausente",
+      isOnLeave: true,
+      funnels: ["Peças"],
+    },
+    {
+      id: "op-joao-1",
+      name: "João Pedro",
+      role: "operator",
+      status: "online",
+      isOnLeave: false,
+      funnels: ["Máquinas"],
+    },
+    {
+      id: "op-joao-2",
+      name: "João Marcos",
+      role: "operator",
+      status: "online",
+      isOnLeave: false,
+      funnels: ["Assistência Técnica"],
+    },
+  ];
+
+  it("cruza nome citado com operadores do sistema e pula todas as etapas da triagem quando direct_transfer", () => {
+    const parsed = parseIndustrialAiResult({
+      messagesToSend: ["Perfeito! Já estou te encaminhando para o Jhordan."],
+      isCompleted: true,
+      directOperatorRequest: {
+        intent: "direct_transfer",
+        citedName: "Jhordan",
+        matchedOperatorId: "op-jhordan",
+        matchedOperatorName: "Jhordan Silva",
+      },
+    });
+    const resolved = resolveDirectOperatorRequest(parsed?.directOperatorRequest, systemOperators);
+    assert.equal(resolved.status, "matched");
+    assert.equal(resolved.operator?.id, "op-jhordan");
+    assert.equal(resolved.operator?.isAbsent, false);
+
+    const directRoute = resolveIndustrialRoute({
+      text: "Preciso falar com o Jhordan",
+      collectedData: {},
+      directOperator: resolved,
+    });
+    assert.equal(directRoute.reason, "direct_operator_requested");
+    assert.equal(directRoute.targetOperator?.id, "op-jhordan");
+    assert.equal(directRoute.targetFunnel, "Máquinas");
+    assert.equal(directRoute.needsReview, false);
+
+    const readiness = assessIndustrialReadiness(directRoute, {});
+    assert.equal(readiness.ready, true);
+    assert.deepEqual(readiness.missing, []);
+    assert.equal(
+      canFinishIndustrialTriage({
+        route: directRoute,
+        data: {},
+        isCompleted: true,
+        hasPendingQuestion: false,
+      }),
+      true,
+    );
+  });
+
+  it("diferencia menção histórica (já falei / um dia falei) de pedido atual e não transfere", () => {
+    assert.equal(isPastPersonReference("Já falei com o Jhordan antes sobre uma seladora"), true);
+    assert.equal(isPastPersonReference("Um dia falei com a Jessica ano passado"), true);
+    assert.equal(requestsHuman("Já falei com o Jhordan antes sobre uma seladora"), false);
+    assert.equal(requestsGenericHuman("Preciso falar com o Jhordan"), false);
+    assert.equal(requestsGenericHuman("Quero falar com um atendente humano"), true);
+
+    const resolved = resolveDirectOperatorRequest(
+      {
+        intent: "past_reference_only",
+        citedName: "Jhordan",
+        matchedOperatorId: null,
+        matchedOperatorName: null,
+      },
+      systemOperators,
+    );
+    assert.equal(resolved.status, "past_reference_only");
+
+    const normalRoute = resolveIndustrialRoute({
+      text: "Já falei com o Jhordan semana passada, agora quero cotar uma seladora",
+      collectedData: {},
+      directOperator: resolved,
+    });
+    assert.equal(normalRoute.subflow, "MAQUINAS");
+    assert.notEqual(normalRoute.reason, "direct_operator_requested");
+    assert.notEqual(normalRoute.reason, "human_requested");
+  });
+
+  it("bloqueia transferência quando o nome citado não existe no sistema ou é homônimo ambíguo", () => {
+    const notFound = resolveDirectOperatorRequest(
+      {
+        intent: "direct_transfer",
+        citedName: "Roberto Carlos",
+        matchedOperatorId: null,
+        matchedOperatorName: null,
+      },
+      systemOperators,
+    );
+    assert.equal(notFound.status, "not_found");
+    const routeAfterNotFound = resolveIndustrialRoute({
+      text: "Preciso falar com o Roberto Carlos",
+      collectedData: {},
+      directOperator: notFound,
+    });
+    assert.notEqual(routeAfterNotFound.reason, "direct_operator_requested");
+    assert.notEqual(routeAfterNotFound.reason, "human_requested");
+
+    const homonym = resolveDirectOperatorRequest(
+      {
+        intent: "direct_transfer",
+        citedName: "João",
+        matchedOperatorId: null,
+        matchedOperatorName: null,
+      },
+      systemOperators,
+    );
+    assert.equal(homonym.status, "ambiguous_homonym");
+    assert.equal(homonym.homonyms.length, 2);
+  });
+
+  it("transfere mesmo quando operador está ausente e avisa que está ausente no momento e em breve entrará em contato", () => {
+    const resolved = resolveDirectOperatorRequest(
+      {
+        intent: "direct_transfer",
+        citedName: "Jessica",
+        matchedOperatorId: "op-jessica-ausente",
+        matchedOperatorName: "Jessica Oliveira",
+      },
+      systemOperators,
+    );
+    assert.equal(resolved.status, "matched");
+    assert.equal(resolved.operator?.id, "op-jessica-ausente");
+    assert.equal(resolved.operator?.isAbsent, true);
+
+    const directRoute = resolveIndustrialRoute({
+      text: "Preciso falar com a Jessica",
+      collectedData: {},
+      directOperator: resolved,
+    });
+    const handoffResult = {
+      status: "transferred",
+      operator: {
+        id: "op-jessica-ausente",
+        name: "Jessica Oliveira",
+        isAbsent: true,
+      },
+      deal: null,
+    };
+    const msg = industrialHandoffMessage("transferred", "Jessica Oliveira", {
+      isOperatorAbsent: true,
+    });
+    assert.match(msg || "", /Jessica Oliveira/);
+    assert.match(msg || "", /No momento está ausente/i);
+    assert.match(msg || "", /em breve entrará em contato/i);
+
+    const clientMsgs = industrialClientMessages({
+      result: handoffResult,
+      route: directRoute,
+      data: {},
+      messages: [],
+    });
+    assert.equal(clientMsgs.length, 1);
+    assert.match(clientMsgs[0], /No momento está ausente/i);
+  });
+});
+
+describe("adaptação dinâmica de campos por setor e confirmação de empresa recorrente", () => {
+  it("setor de Peças adapta os campos exibidos (sem Ramo/Volume) e calcula 100% de conclusão", () => {
+    const pecasData = fields({
+      "NOME COMPLETO": "Matheus",
+      "CNPJ OU CPF": "48391558878",
+      "MÁQUINA / PEÇA / INTERESSE": "cabeça de impressão da sua datadora",
+      "SETOR / FUNIL DE DESTINO": "Peças",
+    });
+
+    const targetFields = getIndustrialTargetFields({
+      subflow: "PECAS",
+      funnelStage: "pecas",
+      targetFunnel: "Peças",
+      collectedData: pecasData,
+      company: "TECFAG COMERCIO E IMPORTACAO LTDA",
+      isCompleted: true,
+    });
+
+    assert.equal(targetFields.includes("RAMO / O QUE EMBALA"), false);
+    assert.equal(targetFields.includes("VOLUME / PRODUÇÃO"), false);
+    assert.deepEqual(targetFields, [
+      "NOME COMPLETO",
+      "EMPRESA",
+      "CNPJ OU CPF",
+      "MÁQUINA / PEÇA / INTERESSE",
+      "SETOR / FUNIL DE DESTINO",
+    ]);
+
+    const progress = computeIndustrialTriageProgress({
+      subflow: "PECAS",
+      funnelStage: "pecas",
+      targetFunnel: "Peças",
+      collectedData: pecasData,
+      company: "TECFAG COMERCIO E IMPORTACAO LTDA",
+      isCompleted: true,
+    });
+
+    assert.equal(progress.percentage, 100);
+    assert.equal(progress.filledCount, 5);
+    assert.equal(progress.totalCount, 5);
+    assert.equal(
+      progress.adaptiveData["EMPRESA"]?.value,
+      "TECFAG COMERCIO E IMPORTACAO LTDA",
+    );
+  });
+
+  it("setor de Assistência Técnica (3_AT) exibe apenas os 3 campos pertinentes quando sem CNPJ", () => {
+    const atData = fields({
+      "NOME COMPLETO": "Carlos",
+      "MÁQUINA / PEÇA / INTERESSE": "Minha seladora não aquece",
+      "SETOR / FUNIL DE DESTINO": "Assistência Técnica",
+    });
+
+    const progress = computeIndustrialTriageProgress({
+      subflow: "3_AT",
+      funnelStage: "assistencia_tecnica",
+      targetFunnel: "Assistência Técnica",
+      collectedData: atData,
+      isCompleted: false,
+    });
+
+    assert.deepEqual(progress.targetFields, [
+      "NOME COMPLETO",
+      "MÁQUINA / PEÇA / INTERESSE",
+      "SETOR / FUNIL DE DESTINO",
+    ]);
+    assert.equal(progress.filledCount, 3);
+    assert.equal(progress.totalCount, 3);
+    assert.equal(progress.percentage, 100);
+  });
+
+  it("cliente recorrente no banco confirma 'Sua empresa é a XXX, certo?' com 'sim' e prossegue sem precisar informar CNPJ", () => {
+    const knownClient = {
+      companyName: "TECFAG COMERCIO E IMPORTACAO LTDA",
+      document: "07.765.657/0001-00",
+      contactName: "Matheus",
+      source: "crm_account",
+    };
+
+    const directive = buildKnownClientPromptDirective({
+      knownClient,
+      confirmationStatus: "pending",
+      currentData: {},
+      subflow: "PECAS",
+    });
+    assert.match(directive, /NÃO precisa pedir o CNPJ/i);
+    assert.match(
+      directive,
+      /Sua empresa é a TECFAG COMERCIO E IMPORTACAO LTDA, certo\?/,
+    );
+
+    const status = evaluateKnownCompanyConfirmation({
+      clientText: "Sim, isso mesmo",
+      recentBotMessages: [
+        "Sua empresa é a TECFAG COMERCIO E IMPORTACAO LTDA, certo?",
+      ],
+      knownClient,
+      currentData: {},
+    });
+    assert.equal(status, "confirmed");
+
+    const enriched = applyKnownClientConfirmationToData(
+      fields({
+        "MÁQUINA / PEÇA / INTERESSE": "Resistência para seladora",
+      }),
+      knownClient,
+    );
+
+    const pecasRoute = resolveIndustrialRoute({
+      text: "Resistência para seladora",
+      aiSubflow: "PECAS",
+      collectedData: enriched,
+    });
+    const readiness = assessIndustrialReadiness(pecasRoute, enriched);
+    assert.equal(readiness.ready, true);
+    assert.deepEqual(readiness.missing, []);
+  });
+});
+
+

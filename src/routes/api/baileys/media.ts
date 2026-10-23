@@ -2,9 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import fs from "fs";
 import path from "path";
 import { db } from "../../../db";
-import { mediaFiles } from "../../../db/schema";
+import { mediaFiles, messages } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 
 export const Route = createFileRoute("/api/baileys/media")({
   server: {
@@ -53,6 +54,15 @@ export const Route = createFileRoute("/api/baileys/media")({
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
+
+        // Older inbound media used the message ID but did not populate conversationId.
+        const legacyMessage = !mediaRecord.conversationId ? await db.query.messages.findFirst({
+          columns: { conversationId: true }, where: and(eq(messages.id, mediaRecord.id), eq(messages.tenantId, tenantId)),
+        }) : null;
+        const conversationId = mediaRecord.conversationId ?? legacyMessage?.conversationId;
+        if (!conversationId) return Response.json({ error: "Mídia sem vínculo de atendimento autorizado." }, { status: 404 });
+        const denied = await requireConversationAccess(session, conversationId);
+        if (denied) return denied;
 
         const mediaDir = path.join(process.cwd(), "media");
         const filePath = path.join(mediaDir, messageId);
@@ -129,7 +139,7 @@ export const Route = createFileRoute("/api/baileys/media")({
                 "Content-Range": `bytes ${start}-${safeEnd}/${totalSize}`,
                 "Accept-Ranges": "bytes",
                 "Content-Length": String(chunkSize),
-                "Cache-Control": "private, max-age=31536000",
+                "Cache-Control": "private, no-store",
               },
             });
           }
@@ -142,7 +152,7 @@ export const Route = createFileRoute("/api/baileys/media")({
             "Content-Type": contentType,
             "Content-Length": String(totalSize),
             "Accept-Ranges": "bytes",
-            "Cache-Control": "private, max-age=31536000",
+            "Cache-Control": "private, no-store",
           },
         });
       },

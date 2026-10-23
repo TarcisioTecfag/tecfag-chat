@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-22",
+  "deliveryStatus": "in_progress_not_deployed",
+  "baselineCommit": "b7dba7cdf24bbe69bb22a597f812d6fa2b9f77e9",
+  "accessTests": { "command": "npm run test:access", "tests": 183, "passed": 183, "failed": 0, "skipped": 0, "operationalImports": "mocked_or_blocked" },
+  "triageTests": { "command": "npm run test:triage", "tests": 332, "passed": 332, "failed": 0, "skipped": 0 },
+  "build": { "command": "npm run build", "client": "passed", "server": "passed", "database": "unreachable_test_connection" },
+  "typescript": { "baselineDiagnostics": 31, "currentDiagnostics": 31, "introduced": [], "resolved": [], "isolatedPolicyCore": "passed_strict" },
+  "diffWhitespaceCheck": "passed",
+  "catalogue": { "modules": 14, "actions": 156, "operationallyActivated": false },
+  "stage2ScopeEnforced": [
+    "conversations_read_write_and_queues",
+    "channel_permissions_whatsapp_and_livechat",
+    "media_authorization_before_fs",
+    "sse_and_livechat_ws_revalidation",
+    "push_recipient_conversation_filtering",
+    "crm_deal_and_account_conversation_links",
+    "contact_history_and_gestao_live_messages",
+    "gestao_consolidated_panels_and_metrics"
+  ],
+  "snapshots": [
+    { "tenantId": "valem", "groups": 2, "members": 2, "membersWithoutGroup": 2, "nonNullInvalidGroupReferences": 0, "sha256": "a9b36373936a986fe20e3d031abeb2ba9b172fe69ba52f0552c5a9f144d8cf67", "granularPermissionsColumn": false },
+    { "tenantId": "tecfag", "groups": 2, "members": 35, "membersWithoutGroup": 35, "nonNullInvalidGroupReferences": 0, "sha256": "43093b6316edf91c14312d1ed0ca2336297eaac8e8a9df9aed94f3b4017f1061", "granularPermissionsColumn": false }
+  ],
+  "databaseWrites": 0,
+  "schemaMigrationsApplied": 0,
+  "membershipsReassigned": 0,
+  "deployPerformed": false,
+  "strictTenantsActivated": [],
+  "remainingValidation": ["postgres_test_integration", "real_concurrency", "restoration_rehearsal", "ui_journeys", "all_route_and_event_contracts", "operational_membership_review"]
+}

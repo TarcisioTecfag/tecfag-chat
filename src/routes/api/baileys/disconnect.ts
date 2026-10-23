@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager } from "../../../lib/baileys/session-manager";
-import { requireSession, requirePermission } from "../../../lib/auth-session";
+import { requireSession } from "../../../lib/auth-session";
+import { canManageWhatsappConnection } from "../../../lib/access-control/channel-permissions";
 
 export const Route = createFileRoute("/api/baileys/disconnect")({
   server: {
@@ -27,8 +28,7 @@ export const Route = createFileRoute("/api/baileys/disconnect")({
           if ("response" in auth) return auth.response;
           const session = auth.session;
 
-          const permDenied = requirePermission(session, () => session.operator.role === "admin");
-          if (permDenied) return permDenied;
+          if (!canManageWhatsappConnection(session)) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
 
           const sessionManager = SessionManager.getInstance();
           await sessionManager.disconnectSession(session.tenantId);

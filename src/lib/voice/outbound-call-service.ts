@@ -11,6 +11,7 @@ function formatE164(phone: string): string {
 }
 
 export interface OutboundCallOptions {
+  tenantId: string;
   phone: string;
   fromPhone?: string;
   accountSid?: string;
@@ -22,18 +23,21 @@ import { db } from "../../db";
 import { agentConfigs } from "../../db/schema";
 
 export async function triggerOutboundCallInternal(options: OutboundCallOptions) {
+  if (!options.tenantId) throw new Error("Tenant obrigatório para chamadas de voz.");
+  const tenantId = options.tenantId;
   const targetPhone = formatE164(options.phone);
-  const fromPhone = options.fromPhone ? formatE164(options.fromPhone) : "+551423980186";
+  let configuredFrom = options.fromPhone || process.env.TWILIO_PHONE_NUMBER || process.env.TWILIO_FROM_NUMBER;
 
   let accountSid = options.accountSid || process.env.TWILIO_ACCOUNT_SID;
   let authToken = options.authToken || process.env.TWILIO_AUTH_TOKEN;
 
-  if (!accountSid || !authToken) {
+  if (!accountSid || !authToken || !configuredFrom) {
     try {
       const dbConfig = await db.query.agentConfigs.findFirst({
-        where: (table, { eq }) => eq(table.agentType, "sdr"),
+        where: (table, { eq, and }) => and(eq(table.agentType, "sdr"), eq(table.tenantId, tenantId)),
       });
       const configData = (dbConfig?.config as Record<string, any>) || {};
+      configuredFrom = configuredFrom || configData.twilioPhoneNumber || configData.twilioFrom || configData.twilioPhone;
       accountSid = accountSid || configData.twilioAccountSid || configData.twilioSid;
       authToken = authToken || configData.twilioAuthToken || configData.twilioToken;
     } catch (e: any) {
@@ -41,11 +45,8 @@ export async function triggerOutboundCallInternal(options: OutboundCallOptions) 
     }
   }
 
-  // Fallback padrão com as credenciais oficiais homologadas do Twilio
-  accountSid = accountSid || "ACe0892b893cef7bf7038958d0a0f3c7ff";
-  authToken = authToken || "8815a6a2034d5207e1b331534d7a756a";
 
-  if (!accountSid || !authToken) {
+  if (!accountSid || !authToken || !configuredFrom) {
     console.error("[OutboundCallService] ❌ Erro: TWILIO_ACCOUNT_SID e TWILIO_AUTH_TOKEN não configurados!");
     return {
       success: false,
@@ -54,6 +55,7 @@ export async function triggerOutboundCallInternal(options: OutboundCallOptions) 
     };
   }
 
+  const fromPhone = formatE164(configuredFrom!);
   const twimlUrl = options.twimlUrl || "https://tecfagchat.up.railway.app/api/twilio-voice-webhook";
 
   console.log(`[OutboundCallService] 📞 Disparando chamada ativa: From=${fromPhone} -> To=${targetPhone} | Webhook=${twimlUrl}`);

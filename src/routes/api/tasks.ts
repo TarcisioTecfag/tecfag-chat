@@ -226,6 +226,7 @@ export const Route = createFileRoute("/api/tasks")({
           }
 
         const debug = url.searchParams.get("debug");
+        if (debug === "true" && !isAdmin) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
         if (debug === "true") {
           const debugInfo: any = {
             tenantId,
@@ -506,6 +507,7 @@ export const Route = createFileRoute("/api/tasks")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+          if (session.operator.role !== "admin" && !session.permissions?.views?.tasks) return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
 
           const body = await request.json();
           const { taskId, status } = body;
@@ -525,6 +527,7 @@ export const Route = createFileRoute("/api/tasks")({
             .limit(1);
 
           if (kanbanActivity) {
+            if (session.operator.role !== "admin" && kanbanActivity.operatorId !== session.operator.id && kanbanActivity.assignedToOperatorId !== session.operator.id) return Response.json({ error: "Tarefa não encontrada." }, { status: 404 });
             const newStatus = status === "done" || status === "completed" ? "completed" : "pending";
             await crmService.updateDealActivity(
               tenantId,
@@ -537,6 +540,11 @@ export const Route = createFileRoute("/api/tasks")({
             return new Response(JSON.stringify({ success: true, source: "kanban" }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
+          }
+
+          if (session.operator.role !== "admin") {
+            const [task] = await db.select({ operatorEmail: dbTasks.operatorEmail }).from(dbTasks).where(and(eq(dbTasks.id, taskId), eq(dbTasks.tenantId, tenantId))).limit(1);
+            if (!task?.operatorEmail || task.operatorEmail.toLowerCase() !== session.operator.email.toLowerCase()) return Response.json({ error: "Tarefa não encontrada." }, { status: 404 });
           }
 
           // 2. Se não for do Kanban nativo, sincroniza com RD CRM (se configurado) e base local

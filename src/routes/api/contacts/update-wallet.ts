@@ -31,6 +31,7 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
           const auth = await requireSession(request);
           if ("response" in auth) return auth.response;
           const session = auth.session;
+          if (session.operator.role !== "admin" && !session.permissions?.chat?.canChangeWallet && !session.permissions?.security?.canManageWallets) return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
 
           const body = await request.json();
           const { contactId, walletOperatorId } = body;

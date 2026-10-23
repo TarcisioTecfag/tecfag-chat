@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { aiConversationAudits, operators } from "../../../db/schema";
-import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
+import { aiConversationAudits, conversations, operators } from "../../../db/schema";
+import { eq, and, desc, exists, gte, lte, inArray } from "drizzle-orm";
 import { AuditService } from "../../../lib/audit-service";
 import { getComercialOperatorIds } from "../../../lib/gestao-filter";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 
 // Inicia o serviço de auditoria ao carregar esta rota
 AuditService.getInstance().start();
@@ -26,9 +27,12 @@ export const Route = createFileRoute("/api/gestao/audits")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        const canViewAudits =
+          (session.permissions?.views?.monitor === true && session.permissions?.monitor?.canAccessAudits === true) ||
+          (session.permissions?.views?.analytics === true && session.permissions?.analytics?.canAccessOverview === true);
+        if (!canViewAudits) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem visualizar auditorias.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para visualizar auditorias.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -57,6 +61,13 @@ export const Route = createFileRoute("/api/gestao/audits")({
           // Monta filtros dinâmicos
           const filters: any[] = [
             eq(aiConversationAudits.tenantId, tenantId),
+            exists(
+              db.select({ id: conversations.id }).from(conversations).where(and(
+                eq(conversations.id, aiConversationAudits.conversationId),
+                eq(conversations.tenantId, tenantId),
+                conversationReadCondition(session),
+              ))
+            ),
           ];
 
           // Filtro de status — 'all' significa sem restrição de status
@@ -114,7 +125,7 @@ export const Route = createFileRoute("/api/gestao/audits")({
             const ops = await db
               .select({ id: operators.id, name: operators.name })
               .from(operators)
-              .where(inArray(operators.id, operatorIds));
+              .where(and(eq(operators.tenantId, tenantId), inArray(operators.id, operatorIds)));
             ops.forEach((op) => { operatorMap[op.id] = op.name; });
           }
 
@@ -152,9 +163,9 @@ export const Route = createFileRoute("/api/gestao/audits")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        if (session.permissions?.views?.monitor !== true || session.permissions?.monitor?.canManageAudits !== true) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem reprocessar auditorias.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para reprocessar auditorias.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -170,9 +181,17 @@ export const Route = createFileRoute("/api/gestao/audits")({
             );
           }
 
+          const visibleAuditConversation = exists(
+            db.select({ id: conversations.id }).from(conversations).where(and(
+              eq(conversations.id, aiConversationAudits.conversationId),
+              eq(conversations.tenantId, tenantId),
+              conversationReadCondition(session),
+            ))
+          );
+
           if (action === "retry_all") {
-            // Reseta TODAS as auditorias com erro do tenant
-            const result = await db
+            // Reseta auditorias com erro do escopo autorizado no tenant
+            await db
               .update(aiConversationAudits)
               .set({
                 status: "pending",
@@ -182,7 +201,8 @@ export const Route = createFileRoute("/api/gestao/audits")({
               .where(
                 and(
                   eq(aiConversationAudits.tenantId, tenantId),
-                  eq(aiConversationAudits.status, "error")
+                  eq(aiConversationAudits.status, "error"),
+                  visibleAuditConversation,
                 )
               );
 
@@ -197,7 +217,7 @@ export const Route = createFileRoute("/api/gestao/audits")({
           }
 
           if (auditId) {
-            // Reseta uma auditoria específica
+            // Reseta uma auditoria específica dentro do escopo autorizado
             await db
               .update(aiConversationAudits)
               .set({
@@ -209,7 +229,8 @@ export const Route = createFileRoute("/api/gestao/audits")({
                 and(
                   eq(aiConversationAudits.id, auditId),
                   eq(aiConversationAudits.tenantId, tenantId),
-                  eq(aiConversationAudits.status, "error")
+                  eq(aiConversationAudits.status, "error"),
+                  visibleAuditConversation,
                 )
               );
 

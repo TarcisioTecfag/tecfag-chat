@@ -9,6 +9,7 @@ import {
 export interface HandoffOperator {
   id: string;
   name: string;
+  isAbsent?: boolean;
 }
 export interface HandoffDeal {
   dealId: string;
@@ -83,9 +84,14 @@ export function industrialHandoffOutcome(
 export function industrialHandoffMessage(
   status: IndustrialHandoffStatus,
   operatorName?: string,
+  options?: { isOperatorAbsent?: boolean },
 ): string | null {
-  if (status === "transferred" && operatorName)
+  if (status === "transferred" && operatorName) {
+    if (options?.isOperatorAbsent) {
+      return `Seu atendimento foi encaminhado para ${operatorName}. No momento está ausente, mas em breve entrará em contato com você por aqui.`;
+    }
     return `Seu atendimento foi encaminhado para ${operatorName}. A equipe dará continuidade por aqui.`;
+  }
   if (status === "waiting_for_team")
     return "Seu atendimento está aguardando a equipe responsável. Assim que houver um atendente disponível, ele poderá dar continuidade por aqui.";
   if (status === "handoff_failed")
@@ -100,7 +106,14 @@ export function industrialClientMessages(params: {
   data: CollectedFields;
   messages: string[];
 }): string[] {
-  const confirmation = industrialHandoffMessage(params.result.status, params.result.operator?.name);
+  const isOperatorAbsent = Boolean(
+    params.result.operator?.isAbsent || params.route.targetOperator?.isAbsent,
+  );
+  const confirmation = industrialHandoffMessage(
+    params.result.status,
+    params.result.operator?.name,
+    { isOperatorAbsent },
+  );
   if (confirmation) return [confirmation];
   const claimsSuccess = params.messages.some((text) =>
     /(?:j[aá] (?:criei|vinculei|transferi)|(?:card|negocia[cç][aã]o|atendimento).{0,40}(?:criad[oa]|vinculad[oa]|transferid[oa]|encaminhad[oa])|(?:estou|te) transferindo)/i.test(

@@ -9,6 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusWizardModal } from "./StatusWizardModal";
 import { ProfilePopover } from "./ProfileModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { usePermissions } from "@/hooks/usePermissions";
+import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -98,6 +100,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     logout,
   } = useChat();
   const aiPersona = getAiPersona(tenant);
+  const { permissions } = usePermissions();
+  const readPrincipal = React.useMemo(() => ({ tenantId: tenant ?? "", operator: { id: currentOperatorId }, permissions, accessGroup: currentGroup }),
+    [tenant, currentOperatorId, permissions, currentGroup]);
+  const readRules = React.useMemo(() => conversationReadRules(readPrincipal), [readPrincipal]);
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
   const [showStatusWizard, setShowStatusWizard] = React.useState(false);
@@ -156,15 +162,21 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     }
   }, [currentGroup, channelFilter]);
 
-  const queues = [
+  const queues = React.useMemo(() => [
     { id: "meus", label: "Meus" },
     { id: "todos", label: "Todos" },
     { id: "fila", label: "Fila" },
     { id: "automacao", label: "Bot" },
     { id: "finalizados", label: "Fim" },
-  ];
+  ].filter((queue) => readRules.enabled && (queue.id === "todos" ? !readRules.ownOnly && readRules.queues.length > 1 :
+    readRules.queues.includes(queue.id as typeof readRules.queues[number]))), [readRules]);
 
-  const queueTabIds: QueueType[] = React.useMemo(() => queues.map((q) => q.id as QueueType), []);
+  const queueTabIds: QueueType[] = React.useMemo(() => queues.map((q) => q.id as QueueType), [queues]);
+  React.useEffect(() => {
+    if (queueTabIds.length && !queueTabIds.includes(activeQueue)) {
+      setActiveQueue(queueTabIds[0]); setSelectedChatId(null);
+    }
+  }, [queueTabIds, activeQueue, setActiveQueue, setSelectedChatId]);
   useTabNavigation({
     tabs: queueTabIds,
     activeTab: activeQueue,
@@ -177,6 +189,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
   // Filter conversations based on UI selections
   const filteredConvs = React.useMemo(() => conversations.filter((c) => c.id !== "valentina").filter((c) => {
+    if (!canReadConversation(readPrincipal, { tenantId: tenant ?? "", operatorId: c.operatorId ?? null, queueState: c.queue, mainChannel: c.channel })) return false;
     // 1. Queue Filter
     if (activeQueue !== "todos" && c.queue !== activeQueue) return false;
 
@@ -203,7 +216,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     Number(a.queue === "finalizados") - Number(b.queue === "finalizados") ||
     (getConversationSortTimestamp(b) - getConversationSortTimestamp(a))
   ),
-    [conversations, activeQueue, currentOperatorId, channelFilter, searchQuery]);
+    [conversations, activeQueue, currentOperatorId, channelFilter, searchQuery, readPrincipal, tenant]);
 
   return (
     <>

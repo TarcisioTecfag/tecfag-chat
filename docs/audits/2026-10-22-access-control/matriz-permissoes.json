@@ -1,0 +1,2620 @@
+{
+  "date": "2026-10-22",
+  "permissions": [
+    {
+      "category": "views",
+      "key": "chat",
+      "type": "boolean",
+      "line": 42,
+      "id": "views.chat",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1590
+      },
+      "references": [
+        {
+          "file": "src/components/crm/CrmChatWidget.tsx",
+          "line": 1259,
+          "text": "canAccessView(\"chat\") &&"
+        },
+        {
+          "file": "src/routes/api/chats.ts",
+          "line": 243,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {"
+        },
+        {
+          "file": "src/routes/api/chats/resolve.ts",
+          "line": 14,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {"
+        },
+        {
+          "file": "src/routes/api/valentina/triage-review.ts",
+          "line": 26,
+          "text": "canView: permissions?.views?.chat === true || permissions?.valentina?.canAccessSdr === true,"
+        },
+        {
+          "file": "src/routes/api/chats/$conversationId/deals.ts",
+          "line": 51,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: \"Permissão insuficiente.\" }, { status: 403 });"
+        },
+        {
+          "file": "src/routes/api/contacts/$contactId/conversations.ts",
+          "line": 25,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {"
+        }
+      ]
+    },
+    {
+      "category": "views",
+      "key": "commercialHome",
+      "type": "boolean",
+      "line": 43,
+      "id": "views.commercialHome",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1591
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "commercialManagement",
+      "type": "boolean",
+      "line": 44,
+      "id": "views.commercialManagement",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "commercialBi",
+      "type": "boolean",
+      "line": 45,
+      "id": "views.commercialBi",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "crm",
+      "type": "boolean",
+      "line": 46,
+      "id": "views.crm",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1592
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "tasks",
+      "type": "boolean",
+      "line": 47,
+      "id": "views.tasks",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1593
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "contacts",
+      "type": "boolean",
+      "line": 48,
+      "id": "views.contacts",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1594
+      },
+      "references": [
+        {
+          "file": "src/routes/api/contacts.ts",
+          "line": 30,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.contacts) {"
+        },
+        {
+          "file": "src/routes/api/crm/accounts.ts",
+          "line": 30,
+          "text": "session.permissions?.views?.contacts ||"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 34,
+          "text": "session.permissions?.views?.contacts ||"
+        }
+      ]
+    },
+    {
+      "category": "views",
+      "key": "wallet",
+      "type": "boolean",
+      "line": 49,
+      "id": "views.wallet",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "views.wallets"
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "valentina",
+      "type": "boolean",
+      "line": 50,
+      "id": "views.valentina",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1596
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "ligacoes",
+      "type": "boolean",
+      "line": 51,
+      "id": "views.ligacoes",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1597
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "monitor",
+      "type": "boolean",
+      "line": 52,
+      "id": "views.monitor",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1598
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "analytics",
+      "type": "boolean",
+      "line": 53,
+      "id": "views.analytics",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1599
+      },
+      "references": []
+    },
+    {
+      "category": "views",
+      "key": "groups",
+      "type": "boolean",
+      "line": 54,
+      "id": "views.groups",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1600
+      },
+      "references": [
+        {
+          "file": "src/components/chat/ProfileModal.tsx",
+          "line": 511,
+          "text": "{canAccessView(\"groups\") && ("
+        }
+      ]
+    },
+    {
+      "category": "views",
+      "key": "settings",
+      "type": "boolean",
+      "line": 55,
+      "id": "views.settings",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1601
+      },
+      "references": []
+    },
+    {
+      "category": "chat",
+      "key": "canCaptureChat",
+      "type": "boolean",
+      "line": 59,
+      "id": "chat.canCaptureChat",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1660
+      },
+      "references": [
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 64,
+          "text": "canCaptureChat: boolean;   // Pode puxar chats da fila para si"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 745,
+          "text": "canCaptureChat: true,"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 2137,
+          "text": ": sessionRole !== \"admin\" && !sessionPermissions?.chat.canCaptureChat)) {"
+        },
+        {
+          "file": "src/lib/auth-session.ts",
+          "line": 185,
+          "text": "canCaptureChat: true,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 940,
+          "text": "canCaptureChat,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 954,
+          "text": "const canCapture = canCaptureChat;"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 2490,
+          "text": "/* Claim Chat — fila/automação, apenas para quem tem canCaptureChat */"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 36,
+          "text": "const { canCaptureChat, canOverrideChat, canTransferChat, canFinishChat } = usePermissions();"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 56,
+          "text": "const canCapture = canCaptureChat;"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 65,
+          "text": "canCaptureChat,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 105,
+          "text": "canCaptureChat: canCaptureChat !== undefined ? canCaptureChat : existing.canCaptureChat,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 123,
+          "text": "canCaptureChat: canCaptureChat ?? false,"
+        },
+        {
+          "file": "src/routes/api/chats/update-queue.ts",
+          "line": 93,
+          "text": "} else if (!isOwner && !can(permissions.canCaptureChat === true)) {"
+        },
+        {
+          "file": "src/routes/api/contacts/$contactId/conversations.ts",
+          "line": 41,
+          "text": "const canCapture = session.operator.role === \"admin\" || session.permissions?.chat?.canCaptureChat !== false;"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 184,
+          "text": "const autoCapture = body.autoCapture === true && (session.operator.role === \"admin\" || session.permissions?.chat?.canCaptureChat === true);"
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canTransferChat",
+      "type": "boolean",
+      "line": 60,
+      "id": "chat.canTransferChat",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1661
+      },
+      "references": [
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 65,
+          "text": "canTransferChat: boolean;  // Pode transferir chats para outro operador"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 746,
+          "text": "canTransferChat: true,"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 2195,
+          "text": "const canTransfer = sessionRole === \"admin\" || sessionPermissions?.chat.canTransferChat === true;"
+        },
+        {
+          "file": "src/lib/auth-session.ts",
+          "line": 186,
+          "text": "canTransferChat: true,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 941,
+          "text": "canTransferChat,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 955,
+          "text": "const canTransfer = canTransferChat;"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 36,
+          "text": "const { canCaptureChat, canOverrideChat, canTransferChat, canFinishChat } = usePermissions();"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 57,
+          "text": "const canTransfer = canTransferChat;"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 66,
+          "text": "canTransferChat,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 106,
+          "text": "canTransferChat: canTransferChat !== undefined ? canTransferChat : existing.canTransferChat,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 124,
+          "text": "canTransferChat: canTransferChat ?? false,"
+        },
+        {
+          "file": "src/routes/api/chats/update-queue.ts",
+          "line": 96,
+          "text": "} else if (!can(permissions.canTransferChat === true) ||"
+        },
+        {
+          "file": "src/routes/api/chats/update-queue.ts",
+          "line": 102,
+          "text": "} else if (!can(permissions.canTransferChat === true) ||"
+        },
+        {
+          "file": "src/routes/api/chats/update-queue.ts",
+          "line": 119,
+          "text": "if (sectorId !== undefined && sectorId !== conv.sectorId && !can(permissions.canTransferChat === true)) {"
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canFinishChat",
+      "type": "boolean",
+      "line": 61,
+      "id": "chat.canFinishChat",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1662
+      },
+      "references": [
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 66,
+          "text": "canFinishChat: boolean;    // Pode encerrar conversas"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 747,
+          "text": "canFinishChat: true,"
+        },
+        {
+          "file": "src/lib/auth-session.ts",
+          "line": 187,
+          "text": "canFinishChat: true,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 942,
+          "text": "canFinishChat,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 956,
+          "text": "const canFinish = canFinishChat;"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 2478,
+          "text": "{/* Finish Chat — apenas para o dono com canFinishChat */}"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 36,
+          "text": "const { canCaptureChat, canOverrideChat, canTransferChat, canFinishChat } = usePermissions();"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 58,
+          "text": "const canFinish = canFinishChat;"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 67,
+          "text": "canFinishChat,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 107,
+          "text": "canFinishChat: canFinishChat !== undefined ? canFinishChat : existing.canFinishChat,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 125,
+          "text": "canFinishChat: canFinishChat ?? false,"
+        },
+        {
+          "file": "src/routes/api/chats/update-queue.ts",
+          "line": 101,
+          "text": "if (!can(permissions.canFinishChat === true) || !isOwner) return forbidden();"
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canViewAllChats",
+      "type": "boolean",
+      "line": 62,
+      "id": "chat.canViewAllChats",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1663
+      },
+      "references": [
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 67,
+          "text": "canViewAllChats: boolean;  // Vê chats de todos os operadores (somente leitura)"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 748,
+          "text": "canViewAllChats: true,"
+        },
+        {
+          "file": "src/lib/auth-session.ts",
+          "line": 188,
+          "text": "canViewAllChats: true,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 68,
+          "text": "canViewAllChats,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 108,
+          "text": "canViewAllChats: canViewAllChats !== undefined ? canViewAllChats : existing.canViewAllChats,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 126,
+          "text": "canViewAllChats: canViewAllChats ?? false,"
+        },
+        {
+          "file": "src/routes/api/valentina/triage-review.ts",
+          "line": 28,
+          "text": "permissions?.chat?.canViewAllChats === true ||"
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canOverrideChat",
+      "type": "boolean",
+      "line": 63,
+      "id": "chat.canOverrideChat",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1664
+      },
+      "references": [
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 68,
+          "text": "canOverrideChat: boolean;  // Pode assumir chat de outro operador sem transferência prévia"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 749,
+          "text": "canOverrideChat: true,"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 2136,
+          "text": "? sessionRole !== \"admin\" && !sessionPermissions?.chat.canOverrideChat"
+        },
+        {
+          "file": "src/hooks/useChatState.tsx",
+          "line": 2196,
+          "text": "const canOverride = sessionRole === \"admin\" || sessionPermissions?.chat.canOverrideChat === true;"
+        },
+        {
+          "file": "src/lib/auth-session.ts",
+          "line": 189,
+          "text": "canOverrideChat: true,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 943,
+          "text": "canOverrideChat,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 957,
+          "text": "const canOverride = canOverrideChat;"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 36,
+          "text": "const { canCaptureChat, canOverrideChat, canTransferChat, canFinishChat } = usePermissions();"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 68,
+          "text": "const canTakeFromOther = !!activeChat.operatorId && !isMine && canOverrideChat && activeChat.queue === \"meus\";"
+        },
+        {
+          "file": "src/components/mobile/MobileActionsModal.tsx",
+          "line": 208,
+          "text": "{canTransfer && (isMine || canOverrideChat || !activeChat.operatorId) && activeChat.queue !== \"finalizados\" && ("
+        },
+        {
+          "file": "src/lib/triage/industrial-review-contract.ts",
+          "line": 60,
+          "text": "canOverrideChat: boolean;"
+        },
+        {
+          "file": "src/lib/triage/industrial-review-contract.ts",
+          "line": 140,
+          "text": "(!owner && !actor.permissions.canOverrideChat))"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 69,
+          "text": "canOverrideChat,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 109,
+          "text": "canOverrideChat: canOverrideChat !== undefined ? canOverrideChat : existing.canOverrideChat,"
+        },
+        {
+          "file": "src/routes/api/groups.ts",
+          "line": 127,
+          "text": "canOverrideChat: canOverrideChat ?? false,"
+        },
+        {
+          "file": "src/routes/api/chats/update-queue.ts",
+          "line": 81,
+          "text": "const isOverride = permissions.canOverrideChat === true;"
+        },
+        {
+          "file": "src/routes/api/valentina/triage-review.ts",
+          "line": 32,
+          "text": "canOverrideChat: permissions?.chat?.canOverrideChat === true,"
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canSendInternalNotes",
+      "type": "boolean",
+      "line": 64,
+      "id": "chat.canSendInternalNotes",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1665
+      },
+      "references": [
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 944,
+          "text": "canSendInternalNotes,"
+        },
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 3326,
+          "text": "{canSendInternalNotes && ("
+        },
+        {
+          "file": "src/lib/triage/industrial-review-contract.ts",
+          "line": 59,
+          "text": "canSendInternalNotes: boolean;"
+        },
+        {
+          "file": "src/lib/triage/industrial-review-contract.ts",
+          "line": 139,
+          "text": "!actor.permissions.canSendInternalNotes ||"
+        },
+        {
+          "file": "src/routes/api/chats.ts",
+          "line": 140,
+          "text": "if (isInternalNote && session.operator.role !== \"admin\" && session.permissions.chat.canSendInternalNotes !== true) {"
+        },
+        {
+          "file": "src/routes/api/valentina/triage-review.ts",
+          "line": 31,
+          "text": "canSendInternalNotes: permissions?.chat?.canSendInternalNotes === true,"
+        },
+        {
+          "file": "src/routes/api/whatsapp/send.ts",
+          "line": 162,
+          "text": "if (isInternalNote && session.operator.role !== \"admin\" && session.permissions.chat.canSendInternalNotes !== true) {"
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canEditClientInfo",
+      "type": "boolean",
+      "line": 65,
+      "id": "chat.canEditClientInfo",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1666
+      },
+      "references": [
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 945,
+          "text": "canEditClientInfo,"
+        },
+        {
+          "file": "src/components/chat/SharedFiles.tsx",
+          "line": 171,
+          "text": "const { canEditClientInfo, canManageTags, canManageRdCrm, canChangeWalletOperator } = usePermissions();"
+        },
+        {
+          "file": "src/components/chat/SharedFiles.tsx",
+          "line": 988,
+          "text": "{canEditClientInfo && ("
+        },
+        {
+          "file": "src/lib/triage/industrial-review-contract.ts",
+          "line": 58,
+          "text": "canEditClientInfo: boolean;"
+        },
+        {
+          "file": "src/lib/triage/industrial-review-contract.ts",
+          "line": 138,
+          "text": "(!actor.permissions.canEditClientInfo ||"
+        },
+        {
+          "file": "src/routes/api/contacts/$contactId.ts",
+          "line": 29,
+          "text": "!session.permissions?.chat?.canEditClientInfo &&"
+        },
+        {
+          "file": "src/routes/api/contacts/account-options.ts",
+          "line": 17,
+          "text": "!session.permissions?.chat?.canEditClientInfo &&"
+        },
+        {
+          "file": "src/routes/api/crm/accounts.ts",
+          "line": 31,
+          "text": "session.permissions?.chat?.canEditClientInfo"
+        },
+        {
+          "file": "src/routes/api/crm/accounts.ts",
+          "line": 78,
+          "text": "session.permissions?.chat?.canEditClientInfo"
+        },
+        {
+          "file": "src/routes/api/valentina/triage-review.ts",
+          "line": 30,
+          "text": "canEditClientInfo: permissions?.chat?.canEditClientInfo === true,"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 35,
+          "text": "session.permissions?.chat?.canEditClientInfo"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 67,
+          "text": "session.permissions?.chat?.canEditClientInfo"
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canManageTags",
+      "type": "boolean",
+      "line": 66,
+      "id": "chat.canManageTags",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1667
+      },
+      "references": [
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 946,
+          "text": "canManageTags,"
+        },
+        {
+          "file": "src/components/chat/SharedFiles.tsx",
+          "line": 171,
+          "text": "const { canEditClientInfo, canManageTags, canManageRdCrm, canChangeWalletOperator } = usePermissions();"
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canManageRdCrm",
+      "type": "boolean",
+      "line": 67,
+      "id": "chat.canManageRdCrm",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1668
+      },
+      "references": [
+        {
+          "file": "src/components/chat/ChatPanel.tsx",
+          "line": 947,
+          "text": "canManageRdCrm,"
+        },
+        {
+          "file": "src/components/chat/SharedFiles.tsx",
+          "line": 171,
+          "text": "const { canEditClientInfo, canManageTags, canManageRdCrm, canChangeWalletOperator } = usePermissions();"
+        },
+        {
+          "file": "src/components/chat/SharedFiles.tsx",
+          "line": 1426,
+          "text": "{canManageRdCrm && activeChat.id !== \"valentina\" && ("
+        }
+      ]
+    },
+    {
+      "category": "chat",
+      "key": "canChangeWallet",
+      "type": "boolean",
+      "line": 68,
+      "id": "chat.canChangeWallet",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "chat.canChangeWalletOperator"
+      },
+      "references": []
+    },
+    {
+      "category": "chat",
+      "key": "canDeleteMessages",
+      "type": "boolean",
+      "line": 69,
+      "id": "chat.canDeleteMessages",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": []
+    },
+    {
+      "category": "contacts",
+      "key": "contactScope",
+      "type": "\"all\" | \"wallet_only\"",
+      "line": 73,
+      "id": "contacts.contactScope",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1722
+      },
+      "references": [
+        {
+          "file": "src/routes/api/contacts.ts",
+          "line": 47,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\") {"
+        },
+        {
+          "file": "src/routes/api/contacts.ts",
+          "line": 253,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && duplicate.walletOperatorId !== session.operator.id) return Response.json({ error: \"Este telefone já está cadastrado. Solicite acesso a"
+        },
+        {
+          "file": "src/routes/api/contacts/$contactId.ts",
+          "line": 53,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && currentContact.walletOperatorId !== session.operator.id) {"
+        },
+        {
+          "file": "src/routes/api/crm/contacts.ts",
+          "line": 63,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\") {"
+        },
+        {
+          "file": "src/routes/api/crm/contacts.ts",
+          "line": 176,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && existing.walletOperatorId !== session.operator.id) throw Object.assign(new Error(\"Permissão insuficiente.\"), { statusCode: 403 });"
+        },
+        {
+          "file": "src/routes/api/crm/contacts.ts",
+          "line": 195,
+          "text": "walletOperatorId: session.permissions?.contacts?.contactScope === \"wallet_only\" ? session.operator.id : null,"
+        },
+        {
+          "file": "src/routes/api/crm/contacts.ts",
+          "line": 202,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && outcome.existing.walletOperatorId !== session.operator.id) return Response.json({ error: \"Este telefone já está cadastrado. Solicite a"
+        },
+        {
+          "file": "src/routes/api/contacts/$contactId/conversations.ts",
+          "line": 56,
+          "text": "session.permissions?.contacts?.contactScope === \"wallet_only\" &&"
+        }
+      ]
+    },
+    {
+      "category": "contacts",
+      "key": "canCreateContact",
+      "type": "boolean",
+      "line": 74,
+      "id": "contacts.canCreateContact",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1749
+      },
+      "references": [
+        {
+          "file": "src/components/chat/ContactsView.tsx",
+          "line": 160,
+          "text": "const { canCreateContact, canEditContact } = usePermissions();"
+        },
+        {
+          "file": "src/components/chat/ContactsView.tsx",
+          "line": 689,
+          "text": "{canCreateContact && ("
+        },
+        {
+          "file": "src/components/chat/ContactsView.tsx",
+          "line": 766,
+          "text": "{canCreateContact && ("
+        },
+        {
+          "file": "src/routes/api/contacts.ts",
+          "line": 162,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.contacts?.canCreateContact) {"
+        },
+        {
+          "file": "src/routes/api/contacts/account-options.ts",
+          "line": 15,
+          "text": "!session.permissions?.contacts?.canCreateContact &&"
+        },
+        {
+          "file": "src/routes/api/crm/accounts.ts",
+          "line": 76,
+          "text": "session.permissions?.contacts?.canCreateContact ||"
+        },
+        {
+          "file": "src/routes/api/crm/contacts.ts",
+          "line": 147,
+          "text": "if (!input.existingContactId && session.operator.role !== \"admin\" && !session.permissions?.contacts?.canCreateContact && !session.permissions?.crm?.canCreateDeals) return Response.json({ error: \"Permissão insuficiente.\" }, { status: 403 });"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 286,
+          "text": "if (session.operator.role !== \"admin\" && (!session.permissions?.contacts?.canCreateContact || !session.permissions?.crm?.canEditDeals)) throw Object.assign(new Error(\"Permissão insuficiente para criar e vincular um contato.\"), { statusCode:"
+        }
+      ]
+    },
+    {
+      "category": "contacts",
+      "key": "canEditContact",
+      "type": "boolean",
+      "line": 75,
+      "id": "contacts.canEditContact",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1750
+      },
+      "references": [
+        {
+          "file": "src/components/chat/ContactsView.tsx",
+          "line": 160,
+          "text": "const { canCreateContact, canEditContact } = usePermissions();"
+        },
+        {
+          "file": "src/components/chat/ContactsView.tsx",
+          "line": 1052,
+          "text": "{canEditContact && ("
+        },
+        {
+          "file": "src/components/chat/ContactsView.tsx",
+          "line": 1227,
+          "text": "{canEditContact && ("
+        },
+        {
+          "file": "src/routes/api/contacts/$contactId.ts",
+          "line": 28,
+          "text": "!session.permissions?.contacts?.canEditContact &&"
+        },
+        {
+          "file": "src/routes/api/contacts/account-options.ts",
+          "line": 16,
+          "text": "!session.permissions?.contacts?.canEditContact &&"
+        },
+        {
+          "file": "src/routes/api/crm/accounts.ts",
+          "line": 77,
+          "text": "session.permissions?.contacts?.canEditContact ||"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 66,
+          "text": "session.permissions?.contacts?.canEditContact ||"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 116,
+          "text": "const canDeleteViaContacts = Boolean(session.permissions?.contacts?.canDeleteContact || session.permissions?.contacts?.canEditContact);"
+        }
+      ]
+    },
+    {
+      "category": "contacts",
+      "key": "canDeleteContact",
+      "type": "boolean",
+      "line": 76,
+      "id": "contacts.canDeleteContact",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1751
+      },
+      "references": [
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 116,
+          "text": "const canDeleteViaContacts = Boolean(session.permissions?.contacts?.canDeleteContact || session.permissions?.contacts?.canEditContact);"
+        }
+      ]
+    },
+    {
+      "category": "contacts",
+      "key": "canExportContacts",
+      "type": "boolean",
+      "line": 77,
+      "id": "contacts.canExportContacts",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1752
+      },
+      "references": []
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessChat",
+      "type": "boolean",
+      "line": 81,
+      "id": "valentina.canAccessChat",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1812
+      },
+      "references": []
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessSdr",
+      "type": "boolean",
+      "line": 82,
+      "id": "valentina.canAccessSdr",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1813
+      },
+      "references": [
+        {
+          "file": "src/routes/api/valentina/triage-review.ts",
+          "line": 26,
+          "text": "canView: permissions?.views?.chat === true || permissions?.valentina?.canAccessSdr === true,"
+        },
+        {
+          "file": "src/routes/api/valentina/triage-review.ts",
+          "line": 29,
+          "text": "permissions?.valentina?.canAccessSdr === true,"
+        }
+      ]
+    },
+    {
+      "category": "valentina",
+      "key": "canManageSdr",
+      "type": "boolean",
+      "line": 83,
+      "id": "valentina.canManageSdr",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1814
+      },
+      "references": []
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessRodizio",
+      "type": "boolean",
+      "line": 84,
+      "id": "valentina.canAccessRodizio",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1815
+      },
+      "references": []
+    },
+    {
+      "category": "valentina",
+      "key": "canManageRodizio",
+      "type": "boolean",
+      "line": 85,
+      "id": "valentina.canManageRodizio",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1816
+      },
+      "references": []
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessSupervisor",
+      "type": "boolean",
+      "line": 86,
+      "id": "valentina.canAccessSupervisor",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1817
+      },
+      "references": []
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessKnowledge",
+      "type": "boolean",
+      "line": 87,
+      "id": "valentina.canAccessKnowledge",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1818
+      },
+      "references": []
+    },
+    {
+      "category": "valentina",
+      "key": "canManageKnowledge",
+      "type": "boolean",
+      "line": 88,
+      "id": "valentina.canManageKnowledge",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1819
+      },
+      "references": []
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessDashboard",
+      "type": "boolean",
+      "line": 92,
+      "id": "ligacoes.canAccessDashboard",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1878
+      },
+      "references": []
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessAgenda",
+      "type": "boolean",
+      "line": 93,
+      "id": "ligacoes.canAccessAgenda",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1879
+      },
+      "references": []
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessHistory",
+      "type": "boolean",
+      "line": 94,
+      "id": "ligacoes.canAccessHistory",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "ligacoes.canAccessHistorico"
+      },
+      "references": []
+    },
+    {
+      "category": "ligacoes",
+      "key": "canTriggerTestCall",
+      "type": "boolean",
+      "line": 95,
+      "id": "ligacoes.canTriggerTestCall",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1882
+      },
+      "references": [
+        {
+          "file": "src/components/voice/LigacoesView.tsx",
+          "line": 47,
+          "text": "const { canAccessLigacoesTab, canTriggerTestCall } = usePermissions();"
+        },
+        {
+          "file": "src/components/voice/LigacoesView.tsx",
+          "line": 182,
+          "text": "{canTriggerTestCall && <TestCallButton />}"
+        }
+      ]
+    },
+    {
+      "category": "ligacoes",
+      "key": "canManageCampaigns",
+      "type": "boolean",
+      "line": 96,
+      "id": "ligacoes.canManageCampaigns",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "ligacoes.canManageCampanhas"
+      },
+      "references": []
+    },
+    {
+      "category": "ligacoes",
+      "key": "canManageObjectives",
+      "type": "boolean",
+      "line": 97,
+      "id": "ligacoes.canManageObjectives",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "ligacoes.canManageObjetivos"
+      },
+      "references": []
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessLive",
+      "type": "boolean",
+      "line": 101,
+      "id": "monitor.canAccessLive",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1943
+      },
+      "references": []
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessAlerts",
+      "type": "boolean",
+      "line": 102,
+      "id": "monitor.canAccessAlerts",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1944
+      },
+      "references": []
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessRanking",
+      "type": "boolean",
+      "line": 103,
+      "id": "monitor.canAccessRanking",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "monitor.canAccessOperators"
+      },
+      "references": []
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessAudits",
+      "type": "boolean",
+      "line": 104,
+      "id": "monitor.canAccessAudits",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1946
+      },
+      "references": []
+    },
+    {
+      "category": "monitor",
+      "key": "canManageAudits",
+      "type": "boolean",
+      "line": 105,
+      "id": "monitor.canManageAudits",
+      "panel": {
+        "status": "Controle individual",
+        "line": 1947
+      },
+      "references": []
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessTeamTasks",
+      "type": "boolean",
+      "line": 106,
+      "id": "monitor.canAccessTeamTasks",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": []
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessSiteVisitors",
+      "type": "boolean",
+      "line": 107,
+      "id": "monitor.canAccessSiteVisitors",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "monitor.canAccessSite"
+      },
+      "references": []
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessOverview",
+      "type": "boolean",
+      "line": 111,
+      "id": "analytics.canAccessOverview",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2007
+      },
+      "references": []
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessPerformance",
+      "type": "boolean",
+      "line": 112,
+      "id": "analytics.canAccessPerformance",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2008
+      },
+      "references": []
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessSla",
+      "type": "boolean",
+      "line": 113,
+      "id": "analytics.canAccessSla",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2009
+      },
+      "references": []
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessContacts",
+      "type": "boolean",
+      "line": 114,
+      "id": "analytics.canAccessContacts",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2010
+      },
+      "references": []
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessAiReports",
+      "type": "boolean",
+      "line": 115,
+      "id": "analytics.canAccessAiReports",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "analytics.canAccessReports"
+      },
+      "references": []
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessCosts",
+      "type": "boolean",
+      "line": 116,
+      "id": "analytics.canAccessCosts",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2012
+      },
+      "references": []
+    },
+    {
+      "category": "security",
+      "key": "canManageUsers",
+      "type": "boolean",
+      "line": 120,
+      "id": "security.canManageUsers",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2077
+      },
+      "references": []
+    },
+    {
+      "category": "security",
+      "key": "canResetUserPasswords",
+      "type": "boolean",
+      "line": 121,
+      "id": "security.canResetUserPasswords",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2078
+      },
+      "references": []
+    },
+    {
+      "category": "security",
+      "key": "canImpersonateUsers",
+      "type": "boolean",
+      "line": 122,
+      "id": "security.canImpersonateUsers",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2079
+      },
+      "references": []
+    },
+    {
+      "category": "security",
+      "key": "canManageAccessGroups",
+      "type": "boolean",
+      "line": 123,
+      "id": "security.canManageAccessGroups",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "security.canManageGroups"
+      },
+      "references": []
+    },
+    {
+      "category": "security",
+      "key": "canManageSectors",
+      "type": "boolean",
+      "line": 124,
+      "id": "security.canManageSectors",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2081
+      },
+      "references": []
+    },
+    {
+      "category": "security",
+      "key": "canManageWallets",
+      "type": "boolean",
+      "line": 125,
+      "id": "security.canManageWallets",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2082
+      },
+      "references": []
+    },
+    {
+      "category": "security",
+      "key": "canManageGlobalTemplates",
+      "type": "boolean",
+      "line": 126,
+      "id": "security.canManageGlobalTemplates",
+      "panel": {
+        "status": "Controle individual",
+        "line": 2083
+      },
+      "references": [
+        {
+          "file": "src/routes/api/quick-responses.ts",
+          "line": 49,
+          "text": "const denied = requirePermission(session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+        },
+        {
+          "file": "src/routes/api/quick-responses.ts",
+          "line": 111,
+          "text": "const denied = requirePermission(session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+        },
+        {
+          "file": "src/routes/api/whatsapp/meta-templates.ts",
+          "line": 19,
+          "text": "const denied = requirePermission(auth.session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+        }
+      ]
+    },
+    {
+      "category": "settings",
+      "key": "canManageWhatsapp",
+      "type": "boolean",
+      "line": 130,
+      "id": "settings.canManageWhatsapp",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "settings.canAccessWhatsappSettings"
+      },
+      "references": []
+    },
+    {
+      "category": "settings",
+      "key": "canManageVoiceSettings",
+      "type": "boolean",
+      "line": 131,
+      "id": "settings.canManageVoiceSettings",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "settings.canAccessVozSettings"
+      },
+      "references": []
+    },
+    {
+      "category": "settings",
+      "key": "canManageRdCrmSettings",
+      "type": "boolean",
+      "line": 132,
+      "id": "settings.canManageRdCrmSettings",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "settings.canAccessRdSettings"
+      },
+      "references": []
+    },
+    {
+      "category": "settings",
+      "key": "canManageEmailSmtp",
+      "type": "boolean",
+      "line": 133,
+      "id": "settings.canManageEmailSmtp",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "settings.canAccessEmailSettings"
+      },
+      "references": []
+    },
+    {
+      "category": "settings",
+      "key": "canManageLiveChatSettings",
+      "type": "boolean",
+      "line": 134,
+      "id": "settings.canManageLiveChatSettings",
+      "panel": {
+        "status": "Controle usa chave incompatível",
+        "writes": "settings.canAccessLiveChatSettings"
+      },
+      "references": []
+    },
+    {
+      "category": "crm",
+      "key": "canViewCrm",
+      "type": "boolean",
+      "line": 138,
+      "id": "crm.canViewCrm",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/components/crm/CrmChatWidget.tsx",
+          "line": 995,
+          "text": "const { canAccessView, canViewCrm } = usePermissions();"
+        },
+        {
+          "file": "src/routes/api/commercial/home.ts",
+          "line": 18,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/contacts/account-options.ts",
+          "line": 18,
+          "text": "!session.permissions?.crm?.canViewCrm) {"
+        },
+        {
+          "file": "src/routes/api/crm/accounts.ts",
+          "line": 34,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/calendar.ts",
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/catalogs.ts",
+          "line": 22,
+          "text": "const permission = requireCrmPermission(auth.session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/catalogs.ts",
+          "line": 45,
+          "text": "const permission = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/contacts.ts",
+          "line": 20,
+          "text": "const permissionError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/contacts.ts",
+          "line": 134,
+          "text": "const permissionError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/custom-fields.ts",
+          "line": 71,
+          "text": "const permission = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deal-filter-options.ts",
+          "line": 17,
+          "text": "const denied = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals.ts",
+          "line": 20,
+          "text": "* Exige permissão canViewCrm. Se não tiver canViewAllDeals, restringe aos próprios negócios."
+        },
+        {
+          "file": "src/routes/api/crm/deals.ts",
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/pipelines.ts",
+          "line": 30,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/products.ts",
+          "line": 28,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/search.ts",
+          "line": 19,
+          "text": "const permissionError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/stage-settings.ts",
+          "line": 15,
+          "text": "const permissionError = requireCrmPermission(auth.session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/chats/$conversationId/deals.ts",
+          "line": 51,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: \"Permissão insuficiente.\" }, { status: 403 });"
+        },
+        {
+          "file": "src/routes/api/chats/$conversationId/deals.ts",
+          "line": 54,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 38,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 20,
+          "text": "* Exige canViewCrm e respeita canViewAllDeals."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/bulk.ts",
+          "line": 34,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId.ts",
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/commercial/directives/$directiveId/evidence.ts",
+          "line": 34,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId/conversations.ts",
+          "line": 28,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/activities.ts",
+          "line": 28,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/contacts.ts",
+          "line": 28,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 26,
+          "text": "* Exige permissão canViewCrm."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 35,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 148,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/emails.ts",
+          "line": 31,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+          "line": 20,
+          "text": "* Exige permissão canViewCrm."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/files.ts",
+          "line": 69,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/products.ts",
+          "line": 24,
+          "text": "* Exige permissão canViewCrm."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/products.ts",
+          "line": 33,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/proposals.ts",
+          "line": 40,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/questionnaires.ts",
+          "line": 31,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/rd-marketing.ts",
+          "line": 16,
+          "text": "const denied = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId/stages-summary.ts",
+          "line": 21,
+          "text": "* Exige canViewCrm e respeita canViewAllDeals."
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId/stages-summary.ts",
+          "line": 30,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/files/$fileId.ts",
+          "line": 31,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ]
+    },
+    {
+      "category": "crm",
+      "key": "canViewAllDeals",
+      "type": "boolean",
+      "line": 139,
+      "id": "crm.canViewAllDeals",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/routes/api/crm/deal-filter-options.ts",
+          "line": 21,
+          "text": "session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals;"
+        },
+        {
+          "file": "src/routes/api/crm/deals.ts",
+          "line": 20,
+          "text": "* Exige permissão canViewCrm. Se não tiver canViewAllDeals, restringe aos próprios negócios."
+        },
+        {
+          "file": "src/routes/api/crm/deals.ts",
+          "line": 65,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals) {"
+        },
+        {
+          "file": "src/routes/api/crm/search.ts",
+          "line": 53,
+          "text": "session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 20,
+          "text": "* Exige canViewCrm e respeita canViewAllDeals."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 45,
+          "text": "!session.permissions?.crm?.canViewAllDeals &&"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 56,
+          "text": "!session.permissions?.crm?.canViewAllDeals &&"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 171,
+          "text": "!session.permissions?.crm?.canViewAllDeals &&"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/rd-marketing.ts",
+          "line": 29,
+          "text": "session.operator.role === \"admin\" || !!session.permissions?.crm?.canViewAllDeals,"
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId/stages-summary.ts",
+          "line": 21,
+          "text": "* Exige canViewCrm e respeita canViewAllDeals."
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId/stages-summary.ts",
+          "line": 59,
+          "text": "!session.permissions?.crm?.canViewAllDeals"
+        }
+      ]
+    },
+    {
+      "category": "crm",
+      "key": "canCreateDeals",
+      "type": "boolean",
+      "line": 140,
+      "id": "crm.canCreateDeals",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/lib/crm/contact-registration.ts",
+          "line": 15,
+          "text": "if (body.newDeal && !body.dealId) return requireCrmPermission(session, \"canCreateDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/accounts.ts",
+          "line": 81,
+          "text": "const permError = requireCrmPermission(session, \"canCreateDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/contacts.ts",
+          "line": 147,
+          "text": "if (!input.existingContactId && session.operator.role !== \"admin\" && !session.permissions?.contacts?.canCreateContact && !session.permissions?.crm?.canCreateDeals) return Response.json({ error: \"Permissão insuficiente.\" }, { status: 403 });"
+        },
+        {
+          "file": "src/routes/api/crm/deals.ts",
+          "line": 117,
+          "text": "* Exige permissão canCreateDeals."
+        },
+        {
+          "file": "src/routes/api/crm/deals.ts",
+          "line": 126,
+          "text": "const permError = requireCrmPermission(session, \"canCreateDeals\");"
+        },
+        {
+          "file": "src/routes/api/chats/$conversationId/deals.ts",
+          "line": 152,
+          "text": "const permError = requireCrmPermission(session, \"canCreateDeals\");"
+        }
+      ]
+    },
+    {
+      "category": "crm",
+      "key": "canEditDeals",
+      "type": "boolean",
+      "line": 141,
+      "id": "crm.canEditDeals",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/lib/crm/contact-registration.ts",
+          "line": 14,
+          "text": "return requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/contacts/$contactId.ts",
+          "line": 30,
+          "text": "!session.permissions?.crm?.canEditDeals) {"
+        },
+        {
+          "file": "src/routes/api/chats/$conversationId/deals.ts",
+          "line": 136,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/chats/$conversationId/deals.ts",
+          "line": 202,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 70,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId.ts",
+          "line": 118,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 70,
+          "text": "* Valida permissões granulares: canMoveStages para etapas, canCloseDeals para ganho/perda, canEditDeals para outros."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 104,
+          "text": "const editPerm = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/bulk.ts",
+          "line": 22,
+          "text": "* Exige permissão canEditDeals (ou canMoveDeals se apenas stageId)."
+        },
+        {
+          "file": "src/routes/api/crm/deals/bulk.ts",
+          "line": 78,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/commercial/directives/$directiveId/evidence.ts",
+          "line": 324,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId/conversations.ts",
+          "line": 54,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/accounts/$accountId/conversations.ts",
+          "line": 97,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/activities.ts",
+          "line": 57,
+          "text": "* Exige permissão canEditDeals."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/activities.ts",
+          "line": 66,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/ai-priority.ts",
+          "line": 31,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/contacts.ts",
+          "line": 54,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/contacts.ts",
+          "line": 98,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/contacts.ts",
+          "line": 153,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 286,
+          "text": "if (session.operator.role !== \"admin\" && (!session.permissions?.contacts?.canCreateContact || !session.permissions?.crm?.canEditDeals)) throw Object.assign(new Error(\"Permissão insuficiente para criar e vincular um contato.\"), { statusCode:"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 471,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 503,
+          "text": "* Exige permissão canEditDeals."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+          "line": 512,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/emails.ts",
+          "line": 88,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+          "line": 47,
+          "text": "* Exige permissão canEditDeals."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+          "line": 56,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+          "line": 91,
+          "text": "* Exige permissão canEditDeals."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+          "line": 100,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/files.ts",
+          "line": 131,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/files.ts",
+          "line": 285,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/products.ts",
+          "line": 78,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/products.ts",
+          "line": 180,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/questionnaires.ts",
+          "line": 71,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/activities/$activityId.ts",
+          "line": 30,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/activities/$activityId.ts",
+          "line": 73,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/emails/send.ts",
+          "line": 32,
+          "text": "const permissionError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/files/$fileId.ts",
+          "line": 91,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ]
+    },
+    {
+      "category": "crm",
+      "key": "canMoveStages",
+      "type": "boolean",
+      "line": 142,
+      "id": "crm.canMoveStages",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 70,
+          "text": "* Valida permissões granulares: canMoveStages para etapas, canCloseDeals para ganho/perda, canEditDeals para outros."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 84,
+          "text": "const stagePerm = requireCrmPermission(session, \"canMoveStages\");"
+        }
+      ]
+    },
+    {
+      "category": "crm",
+      "key": "canCloseDeals",
+      "type": "boolean",
+      "line": 143,
+      "id": "crm.canCloseDeals",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 70,
+          "text": "* Valida permissões granulares: canMoveStages para etapas, canCloseDeals para ganho/perda, canEditDeals para outros."
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId.ts",
+          "line": 88,
+          "text": "const closePerm = requireCrmPermission(session, \"canCloseDeals\");"
+        }
+      ]
+    },
+    {
+      "category": "crm",
+      "key": "canManagePipelines",
+      "type": "boolean",
+      "line": 144,
+      "id": "crm.canManagePipelines",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/routes/api/crm/pipelines.ts",
+          "line": 45,
+          "text": "* Exige canManagePipelines."
+        },
+        {
+          "file": "src/routes/api/crm/pipelines.ts",
+          "line": 54,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        },
+        {
+          "file": "src/routes/api/crm/stage-settings.ts",
+          "line": 35,
+          "text": "const permissionError = requireCrmPermission(auth.session, \"canManagePipelines\");"
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId.ts",
+          "line": 47,
+          "text": "* Exige canManagePipelines."
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId.ts",
+          "line": 56,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId.ts",
+          "line": 82,
+          "text": "* Exige canManagePipelines."
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId.ts",
+          "line": 91,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        },
+        {
+          "file": "src/routes/api/crm/stages/$stageId.ts",
+          "line": 21,
+          "text": "* Exige canManagePipelines."
+        },
+        {
+          "file": "src/routes/api/crm/stages/$stageId.ts",
+          "line": 30,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        },
+        {
+          "file": "src/routes/api/crm/stages/$stageId.ts",
+          "line": 56,
+          "text": "* Exige canManagePipelines."
+        },
+        {
+          "file": "src/routes/api/crm/stages/$stageId.ts",
+          "line": 65,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId/stages.ts",
+          "line": 20,
+          "text": "* Exige canManagePipelines."
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId/stages.ts",
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId/stages.ts",
+          "line": 63,
+          "text": "* Exige canManagePipelines."
+        },
+        {
+          "file": "src/routes/api/crm/pipelines/$pipelineId/stages.ts",
+          "line": 72,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        }
+      ]
+    },
+    {
+      "category": "crm",
+      "key": "canManageProducts",
+      "type": "boolean",
+      "line": 145,
+      "id": "crm.canManageProducts",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/routes/api/crm/products.ts",
+          "line": 58,
+          "text": "const permError = requireCrmPermission(session, \"canManageProducts\");"
+        },
+        {
+          "file": "src/routes/api/crm/products/$productId.ts",
+          "line": 14,
+          "text": "const permission = requireCrmPermission(session, \"canManageProducts\");"
+        }
+      ]
+    },
+    {
+      "category": "crm",
+      "key": "canManageProposals",
+      "type": "boolean",
+      "line": 146,
+      "id": "crm.canManageProposals",
+      "panel": {
+        "status": "Sem controle individual localizado"
+      },
+      "references": [
+        {
+          "file": "src/routes/api/crm/deals/$dealId/proposals.ts",
+          "line": 82,
+          "text": "const permError = requireCrmPermission(session, \"canManageProposals\");"
+        },
+        {
+          "file": "src/routes/api/crm/deals/$dealId/proposals.ts",
+          "line": 131,
+          "text": "const permError = requireCrmPermission(session, \"canManageProposals\");"
+        }
+      ]
+    }
+  ],
+  "panelKeys": [
+    {
+      "category": "views",
+      "key": "chat",
+      "line": 1590
+    },
+    {
+      "category": "views",
+      "key": "commercialHome",
+      "line": 1591
+    },
+    {
+      "category": "views",
+      "key": "crm",
+      "line": 1592
+    },
+    {
+      "category": "views",
+      "key": "tasks",
+      "line": 1593
+    },
+    {
+      "category": "views",
+      "key": "contacts",
+      "line": 1594
+    },
+    {
+      "category": "views",
+      "key": "wallets",
+      "line": 1595
+    },
+    {
+      "category": "views",
+      "key": "valentina",
+      "line": 1596
+    },
+    {
+      "category": "views",
+      "key": "ligacoes",
+      "line": 1597
+    },
+    {
+      "category": "views",
+      "key": "monitor",
+      "line": 1598
+    },
+    {
+      "category": "views",
+      "key": "analytics",
+      "line": 1599
+    },
+    {
+      "category": "views",
+      "key": "groups",
+      "line": 1600
+    },
+    {
+      "category": "views",
+      "key": "settings",
+      "line": 1601
+    },
+    {
+      "category": "chat",
+      "key": "canCaptureChat",
+      "line": 1660
+    },
+    {
+      "category": "chat",
+      "key": "canTransferChat",
+      "line": 1661
+    },
+    {
+      "category": "chat",
+      "key": "canFinishChat",
+      "line": 1662
+    },
+    {
+      "category": "chat",
+      "key": "canViewAllChats",
+      "line": 1663
+    },
+    {
+      "category": "chat",
+      "key": "canOverrideChat",
+      "line": 1664
+    },
+    {
+      "category": "chat",
+      "key": "canSendInternalNotes",
+      "line": 1665
+    },
+    {
+      "category": "chat",
+      "key": "canEditClientInfo",
+      "line": 1666
+    },
+    {
+      "category": "chat",
+      "key": "canManageTags",
+      "line": 1667
+    },
+    {
+      "category": "chat",
+      "key": "canManageRdCrm",
+      "line": 1668
+    },
+    {
+      "category": "chat",
+      "key": "canChangeWalletOperator",
+      "line": 1669
+    },
+    {
+      "category": "contacts",
+      "key": "canCreateContact",
+      "line": 1749
+    },
+    {
+      "category": "contacts",
+      "key": "canEditContact",
+      "line": 1750
+    },
+    {
+      "category": "contacts",
+      "key": "canDeleteContact",
+      "line": 1751
+    },
+    {
+      "category": "contacts",
+      "key": "canExportContacts",
+      "line": 1752
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessChat",
+      "line": 1812
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessSdr",
+      "line": 1813
+    },
+    {
+      "category": "valentina",
+      "key": "canManageSdr",
+      "line": 1814
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessRodizio",
+      "line": 1815
+    },
+    {
+      "category": "valentina",
+      "key": "canManageRodizio",
+      "line": 1816
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessSupervisor",
+      "line": 1817
+    },
+    {
+      "category": "valentina",
+      "key": "canAccessKnowledge",
+      "line": 1818
+    },
+    {
+      "category": "valentina",
+      "key": "canManageKnowledge",
+      "line": 1819
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessDashboard",
+      "line": 1878
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessAgenda",
+      "line": 1879
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessHistorico",
+      "line": 1880
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessClientes",
+      "line": 1881
+    },
+    {
+      "category": "ligacoes",
+      "key": "canTriggerTestCall",
+      "line": 1882
+    },
+    {
+      "category": "ligacoes",
+      "key": "canManageCampanhas",
+      "line": 1883
+    },
+    {
+      "category": "ligacoes",
+      "key": "canManageObjetivos",
+      "line": 1884
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessLive",
+      "line": 1943
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessAlerts",
+      "line": 1944
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessOperators",
+      "line": 1945
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessAudits",
+      "line": 1946
+    },
+    {
+      "category": "monitor",
+      "key": "canManageAudits",
+      "line": 1947
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessSite",
+      "line": 1948
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessOverview",
+      "line": 2007
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessPerformance",
+      "line": 2008
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessSla",
+      "line": 2009
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessContacts",
+      "line": 2010
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessReports",
+      "line": 2011
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessCosts",
+      "line": 2012
+    },
+    {
+      "category": "security",
+      "key": "canManageUsers",
+      "line": 2077
+    },
+    {
+      "category": "security",
+      "key": "canResetUserPasswords",
+      "line": 2078
+    },
+    {
+      "category": "security",
+      "key": "canImpersonateUsers",
+      "line": 2079
+    },
+    {
+      "category": "security",
+      "key": "canManageGroups",
+      "line": 2080
+    },
+    {
+      "category": "security",
+      "key": "canManageSectors",
+      "line": 2081
+    },
+    {
+      "category": "security",
+      "key": "canManageWallets",
+      "line": 2082
+    },
+    {
+      "category": "security",
+      "key": "canManageGlobalTemplates",
+      "line": 2083
+    },
+    {
+      "category": "settings",
+      "key": "canAccessWhatsappSettings",
+      "line": 2142
+    },
+    {
+      "category": "settings",
+      "key": "canAccessVozSettings",
+      "line": 2143
+    },
+    {
+      "category": "settings",
+      "key": "canAccessRdSettings",
+      "line": 2144
+    },
+    {
+      "category": "settings",
+      "key": "canAccessEmailSettings",
+      "line": 2145
+    },
+    {
+      "category": "settings",
+      "key": "canAccessLiveChatSettings",
+      "line": 2146
+    },
+    {
+      "category": "contacts",
+      "key": "contactScope",
+      "line": 1722
+    }
+  ],
+  "invalidPanelKeys": [
+    {
+      "category": "views",
+      "key": "wallets",
+      "line": 1595
+    },
+    {
+      "category": "chat",
+      "key": "canChangeWalletOperator",
+      "line": 1669
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessHistorico",
+      "line": 1880
+    },
+    {
+      "category": "ligacoes",
+      "key": "canAccessClientes",
+      "line": 1881
+    },
+    {
+      "category": "ligacoes",
+      "key": "canManageCampanhas",
+      "line": 1883
+    },
+    {
+      "category": "ligacoes",
+      "key": "canManageObjetivos",
+      "line": 1884
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessOperators",
+      "line": 1945
+    },
+    {
+      "category": "monitor",
+      "key": "canAccessSite",
+      "line": 1948
+    },
+    {
+      "category": "analytics",
+      "key": "canAccessReports",
+      "line": 2011
+    },
+    {
+      "category": "security",
+      "key": "canManageGroups",
+      "line": 2080
+    },
+    {
+      "category": "settings",
+      "key": "canAccessWhatsappSettings",
+      "line": 2142
+    },
+    {
+      "category": "settings",
+      "key": "canAccessVozSettings",
+      "line": 2143
+    },
+    {
+      "category": "settings",
+      "key": "canAccessRdSettings",
+      "line": 2144
+    },
+    {
+      "category": "settings",
+      "key": "canAccessEmailSettings",
+      "line": 2145
+    },
+    {
+      "category": "settings",
+      "key": "canAccessLiveChatSettings",
+      "line": 2146
+    }
+  ]
+}

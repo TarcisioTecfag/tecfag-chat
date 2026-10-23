@@ -21,9 +21,12 @@ export const Route = createFileRoute("/api/gestao/reports")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        const canAccess =
+          session.permissions?.views?.analytics === true &&
+          session.permissions?.analytics?.canAccessAiReports === true;
+        if (!canAccess) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem acessar relatórios.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para acessar relatórios de IA.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }

@@ -5,6 +5,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { voiceAgenda } from "../../db/schema";
 import { eq, and, asc } from "drizzle-orm";
+import { agendaUpdateSchema } from "../../lib/access-control/voice-input";
+import { requirePermission } from "../../lib/auth-session";
 import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
 import { recordCrmAction } from "../../lib/crm/action-history";
@@ -24,6 +26,8 @@ export const Route = createFileRoute("/api/voice-agenda")({
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
+        const denied = requirePermission(session, (p) => p.views?.ligacoes === true && p.ligacoes?.canAccessAgenda === true);
+        if (denied) return denied;
 
         const url = new URL(request.url);
         const statusFilter = url.searchParams.get("status");
@@ -124,13 +128,13 @@ export const Route = createFileRoute("/api/voice-agenda")({
 
         try {
           const body = await request.json();
-          const { id, ...updates } = body;
+          const { id, tenantId: _ignoredTenant, ...input } = body;
+          const parsed = agendaUpdateSchema.safeParse(input);
+          if (!parsed.success) return json({ error: "Campos de agendamento inválidos.", code: "INVALID_FIELDS" }, 400);
+          const updates = parsed.data;
           if (!id) return json({ error: "id e obrigatorio" }, 400);
 
-          const dbUpdates: any = { ...updates, updatedAt: new Date() };
-          if (updates.scheduledAt) {
-            dbUpdates.scheduledAt = new Date(updates.scheduledAt);
-          }
+          const dbUpdates = { ...updates, updatedAt: new Date() };
 
           await db
             .update(voiceAgenda)

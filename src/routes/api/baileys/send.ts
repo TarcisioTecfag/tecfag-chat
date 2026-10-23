@@ -4,6 +4,7 @@ import { outboundQueue } from "../../../lib/whatsapp/outbound";
 import { db } from "../../../db";
 import { channelConfigs, contacts, conversations } from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
+import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,6 +34,8 @@ export const Route = createFileRoute("/api/baileys/send")({
           }
 
           const tenantId = session.tenantId;
+          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (denied) return denied;
           const [config] = await db.select({ activeProvider: channelConfigs.activeProvider, connectionStatus: channelConfigs.connectionStatus })
             .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
           if (config?.connectionStatus === "switching") return Response.json({ error: "Canal em transição." }, { status: 409 });

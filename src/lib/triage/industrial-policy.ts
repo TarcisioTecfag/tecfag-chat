@@ -143,6 +143,38 @@ export function normalizeIndustrialFunnels(values: readonly string[]): string[] 
   ];
 }
 export type RequiredField = "name" | "document" | "request" | "application" | "production";
+export interface SystemOperatorCandidate {
+  id: string;
+  name: string;
+  email?: string;
+  funnels?: string[];
+  sectorName?: string;
+  isOnLeave?: boolean;
+  status?: string;
+}
+export type DirectOperatorIntent =
+  | "direct_transfer"
+  | "past_reference_only"
+  | "ambiguous_homonym"
+  | "not_found";
+export interface DirectOperatorAiDecision {
+  intent?: DirectOperatorIntent | null;
+  citedName?: string | null;
+  matchedOperatorId?: string | null;
+  matchedOperatorName?: string | null;
+}
+export interface DirectOperatorTarget {
+  id: string;
+  name: string;
+  isAbsent: boolean;
+  primaryFunnel: IndustrialFunnel | null;
+}
+export interface ResolvedDirectOperator {
+  status: "matched" | "past_reference_only" | "ambiguous_homonym" | "not_found" | "none";
+  citedName: string | null;
+  operator: DirectOperatorTarget | null;
+  homonyms?: Array<{ id: string; name: string; funnels: string[] }>;
+}
 export interface IndustrialRoute {
   subflow: IndustrialSubflow | null;
   funnelStage: TriageStage;
@@ -154,8 +186,10 @@ export interface IndustrialRoute {
     | "previous_route"
     | "unknown"
     | "human_requested"
+    | "direct_operator_requested"
     | "specialist_review"
     | "classification_pending";
+  targetOperator?: DirectOperatorTarget | null;
 }
 
 export function normalizeTriageText(value: string): string {
@@ -286,19 +320,155 @@ function textSubflow(raw: string): IndustrialSubflow | null {
   return null;
 }
 
-export function requestsHuman(raw: string): boolean {
+export function isPastPersonReference(raw: string): boolean {
+  const text = normalizeTriageText(raw);
+  if (!text) return false;
+  return (
+    /\b(?:ja|eu ja|cheguei a|costumava|vivia) (?:falei|conversei|falar|conversar|tratei|negociei) (?:antes |uma vez |outra vez )?(?:com|pelo|pela)\b/.test(
+      text,
+    ) ||
+    /\b(?:falei|conversei|comprei|fechei|negociei|tratei) (?:com|pelo|pela) (?:o |a )?[a-z]{3,}\b.*\b(?:ontem|antes|passad[oa]|semana|mes|ano|uma vez|outra vez|da ultima vez|anteriormente)\b/.test(
+      text,
+    ) ||
+    /\b(?:ontem|antes|semana passada|mes passado|ano passado|uma vez|da ultima vez) (?:eu )?(?:falei|conversei|comprei|tratei|falar|conversar) com\b/.test(
+      text,
+    )
+  );
+}
+
+/** Detecta pedido genérico de atendimento humano (sem citar nome de pessoa específica). */
+export function requestsGenericHuman(raw: string): boolean {
   const text = normalizeTriageText(raw);
   if (/\bnao (?:quero|preciso|desejo) (?:falar|conversar|ser transferido)\b/.test(text))
     return false;
   return (
-    /\b(?:quero|prefiro|preciso|posso|gostaria de|pode me|me) (?:falar|conversar|passar|transferir|transfere|passa|conecte|conectar)\b.*\b(?:humano|humana|pessoa|atendente|alguem|equipe)\b/.test(
+    /\b(?:quero|prefiro|preciso|posso|gostaria de|pode me|me) (?:falar|conversar|passar|transferir|transfere|passa|conecte|conectar)\b.*\b(?:humano|humana|atendente|alguem|equipe)\b/.test(
+      text,
+    ) || /\b(?:nao quero|pare de) (?:falar|conversar) com (?:robo|ia|bot)\b/.test(text)
+  );
+}
+
+export function requestsHuman(raw: string): boolean {
+  const text = normalizeTriageText(raw);
+  if (/\bnao (?:quero|preciso|desejo) (?:falar|conversar|ser transferido)\b/.test(text))
+    return false;
+  if (isPastPersonReference(text)) return false;
+  return (
+    requestsGenericHuman(raw) ||
+    /\b(?:quero|prefiro|preciso|posso|gostaria de|pode me|me) (?:falar|conversar|passar|transferir|transfere|passa|conecte|conectar)\b.*\b(?:pessoa)\b/.test(
       text,
     ) ||
     /\b(?:falar|conversar|transfere|transferir|passa) (?:diretamente )?(?:com|para|pra) (?:o |a |um |uma )?(?!(?:vendedor|consultor|especialista|suporte|financeiro|pos|fagner|valentina)\b)[a-z]{3,}(?:\b|$)/.test(
       text,
-    ) ||
-    /\b(?:nao quero|pare de) (?:falar|conversar) com (?:robo|ia|bot)\b/.test(text)
+    )
   );
+}
+
+const STOPWORDS_PERSON_NAME = new Set(["sr", "sra", "dr", "dra", "de", "da", "do", "dos", "das", "o", "a"]);
+
+function extractNameTokens(rawName: string): string[] {
+  return normalizeTriageText(rawName)
+    .replace(/\s*-\s*\d+\s*$/, "")
+    .split(" ")
+    .filter((token) => token.length >= 2 && !STOPWORDS_PERSON_NAME.has(token));
+}
+
+/**
+ * Cruza a interpretação contextual do Gemini (`directOperatorRequest`) com a lista
+ * real de todos os usuários/operadores cadastrados no tenant (`operators` + `flowOperators`).
+ */
+export function resolveDirectOperatorRequest(
+  aiDecision: DirectOperatorAiDecision | null | undefined,
+  systemOperators: readonly SystemOperatorCandidate[],
+): ResolvedDirectOperator {
+  if (!aiDecision || !aiDecision.intent) {
+    return { status: "none", citedName: null, operator: null };
+  }
+  const rawCited = (aiDecision.citedName || aiDecision.matchedOperatorName || "").trim();
+  if (aiDecision.intent === "past_reference_only") {
+    return {
+      status: "past_reference_only",
+      citedName: rawCited || null,
+      operator: null,
+    };
+  }
+
+  const citedTokens = extractNameTokens(rawCited);
+  const normCitedFull = citedTokens.join(" ");
+
+  const nameMatches =
+    citedTokens.length > 0
+      ? systemOperators.filter((op) => {
+          const opTokens = extractNameTokens(op.name);
+          if (opTokens.length === 0) return false;
+          const normOpFull = opTokens.join(" ");
+          if (normOpFull === normCitedFull) return true;
+          if (citedTokens.length === 1) {
+            return opTokens[0] === citedTokens[0];
+          }
+          return citedTokens.every((token) => opTokens.includes(token));
+        })
+      : [];
+
+  const exactFullMatches =
+    citedTokens.length > 1
+      ? nameMatches.filter((op) => extractNameTokens(op.name).join(" ") === normCitedFull)
+      : [];
+
+  const effectiveNameMatches = exactFullMatches.length === 1 ? exactFullMatches : nameMatches;
+
+  // Se o cliente citou apenas o primeiro nome (ex: "João") e há múltiplos "João" no sistema, é homônimo ambíguo
+  if (effectiveNameMatches.length > 1) {
+    return {
+      status: "ambiguous_homonym",
+      citedName: rawCited || null,
+      operator: null,
+      homonyms: effectiveNameMatches.map((op) => ({
+        id: op.id,
+        name: op.name,
+        funnels: normalizeIndustrialFunnels(op.funnels || []),
+      })),
+    };
+  }
+
+  const idMatch = aiDecision.matchedOperatorId
+    ? systemOperators.find((op) => op.id === aiDecision.matchedOperatorId) || null
+    : null;
+
+  const chosen =
+    effectiveNameMatches.length === 1
+      ? effectiveNameMatches[0]
+      : aiDecision.intent === "direct_transfer"
+        ? idMatch
+        : null;
+
+  if (!chosen) {
+    return {
+      status: "not_found",
+      citedName: rawCited || null,
+      operator: null,
+    };
+  }
+
+  const normalizedFunnels = normalizeIndustrialFunnels(chosen.funnels || []);
+  const primaryFunnel =
+    (normalizedFunnels.find((f) =>
+      (INDUSTRIAL_FUNNELS as readonly string[]).includes(f),
+    ) as IndustrialFunnel | undefined) || null;
+  const isAbsent = Boolean(
+    chosen.isOnLeave === true || normalizeTriageText(chosen.status || "") === "ausente",
+  );
+
+  return {
+    status: "matched",
+    citedName: rawCited || chosen.name,
+    operator: {
+      id: chosen.id,
+      name: chosen.name,
+      isAbsent,
+      primaryFunnel,
+    },
+  };
 }
 
 /** Autorização por destino unificado, incluindo os nomes industriais anteriores. */
@@ -344,10 +514,35 @@ export interface ResolveIndustrialRouteInput {
     group: "PERSONNALITE" | "SEMI-INDUSTRIAL";
     confidence: number;
   };
+  /** Resolução validada pelo servidor de pedido nominal de transferência direta. */
+  directOperator?: ResolvedDirectOperator | null;
 }
 
 export function resolveIndustrialRoute(input: ResolveIndustrialRouteInput): IndustrialRoute {
-  if (requestsHuman(input.text || "")) return routeFor("5A_CLIENTE", "human_requested", true);
+  if (input.directOperator?.status === "matched" && input.directOperator.operator) {
+    const targetOp = input.directOperator.operator;
+    const subflowFromFunnel = targetOp.primaryFunnel ? declaredSubflow(targetOp.primaryFunnel) : null;
+    const effectiveSubflow: IndustrialSubflow = subflowFromFunnel || "5A_CLIENTE";
+    return {
+      subflow: effectiveSubflow,
+      funnelStage: INDUSTRIAL_ROUTES[effectiveSubflow].stage,
+      targetFunnel: targetOp.primaryFunnel || INDUSTRIAL_ROUTES[effectiveSubflow].funnel,
+      needsReview: false,
+      reason: "direct_operator_requested",
+      targetOperator: targetOp,
+    };
+  }
+  const suppressNominalHumanRegex =
+    input.directOperator?.status === "past_reference_only" ||
+    input.directOperator?.status === "not_found" ||
+    input.directOperator?.status === "ambiguous_homonym";
+  if (
+    suppressNominalHumanRegex
+      ? requestsGenericHuman(input.text || "")
+      : requestsHuman(input.text || "")
+  ) {
+    return routeFor("5A_CLIENTE", "human_requested", true);
+  }
   const interest = collectedValue(
     input.collectedData,
     "MÁQUINA / PEÇA / INTERESSE",
@@ -381,7 +576,7 @@ export function resolveIndustrialRoute(input: ResolveIndustrialRouteInput): Indu
     };
   }
   if (!subflow) {
-    const other = input.aiFunnelStage === "outros";
+    const other = input.aiFunnelStage === "outros" && !suppressNominalHumanRegex;
     if (other) return routeFor("5A_CLIENTE", "unknown", true);
     return {
       subflow: null,
@@ -449,6 +644,257 @@ export function isValidTriageDocument(raw: string): boolean {
   return digits.endsWith(`${first}${second}`);
 }
 
+export const INDUSTRIAL_ALL_DISPLAY_FIELDS = [
+  "NOME COMPLETO",
+  "EMPRESA",
+  "CNPJ OU CPF",
+  "RAMO / O QUE EMBALA",
+  "MÁQUINA / PEÇA / INTERESSE",
+  "VOLUME / PRODUÇÃO",
+  "SETOR / FUNIL DE DESTINO",
+] as const;
+
+export type IndustrialDisplayField = (typeof INDUSTRIAL_ALL_DISPLAY_FIELDS)[number];
+
+export interface AdaptiveIndustrialFieldContext {
+  subflow?: string | null;
+  funnelStage?: string | null;
+  targetFunnel?: string | null;
+  collectedData?: CollectedFields | null;
+  company?: string | null;
+  document?: string | null;
+  isCompleted?: boolean;
+  text?: string;
+}
+
+export function resolveEffectiveIndustrialSubflow(
+  ctx: AdaptiveIndustrialFieldContext,
+): IndustrialSubflow | null {
+  const data = ctx.collectedData || {};
+  const fromExplicit = declaredSubflow(ctx.subflow);
+  if (fromExplicit) return fromExplicit;
+
+  const fromDataSector = declaredSubflow(
+    collectedValue(data, "SETOR / FUNIL DE DESTINO", "SETOR"),
+  );
+  if (fromDataSector) return fromDataSector;
+
+  const fromTargetFunnel = declaredSubflow(ctx.targetFunnel);
+  if (fromTargetFunnel) return fromTargetFunnel;
+
+  const stage = normalizeTriageText(ctx.funnelStage || "");
+  if (stage === "maquinas") return "MAQUINAS";
+  if (stage === "personalite") return "PERSONNALITE";
+  if (stage === "pecas") return "PECAS";
+  if (stage === "assistencia tecnica") return "3_AT";
+  if (stage === "pos venda") return "POS_VENDA";
+  if (stage === "financeiro") {
+    const hasDoc = Boolean(
+      collectedValue(data, "CNPJ OU CPF", "CNPJ", "CPF") ||
+        (ctx.document && ctx.document.trim()) ||
+        data._KNOWN_COMPANY_CONFIRMED?.status === "filled",
+    );
+    return hasDoc ? "2A_BOLETO" : "2C_OUTROS";
+  }
+  if (stage === "outros") return "5A_CLIENTE";
+
+  return resolveIndustrialRoute({
+    text: ctx.text,
+    collectedData: data,
+    existingSubflow: ctx.subflow,
+    existingStage: ctx.funnelStage,
+    existingFunnel: ctx.targetFunnel,
+  }).subflow;
+}
+
+/**
+ * Retorna a lista de campos do painel "Dados Coletados" adaptada ao setor/subfluxo da triagem.
+ * Setores não-comerciais (Peças, Assistência Técnica, Financeiro, Pós-Venda, Outros) exibem
+ * apenas os campos pertinentes ao seu fluxo (mais quaisquer campos extras já preenchidos).
+ */
+export function getIndustrialTargetFields(
+  ctx: AdaptiveIndustrialFieldContext,
+): IndustrialDisplayField[] {
+  const data = ctx.collectedData || {};
+  const subflow = resolveEffectiveIndustrialSubflow(ctx);
+
+  if (!subflow || subflow === "MAQUINAS" || subflow === "PERSONNALITE") {
+    return [...INDUSTRIAL_ALL_DISPLAY_FIELDS];
+  }
+
+  const policyFields = new Set<RequiredField>(
+    INDUSTRIAL_ROUTES[subflow].fields as readonly RequiredField[],
+  );
+
+  const hasCompanyValue = Boolean(
+    collectedValue(data, "EMPRESA") || (ctx.company && ctx.company.trim()),
+  );
+  const hasDocValue = Boolean(
+    collectedValue(data, "CNPJ OU CPF", "CNPJ", "CPF") ||
+      (ctx.document && ctx.document.trim()) ||
+      data._KNOWN_COMPANY_CONFIRMED?.status === "filled",
+  );
+  const hasApplicationValue = Boolean(collectedValue(data, "RAMO / O QUE EMBALA"));
+  const hasProductionValue = Boolean(collectedValue(data, "VOLUME / PRODUÇÃO"));
+  const hasNameValue = Boolean(collectedValue(data, "NOME COMPLETO"));
+  const hasRequestValue = Boolean(
+    collectedValue(
+      data,
+      "MÁQUINA / PEÇA / INTERESSE",
+      "SOLICITAÇÃO",
+      "QUAL O TIPO DE PRODUTO?",
+      "PRODUTO DE INTERESSE",
+    ),
+  );
+
+  const result: IndustrialDisplayField[] = [];
+
+  if (policyFields.has("name") || hasNameValue || (!ctx.isCompleted && policyFields.size === 0)) {
+    result.push("NOME COMPLETO");
+  }
+
+  if (policyFields.has("document") || hasCompanyValue) {
+    result.push("EMPRESA");
+  }
+
+  if (policyFields.has("document") || hasDocValue) {
+    result.push("CNPJ OU CPF");
+  }
+
+  if (policyFields.has("application") || hasApplicationValue) {
+    result.push("RAMO / O QUE EMBALA");
+  }
+
+  if (
+    policyFields.has("request") ||
+    hasRequestValue ||
+    (!ctx.isCompleted && policyFields.size === 0)
+  ) {
+    result.push("MÁQUINA / PEÇA / INTERESSE");
+  }
+
+  if (policyFields.has("production") || hasProductionValue) {
+    result.push("VOLUME / PRODUÇÃO");
+  }
+
+  result.push("SETOR / FUNIL DE DESTINO");
+  return result;
+}
+
+/**
+ * Normaliza o dicionário `collectedData` para exibição e cálculo de progresso:
+ * - Remove chaves internas iniciadas por `_`
+ * - Preenche `EMPRESA` quando já conhecida no cadastro/sessão (ou "Pessoa Física (CPF)" quando CPF válido sem empresa)
+ * - Preenche `CNPJ OU CPF` quando já conhecido no vínculo ou confirmado pelo cadastro
+ * - Preenche `SETOR / FUNIL DE DESTINO` a partir da rota identificada
+ */
+export function getAdaptiveIndustrialCollectedData(
+  ctx: AdaptiveIndustrialFieldContext,
+): CollectedFields {
+  const raw = ctx.collectedData || {};
+  const subflow = resolveEffectiveIndustrialSubflow(ctx);
+  const targetFields = getIndustrialTargetFields(ctx);
+
+  const normalized: CollectedFields = {};
+  for (const [key, entry] of Object.entries(raw)) {
+    if (key.startsWith("_")) continue;
+    normalized[key] = entry ? { ...entry } : { value: "Aguardando...", status: "pending" };
+  }
+
+  const nameVal = collectedValue(raw, "NOME COMPLETO");
+  const companyVal =
+    collectedValue(raw, "EMPRESA") || (ctx.company && ctx.company.trim() ? ctx.company.trim() : "");
+  const docVal =
+    collectedValue(raw, "CNPJ OU CPF", "CNPJ", "CPF") ||
+    (ctx.document && ctx.document.trim() ? ctx.document.trim() : "");
+  const appVal = collectedValue(raw, "RAMO / O QUE EMBALA");
+  const reqVal = collectedValue(
+    raw,
+    "MÁQUINA / PEÇA / INTERESSE",
+    "SOLICITAÇÃO",
+    "QUAL O TIPO DE PRODUTO?",
+    "PRODUTO DE INTERESSE",
+  );
+  const prodVal = collectedValue(raw, "VOLUME / PRODUÇÃO");
+  const routeFunnel =
+    collectedValue(raw, "SETOR / FUNIL DE DESTINO", "SETOR") ||
+    (ctx.targetFunnel && ctx.targetFunnel.trim() ? ctx.targetFunnel.trim() : "") ||
+    (subflow ? INDUSTRIAL_ROUTES[subflow].funnel : "");
+
+  const isCpfOnly =
+    Boolean(docVal) &&
+    docVal.replace(/\D/g, "").length === 11 &&
+    isValidTriageDocument(docVal) &&
+    !companyVal;
+
+  const isKnownCompanyConfirmed =
+    raw._KNOWN_COMPANY_CONFIRMED?.status === "filled" && Boolean(companyVal);
+
+  const resolvedValues: Record<IndustrialDisplayField, string> = {
+    "NOME COMPLETO": nameVal,
+    EMPRESA: companyVal || (isCpfOnly && ctx.isCompleted ? "Pessoa Física (CPF)" : ""),
+    "CNPJ OU CPF": docVal || (isKnownCompanyConfirmed ? "Vinculado ao cadastro" : ""),
+    "RAMO / O QUE EMBALA": appVal,
+    "MÁQUINA / PEÇA / INTERESSE": reqVal,
+    "VOLUME / PRODUÇÃO": prodVal,
+    "SETOR / FUNIL DE DESTINO": routeFunnel,
+  };
+
+  const result: CollectedFields = {};
+  for (const field of targetFields) {
+    const val = resolvedValues[field];
+    if (val) {
+      result[field] = { value: val, status: "filled" };
+    } else {
+      result[field] = { value: "Aguardando...", status: "pending" };
+    }
+  }
+
+  return result;
+}
+
+export function computeIndustrialTriageProgress(ctx: AdaptiveIndustrialFieldContext): {
+  filledCount: number;
+  totalCount: number;
+  percentage: number;
+  targetFields: IndustrialDisplayField[];
+  adaptiveData: CollectedFields;
+} {
+  const targetFields = getIndustrialTargetFields(ctx);
+  const adaptiveData = getAdaptiveIndustrialCollectedData(ctx);
+  const totalCount = targetFields.length || 1;
+  const filledCount = targetFields.filter((key) =>
+    Boolean(collectedValue(adaptiveData, key)),
+  ).length;
+
+  const subflow = resolveEffectiveIndustrialSubflow(ctx);
+  const readiness = subflow
+    ? assessIndustrialReadiness(routeFor(subflow, "declared_route"), {
+        ...(ctx.collectedData || {}),
+        ...adaptiveData,
+        ...(ctx.collectedData?._KNOWN_COMPANY_CONFIRMED
+          ? { _KNOWN_COMPANY_CONFIRMED: ctx.collectedData._KNOWN_COMPANY_CONFIRMED }
+          : {}),
+      })
+    : null;
+
+  const isRouteFullyReady = Boolean(
+    ctx.isCompleted || (readiness?.ready && Boolean(collectedValue(adaptiveData, "SETOR / FUNIL DE DESTINO"))),
+  );
+
+  const percentage = isRouteFullyReady
+    ? 100
+    : Math.min(100, Math.round((filledCount / totalCount) * 100));
+
+  return {
+    filledCount: ctx.isCompleted && filledCount === 0 ? totalCount : filledCount,
+    totalCount,
+    percentage,
+    targetFields,
+    adaptiveData,
+  };
+}
+
 export function assessIndustrialReadiness(
   route: IndustrialRoute,
   data: CollectedFields,
@@ -458,6 +904,9 @@ export function assessIndustrialReadiness(
   action: "collect" | "handoff" | "inform" | "review";
   createsDeal: boolean;
 } {
+  if (route.reason === "direct_operator_requested" && route.targetOperator?.id) {
+    return { ready: true, missing: [], action: "handoff", createsDeal: false };
+  }
   if (!route.subflow)
     return {
       ready: false,
@@ -466,9 +915,14 @@ export function assessIndustrialReadiness(
       createsDeal: false,
     };
   const policy = INDUSTRIAL_ROUTES[route.subflow];
+  const hasVerifiedKnownCompany =
+    data._KNOWN_COMPANY_CONFIRMED?.status === "filled" &&
+    Boolean(collectedValue(data, "EMPRESA"));
   const available: Record<RequiredField, boolean> = {
     name: Boolean(collectedValue(data, "NOME COMPLETO")),
-    document: isValidTriageDocument(collectedValue(data, "CNPJ OU CPF", "CNPJ", "CPF")),
+    document:
+      isValidTriageDocument(collectedValue(data, "CNPJ OU CPF", "CNPJ", "CPF")) ||
+      hasVerifiedKnownCompany,
     request: Boolean(
       collectedValue(
         data,
@@ -500,7 +954,11 @@ export function canFinishIndustrialTriage(params: {
   hasPendingQuestion?: boolean;
 }): boolean {
   const ready = assessIndustrialReadiness(params.route, params.data);
-  if (params.route.reason === "human_requested" || params.route.reason === "specialist_review")
+  if (
+    params.route.reason === "human_requested" ||
+    params.route.reason === "specialist_review" ||
+    (params.route.reason === "direct_operator_requested" && Boolean(params.route.targetOperator?.id))
+  )
     return true;
   return ready.ready && params.isCompleted === true && !params.hasPendingQuestion;
 }

@@ -426,7 +426,7 @@ async function runTestSuite() {
     assert(linkedConv.conversationId === convId, "Atendimento vinculado à conta com sucesso");
     assert(linkedConv.contextNote === "Conversa inicial de levantamento de requisitos de frascos", "Nota de contexto do atendimento persistida");
 
-    const accountConvs = await crmService.getAccountConversations(tenantA, accountPJ.id);
+    const accountConvs = await crmService.getAccountConversations(tenantA, accountPJ.id, sql`true`);
     assert(accountConvs.length >= 1, "Listagem de conversas vinculadas à conta recuperada com sucesso");
     assert(accountConvs[0].conversationId === convId, "Conversa correta listada na ficha da conta");
     assert(accountConvs[0].conversation.contactName === "Roberto Engenheiro Embalagem", "Nome do contato enriquecido na consulta de conversas da conta");
@@ -434,7 +434,7 @@ async function runTestSuite() {
     // Desvinculação da conversa
     const unlinked = await crmService.unlinkAccountConversation(tenantA, accountPJ.id, convId);
     assert(unlinked.success === true, "Atendimento desvinculado da conta com sucesso");
-    const accountConvsAfter = await crmService.getAccountConversations(tenantA, accountPJ.id);
+    const accountConvsAfter = await crmService.getAccountConversations(tenantA, accountPJ.id, sql`true`);
     assert(accountConvsAfter.length === 0, "Lista de conversas da conta reflete desvinculação atômica");
 
     // =================================================================

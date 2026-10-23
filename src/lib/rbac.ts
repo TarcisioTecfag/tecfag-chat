@@ -2,6 +2,8 @@
 // 🛡️ RBAC & PERMISSÕES GRANULARES — SISTEMA VALEM CHAT / TECFAG CHAT
 // ══════════════════════════════════════════════════════════════════════════════
 
+import { resolvePermissionAliases } from "./access-control/group-settings";
+
 export type TenantId = "valem" | "tecfag";
 export type ChannelId = "whatsapp" | "instagram" | "messenger" | "livechat";
 
@@ -56,6 +58,11 @@ export interface ViewPermissions {
 }
 
 export interface ChatPermissions {
+  canViewQueueMine?: boolean;
+  canViewQueueWaiting?: boolean;
+  canViewQueueBot?: boolean;
+  canViewQueueClosed?: boolean;
+  restrictToOwnChats?: boolean;
   canCaptureChat: boolean;
   canTransferChat: boolean;
   canFinishChat: boolean;
@@ -95,6 +102,7 @@ export interface LigacoesPermissions {
   canTriggerTestCall: boolean;
   canManageCampaigns: boolean;
   canManageObjectives: boolean;
+  canAccessClients?: boolean;
 }
 
 export interface MonitorPermissions {
@@ -144,6 +152,8 @@ export interface CrmPermissions {
   canManagePipelines: boolean;
   canManageProducts: boolean;
   canManageProposals: boolean;
+  canDeleteDeals?: boolean;
+  canExportDeals?: boolean;
 }
 
 export interface GroupPermissions {
@@ -179,6 +189,11 @@ export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
     settings: true,
   },
   chat: {
+    canViewQueueMine: true,
+    canViewQueueWaiting: true,
+    canViewQueueBot: true,
+    canViewQueueClosed: true,
+    restrictToOwnChats: false,
     canCaptureChat: true,
     canTransferChat: true,
     canFinishChat: true,
@@ -201,6 +216,8 @@ export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
     canManagePipelines: true,
     canManageProducts: true,
     canManageProposals: true,
+    canDeleteDeals: true,
+    canExportDeals: true,
   },
   contacts: {
     contactScope: "all",
@@ -226,6 +243,7 @@ export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
     canTriggerTestCall: true,
     canManageCampaigns: true,
     canManageObjectives: true,
+    canAccessClients: true,
   },
   monitor: {
     canAccessLive: true,
@@ -292,6 +310,8 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         settings: false,
       },
       crm: {
+        canDeleteDeals: false,
+        canExportDeals: false,
         canViewCrm: true,
         canViewAllDeals: true,
         canCreateDeals: true,
@@ -350,6 +370,8 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         settings: false,
       },
       crm: {
+        canDeleteDeals: false,
+        canExportDeals: false,
         canViewCrm: true,
         canViewAllDeals: true,
         canCreateDeals: true,
@@ -455,6 +477,8 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         settings: false,
       },
       crm: {
+        canDeleteDeals: false,
+        canExportDeals: false,
         canViewCrm: true,
         canViewAllDeals: false,
         canCreateDeals: true,
@@ -560,6 +584,8 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         settings: false,
       },
       crm: {
+        canDeleteDeals: false,
+        canExportDeals: false,
         canViewCrm: false,
         canViewAllDeals: false,
         canCreateDeals: false,
@@ -665,6 +691,8 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         settings: false,
       },
       crm: {
+        canDeleteDeals: false,
+        canExportDeals: false,
         canViewCrm: false,
         canViewAllDeals: false,
         canCreateDeals: false,
@@ -752,11 +780,17 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
 
 // ── Normalizador de Permissões (Retrocompatibilidade & Fallback) ─────────────
 
+export const DEFAULT_DENY_PERMISSIONS: GroupPermissions = Object.fromEntries(
+  Object.entries(DEFAULT_ADMIN_PERMISSIONS).map(([category, values]) => [category,
+    Object.fromEntries(Object.keys(values).map((key) => [key, key === "contactScope" ? "wallet_only" : false])),
+  ]),
+) as unknown as GroupPermissions;
+
 export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
-  if (!rawGroup) return DEFAULT_ADMIN_PERMISSIONS;
+  if (!rawGroup) return structuredClone(DEFAULT_DENY_PERMISSIONS);
 
   // Se já tiver o objeto permissions preenchido, faz merge com os defaults
-  const existingPerms = rawGroup.permissions || {};
+  const existingPerms = resolvePermissionAliases(rawGroup.permissions);
   const hasCustomPerms =
     existingPerms &&
     typeof existingPerms === "object" &&
@@ -798,6 +832,11 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
       settings: existingPerms.views?.settings ?? (isLegacyAdmin || baseFallback.views.settings),
     },
     chat: {
+      canViewQueueMine: existingPerms.chat?.canViewQueueMine ?? true,
+      canViewQueueWaiting: existingPerms.chat?.canViewQueueWaiting ?? true,
+      canViewQueueBot: existingPerms.chat?.canViewQueueBot ?? true,
+      canViewQueueClosed: existingPerms.chat?.canViewQueueClosed ?? true,
+      restrictToOwnChats: existingPerms.chat?.restrictToOwnChats ?? false,
       canCaptureChat: existingPerms.chat?.canCaptureChat ?? rawGroup.canCaptureChat ?? baseFallback.chat.canCaptureChat,
       canTransferChat: existingPerms.chat?.canTransferChat ?? rawGroup.canTransferChat ?? baseFallback.chat.canTransferChat,
       canFinishChat: existingPerms.chat?.canFinishChat ?? rawGroup.canFinishChat ?? baseFallback.chat.canFinishChat,
@@ -820,6 +859,9 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
       canManagePipelines: existingPerms.crm?.canManagePipelines ?? (isLegacyAdmin || baseFallback.crm.canManagePipelines),
       canManageProducts: existingPerms.crm?.canManageProducts ?? (isLegacyAdmin || baseFallback.crm.canManageProducts),
       canManageProposals: existingPerms.crm?.canManageProposals ?? (isLegacyAdmin || baseFallback.crm.canManageProposals),
+      // New destructive/export actions are opt-in for existing non-admin groups.
+      canDeleteDeals: existingPerms.crm?.canDeleteDeals ?? false,
+      canExportDeals: existingPerms.crm?.canExportDeals ?? false,
     },
     contacts: {
       contactScope: existingPerms.contacts?.contactScope ?? baseFallback.contacts.contactScope,
@@ -845,6 +887,7 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
       canTriggerTestCall: existingPerms.ligacoes?.canTriggerTestCall ?? (isLegacyAdmin || baseFallback.ligacoes.canTriggerTestCall),
       canManageCampaigns: existingPerms.ligacoes?.canManageCampaigns ?? (isLegacyAdmin || baseFallback.ligacoes.canManageCampaigns),
       canManageObjectives: existingPerms.ligacoes?.canManageObjectives ?? (isLegacyAdmin || baseFallback.ligacoes.canManageObjectives),
+      canAccessClients: existingPerms.ligacoes?.canAccessClients ?? true,
     },
     monitor: {
       canAccessLive: existingPerms.monitor?.canAccessLive ?? (isLegacyAdmin || baseFallback.monitor.canAccessLive),

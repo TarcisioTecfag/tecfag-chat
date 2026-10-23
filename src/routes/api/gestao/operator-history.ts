@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { operatorDailyMetrics } from "../../../db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadRules } from "../../../lib/access-control/conversation-policy";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,6 +22,23 @@ export const Route = createFileRoute("/api/gestao/operator-history")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
+        const rules = conversationReadRules(session);
+        const views = session.permissions?.views;
+        const monitor = session.permissions?.monitor;
+        const analytics = session.permissions?.analytics;
+        const canInspectOthers =
+          !rules.ownOnly &&
+          rules.others &&
+          ((views?.monitor === true && monitor?.canAccessRanking === true) ||
+            (views?.analytics === true && analytics?.canAccessOverview === true));
+
+        if (!rules.enabled && !canInspectOthers) {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente para consultar histórico de operador.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const url = new URL(request.url);
         const queryTenantId = url.searchParams.get("tenantId");
         if (queryTenantId && queryTenantId !== tenantId) {
@@ -31,9 +49,13 @@ export const Route = createFileRoute("/api/gestao/operator-history")({
         }
 
         const requestedOperatorId = url.searchParams.get("operatorId");
-        const operatorId = (session.operator.role === "admin" || session.operator.role === "supervisor")
-          ? (requestedOperatorId || session.operator.id)
-          : session.operator.id;
+        if (requestedOperatorId && requestedOperatorId !== session.operator.id && !canInspectOthers) {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente para consultar histórico de outro operador.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const operatorId = requestedOperatorId || session.operator.id;
 
         try {
           // Busca todos os registros históricos desse operador no tenant, mais recentes primeiro

@@ -17,6 +17,16 @@ import { getAiPersona } from "../../../lib/ai-persona";
 import { projectIndustrialMonitoring } from "../../../lib/triage/industrial-monitor";
 import { readAgentMonitoringSummary, readLatestSdrFlows } from "../../../lib/triage/agent-monitor-store";
 import { stopIndustrialCycle } from "../../../lib/triage/industrial-cycle-stop";
+import {
+  computeIndustrialTriageProgress,
+  resolveEffectiveIndustrialSubflow,
+} from "../../../lib/triage/industrial-policy";
+import {
+  applyKnownClientConfirmationToData,
+  isValidKnownCompanyName,
+} from "../../../lib/triage/known-client-lookup";
+import { lookupKnownClientByPhoneOrContact } from "../../../lib/triage/known-client-db";
+import { syncContactDataFromTriage } from "../../../lib/valentina/sdr-engine";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -375,6 +385,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 const existingSession = sessionsByConvId.get(fs.conversationId);
                 if (existingSession) {
                   const fsMeta = (fs.metadata as Record<string, any>) || {};
+                  const fsData = (fs.collectedData as Record<string, any>) || {};
                   const alreadyAdded = existingSession.previousTriages.some((p: any) => p.id === fs.id);
                   if (!alreadyAdded) {
                     existingSession.previousTriages.push({
@@ -383,6 +394,11 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                       completedAt: fs.completedAt ? safeFormatIso(fs.completedAt) : safeFormatIso(fs.lastInteractionAt),
                       outcome: fs.outcome || "completed",
                       targetFunnel: fsMeta.targetFunnel || undefined,
+                      subflow: fsMeta.subflow || undefined,
+                      company: fsData["EMPRESA"]?.value || undefined,
+                      document: fsData["CNPJ OU CPF"]?.value || fsData["CNPJ"]?.value || undefined,
+                      clientName: fsData["NOME COMPLETO"]?.value || undefined,
+                      interest: fsData["MÁQUINA / PEÇA / INTERESSE"]?.value || undefined,
                       responsibleName: fsMeta.allocatedOperatorName || undefined,
                     });
                   }
@@ -453,14 +469,73 @@ export const Route = createFileRoute('/api/valentina/sdr')({
               }
               if (monitoring) responsibleName = operator?.name || (monitoring.state === "collecting" || monitoring.state === "ready" ? `${persona.name} IA` : "Sem responsável atribuído");
 
+              const previousTriages = Array.isArray(meta.previousTriages) ? [...meta.previousTriages] : [];
+              const knownClient =
+                persona.triagePolicy === "industrial"
+                  ? meta.knownClient ||
+                    (await lookupKnownClientByPhoneOrContact(tenantId, {
+                      contactId: conv?.contactId || null,
+                      phone: contact?.phone || null,
+                      conversationId: fs.conversationId,
+                      previousTriages,
+                    }))
+                  : null;
+
               const companyVal =
                 collectedData["EMPRESA"]?.value ||
                 collectedData["empresa"]?.value ||
                 (typeof collectedData["EMPRESA"] === "string" ? collectedData["EMPRESA"] : "") ||
                 (contact?.cnpjDetails as any)?.razaoSocial ||
+                (contact?.customFields as any)?.company ||
+                knownClient?.companyName ||
                 "Empresa não informada";
 
-              const previousTriages = Array.isArray(meta.previousTriages) ? [...meta.previousTriages] : [];
+              const resolvedSubflow =
+                persona.triagePolicy === "industrial"
+                  ? resolveEffectiveIndustrialSubflow({
+                      subflow: meta.subflow || null,
+                      funnelStage: meta.funnelStage || meta.targetArea || null,
+                      targetFunnel:
+                        meta.targetFunnel ||
+                        collectedData["SETOR / FUNIL DE DESTINO"]?.value ||
+                        null,
+                      collectedData,
+                      company: companyVal !== "Empresa não informada" ? companyVal : null,
+                      document:
+                        collectedData["CNPJ OU CPF"]?.value ||
+                        contact?.cnpj ||
+                        contact?.cpf ||
+                        knownClient?.document ||
+                        null,
+                      isCompleted: status === "completed",
+                    })
+                  : undefined;
+
+              const industrialProgress =
+                persona.triagePolicy === "industrial"
+                  ? computeIndustrialTriageProgress({
+                      subflow: resolvedSubflow || null,
+                      funnelStage: meta.funnelStage || meta.targetArea || null,
+                      targetFunnel:
+                        meta.targetFunnel ||
+                        collectedData["SETOR / FUNIL DE DESTINO"]?.value ||
+                        null,
+                      collectedData,
+                      company: companyVal !== "Empresa não informada" ? companyVal : null,
+                      document:
+                        collectedData["CNPJ OU CPF"]?.value ||
+                        contact?.cnpj ||
+                        contact?.cpf ||
+                        knownClient?.document ||
+                        null,
+                      isCompleted: status === "completed",
+                    })
+                  : null;
+
+              const effectiveCollectedData = industrialProgress
+                ? industrialProgress.adaptiveData
+                : collectedData;
+
               const lastClientMsg = [...formattedMessages].reverse().find((m) => m.sender === "client");
               const lastAnyMsg = formattedMessages[formattedMessages.length - 1];
               const lastMessageAtIso =
@@ -476,7 +551,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 company: companyVal,
                 phone: contact?.phone || "",
                 currentStep: fs.currentStep,
-                collectedData,
+                collectedData: effectiveCollectedData,
                 startedAt: safeFormatIso(fs.startedAt),
                 completedAt: fs.completedAt ? safeFormatIso(fs.completedAt) : null,
                 lastClientMessageAt: lastClientMessageAtIso,
@@ -486,8 +561,20 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                 responsibleName,
                 unreadCount: conv?.unreadCount || 0,
                 channel: contact?.mainChannel || "whatsapp",
+                subflow: resolvedSubflow || meta.subflow || undefined,
                 funnelStage: meta.funnelStage || meta.targetArea || undefined,
-                targetFunnel: meta.targetFunnel || collectedData["SETOR / FUNIL DE DESTINO"]?.value || undefined,
+                targetFunnel: meta.targetFunnel || effectiveCollectedData["SETOR / FUNIL DE DESTINO"]?.value || undefined,
+                ...(industrialProgress
+                  ? {
+                      triageProgress: {
+                        filledCount: industrialProgress.filledCount,
+                        totalCount: industrialProgress.totalCount,
+                        percentage: industrialProgress.percentage,
+                        targetFields: industrialProgress.targetFields,
+                      },
+                    }
+                  : {}),
+                ...(knownClient ? { knownClient } : {}),
                 linkedDeal,
                 ...(monitoring ? { monitoring } : {}),
                 previousTriages,
@@ -564,12 +651,25 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   lastAnyMsg?.sentAt || safeFormatIso(c.lastMessageTime || c.createdAt);
                 const lastClientMessageAtIso = lastClientMsg?.sentAt || lastMessageAtIso;
 
+                const knownClient =
+                  persona.triagePolicy === "industrial"
+                    ? await lookupKnownClientByPhoneOrContact(tenantId, {
+                        contactId: c.contactId,
+                        phone: contact?.phone || null,
+                        conversationId: c.id,
+                      })
+                    : null;
+
                 const sessionObj = {
                   id: `fs-auto-${c.id}`,
                   conversationId: c.id,
                   contactName: resolvedContactName,
                   contactAvatar: contact?.avatar || null,
-                  company: (contact?.cnpjDetails as any)?.razaoSocial || "Empresa não informada",
+                  company:
+                    (contact?.cnpjDetails as any)?.razaoSocial ||
+                    (contact?.customFields as any)?.company ||
+                    knownClient?.companyName ||
+                    "Empresa não informada",
                   phone: contact?.phone || "",
                   currentStep: isFinished ? "Concluído" : "Em Qualificação",
                   collectedData: {},
@@ -583,6 +683,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
                   unreadCount: c.unreadCount || 0,
                   channel: contact?.mainChannel || "whatsapp",
                   funnelStage: "triagem",
+                  ...(knownClient ? { knownClient } : {}),
                   linkedDeal,
                   ...(persona.triagePolicy === "industrial" ? { monitoring: projectIndustrialMonitoring({ startedAt: c.createdAt, outcome: "in_progress", metadata: {} }, c) } : {}),
                   previousTriages: [],
@@ -620,7 +721,7 @@ export const Route = createFileRoute('/api/valentina/sdr')({
         });
       },
 
-      // ── POST: Salvar configurações do SDR ou Interromper IA ──
+      // ── POST: Salvar configurações do SDR, Vincular Cliente Recorrente ou Interromper IA ──
       POST: async ({ request }) => {
         const auth = await requireSession(request);
         if ("response" in auth) return auth.response;
@@ -630,6 +731,118 @@ export const Route = createFileRoute('/api/valentina/sdr')({
         try {
           const body = await request.json();
           const { action, conversationId, enabled, testMode, whitelistPhone } = body;
+
+          // Ação de vincular/confirmar dados de cliente recorrente na triagem atual
+          if (action === "link_known_client" && conversationId) {
+            const [conv] = await db
+              .select()
+              .from(conversations)
+              .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+              .limit(1);
+
+            if (!conv) {
+              return new Response(
+                JSON.stringify({ error: "Conversa não encontrada ou não pertence a este tenant.", code: "NOT_FOUND" }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+
+            const contact = await db.query.contacts.findFirst({
+              where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, conv.contactId), dEq(t.tenantId, tenantId)),
+            });
+
+            const flowState = await db.query.agentFlowStates.findFirst({
+              where: (t, { eq: dEq, and: dAnd }) =>
+                dAnd(dEq(t.tenantId, tenantId), dEq(t.conversationId, conversationId), dEq(t.agentType, "sdr")),
+            });
+
+            const meta = (flowState?.metadata as Record<string, any>) || {};
+            const knownClient =
+              (body.companyName && isValidKnownCompanyName(body.companyName)
+                ? {
+                    companyName: String(body.companyName).trim(),
+                    document: body.document ? String(body.document).trim() : null,
+                    contactName: body.contactName ? String(body.contactName).trim() : contact?.name || null,
+                    accountId: body.accountId || contact?.accountId || null,
+                    contactId: conv.contactId,
+                    source: "contact_company" as const,
+                  }
+                : null) ||
+              (await lookupKnownClientByPhoneOrContact(tenantId, {
+                contactId: conv.contactId,
+                phone: contact?.phone || null,
+                conversationId,
+                previousTriages: Array.isArray(meta.previousTriages) ? meta.previousTriages : null,
+              }));
+
+            if (!knownClient) {
+              return new Response(
+                JSON.stringify({
+                  error: "Nenhum cadastro ou triagem anterior com empresa foi encontrado para este telefone.",
+                  code: "NOT_FOUND",
+                }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+
+            const existingData = (flowState?.collectedData as Record<string, any>) || {};
+            const enrichedData = applyKnownClientConfirmationToData(existingData, knownClient);
+
+            const progress = computeIndustrialTriageProgress({
+              subflow: meta.subflow || null,
+              funnelStage: meta.funnelStage || null,
+              targetFunnel: meta.targetFunnel || null,
+              collectedData: enrichedData,
+              company: knownClient.companyName,
+              document: knownClient.document || null,
+              isCompleted: flowState?.outcome === "completed" || flowState?.outcome === "transferred",
+            });
+
+            if (flowState) {
+              const updatedMeta = {
+                ...meta,
+                stepNumber: progress.filledCount,
+                totalSteps: progress.totalCount,
+                knownClient: {
+                  ...knownClient,
+                  confirmed: true,
+                },
+              };
+              await db
+                .update(agentFlowStates)
+                .set({
+                  collectedData: enrichedData,
+                  metadata: updatedMeta,
+                  lastInteractionAt: new Date(),
+                })
+                .where(and(eq(agentFlowStates.id, flowState.id), eq(agentFlowStates.tenantId, tenantId)));
+            }
+
+            if (conv.contactId) {
+              await syncContactDataFromTriage(
+                tenantId,
+                conv.contactId,
+                enrichedData,
+                undefined,
+                knownClient.accountId || null,
+              );
+            }
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                knownClient: { ...knownClient, confirmed: true },
+                collectedData: progress.adaptiveData,
+                triageProgress: {
+                  filledCount: progress.filledCount,
+                  totalCount: progress.totalCount,
+                  percentage: progress.percentage,
+                  targetFields: progress.targetFields,
+                },
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
 
           // Ação de Parar a IA instantaneamente para uma conversa específica do tenant
           if (action === "stop" && conversationId) {

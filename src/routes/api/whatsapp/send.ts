@@ -12,6 +12,7 @@ import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/wh
 import { SITE_CHANNEL } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
+import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 import fs from "fs";
 import path from "path";
 
@@ -105,6 +106,8 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             return Response.json({ error: "Nome ou idioma do template inválido." }, { status: 400 });
           }
           if (templateName && isInternalNote) return Response.json({ error: "Template oficial não pode ser nota interna." }, { status: 400 });
+          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (denied) return denied;
 
           // Verificar se o canal está em transição ('switching') de provedor
           if (!isInternalNote) {
@@ -159,7 +162,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               { status: 403, headers: { "Content-Type": "application/json" } }
             );
           }
-          if (isInternalNote && session.operator.role !== "admin" && session.permissions.chat.canSendInternalNotes !== true) {
+          if (isInternalNote && session.permissions.chat.canSendInternalNotes !== true) {
             return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
           }
 

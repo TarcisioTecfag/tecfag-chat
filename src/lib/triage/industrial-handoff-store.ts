@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
-import { agentConfigs, agentFlowStates, contacts, conversations, operators } from "../../db/schema";
+import { agentConfigs, agentFlowStates, contacts, conversations, operators, sectors } from "../../db/schema";
 import {
   assessIndustrialReadiness,
   INDUSTRIAL_POLICY_VERSION,
@@ -361,7 +361,133 @@ export function createIndustrialHandoffStore(
           let result: IndustrialStoredResult;
           let pendingIssue: HandoffIssueCode | null = null;
           if (readiness.action === "inform") result = { status: "resolved", ...empty };
-          else {
+          else if (
+            request.route.reason === "direct_operator_requested" &&
+            request.route.targetOperator?.id
+          ) {
+            const registered = await tx
+              .select({ id: operators.id, name: operators.name, status: operators.status })
+              .from(operators)
+              .where(eq(operators.tenantId, key.tenantId))
+              .for("share");
+            const targetOp = registered.find((op) => op.id === request.route.targetOperator?.id);
+            const config = (rodizio?.config || {}) as RodizioConfig;
+            const all = Array.isArray(config.flowOperators) ? config.flowOperators : [];
+            if (new Set(all.map((op) => op.id)).size !== all.length)
+              throw new HandoffOperationalError("rodizio_invalid");
+
+            if (!targetOp) {
+              result = { status: "waiting_for_team", ...empty };
+              pendingIssue = "no_eligible_operator";
+            } else {
+              const flowOp = all.find((op) => op.id === targetOp.id);
+              const isAbsent = Boolean(
+                request.route.targetOperator.isAbsent ||
+                  flowOp?.isOnLeave === true ||
+                  targetOp.status === "ausente",
+              );
+              const operator = {
+                id: targetOp.id,
+                name: targetOp.name,
+                isAbsent,
+              };
+              const tenantSectors = await tx
+                .select({ id: sectors.id, operatorIds: sectors.operatorIds })
+                .from(sectors)
+                .where(eq(sectors.tenantId, key.tenantId));
+              const matchedSector =
+                tenantSectors.find(
+                  (s) => Array.isArray(s.operatorIds) && s.operatorIds.includes(operator.id),
+                ) || tenantSectors[0];
+              const resolvedSectorId = matchedSector?.id || state.conv.sectorId || undefined;
+
+              if (options.signal?.aborted)
+                throw new HandoffOperationalError("processing_cancelled");
+
+              const [assigned] = await tx
+                .update(conversations)
+                .set({
+                  operatorId: operator.id,
+                  ...(resolvedSectorId ? { sectorId: resolvedSectorId } : {}),
+                  queueState: "meus",
+                  version: sql`${conversations.version} + 1`,
+                  updatedAt: new Date(),
+                })
+                .where(
+                  and(
+                    eq(conversations.tenantId, key.tenantId),
+                    eq(conversations.id, key.conversationId),
+                    isNull(conversations.operatorId),
+                    ne(conversations.queueState, "meus"),
+                    ne(conversations.queueState, "finalizados"),
+                  ),
+                )
+                .returning({ id: conversations.id, version: conversations.version });
+              if (!assigned) throw new HandoffOperationalError("assignment_failed");
+
+              await tx
+                .update(contacts)
+                .set({ walletOperatorId: operator.id, responsibleName: operator.name })
+                .where(and(eq(contacts.tenantId, key.tenantId), eq(contacts.id, contact.id)));
+
+              if (rodizio) {
+                const inFlow = all.some((op) => op.id === operator.id);
+                const next = inFlow
+                  ? all.map((op) =>
+                      op.id !== operator.id
+                        ? op
+                        : {
+                            ...op,
+                            compensation: Math.max(0, (op.compensation || 0) - 1),
+                            leadsReceivedCount: (op.leadsReceivedCount || 0) + 1,
+                            recentLeads: [
+                              {
+                                chatId: key.conversationId,
+                                clientName: request.clientName,
+                                receivedAt: new Date().toISOString(),
+                              },
+                              ...(op.recentLeads || []).slice(0, 9),
+                            ],
+                          },
+                    )
+                  : [
+                      ...all,
+                      {
+                        id: operator.id,
+                        name: operator.name,
+                        isParticipating: true,
+                        isOnLeave: isAbsent,
+                        isPenalized: false,
+                        area: "maquinas",
+                        funnels: request.route.targetFunnel
+                          ? [request.route.targetFunnel]
+                          : ["Máquinas"],
+                        compensation: 0,
+                        leadsReceivedCount: 1,
+                        recentLeads: [
+                          {
+                            chatId: key.conversationId,
+                            clientName: request.clientName,
+                            receivedAt: new Date().toISOString(),
+                          },
+                        ],
+                      },
+                    ];
+                await writeIndustrialRodizio(tx, key.tenantId, rodizio.id, {
+                  ...config,
+                  flowOperators: next,
+                });
+              }
+
+              result = {
+                status: "transferred",
+                operator,
+                deal: null,
+                conversationVersion: assigned.version,
+                sectorId: resolvedSectorId,
+              };
+            }
+          } else {
             const configuration = await readIndustrialSettings(tx, key.tenantId, true);
             const machine = request.machineDecision;
             const isCommercial = ["MAQUINAS", "PERSONNALITE"].includes(request.route.subflow || "");
@@ -550,7 +676,15 @@ export function createIndustrialHandoffStore(
           };
           if (result.status === "transferred" || result.status === "resolved") {
             const committedIso = new Date().toISOString();
-            const confirmationText = industrialHandoffMessage(result.status, result.operator?.name);
+            const confirmationText = industrialHandoffMessage(
+              result.status,
+              result.operator?.name,
+              {
+                isOperatorAbsent: Boolean(
+                  result.operator?.isAbsent || request.route.targetOperator?.isAbsent,
+                ),
+              },
+            );
             meta.handoffReceipt = {
               cycle: key.cycle,
               committedAt: committedIso,

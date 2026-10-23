@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { requireSession } from "../../../lib/auth-session";
+import { canManageWhatsappConnection } from "../../../lib/access-control/channel-permissions";
 
 export const Route = createFileRoute("/api/baileys/status")({
   server: {
@@ -43,7 +44,7 @@ export const Route = createFileRoute("/api/baileys/status")({
         const sock = sessionManager.getSession(tenantId);
         const pairedPhone = sock?.user?.id ? sock.user.id.split(":")[0] : null;
 
-        return new Response(JSON.stringify({ status, qr, pairedPhone }), {
+        return new Response(JSON.stringify(canManageWhatsappConnection(session) ? { status, qr, pairedPhone } : { status }), {
           headers: { 
             ...corsHeaders,
             "Content-Type": "application/json",

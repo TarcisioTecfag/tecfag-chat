@@ -6,6 +6,8 @@ import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
 import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
 import { readReactions } from "../../lib/whatsapp/meta-reactions";
+import { conversationReadCondition, requireConversationWriteAccess } from "../../lib/access-control/conversation-access";
+import { conversationReadRules } from "../../lib/access-control/conversation-policy";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -49,6 +51,8 @@ export const Route = createFileRoute("/api/chats")({
           }
 
           const targetUnread = Math.max(0, Math.floor(Number(unreadCount) || 0));
+          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (denied) return denied;
 
           await db
             .update(conversations)
@@ -58,7 +62,9 @@ export const Route = createFileRoute("/api/chats")({
             .where(
               and(
                 eq(conversations.id, conversationId),
-                eq(conversations.tenantId, session.tenantId)
+                eq(conversations.tenantId, session.tenantId),
+                conversationReadCondition(session),
+                eq(conversations.operatorId, session.operator.id), eq(conversations.queueState, "meus")
               )
             );
 
@@ -100,7 +106,19 @@ export const Route = createFileRoute("/api/chats")({
             quotedMessageSender?: string | null;
             quotedMessageContent?: string | null;
             dealId?: string | null;
+            checkAccessIds?: string[];
           };
+
+          if (body.checkAccessIds !== undefined) {
+            const ids = body.checkAccessIds;
+            if (!Array.isArray(ids) || ids.length > 100 || ids.some((id) => typeof id !== "string" || !id || id.length > 160)) {
+              return Response.json({ error: "Informe até 100 identificadores válidos." }, { status: 400 });
+            }
+            const visible = ids.length ? await db.select({ id: conversations.id }).from(conversations).where(and(
+              eq(conversations.tenantId, session.tenantId), inArray(conversations.id, [...new Set(ids)]), conversationReadCondition(session),
+            )) : [];
+            return Response.json({ operatorId: session.operator.id, visibleConversationIds: visible.map((row) => row.id) }, { headers: { "Cache-Control": "no-store" } });
+          }
 
           const {
             conversationId, senderType = "agent", senderName, senderEmail,
@@ -115,6 +133,9 @@ export const Route = createFileRoute("/api/chats")({
               { status: 400, headers: corsHeaders }
             );
           }
+
+          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (denied) return denied;
 
           // Validar se a conversa pertence ao tenant da sessão
           const [conv] = await db
@@ -137,38 +158,44 @@ export const Route = createFileRoute("/api/chats")({
           if (conv.queueState !== "meus" || conv.operatorId !== session.operator.id) {
             return Response.json({ error: "Capture o atendimento antes de escrever nesta conversa.", code: "FORBIDDEN" }, { status: 403 });
           }
-          if (isInternalNote && session.operator.role !== "admin" && session.permissions.chat.canSendInternalNotes !== true) {
+          if (isInternalNote && session.permissions.chat.canSendInternalNotes !== true) {
             return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
           }
 
           const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const now = new Date();
 
-          await db.insert(messages).values({
-            id: msgId,
-            conversationId,
-            tenantId: session.tenantId,
-            senderType: senderType as any,
-            senderName: senderName || session.operator.name,
-            content,
-            isInternalNote,
-            quotedMessageId: quotedMessageId ?? null,
-            quotedMessageSender: quotedMessageSender ?? null,
-            quotedMessageContent: quotedMessageContent ?? null,
-            direction: "outbound",
-            status: "accepted",
-            sentAt: now,
-            updatedAt: now,
-          });
+          const stored = await db.transaction(async (tx) => {
+            const [owned] = await tx.select({ id: conversations.id }).from(conversations).where(and(
+              eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId),
+              eq(conversations.operatorId, session.operator.id), eq(conversations.queueState, "meus"), conversationReadCondition(session),
+            )).for("update").limit(1);
+            if (!owned) return false;
+            await tx.insert(messages).values({
+              id: msgId,
+              conversationId,
+              tenantId: session.tenantId,
+              senderType: senderType as any,
+              senderName: senderName || session.operator.name,
+              content,
+              isInternalNote,
+              quotedMessageId: quotedMessageId ?? null,
+              quotedMessageSender: quotedMessageSender ?? null,
+              quotedMessageContent: quotedMessageContent ?? null,
+              direction: "outbound",
+              status: "accepted",
+              sentAt: now,
+              updatedAt: now,
+            });
 
-          await db
-            .update(conversations)
-            .set({
+            await tx.update(conversations).set({
               ...(isInternalNote || senderType === "system" ? {} : { lastMessageTime: now }),
               updatedAt: now,
               unreadCount: 0,
-            })
-            .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId)));
+            }).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, session.tenantId)));
+            return true;
+          });
+          if (!stored) return Response.json({ error: "O responsável pelo atendimento mudou. Atualize a conversa.", code: "FORBIDDEN" }, { status: 403 });
 
           // Se for nota comercial vinculada explicitamente a um card/deal
           // NOTA MANDATÓRIA (Fase 0): Nota geral permanece apenas na conversa.
@@ -223,6 +250,7 @@ export const Route = createFileRoute("/api/chats")({
           "Access-Control-Allow-Methods": "GET, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
           "Content-Type": "application/json",
+          "Cache-Control": "no-store",
         };
 
         try {
@@ -240,9 +268,6 @@ export const Route = createFileRoute("/api/chats")({
           const includeRecent = url.searchParams.get("includeRecent") === "1";
 
           if (url.searchParams.get("ownership") === "1") {
-            if (session.operator.role !== "admin" && !session.permissions?.views?.chat) {
-              return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
-            }
             const ownership = await db.select({
               id: conversations.id,
               operatorId: conversations.operatorId,
@@ -252,7 +277,7 @@ export const Route = createFileRoute("/api/chats")({
               version: conversations.version,
             }).from(conversations)
               .leftJoin(operators, and(eq(operators.id, conversations.operatorId), eq(operators.tenantId, session.tenantId)))
-              .where(eq(conversations.tenantId, session.tenantId))
+              .where(and(eq(conversations.tenantId, session.tenantId), conversationReadCondition(session)))
               .orderBy(desc(conversations.updatedAt))
               .limit(500);
             return Response.json({
@@ -264,9 +289,10 @@ export const Route = createFileRoute("/api/chats")({
               headers: { "Cache-Control": "no-store" },
             });
           }
+          if (!conversationReadRules(session).enabled) return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
 
           // 1. Montar condições da query com isolamento por tenant
-          const conditions = [eq(conversations.tenantId, session.tenantId)];
+          const conditions = [eq(conversations.tenantId, session.tenantId), conversationReadCondition(session)];
 
           if (requestedConversationId) {
             conditions.push(eq(conversations.id, requestedConversationId));

@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { eq, ne, and, or, ilike, desc, asc, sql, inArray, gte, lte } from "drizzle-orm";
+import { eq, ne, and, or, ilike, desc, asc, sql, inArray, gte, lte, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "../../db";
 import {
@@ -1276,7 +1276,8 @@ export class CrmService {
    */
   async getAccountById(
     tenantId: string,
-    accountId: string
+    accountId: string,
+    conversationCondition: SQL = sql`true`,
   ): Promise<{
     account: CrmAccount;
     contacts: Array<{
@@ -1359,13 +1360,14 @@ export class CrmService {
         op: operators,
       })
       .from(crmAccountConversations)
-      .innerJoin(conversations, eq(crmAccountConversations.conversationId, conversations.id))
-      .leftJoin(contacts, eq(conversations.contactId, contacts.id))
-      .leftJoin(operators, eq(crmAccountConversations.createdByOperatorId, operators.id))
+      .innerJoin(conversations, and(eq(crmAccountConversations.conversationId, conversations.id), eq(conversations.tenantId, tenantId)))
+      .leftJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+      .leftJoin(operators, and(eq(crmAccountConversations.createdByOperatorId, operators.id), eq(operators.tenantId, tenantId)))
       .where(
         and(
           eq(crmAccountConversations.tenantId, tenantId),
-          eq(crmAccountConversations.accountId, accountId)
+          eq(crmAccountConversations.accountId, accountId),
+          conversationCondition
         )
       )
       .orderBy(desc(crmAccountConversations.createdAt));
@@ -2421,7 +2423,8 @@ export class CrmService {
    */
   async getAccountConversations(
     tenantId: string,
-    accountId: string
+    accountId: string,
+    authorizationCondition: SQL,
   ) {
     const [acc] = await db
       .select({ id: crmAccounts.id })
@@ -2441,12 +2444,13 @@ export class CrmService {
         op: operators,
       })
       .from(crmAccountConversations)
-      .innerJoin(conversations, eq(crmAccountConversations.conversationId, conversations.id))
-      .leftJoin(contacts, eq(conversations.contactId, contacts.id))
-      .leftJoin(operators, eq(crmAccountConversations.createdByOperatorId, operators.id))
+      .innerJoin(conversations, and(eq(crmAccountConversations.conversationId, conversations.id), eq(conversations.tenantId, tenantId)))
+      .leftJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+      .leftJoin(operators, and(eq(crmAccountConversations.createdByOperatorId, operators.id), eq(operators.tenantId, tenantId)))
       .where(
         and(
           eq(crmAccountConversations.tenantId, tenantId),
+          authorizationCondition,
           eq(crmAccountConversations.accountId, accountId)
         )
       )
@@ -2806,7 +2810,8 @@ export class CrmService {
    */
   async getDealById(
     tenantId: string,
-    dealId: string
+    dealId: string,
+    conversationCondition: SQL = sql`true`,
   ): Promise<
     | (CrmDeal & {
         ownerId?: string | null;
@@ -2960,7 +2965,8 @@ export class CrmService {
           .where(
             and(
               eq(conversations.tenantId, tenantId),
-              inArray(conversations.contactId, participantContactIds)
+              inArray(conversations.contactId, participantContactIds),
+              conversationCondition
             )
           );
 
@@ -3004,14 +3010,14 @@ export class CrmService {
         operatorName: operators.name,
       })
       .from(crmConversationDeals)
-      .innerJoin(conversations, eq(crmConversationDeals.conversationId, conversations.id))
-      .leftJoin(contacts, eq(conversations.contactId, contacts.id))
-      .leftJoin(operators, eq(conversations.operatorId, operators.id))
+      .innerJoin(conversations, and(eq(crmConversationDeals.conversationId, conversations.id), eq(conversations.tenantId, tenantId)))
+      .leftJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+      .leftJoin(operators, and(eq(conversations.operatorId, operators.id), eq(operators.tenantId, tenantId)))
       .where(
         and(
           eq(crmConversationDeals.tenantId, tenantId),
           eq(crmConversationDeals.dealId, dealId),
-          eq(crmConversationDeals.isActive, true)
+          eq(crmConversationDeals.isActive, true), conversationCondition
         )
       )
       .orderBy(desc(conversations.lastMessageTime));
@@ -3544,13 +3550,14 @@ export class CrmService {
       winReason?: string | null;
       expectedVersion?: number;
       customFields?: CustomFieldValues;
-    }
+    },
+    authorizedOperatorId?: string
   ): Promise<CrmDeal> {
     return await db.transaction(async (tx) => {
       const [current] = await tx
         .select()
         .from(crmDeals)
-        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId), authorizedOperatorId ? eq(crmDeals.operatorId, authorizedOperatorId) : undefined))
         .for("update")
         .limit(1);
 
@@ -4104,7 +4111,8 @@ export class CrmService {
         operatorId?: string;
       };
     },
-    operatorName: string
+    operatorName: string,
+    authorizedOperatorId?: string
   ): Promise<{ success: boolean; updatedCount: number; dealIds: string[]; message?: string }> {
     return await db.transaction(async (tx) => {
       const audit = async (action: string, ids: string[], details: Record<string, unknown> = {}) => {
@@ -4119,23 +4127,27 @@ export class CrmService {
 
       if (params.allFiltered) {
         const conditions = buildDealFilterConditions(tenantId, params.filterParams || {});
+        if (authorizedOperatorId) conditions.push(eq(crmDeals.operatorId, authorizedOperatorId));
         foundDeals = await tx
           .select()
           .from(crmDeals)
-          .where(and(...conditions));
+          .where(and(...conditions)).for("update");
       } else if (params.dealIds && params.dealIds.length > 0) {
         for (let i = 0; i < params.dealIds.length; i += 500) {
           const chunk = params.dealIds.slice(i, i + 500);
           const chunkDeals = await tx
             .select()
             .from(crmDeals)
-            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)));
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk), authorizedOperatorId ? eq(crmDeals.operatorId, authorizedOperatorId) : undefined)).for("update");
           foundDeals.push(...chunkDeals);
         }
       } else {
         throw new CrmValidationError("Nenhuma negociação informada para atualização em massa.");
       }
 
+      if (!params.allFiltered && params.dealIds && foundDeals.length !== new Set(params.dealIds).size) {
+        throw new CrmNotFoundError("Uma ou mais negociações não estão disponíveis para esta operação.");
+      }
       if (foundDeals.length === 0) {
         throw new CrmNotFoundError("Nenhuma negociação correspondente encontrada no tenant.");
       }
@@ -6081,13 +6093,14 @@ export class CrmService {
     proposalId: string,
     operatorId: string | null,
     status: "draft" | "copied" | "sent" | "accepted" | "rejected" | "expired",
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
+    expectedDealId?: string
   ): Promise<CrmProposal> {
     return await db.transaction(async (tx) => {
       const [existing] = await tx
         .select()
         .from(crmProposals)
-        .where(and(eq(crmProposals.id, proposalId), eq(crmProposals.tenantId, tenantId)))
+        .where(and(eq(crmProposals.id, proposalId), eq(crmProposals.tenantId, tenantId), expectedDealId ? eq(crmProposals.dealId, expectedDealId) : undefined))
         .for("update")
         .limit(1);
 
@@ -6111,7 +6124,7 @@ export class CrmService {
       const [updated] = await tx
         .update(crmProposals)
         .set(updates)
-        .where(and(eq(crmProposals.id, proposalId), eq(crmProposals.tenantId, tenantId)))
+        .where(and(eq(crmProposals.id, proposalId), eq(crmProposals.tenantId, tenantId), expectedDealId ? eq(crmProposals.dealId, expectedDealId) : undefined))
         .returning();
 
       await tx.insert(crmDealEvents).values({
@@ -6948,6 +6961,7 @@ export class CrmService {
       allFiltered?: boolean;
       filterParams?: Record<string, any>;
       format?: "csv" | "xlsx";
+      authorizedOperatorId?: string;
     }
   ): Promise<{
     format: "csv" | "xlsx";
@@ -6968,6 +6982,7 @@ export class CrmService {
 
     if (params.allFiltered) {
       const conditions = buildDealFilterConditions(tenantId, params.filterParams || {});
+      if (params.authorizedOperatorId) conditions.push(eq(crmDeals.operatorId, params.authorizedOperatorId));
       deals = await db
         .select()
         .from(crmDeals)
@@ -6979,7 +6994,7 @@ export class CrmService {
         const chunkDeals = await db
           .select()
           .from(crmDeals)
-          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)))
+          .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk), params.authorizedOperatorId ? eq(crmDeals.operatorId, params.authorizedOperatorId) : undefined))
           .orderBy(desc(crmDeals.createdAt));
         deals.push(...chunkDeals);
       }
@@ -6987,7 +7002,7 @@ export class CrmService {
       deals = await db
         .select()
         .from(crmDeals)
-        .where(eq(crmDeals.tenantId, tenantId))
+        .where(and(eq(crmDeals.tenantId, tenantId), params.authorizedOperatorId ? eq(crmDeals.operatorId, params.authorizedOperatorId) : undefined))
         .orderBy(desc(crmDeals.createdAt));
     }
 

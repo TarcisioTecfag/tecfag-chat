@@ -1,3 +1,5 @@
+import { requireCrmDealAccess } from "../../../../../lib/access-control/crm-record-access";
+import { conversationReadCondition, requireConversationAccess } from "../../../../../lib/access-control/conversation-access";
 import { linkContactToDeal, syncConversationDeals } from "../../../../../lib/crm/deal-associations";
 import { phoneRegistrationError, normalizeCanonicalPhone } from "../../../../../lib/utils";
 import { createFileRoute } from "@tanstack/react-router";
@@ -31,6 +33,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
 
           const permError = requireCrmPermission(session, "canViewCrm");
           if (permError) return permError;
@@ -84,6 +88,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               and(
                 eq(crmConversationDeals.tenantId, tenantId),
                 eq(crmConversationDeals.dealId, dealId),
+                conversationReadCondition(session),
                 eq(crmConversationDeals.isActive, true)
               )
             )
@@ -135,6 +140,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
 
           const { dealId } = params as { dealId: string };
           let body: any = {};
@@ -181,7 +188,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               );
             }
 
-            const autoCapture = body.autoCapture === true && (session.operator.role === "admin" || session.permissions?.chat?.canCaptureChat === true);
+            const autoCapture = body.autoCapture === true && session.permissions?.chat?.canCaptureChat === true;
 
             const result = await db.transaction(async (tx) => {
               // 1. Verifica se já existe conversa ativa vinculada à negociação
@@ -386,6 +393,10 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               }
 
               if (targetConv) {
+                const [visible] = await tx.select({ id: conversations.id }).from(conversations).where(and(
+                  eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId), conversationReadCondition(session),
+                )).limit(1);
+                if (!visible) throw Object.assign(new Error("Conversa não encontrada."), { statusCode: 404, code: "NOT_FOUND" });
                 if (
                   autoCapture &&
                   !(targetConv.queueState === "meus" && targetConv.operatorId && targetConv.operatorId !== session.operator.id) &&
@@ -478,6 +489,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
             );
           }
 
+          const denied = await requireConversationAccess(session, body.conversationId);
+          if (denied) return denied;
           const link = await crmService.linkConversationDeal(
             tenantId,
             body.conversationId,
@@ -508,6 +521,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
 
           const permError = requireCrmPermission(session, "canEditDeals");
           if (permError) return permError;
@@ -535,6 +550,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
             );
           }
 
+          const denied = await requireConversationAccess(session, conversationId);
+          if (denied) return denied;
           await crmService.unlinkConversationDeal(
             tenantId,
             conversationId,

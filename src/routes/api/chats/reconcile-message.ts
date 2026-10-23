@@ -5,6 +5,7 @@ import { messages, conversations } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { dispatchStored, storedResult } from "../../../lib/whatsapp/dispatch";
 import { SessionManager } from "../../../lib/baileys/session-manager";
+import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 
 export const Route = createFileRoute("/api/chats/reconcile-message")({
   server: {
@@ -24,6 +25,8 @@ export const Route = createFileRoute("/api/chats/reconcile-message")({
             .where(and(eq(messages.tenantId, tenantId), eq(messages.id, body.messageId)));
           if (!msg || msg.direction !== "outbound" || msg.isInternalNote)
             return Response.json({ error: "Envio não encontrado." }, { status: 404 });
+          const denied = await requireConversationWriteAccess(session, msg.conversationId);
+          if (denied) return denied;
           const [conv] = await db
             .select()
             .from(conversations)
@@ -32,8 +35,7 @@ export const Route = createFileRoute("/api/chats/reconcile-message")({
             );
           if (!conv) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
           if (
-            !["admin", "supervisor"].includes(session.operator.role) &&
-            conv.operatorId !== session.operator.id
+            conv.queueState !== "meus" || conv.operatorId !== session.operator.id
           )
             return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
           if (["accepted", "delivered", "read"].includes(msg.status))

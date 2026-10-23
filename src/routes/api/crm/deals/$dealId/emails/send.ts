@@ -1,3 +1,4 @@
+import { requireCrmDealAccess } from "../../../../../../lib/access-control/crm-record-access";
 import { createFileRoute } from "@tanstack/react-router";
 import { and, eq } from "drizzle-orm";
 import sanitizeHtml from "sanitize-html";
@@ -29,6 +30,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/emails/send")({
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
+        const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+        if (recordDenied) return recordDenied;
         const permissionError = requireCrmPermission(session, "canEditDeals");
         if (permissionError) return permissionError;
 

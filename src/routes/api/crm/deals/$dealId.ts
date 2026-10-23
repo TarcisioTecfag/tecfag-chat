@@ -1,7 +1,9 @@
+import { requireCrmDealAccess, requireCrmTransitionAccess } from "../../../../lib/access-control/crm-record-access";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
+import { conversationReadCondition } from "../../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,12 +27,14 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
 
           const permError = requireCrmPermission(session, "canViewCrm");
           if (permError) return permError;
 
           const { dealId } = params as { dealId: string };
-          const deal = await crmService.getDealById(tenantId, dealId);
+          const deal = await crmService.getDealById(tenantId, dealId, conversationReadCondition(session));
 
           if (!deal) {
             return new Response(JSON.stringify({ error: "Negociação não encontrada.", code: "NOT_FOUND" }), {
@@ -75,9 +79,13 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
 
           const { dealId } = params as { dealId: string };
           const body = await request.json();
+          const transitionDenied = await requireCrmTransitionAccess(session, body);
+          if (transitionDenied) return transitionDenied;
 
           // Validações de permissões específicas
           if (body.stageId) {
@@ -105,6 +113,11 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
             if (editPerm) return editPerm;
           }
 
+          if (body.status === "open" || body.status === "paused" || body.lossReason !== undefined || body.pausedReason !== undefined || body.winReason !== undefined) {
+            const denied = requireCrmPermission(session, "canEditDeals");
+            if (denied) return denied;
+          }
+
           const targetOpId = body.operatorId !== undefined ? body.operatorId : body.ownerId;
 
           const updated = await crmService.updateDeal(tenantId, dealId, session.operator.id, {
@@ -129,7 +142,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
             winReason: body.winReason,
             expectedVersion: body.expectedVersion,
             customFields: body.customFields,
-          });
+          }, session.operator.role !== "admin" && !session.permissions?.crm?.canViewAllDeals ? session.operator.id : undefined);
 
           return new Response(JSON.stringify({ deal: updated }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

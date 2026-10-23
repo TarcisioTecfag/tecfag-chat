@@ -120,8 +120,8 @@ describe("canal Site — contratos de integração (inspeção de código)", () 
   });
 
   it("ações do operador no WS validam o chat no tenant e usam o visitante do banco", () => {
-    assert.match(ws, /getChatById\(tenantId, chatId\)/);
-    assert.match(ws, /visitorId = ownedChat\.visitorId/);
+    assert.match(ws, /(getChatById\(tenantId, chatId\)|applyOperatorChatAction\(tenantId, chatId)/);
+    assert.match(ws, /visitorId = (ownedChat|applied\.chat)\.visitorId/);
     assert.match(ws, /USE_CONVERSATIONS/);
   });
 

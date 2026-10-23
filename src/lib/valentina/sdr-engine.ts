@@ -1,7 +1,7 @@
 import { runtimeSingleton } from "../runtime-singleton";
 
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts } from "../../db/schema";
+import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts, operators } from "../../db/schema";
 import { eq, asc, desc, and, gte, ne, sql, isNull } from "drizzle-orm";
 import { buildAccountUpdatePayloadFromCnpjDetails } from "../crm/cnpj-account-mapper";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
@@ -13,7 +13,29 @@ import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
 import { buildTecfagFagnerPrompt } from "./sdr-tecfag-prompt";
 import { resolveLegacySdrStageAndFunnel } from "./legacy-sdr-routing";
-import { INDUSTRIAL_POLICY_VERSION, resolveIndustrialRoute, assessIndustrialReadiness, canFinishIndustrialTriage, hasPendingTriageQuestion, requestsHuman } from "../triage/industrial-policy";
+import {
+  INDUSTRIAL_POLICY_VERSION,
+  resolveIndustrialRoute,
+  assessIndustrialReadiness,
+  canFinishIndustrialTriage,
+  hasPendingTriageQuestion,
+  requestsHuman,
+  requestsGenericHuman,
+  resolveDirectOperatorRequest,
+  normalizeIndustrialFunnels,
+  computeIndustrialTriageProgress,
+  type SystemOperatorCandidate,
+  type DirectOperatorAiDecision,
+  type ResolvedDirectOperator,
+} from "../triage/industrial-policy";
+import {
+  evaluateKnownCompanyConfirmation,
+  applyKnownClientConfirmationToData,
+  buildKnownClientPromptDirective,
+  isValidKnownCompanyName,
+  type KnownClientProfile,
+} from "../triage/known-client-lookup";
+import { lookupKnownClientByPhoneOrContact } from "../triage/known-client-db";
 import { siteContextFromMessages } from "../livechat/site-context";
 import { runVtexStoreTurn } from "../vtex/runtime";
 import { guardVtexMessages } from "../vtex/turn";
@@ -56,6 +78,7 @@ export interface SdrAiResult {
   funnelStage?: string | null;
   targetFunnel?: string | null;
   subflow?: string | null;
+  directOperatorRequest?: DirectOperatorAiDecision | null;
   messagesToSend: string[];
   audioMessage?: {
     text: string;
@@ -84,7 +107,8 @@ export async function syncContactDataFromTriage(
   tenantId: string,
   contactId: string,
   collectedData: Record<string, any> = {},
-  cnpjDetailsInput?: any
+  cnpjDetailsInput?: any,
+  linkedAccountId?: string | null,
 ) {
   try {
     const [contact] = await db
@@ -96,6 +120,7 @@ export async function syncContactDataFromTriage(
     const updates: Record<string, any> = {};
 
     const nameVal = collectedData["NOME COMPLETO"]?.value;
+    const companyVal = collectedData["EMPRESA"]?.value;
     const cnpjCpfVal = collectedData["CNPJ OU CPF"]?.value || collectedData["CNPJ"]?.value;
 
     if (
@@ -106,6 +131,21 @@ export async function syncContactDataFromTriage(
       nameVal.trim() !== contact.name
     ) {
       updates.name = nameVal.trim();
+    }
+
+    if (linkedAccountId && !contact.accountId) {
+      updates.accountId = linkedAccountId;
+    }
+
+    if (isValidKnownCompanyName(companyVal)) {
+      const currentCustom = (contact.customFields as Record<string, any>) || {};
+      if (currentCustom.company !== companyVal.trim()) {
+        updates.customFields = { ...currentCustom, company: companyVal.trim() };
+      }
+      const currentCnpjDetails = (contact.cnpjDetails as Record<string, any>) || {};
+      if (!currentCnpjDetails.razaoSocial) {
+        updates.cnpjDetails = { ...currentCnpjDetails, razaoSocial: companyVal.trim() };
+      }
     }
 
     if (
@@ -454,14 +494,46 @@ export class SdrEngine {
    - NUNCA volte a se apresentar se você já se identificou antes na conversa!
    - Responda DIRETO ao que o cliente disse de forma fluida e conversacional!`;
 
+      const combinedBatchText = batchItems.map((i) => i.text).join(" ");
+      let knownClient: KnownClientProfile | null = null;
+      let knownClientConfirmation: "confirmed" | "rejected" | "pending" = "pending";
+
+      if (industrialTriage) {
+        knownClient = await lookupKnownClientByPhoneOrContact(tenantId, {
+          contactId: convCheck?.contactId || null,
+          phone: contactPhone,
+          conversationId,
+          previousTriages: Array.isArray(metaState.previousTriages)
+            ? metaState.previousTriages
+            : null,
+        });
+
+        const recentBotMessages = historyMsgs
+          .filter((m: any) => m.senderType === "bot")
+          .slice(-4)
+          .map((m: any) => String(m.content || ""));
+
+        knownClientConfirmation = evaluateKnownCompanyConfirmation({
+          clientText: combinedBatchText,
+          recentBotMessages,
+          knownClient,
+          currentData: existingCollectedData,
+        });
+
+        if (knownClient && knownClientConfirmation === "confirmed") {
+          const enriched = applyKnownClientConfirmationToData(existingCollectedData, knownClient);
+          Object.assign(existingCollectedData, enriched);
+        }
+      }
+
       const currentDataSummary: Record<string, string> = {};
       for (const [k, v] of Object.entries(existingCollectedData)) {
+        if (k.startsWith("_")) continue;
         currentDataSummary[k] = v.value;
       }
 
       // 5.1 Verificar se o lote contém algum CNPJ para validação matemática e consulta à API (cnpj.ws)
       let cnpjDirective = "";
-      const combinedBatchText = batchItems.map((i) => i.text).join(" ");
       const detectedCnpjCandidate = extractCnpjFromText(combinedBatchText);
 
       if (detectedCnpjCandidate) {
@@ -494,6 +566,15 @@ INSTRUÇÕES OBRIGATÓRIAS:
         } else {
           cnpjDirective = `\n🟢 CNPJ VÁLIDO (${cnpjInfo.cnpjFormatted}): Os dígitos verificadores estão matematicamente corretos. Defina em \`extractedData\` o CNPJ OU CPF como "${cnpjInfo.cnpjFormatted}".`;
         }
+      } else if (industrialTriage && knownClient) {
+        cnpjDirective = buildKnownClientPromptDirective({
+          knownClient,
+          confirmationStatus: knownClientConfirmation,
+          currentData: existingCollectedData,
+          subflow: metaState.subflow || null,
+          funnelStage: metaState.funnelStage || null,
+          targetFunnel: metaState.targetFunnel || null,
+        });
       }
 
       const knowledgeContext = await getKnowledgeBaseContext(tenantId, `${batchSummary}\n${conversationHistoryText}`);
@@ -784,6 +865,55 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
   "isCompleted": false
 }`;
 
+      let systemOperators: SystemOperatorCandidate[] = [];
+      if (industrialTriage) {
+        try {
+          const [tenantOperators, rodizioCfg] = await Promise.all([
+            db
+              .select({
+                id: operators.id,
+                name: operators.name,
+                role: operators.role,
+                status: operators.status,
+              })
+              .from(operators)
+              .where(eq(operators.tenantId, tenantId)),
+            db.query.agentConfigs.findFirst({
+              where: (t, { eq: dEq, and: dAnd }) =>
+                dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
+            }),
+          ]);
+          const flowOps: any[] = Array.isArray((rodizioCfg?.config as any)?.flowOperators)
+            ? (rodizioCfg?.config as any).flowOperators
+            : [];
+          const flowById = new Map<string, any>();
+          for (const fOp of flowOps) {
+            if (fOp?.id) flowById.set(String(fOp.id), fOp);
+          }
+          systemOperators = tenantOperators.map((op) => {
+            const flowMeta = flowById.get(op.id);
+            const rawFunnels = Array.isArray(flowMeta?.funnels)
+              ? flowMeta.funnels
+              : flowMeta?.funnel
+                ? [flowMeta.funnel]
+                : [];
+            return {
+              id: op.id,
+              name: op.name,
+              role: op.role,
+              status: op.status,
+              isOnLeave: Boolean(flowMeta?.isOnLeave),
+              funnels: normalizeIndustrialFunnels(rawFunnels),
+            };
+          });
+        } catch (opErr: any) {
+          console.warn(
+            "[SdrEngine] ⚠️ Falha ao carregar operadores para transferência direta:",
+            opErr?.message || opErr
+          );
+        }
+      }
+
       const promptText =
         industrialTriage
           ? buildTecfagFagnerPrompt({
@@ -798,6 +928,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               hasPreviousAudio,
               policyInstructions: typeof configData.industrialInstructions === "string" ? configData.industrialInstructions : undefined,
               siteContext,
+              systemOperators,
             })
           : valemPromptText;
 
@@ -824,7 +955,10 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }).catch(() => null) : null;
       if (signal?.aborted) return false;
       let aiResult: SdrAiResult | null = null;
-      if (industrialTriage && requestsHuman(combinedBatchText)) {
+      const shouldShortCircuitGenericHuman =
+        industrialTriage &&
+        (vertexAi.isReady() ? requestsGenericHuman(combinedBatchText) : requestsHuman(combinedBatchText));
+      if (shouldShortCircuitGenericHuman) {
         aiResult = { subflow: "5A_CLIENTE", messagesToSend: ["Vou acionar a equipe responsável pelo seu atendimento."], isCompleted: true };
       } else if (storeTurn) {
         // Consulta factual não conclui coleta, cria card ou depende de uma resposta generativa.
@@ -855,14 +989,55 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         return false;
       }
 
+      const resolvedDirectOperator: ResolvedDirectOperator | undefined = industrialTriage
+        ? resolveDirectOperatorRequest(aiResult.directOperatorRequest || null, systemOperators)
+        : undefined;
+
+      if (industrialTriage && resolvedDirectOperator) {
+        if (resolvedDirectOperator.status === "matched" && resolvedDirectOperator.operator) {
+          aiResult.isCompleted = true;
+          console.log(
+            `[SdrEngine] 🎯 Transferência direta nominal confirmada para ${resolvedDirectOperator.operator.name} (${resolvedDirectOperator.operator.id}) — ausente=${resolvedDirectOperator.operator.isAbsent}`
+          );
+        } else if (resolvedDirectOperator.status === "not_found") {
+          aiResult.isCompleted = false;
+          const promisedTransfer = aiResult.messagesToSend.some((m) =>
+            /\b(transfer|encaminh|passando|acionar|direcionar)\b/i.test(m)
+          );
+          if (promisedTransfer) {
+            const cited = resolvedDirectOperator.citedName || "essa pessoa";
+            aiResult.messagesToSend = [
+              `Não localizei ${cited} aqui na nossa equipe de atendimento.`,
+              "Como posso te ajudar hoje? Me conta o que você precisa que já te direciono para o responsável certo.",
+            ];
+          }
+        } else if (resolvedDirectOperator.status === "ambiguous_homonym") {
+          aiResult.isCompleted = false;
+          const homonymNames = (resolvedDirectOperator.homonyms || []).map((h) => h.name).join(" ou ");
+          const asksClarification = aiResult.messagesToSend.some((m) => m.includes("?"));
+          if (!asksClarification) {
+            aiResult.messagesToSend = [
+              `Temos mais de uma pessoa com esse nome na nossa equipe (${homonymNames}).`,
+              "Com qual deles você gostaria de falar?",
+            ];
+          }
+        } else if (resolvedDirectOperator.status === "past_reference_only") {
+          console.log(
+            `[SdrEngine] ℹ️ Menção histórica detectada ("${resolvedDirectOperator.citedName || ""}") — mantendo fluxo normal de triagem.`
+          );
+        }
+      }
+
       // 🛑 GARANTIA PROGRAMÁTICA: Se for a PRIMEIRA mensagem do atendimento:
       if (isFirstMessage) {
         const combinedText = batchItems.map((i) => i.text).join(" ").toLowerCase();
 
         // Checar se o cliente apenas deu oi/saudação ou se já explicou o que precisa
         const isGenericGreetingOnly =
-          !storeTurn && combinedText.replace(/[^a-z0-9]/g, "").length < 25 &&
-          !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|envas|empacot|datador|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit)/.test(combinedText);
+          !storeTurn &&
+          (!resolvedDirectOperator || resolvedDirectOperator.status === "none") &&
+          combinedText.replace(/[^a-z0-9]/g, "").length < 25 &&
+          !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|envas|empacot|datador|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit|falar|atendent|vendedor|consultor)/.test(combinedText);
 
         const article = aiPersona.gender === "female" ? "a" : "o";
         if (isGenericGreetingOnly) {
@@ -979,6 +1154,28 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         }
       }
 
+      if (industrialTriage && knownClient && knownClientConfirmation === "confirmed") {
+        const enriched = applyKnownClientConfirmationToData(updatedCollectedData, knownClient);
+        Object.assign(updatedCollectedData, enriched);
+      }
+
+      if (
+        industrialTriage &&
+        resolvedDirectOperator?.status === "matched" &&
+        resolvedDirectOperator.operator &&
+        !collectedValue(
+          updatedCollectedData,
+          "MÁQUINA / PEÇA / INTERESSE",
+          "SOLICITAÇÃO",
+          "QUAL O TIPO DE PRODUTO?",
+          "PRODUTO DE INTERESSE"
+        )
+      ) {
+        updatedCollectedData["SOLICITAÇÃO"] = {
+          value: `Solicitou falar diretamente com ${resolvedDirectOperator.operator.name}`,
+          status: "filled",
+        };
+      }
 
       // 8.1 Verificação da presença dos Dados Vitais
       const nameVal = updatedCollectedData["NOME COMPLETO"]?.value || "";
@@ -1022,6 +1219,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         existingStage: metaState.funnelStage || "triagem",
         existingFunnel: metaState.targetFunnel || null,
         existingSubflow: metaState.subflow || null,
+        directOperator: resolvedDirectOperator,
       };
       let industrialRoute = industrialTriage ? resolveIndustrialRoute(routeInput) : null;
       let machineDecision: MachineDecision | undefined;
@@ -1292,15 +1490,45 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       if (flowState) {
+        const industrialProgress = industrialTriage
+          ? computeIndustrialTriageProgress({
+              subflow: industrialRoute?.subflow || metaState.subflow || null,
+              funnelStage: stageAndFunnel.funnelStage,
+              targetFunnel: stageAndFunnel.targetFunnel,
+              collectedData: updatedCollectedData,
+              company:
+                updatedCollectedData["EMPRESA"]?.value || knownClient?.companyName || null,
+              document:
+                updatedCollectedData["CNPJ OU CPF"]?.value || knownClient?.document || null,
+              isCompleted: flowIsFinished,
+            })
+          : null;
+
         const updatedMetadata = {
           ...metaState,
           ...(storeTurn ? { vtexLookup: storeTurn.evidence } : {}),
           ...(siteContext ? { siteContext } : {}),
-          stepNumber: filledCount,
-          totalSteps: 7,
+          stepNumber: industrialProgress ? industrialProgress.filledCount : filledCount,
+          totalSteps: industrialProgress ? industrialProgress.totalCount : 7,
           followUpStage: 0,
           funnelStage: stageAndFunnel.funnelStage,
           targetFunnel: stageAndFunnel.targetFunnel,
+          ...(knownClient
+            ? {
+                knownClient: {
+                  companyName: knownClient.companyName,
+                  document: knownClient.document || null,
+                  contactName: knownClient.contactName || null,
+                  accountId: knownClient.accountId || null,
+                  lastSector: knownClient.lastSector || null,
+                  lastInterest: knownClient.lastInterest || null,
+                  source: knownClient.source,
+                  confirmed:
+                    knownClientConfirmation === "confirmed" ||
+                    updatedCollectedData._KNOWN_COMPANY_CONFIRMED?.status === "filled",
+                },
+              }
+            : {}),
           ...(industrialRoute ? {
             triagePolicyVersion: INDUSTRIAL_POLICY_VERSION,
             subflow: industrialRoute.subflow,
@@ -1357,7 +1585,13 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
         // Sincronizar o Contato no DB local (Nome, CNPJ, CPF, Receita Federal) e notificar a interface
         if (convCheck?.contactId) {
-          await syncContactDataFromTriage(tenantId, convCheck.contactId, updatedCollectedData);
+          await syncContactDataFromTriage(
+            tenantId,
+            convCheck.contactId,
+            updatedCollectedData,
+            undefined,
+            knownClient?.accountId || null,
+          );
         }
 
         // Notificar Kanban SDR em tempo real sobre atualização de coluna / dados / card CRM
@@ -1445,6 +1679,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           if (signal?.aborted) return;
           try {
             const callRes = await triggerOutboundCallInternal({
+              tenantId,
               phone: contactPhone,
               accountSid: configData.twilioAccountSid || configData.twilioSid,
               authToken: configData.twilioAuthToken || configData.twilioToken,

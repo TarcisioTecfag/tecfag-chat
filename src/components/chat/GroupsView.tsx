@@ -11,6 +11,8 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
+import { CrmGroupPermissions } from "./CrmGroupPermissions";
+import { OWN_CONVERSATIONS_PRESET } from "@/lib/access-control/conversation-policy";
 import { MultiTenantAccessPanel } from "./MultiTenantAccessPanel";
 import { MetaTemplatesManager } from "./MetaTemplatesManager";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -661,7 +663,7 @@ export function GroupsView() {
   const [groupForm, setGroupForm] = useState({
     name: "",
     allowedTenants: [] as ("tecfag" | "valem")[],
-    allowedChannels: [] as ("whatsapp" | "instagram" | "messenger")[],
+    allowedChannels: [] as ("whatsapp" | "instagram" | "messenger" | "livechat")[],
     canCreateUser: false,
     canResetPassword: false,
     canEditProfile: true,
@@ -682,7 +684,7 @@ export function GroupsView() {
     tenantId: "" as any,
     name: "Carregando Grupo...",
     allowedTenants: [] as ("tecfag" | "valem")[],
-    allowedChannels: [] as ("whatsapp" | "instagram" | "messenger")[],
+    allowedChannels: [] as ("whatsapp" | "instagram" | "messenger" | "livechat")[],
     canCreateUser: false,
     canResetPassword: false,
     canEditProfile: false,
@@ -779,7 +781,7 @@ export function GroupsView() {
     setShowSectorForm(false);
   };
 
-  const toggleChannelSelection = (channel: "whatsapp" | "instagram" | "messenger") => {
+  const toggleChannelSelection = (channel: "whatsapp" | "instagram" | "messenger" | "livechat") => {
     setGroupForm(prev => {
       const alreadySelected = prev.allowedChannels.includes(channel);
       const allowedChannels = alreadySelected
@@ -836,12 +838,12 @@ export function GroupsView() {
     updateAccessGroup(groupId, legacyUpdates);
   };
 
-  const applyRolePreset = (groupId: string, presetKey: string) => {
+  const applyRolePreset = async (groupId: string, presetKey: string) => {
     const preset = ROLE_PRESETS[presetKey];
     if (!preset) return;
 
     const legacyUpdates: Partial<AccessGroup> = {
-      permissions: preset.permissions,
+      permissions: normalizeGroupPermissions({ permissions: preset.permissions }),
       canCreateUser: preset.permissions.security.canManageUsers,
       canResetPassword: preset.permissions.security.canResetUserPasswords,
       canEditProfile: preset.permissions.chat.canEditClientInfo,
@@ -852,11 +854,11 @@ export function GroupsView() {
       canOverrideChat: preset.permissions.chat.canOverrideChat,
     };
 
-    updateAccessGroup(groupId, legacyUpdates);
+    if (!await updateAccessGroup(groupId, legacyUpdates)) return;
     toast.success(`Perfil "${preset.name}" aplicado!`);
   };
 
-  const toggleCategoryAll = (groupId: string, category: keyof GroupPermissions, value: boolean) => {
+  const toggleCategoryAll = async (groupId: string, category: keyof GroupPermissions, value: boolean) => {
     const targetGroup = accessGroups.find(g => g.id === groupId);
     if (!targetGroup) return;
 
@@ -864,7 +866,7 @@ export function GroupsView() {
     const catObj = { ...(currentPerms[category] as any) };
     for (const k of Object.keys(catObj)) {
       if (typeof catObj[k] === "boolean") {
-        catObj[k] = value;
+        catObj[k] = k === "restrictToOwnChats" ? !value : value;
       }
     }
 
@@ -885,11 +887,11 @@ export function GroupsView() {
       canOverrideChat: updatedPerms.chat.canOverrideChat,
     };
 
-    updateAccessGroup(groupId, legacyUpdates);
+    if (!await updateAccessGroup(groupId, legacyUpdates)) return;
     toast.success(`Categoria atualizada.`);
   };
 
-  const updateGroupPermission = (groupId: string, field: keyof AccessGroup, value: any) => {
+  const updateGroupPermission = async (groupId: string, field: keyof AccessGroup, value: any) => {
     if (field === "allowedTenants") {
       toast.info("O acesso a outras empresas é configurado no grupo multiempresa acima.");
       return;
@@ -899,7 +901,7 @@ export function GroupsView() {
       toast.warning("O grupo Administradores precisa ter acesso a pelo menos um canal.");
       return;
     }
-    updateAccessGroup(groupId, { [field]: value });
+    if (!await updateAccessGroup(groupId, { [field]: value })) return;
     toast.success("Permissões do grupo atualizadas.");
   };
 
@@ -1310,6 +1312,10 @@ export function GroupsView() {
                     >
                       Messenger
                     </button>
+                    <button type="button" onClick={() => toggleChannelSelection("livechat")}
+                      className={`flex-1 h-8 rounded-lg text-[10px] font-bold border cursor-pointer ${groupForm.allowedChannels.includes("livechat") ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                      Site
+                    </button>
                   </div>
                 </div>
 
@@ -1545,6 +1551,12 @@ export function GroupsView() {
                               <span className="text-[9px] text-muted-foreground block font-normal">Facebook Mensagens</span>
                             </div>
                           </div>
+                          <button type="button" onClick={() => {
+                            const channels = selectedGroupObj.allowedChannels;
+                            updateGroupPermission(selectedGroupId, "allowedChannels", channels.includes("livechat") ? channels.filter(c => c !== "livechat") : [...channels, "livechat"]);
+                          }} className={`rounded-xl p-3 border text-left text-xs font-bold ${selectedGroupObj.allowedChannels.includes("livechat") ? "border-primary bg-primary/10" : "border-border text-muted-foreground"}`}>
+                            Site / Live Chat
+                          </button>
                         </div>
                       </div>
                     )}
@@ -1589,10 +1601,14 @@ export function GroupsView() {
                         {[
                           { key: "chat",      label: "Conversas / Atendimento", desc: "Acesso à fila e tela de mensagens" },
                           ...(tenant === "tecfag" ? [{ key: "commercialHome", label: "Início Comercial", desc: "Cockpit pessoal do consultor" }] : []),
+                          ...(tenant === "tecfag" ? [
+                            { key: "commercialManagement", label: "Gestão Comercial", desc: "Gestão de equipes, metas e diretrizes" },
+                            { key: "commercialBi", label: "War Room Comercial", desc: "Indicadores comerciais consolidados" },
+                          ] : []),
                           { key: "crm",       label: "Negociações", desc: "Acesso ao CRM próprio" },
                           { key: "tasks",     label: "Tarefas & Compromissos", desc: "Acesso ao kanban de tarefas do operador" },
                           { key: "contacts",  label: "Base de Contatos", desc: "Acesso à lista e fichas de clientes" },
-                          { key: "wallets",   label: "Carteiras Globais", desc: "Acesso à gestão de carteiras comerciais" },
+                          { key: "wallet",   label: "Carteiras Globais", desc: "Acesso à gestão de carteiras comerciais" },
                           { key: "valentina", label: `${aiPersona.name} IA Hub`, desc: "Acesso ao SDR, Rodízio e Base de Conhecimento" },
                           { key: "ligacoes",  label: "Ligações & Telefonia", desc: "Acesso ao módulo de voz Twilio IA" },
                           { key: "monitor",   label: "Monitoramento & QA", desc: "Acesso ao espião, alertas e auditorias" },
@@ -1656,17 +1672,26 @@ export function GroupsView() {
 
                     {openSections.chat && (
                       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <button type="button" className="sm:col-span-2 rounded-xl border border-border p-3 text-left text-xs font-bold hover:bg-muted"
+                          onClick={() => { void updateAccessGroup(selectedGroupId, { permissions: { ...perms, chat: { ...perms.chat, ...OWN_CONVERSATIONS_PRESET } }, canViewAllChats: false }); }}>
+                          Aplicar visibilidade: somente Meus
+                        </button>
                         {[
                           { key: "canCaptureChat",           label: "Capturar Atendimentos", desc: "Puxar conversas da fila de espera ou IA para si" },
                           { key: "canTransferChat",          label: "Transferir Atendimentos", desc: "Enviar diretamente a um operador ou para a fila de um setor; atendimento alheio também exige Assumir Atendimento Alheio" },
                           { key: "canFinishChat",            label: "Encerrar Atendimentos", desc: "Finalizar atendimentos ativos e arquivar" },
                           { key: "canViewAllChats",          label: "Visualizar Todos os Chats", desc: "Ver conversas atribuídas a outros (leitura)" },
-                          { key: "canOverrideChat",          label: "Assumir Atendimento Alheio", desc: "Permite tomar ou transferir conversa de outro operador; o papel admin tem esta autorização automaticamente" },
+                          { key: "restrictToOwnChats",       label: "Restringir somente aos próprios atendimentos", desc: "Bloqueia conversas sem responsável e de outros operadores, inclusive na visão Todos" },
+                          { key: "canViewQueueMine",         label: "Visualizar fila Meus", desc: "Permitir conversas em atendimento humano dentro do alcance concedido" },
+                          { key: "canViewQueueWaiting",      label: "Visualizar fila de espera", desc: "Permitir consultar e capturar conversas da fila, se tiver direito de captura" },
+                          { key: "canViewQueueBot",          label: "Visualizar Automação", desc: "Permitir consultar conversas que estão com o bot" },
+                          { key: "canViewQueueClosed",       label: "Visualizar Finalizados", desc: "Permitir consultar históricos encerrados dentro do alcance concedido" },
+                          { key: "canOverrideChat",          label: "Assumir Atendimento Alheio", desc: "Permite tomar ou transferir conversa de outro operador dentro da visibilidade concedida" },
                           { key: "canSendInternalNotes",     label: "Enviar Notas Internas", desc: "Criar recados e anotações ocultas para a equipe" },
                           { key: "canEditClientInfo",        label: "Editar Cadastro no Chat", desc: "Alterar CNPJ, Razão Social, E-mail na barra lateral" },
                           { key: "canManageTags",            label: "Gerenciar Tags", desc: "Adicionar ou remover etiquetas de clientes" },
                           { key: "canManageRdCrm",           label: "Criar Oportunidade RD CRM", desc: "Disparar lead para o funil do RD Station CRM" },
-                          { key: "canChangeWalletOperator",  label: "Alterar Carteira no Chat", desc: "Reatribuir a titularidade do cliente diretamente na conversa" },
+                          { key: "canChangeWallet",  label: "Alterar Carteira no Chat", desc: "Reatribuir a titularidade do cliente diretamente na conversa" },
                         ].map(({ key, label, desc }) => {
                           if (!matchesSearch(label, desc)) return null;
                           const isChecked = perms.chat[key as keyof typeof perms.chat] ?? false;
@@ -1693,6 +1718,9 @@ export function GroupsView() {
                       </div>
                     )}
                   </div>
+
+                  <CrmGroupPermissions permissions={perms.crm} search={permissionSearch}
+                    onChange={(key, value) => updateGroupGranular(selectedGroupId, "crm", key, value)} />
 
                   {/* ── Bloco 5: Base de Clientes & Carteira ── */}
                   <div className="rounded-2xl border border-border bg-card overflow-hidden">
@@ -1877,11 +1905,11 @@ export function GroupsView() {
                         {[
                           { key: "canAccessDashboard",  label: "Dashboard de Ligações", desc: "Visão em tempo real de chamadas ativas" },
                           { key: "canAccessAgenda",     label: "Agenda de Ligações", desc: "Ver compromissos e agendamentos telefônicos" },
-                          { key: "canAccessHistorico",  label: "Histórico & Transcrições", desc: "Ouvir gravações e ler transcrições da IA" },
-                          { key: "canAccessClientes",   label: "Base de Clientes de Voz", desc: "Listagem de contatos qualificados para ligação" },
+                          { key: "canAccessHistory",  label: "Histórico & Transcrições", desc: "Ouvir gravações e ler transcrições da IA" },
+                          { key: "canAccessClients",   label: "Base de Clientes de Voz", desc: "Listagem de contatos qualificados para ligação" },
                           { key: "canTriggerTestCall",  label: "Disparar Teste de Ligação", desc: `Fazer ligação de teste imediata com ${aiPersona.gender === "female" ? "a" : "o"} ${aiPersona.name}` },
-                          { key: "canManageCampanhas",  label: "Gerenciar Campanhas em Massa", desc: "Criar e disparar disparos de voz para listas" },
-                          { key: "canManageObjetivos",  label: "Definir Objetivos da IA", desc: "Configurar metas e prompts de ligação" },
+                          { key: "canManageCampaigns",  label: "Gerenciar Campanhas em Massa", desc: "Criar e disparar disparos de voz para listas" },
+                          { key: "canManageObjectives",  label: "Definir Objetivos da IA", desc: "Configurar metas e prompts de ligação" },
                         ].map(({ key, label, desc }) => {
                           if (!matchesSearch(label, desc)) return null;
                           const isChecked = perms.ligacoes[key as keyof typeof perms.ligacoes] ?? false;
@@ -1942,10 +1970,10 @@ export function GroupsView() {
                         {[
                           { key: "canAccessLive",       label: "Espião ao Vivo", desc: "Acompanhar conversas em tempo real sem interferir" },
                           { key: "canAccessAlerts",     label: "Alertas & Gargalos de SLA", desc: "Ver atendimentos com tempo de espera estourado" },
-                          { key: "canAccessOperators",  label: "Ranking de Operadores", desc: "Comparativo de produtividade da equipe" },
+                          { key: "canAccessRanking",  label: "Ranking de Operadores", desc: "Comparativo de produtividade da equipe" },
                           { key: "canAccessAudits",     label: "Auditorias de Atendimento", desc: "Ver notas e pareceres da IA avaliadora" },
                           { key: "canManageAudits",     label: "Aprovar / Recalibrar Auditorias", desc: "Validar notas e enviar feedback para operadores" },
-                          { key: "canAccessSite",       label: "Visitantes do Site (Live Chat)", desc: "Ver fluxo de visitantes online navegando na loja" },
+                          { key: "canAccessSiteVisitors",       label: "Visitantes do Site (Live Chat)", desc: "Ver fluxo de visitantes online navegando na loja" },
                         ].map(({ key, label, desc }) => {
                           if (!matchesSearch(label, desc)) return null;
                           const isChecked = perms.monitor[key as keyof typeof perms.monitor] ?? false;
@@ -2008,7 +2036,7 @@ export function GroupsView() {
                           { key: "canAccessPerformance", label: "Desempenho por Setor", desc: "Eficiência de times e conversão" },
                           { key: "canAccessSla",         label: "SLA & Tempos de Espera", desc: "Métricas de TMA, TME e conformidade" },
                           { key: "canAccessContacts",    label: "Analytics de Clientes", desc: "Frequência de recompra e inatividade" },
-                          { key: "canAccessReports",     label: "Relatórios Executivos IA", desc: "Geração de resumos e relatórios analíticos" },
+                          { key: "canAccessAiReports",     label: "Relatórios Executivos IA", desc: "Geração de resumos e relatórios analíticos" },
                           { key: "canAccessCosts",       label: "Painel de Custos de IA", desc: "Gastos com Vertex AI, tokens e transcrições" },
                         ].map(({ key, label, desc }) => {
                           if (!matchesSearch(label, desc)) return null;
@@ -2077,7 +2105,7 @@ export function GroupsView() {
                           { key: "canManageUsers",        label: "Criar & Editar Operadores", desc: "Cadastrar novos usuários e definir senhas" },
                           { key: "canResetUserPasswords", label: "Redefinir Senhas de Outros", desc: "Trocar senhas de membros da equipe" },
                           { key: "canImpersonateUsers",   label: "Assumir Sessão de Operador", desc: "Fazer login como outro operador (Super Admin)" },
-                          { key: "canManageGroups",       label: "Criar & Editar Grupos", desc: "Modificar permissões e criar novos papéis" },
+                          { key: "canManageAccessGroups",       label: "Criar & Editar Grupos", desc: "Modificar permissões e criar novos papéis" },
                           { key: "canManageSectors",      label: "Gerenciar Setores", desc: "Criar e editar departamentos de atendimento" },
                           { key: "canManageWallets",      label: "Gerenciar Carteiras Globais", desc: "Distribuir carteiras comerciais de clientes" },
                           { key: "canManageGlobalTemplates", label: "Gerenciar Templates Globais", desc: "Criar respostas rápidas e templates oficiais da Meta" },
@@ -2139,11 +2167,11 @@ export function GroupsView() {
                     {openSections.settings && (
                       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         {[
-                          { key: "canAccessWhatsappSettings", label: "Conexões WhatsApp", desc: "Configurar QR Code Baileys ou Meta API" },
-                          { key: "canAccessVozSettings",      label: "Telefonia & Twilio", desc: "Configurar credenciais e números de voz" },
-                          { key: "canAccessRdSettings",       label: "Integração RD CRM", desc: "Conectar OAuth da RD Station" },
-                          { key: "canAccessEmailSettings",    label: "E-mail & SMTP", desc: "Configurar servidor de envio de relatórios" },
-                          { key: "canAccessLiveChatSettings", label: "Widget Live Chat", desc: "Configurar script do chat no site" },
+                          { key: "canManageWhatsapp", label: "Conexões WhatsApp", desc: "Configurar QR Code Baileys ou Meta API" },
+                          { key: "canManageVoiceSettings",      label: "Telefonia & Twilio", desc: "Configurar credenciais e números de voz" },
+                          { key: "canManageRdCrmSettings",       label: "Integração RD CRM", desc: "Conectar OAuth da RD Station" },
+                          { key: "canManageEmailSmtp",    label: "E-mail & SMTP", desc: "Configurar servidor de envio de relatórios" },
+                          { key: "canManageLiveChatSettings", label: "Widget Live Chat", desc: "Configurar script do chat no site" },
                         ].map(({ key, label, desc }) => {
                           if (!matchesSearch(label, desc)) return null;
                           const isChecked = perms.settings[key as keyof typeof perms.settings] ?? false;

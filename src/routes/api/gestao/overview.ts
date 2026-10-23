@@ -10,6 +10,8 @@ import {
 import { eq, and, isNull, isNotNull, avg, count, ne, gte, lte, sum, inArray } from "drizzle-orm";
 import { getComercialOperatorIds } from "../../../lib/gestao-filter";
 import { requireSession } from "../../../lib/auth-session.js";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
+import { conversationReadRules } from "../../../lib/access-control/conversation-policy";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,13 +30,18 @@ export const Route = createFileRoute("/api/gestao/overview")({
         const { session } = auth;
         const tenantId = session.tenantId; // SEMPRE da sessão
 
-        // Gestão é painel de supervisão: exige role supervisor ou admin
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        const canViewOverview =
+          (session.permissions?.views?.monitor === true && session.permissions?.monitor?.canAccessRanking === true) ||
+          (session.permissions?.views?.analytics === true && session.permissions?.analytics?.canAccessOverview === true);
+        if (!canViewOverview) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas supervisores e administradores podem acessar o painel de gestão.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para acessar o painel de gestão.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+        const readScope = conversationReadCondition(session);
+        const rules = conversationReadRules(session);
+        const restrictOperatorScope = rules.ownOnly || !rules.others;
 
         const today = new Date().toISOString().split("T")[0];
         const todayStart = new Date(today + "T00:00:00.000Z");
@@ -63,7 +70,7 @@ export const Route = createFileRoute("/api/gestao/overview")({
           const r = await db
             .select({ count: count() })
             .from(conversations)
-            .where(and(eq(conversations.tenantId, tenantId), ne(conversations.queueState, "finalizados")));
+            .where(and(eq(conversations.tenantId, tenantId), readScope, ne(conversations.queueState, "finalizados")));
           activeConversations = Number(r[0]?.count ?? 0);
         } catch (e: any) {
           console.warn("[overview] conversas ativas falhou:", e?.message);
@@ -75,8 +82,10 @@ export const Route = createFileRoute("/api/gestao/overview")({
           const r = await db
             .select({ count: count() })
             .from(responseTimeLogs)
+            .innerJoin(conversations, and(eq(conversations.id, responseTimeLogs.conversationId), eq(conversations.tenantId, tenantId)))
             .where(and(
               eq(responseTimeLogs.tenantId, tenantId),
+              readScope,
               isNull(responseTimeLogs.agentResponseId),
               eq(responseTimeLogs.isOverdue, true)
             ));
@@ -91,8 +100,10 @@ export const Route = createFileRoute("/api/gestao/overview")({
           const r = await db
             .select({ avg: avg(responseTimeLogs.responseTimeSeconds) })
             .from(responseTimeLogs)
+            .innerJoin(conversations, and(eq(conversations.id, responseTimeLogs.conversationId), eq(conversations.tenantId, tenantId)))
             .where(and(
               eq(responseTimeLogs.tenantId, tenantId),
+              readScope,
               isNotNull(responseTimeLogs.responseTimeSeconds),
               gte(responseTimeLogs.createdAt, todayStart),
               lte(responseTimeLogs.createdAt, todayEnd)
@@ -108,8 +119,10 @@ export const Route = createFileRoute("/api/gestao/overview")({
           const r = await db
             .select({ avg: avg(aiConversationAudits.performanceScore) })
             .from(aiConversationAudits)
+            .innerJoin(conversations, and(eq(conversations.id, aiConversationAudits.conversationId), eq(conversations.tenantId, tenantId)))
             .where(and(
               eq(aiConversationAudits.tenantId, tenantId),
+              readScope,
               eq(aiConversationAudits.status, "done"),
               gte(aiConversationAudits.auditedAt, todayStart),
               lte(aiConversationAudits.auditedAt, todayEnd)
@@ -127,7 +140,8 @@ export const Route = createFileRoute("/api/gestao/overview")({
             .from(operatorDailyMetrics)
             .where(and(
               eq(operatorDailyMetrics.tenantId, tenantId),
-              eq(operatorDailyMetrics.date, today)
+              eq(operatorDailyMetrics.date, today),
+              restrictOperatorScope ? eq(operatorDailyMetrics.operatorId, session.operator.id) : undefined,
             ));
         } catch (e: any) {
           console.warn("[overview] métricas diárias falhou:", e?.message);
@@ -158,7 +172,8 @@ export const Route = createFileRoute("/api/gestao/overview")({
             .where(and(
               eq(operatorDailyMetrics.tenantId, tenantId),
               gte(operatorDailyMetrics.date, lastWeekDateStr),
-              lte(operatorDailyMetrics.date, today)
+              lte(operatorDailyMetrics.date, today),
+              restrictOperatorScope ? eq(operatorDailyMetrics.operatorId, session.operator.id) : undefined,
             ))
             .groupBy(operatorDailyMetrics.operatorId);
         } catch (e: any) {
@@ -181,7 +196,8 @@ export const Route = createFileRoute("/api/gestao/overview")({
             .where(and(
               eq(operatorDailyMetrics.tenantId, tenantId),
               gte(operatorDailyMetrics.date, lastMonthDateStr),
-              lte(operatorDailyMetrics.date, today)
+              lte(operatorDailyMetrics.date, today),
+              restrictOperatorScope ? eq(operatorDailyMetrics.operatorId, session.operator.id) : undefined,
             ))
             .groupBy(operatorDailyMetrics.operatorId);
         } catch (e: any) {
@@ -195,11 +211,11 @@ export const Route = createFileRoute("/api/gestao/overview")({
           const query = db
             .select({ id: operators.id, name: operators.name, status: operators.status, avatar: operators.avatar })
             .from(operators)
-            .where(
-              comercialIds !== null
-                ? and(eq(operators.tenantId, tenantId), inArray(operators.id, comercialIds))
-                : eq(operators.tenantId, tenantId)
-            );
+            .where(and(
+              eq(operators.tenantId, tenantId),
+              comercialIds !== null ? inArray(operators.id, comercialIds) : undefined,
+              restrictOperatorScope ? eq(operators.id, session.operator.id) : undefined,
+            ));
           allOperators = await query;
         } catch (e: any) {
           console.warn("[overview] operadores falhou:", e?.message);
@@ -221,6 +237,7 @@ export const Route = createFileRoute("/api/gestao/overview")({
               .where(
                 and(
                   eq(conversations.tenantId, tenantId),
+                  readScope,
                   inArray(conversations.operatorId, opIds),
                   gte(conversations.lastMessageTime, todayStart)
                 )

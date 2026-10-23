@@ -61,12 +61,30 @@ export async function restartIndustrialCycle(
         outcome: flow.outcome && flow.outcome !== "in_progress" ? flow.outcome : input.reason,
       };
       await appendIndustrialJournal(tx, null, archived, "archive", input.sourceKey);
+      const flowData = (flow.collectedData as Record<string, { value?: string }>) || {};
       previousTriages.push({
         id: flow.id,
         startedAt: flow.startedAt.toISOString(),
         completedAt: archived.completedAt.toISOString(),
         outcome: archived.outcome,
         targetFunnel: meta.targetFunnel || null,
+        subflow: meta.subflow || null,
+        company: flowData["EMPRESA"]?.value || null,
+        document:
+          flowData["CNPJ OU CPF"]?.value ||
+          flowData["CNPJ"]?.value ||
+          flowData["CPF"]?.value ||
+          null,
+        clientName: flowData["NOME COMPLETO"]?.value || null,
+        interest:
+          flowData["MÁQUINA / PEÇA / INTERESSE"]?.value ||
+          flowData["SOLICITAÇÃO"]?.value ||
+          flowData["QUAL O TIPO DE PRODUTO?"]?.value ||
+          null,
+        responsibleName:
+          (meta.allocatedOperatorName as string | undefined) ||
+          (conversation as { responsibleName?: string | null }).responsibleName ||
+          null,
       });
     }
     await tx.delete(agentFlowStates).where(scope);

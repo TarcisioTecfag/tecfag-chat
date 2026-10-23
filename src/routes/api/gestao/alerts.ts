@@ -7,6 +7,7 @@ import { SlaEngine } from "../../../lib/sla-engine";
 import { AuditService } from "../../../lib/audit-service";
 import { SupervisorEngine } from "../../../lib/valentina/supervisor-engine";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 
 // Inicializa os engines na primeira request desta rota (lazy init)
 SlaEngine.getInstance().start();
@@ -30,9 +31,12 @@ export const Route = createFileRoute("/api/gestao/alerts")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        const canViewAlerts =
+          (session.permissions?.views?.monitor === true && session.permissions?.monitor?.canAccessAlerts === true) ||
+          (session.permissions?.views?.analytics === true && session.permissions?.analytics?.canAccessOverview === true);
+        if (!canViewAlerts) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem acessar alertas.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para acessar alertas.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -69,11 +73,12 @@ export const Route = createFileRoute("/api/gestao/alerts")({
               crmCardUrl: contacts.rdCrmDealLink,
             })
             .from(responseTimeLogs)
-            .innerJoin(conversations, eq(responseTimeLogs.conversationId, conversations.id))
-            .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+            .innerJoin(conversations, and(eq(responseTimeLogs.conversationId, conversations.id), eq(conversations.tenantId, tenantId)))
+            .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
             .where(
               and(
                 eq(responseTimeLogs.tenantId, tenantId),
+                conversationReadCondition(session),
                 isNull(responseTimeLogs.agentResponseId) // Ainda sem resposta
               )
             )
@@ -99,7 +104,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
                 const op = await db
                   .select({ name: operators.name })
                   .from(operators)
-                  .where(eq(operators.id, log.operatorId))
+                  .where(and(eq(operators.id, log.operatorId), eq(operators.tenantId, tenantId)))
                   .limit(1);
                 if (op.length > 0) operatorName = op[0].name;
               }
@@ -112,6 +117,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
                   .where(
                     and(
                       eq(messages.conversationId, log.conversationId),
+                      eq(messages.tenantId, tenantId),
                       eq(messages.senderType, "client")
                     )
                   )

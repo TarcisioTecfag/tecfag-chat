@@ -2,6 +2,7 @@ import { conversationHasDeal } from "../../../../lib/crm/deal-associations";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
+import { requireConversationAccess } from "../../../../lib/access-control/conversation-access";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
 import { listCustomFields } from "../../../../lib/crm/custom-fields";
 import { db } from "../../../../db";
@@ -32,6 +33,8 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
 
 
           const { conversationId } = params as { conversationId: string };
+          const denied = await requireConversationAccess(session, conversationId);
+          if (denied) return denied;
 
           // Valida existência e propriedade da conversa
           const [conv] = await db
@@ -114,6 +117,8 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           const tenantId = session.tenantId;
 
           const { conversationId } = params as { conversationId: string };
+          const denied = await requireConversationAccess(session, conversationId);
+          if (denied) return denied;
 
           // Valida a conversa no tenant
           const [conv] = await db
@@ -203,6 +208,8 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           if (permError) return permError;
 
           const { conversationId } = params as { conversationId: string };
+          const denied = await requireConversationAccess(session, conversationId);
+          if (denied) return denied;
           const url = new URL(request.url);
           let dealId = url.searchParams.get("dealId");
 

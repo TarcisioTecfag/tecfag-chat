@@ -52,6 +52,7 @@ export type OperatorProfile = {
 };
 
 export type AccessGroup = {
+  revision?: string;
   id: string;
   name: string;
   allowedTenants: ("tecfag" | "valem")[];
@@ -165,7 +166,7 @@ type ChatContextType = {
   ) => Promise<{ success: boolean; stats?: any }>;
   resetOperatorPassword: (id: string, newPasswordHash: string) => void;
   createAccessGroup: (group: Omit<AccessGroup, "id">) => void;
-  updateAccessGroup: (id: string, fields: Partial<AccessGroup>) => void;
+  updateAccessGroup: (id: string, fields: Partial<AccessGroup>) => Promise<boolean>;
   deleteAccessGroup: (id: string) => void;
   createSector: (name: string) => void;
   updateSector: (id: string, fields: Partial<Sector>) => void;
@@ -621,8 +622,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!isAuthenticated || !currentOperatorId) return;
     let disposed = false;
+    let checkingOwnership = false;
     const reconcileOwnership = async () => {
-      if (disposed || document.hidden) return;
+      if (disposed || document.hidden || checkingOwnership) return;
+      checkingOwnership = true;
       try {
         const response = await fetch(`${BACKEND_URL}/api/chats?ownership=1`, {
           credentials: "include",
@@ -639,6 +642,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setSessionPermissions((previous) =>
             JSON.stringify(previous) === JSON.stringify(data.permissions) ? previous : data.permissions
           );
+        }
+        // Check exactly the cached IDs in bounded batches; absence from a paginated snapshot is not revocation.
+        const cachedIds = conversationsRef.current.filter((chat) => chat.id !== "valentina").map((chat) => chat.id);
+        const removed = new Set<string>();
+        for (let offset = 0; offset < cachedIds.length; offset += 100) {
+          if (disposed) return;
+          const batch = cachedIds.slice(offset, offset + 100);
+          const check = await fetch(`${BACKEND_URL}/api/chats`, { method: "POST", credentials: "include", cache: "no-store",
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checkAccessIds: batch }) });
+          if (!check.ok) continue;
+          const checked = await check.json();
+          if (checked.operatorId !== currentOperatorIdRef.current || !Array.isArray(checked.visibleConversationIds)) continue;
+          const visible = new Set(checked.visibleConversationIds);
+          for (const id of batch) if (!visible.has(id)) removed.add(id);
+        }
+        if (disposed) return;
+        if (removed.size) {
+          setConversations((previous) => previous.filter((chat) => !removed.has(chat.id)));
+          setSelectedChatId((previous) => previous && removed.has(previous) ? null : previous);
         }
         const byId = new Map<string, any>((data.ownership || []).map((item: any) => [item.id, item]));
         if (disposed) return;
@@ -671,6 +693,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (error) {
         console.warn("[Chat] Falha temporária ao reconciliar responsáveis:", error);
+      } finally {
+        checkingOwnership = false;
       }
     };
     void reconcileOwnership();
@@ -1010,6 +1034,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify(newGroup),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const saved = await response.json();
+      setAccessGroups((previous) => previous.map((group) => group.id === id ? saved : group));
       toast.success("Grupo de acesso criado com sucesso!");
     } catch (err) {
       console.error("Erro ao criar grupo de acesso no DB:", err);
@@ -1018,44 +1044,39 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateAccessGroup = async (id: string, fields: Partial<AccessGroup>) => {
-    const safeFields = { ...fields, allowedTenants: tenant ? [tenant] : [] };
-    setAccessGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...safeFields } : g)));
-
-    const targetGroup = accessGroups.find((g) => g.id === id);
-    if (targetGroup) {
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/groups`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...targetGroup,
-            ...safeFields,
-          }),
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      } catch (err) {
-        console.error("Erro ao atualizar grupo de acesso no DB:", err);
+  const updateAccessGroup = async (id: string, fields: Partial<AccessGroup>): Promise<boolean> => {
+    const targetGroup = accessGroups.find((group) => group.id === id);
+    if (!targetGroup) return false;
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/groups`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...targetGroup, ...fields, expectedRevision: targetGroup.revision, allowedTenants: tenant ? [tenant] : [] }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        if (body.group) setAccessGroups((previous) => previous.map((group) => group.id === id ? body.group : group));
+        throw new Error(body.error || "Não foi possível salvar o grupo.");
       }
+      setAccessGroups((previous) => previous.map((group) => group.id === id ? body : group));
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar grupo.");
+      return false;
     }
   };
 
   const deleteAccessGroup = async (id: string) => {
     if (id === "group-admin") return;
-    
-    setAccessGroups((prev) => prev.filter((g) => g.id !== id));
-    setOperators((prev) => prev.map((op) => (op.groupId === id ? { ...op, groupId: "group-whats-only" } : op)));
-
+    const group = accessGroups.find((item) => item.id === id);
     try {
-      await fetch(`${BACKEND_URL}/api/groups?id=${id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      const query = new URLSearchParams({ id, revision: group?.revision || "" });
+      const response = await fetch(`${BACKEND_URL}/api/groups?${query}`, { method: "DELETE", credentials: "include" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Erro ao excluir grupo.");
+      setAccessGroups((previous) => previous.filter((item) => item.id !== id));
       toast.success("Grupo de acesso excluído com sucesso!");
-    } catch (err) {
-      console.error("Erro ao excluir grupo de acesso no DB:", err);
-      toast.error("Erro ao excluir grupo de acesso.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao excluir grupo.");
     }
   };
 
@@ -2763,7 +2784,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       fetch(`${BACKEND_URL}/api/baileys/presence`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId: tenant, jid: currentChat.phone }),
+        body: JSON.stringify({ conversationId: currentChat.id }),
       }).catch(() => {});
     }
   }, [selectedChatId, conversations, tenant]);
@@ -2803,6 +2824,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (data: any) => {
       try {
         if (!data) return;
+
+        if (data.type === "access_changed") {
+          setConversations([]);
+          setSelectedChatId(null);
+          window.location.reload();
+          return;
+        }
 
         if (data.type === "status") {
           if (activeProvider === "baileys") {

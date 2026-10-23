@@ -21,6 +21,7 @@ import {
   getActiveVisitors,
   getVisitorPageviews,
   getChatById,
+  applyOperatorChatAction,
 } from "./livechatStorage";
 import { generateProactiveGreeting, isNoise } from "./livechatAI";
 import { bridgeLiveChatToWhatsApp } from "./livechat-bridge";
@@ -29,6 +30,7 @@ import { searchProducts, extractSearchTermFromUrl } from "./trayCatalogService";
 import { LiveChatDebouncer } from "./livechatDebouncer";
 import { extractMediaContent } from "./livechatDocumentReader";
 import { getAuthSessionByToken } from "../auth-session";
+import { canMonitorAllSiteVisitors } from "../access-control/channel-permissions";
 import { isSdrTenant } from "../ai-persona";
 import { siteGateway } from "./site-gateway";
 import { clampSiteText, isSiteOriginAllowed } from "./site-channel-policy";
@@ -53,6 +55,9 @@ interface LcConnection {
   visitorId?: string; // para visitors
   chatId?: string; // chat ativo
   operatorId?: string; // para operators
+  operatorToken?: string;
+  delivery?: Promise<void>;
+  pendingEvents?: number;
   /** Tenant com núcleo de triagem industrial: o site usa o mesmo atendimento do WhatsApp. */
   industrial?: boolean;
   siteOrigin?: string;
@@ -74,9 +79,22 @@ function send(ws: WebSocket, payload: unknown) {
 function broadcastToOperators(tenantId: string, event: unknown) {
   for (const conn of operatorConnections.values()) {
     if (conn.tenantId === tenantId) {
-      send(conn.ws, event);
+      conn.pendingEvents = (conn.pendingEvents ?? 0) + 1;
+      if (conn.pendingEvents > 200) { conn.ws.close(1008, "Reconecte para atualizar o painel"); continue; }
+      conn.delivery = (conn.delivery ?? Promise.resolve()).then(async () => {
+        if (await authorizeOperatorConnection(conn)) send(conn.ws, event);
+      }).catch(() => { conn.ws.close(1008, "Sessão inválida"); }).finally(() => { conn.pendingEvents = Math.max(0, (conn.pendingEvents ?? 1) - 1); });
     }
   }
+}
+
+async function authorizeOperatorConnection(conn: LcConnection) {
+  if (conn.ws.readyState !== WebSocket.OPEN) return null;
+  const session = conn.operatorToken ? await getAuthSessionByToken(conn.operatorToken) : null;
+  if (!session || session.tenantId !== conn.tenantId || session.operator.id !== conn.operatorId || !canMonitorAllSiteVisitors(session)) {
+    conn.ws.close(1008, "Permissão de monitoramento revogada"); return null;
+  }
+  return session;
 }
 
 // ── Setup do WebSocket Server ─────────────────────────────────────────────────
@@ -113,9 +131,10 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
         ws.close(1008, "Acesso não autorizado para este tenant");
         return;
       }
+      if (!canMonitorAllSiteVisitors(session)) { ws.close(1008, "Permissão insuficiente para monitorar visitantes"); return; }
 
       const operatorId = session.operator.id;
-      const conn: LcConnection = { ws, type: "operator", tenantId: session.tenantId, operatorId };
+      const conn: LcConnection = { ws, type: "operator", tenantId: session.tenantId, operatorId, operatorToken };
       operatorConnections.set(operatorId, conn);
 
       console.log(
@@ -125,14 +144,20 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       // Envia snapshot dos visitantes ativos
       try {
         const visitors = await getActiveVisitors(session.tenantId);
-        send(ws, { type: "visitors_snapshot", visitors });
+        if (await authorizeOperatorConnection(conn)) send(ws, { type: "visitors_snapshot", visitors });
       } catch (e) {
         console.error("[LC WS] Erro ao carregar visitantes:", e);
       }
 
+      if (ws.readyState !== WebSocket.OPEN) {
+        if (operatorConnections.get(operatorId) === conn) operatorConnections.delete(operatorId);
+        return;
+      }
+      const authorizationTimer = setInterval(() => { void authorizeOperatorConnection(conn).catch(() => ws.close(1008, "Sessão inválida")); }, 15000);
       ws.on("message", (data) => handleOperatorMessage(conn, data.toString()));
       ws.on("close", () => {
-        operatorConnections.delete(operatorId);
+        clearInterval(authorizationTimer);
+        if (operatorConnections.get(operatorId) === conn) operatorConnections.delete(operatorId);
         console.log(`[LC WS] Operador ${operatorId} desconectado`);
       });
       return;
@@ -646,12 +671,15 @@ async function handleVisitorMessage(
 
 async function handleOperatorMessage(conn: LcConnection, rawData: string) {
   try {
+    const session = await authorizeOperatorConnection(conn);
+    if (!session) return;
     const payload = JSON.parse(rawData);
     const { type, chatId, messageId } = payload;
     let visitorId: string | undefined = payload.visitorId;
     const content = typeof payload.content === "string" ? payload.content.slice(0, 4000) : "";
     const { tenantId } = conn;
 
+    let applied: Awaited<ReturnType<typeof applyOperatorChatAction>> | undefined;
     if (["operator_message", "take_over", "release_to_ai", "close_chat"].includes(type)) {
       if (usesIndustrialSiteCore(tenantId)) {
         send(conn.ws, {
@@ -661,17 +689,14 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
         });
         return;
       }
-      const ownedChat = await getChatById(tenantId, chatId);
-      if (!ownedChat) {
-        send(conn.ws, { type: "error", code: "NOT_FOUND", message: "Chat não encontrado." });
-        return;
-      }
-      visitorId = ownedChat.visitorId;
+      if (typeof chatId !== "string" || !chatId || chatId.length > 160) { send(conn.ws, { type: "error", code: "BAD_REQUEST" }); return; }
+      applied = await applyOperatorChatAction(tenantId, chatId, session.operator.id, type, session.permissions.chat, content);
+      visitorId = applied.chat.visitorId;
     }
 
     // Operador enviando mensagem ao visitante
     if (type === "operator_message" && chatId && content) {
-      const savedMsg = await saveMessage(tenantId, chatId, "operator", content, {});
+      const savedMsg = applied!.message!;
 
       // Envia ao visitante
       const visitorConn = [...visitorConnections.values()].find(
@@ -704,9 +729,6 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
         LiveChatDebouncer.getInstance().clearSession(visitorId);
       }
 
-      await updateChatStatus(tenantId, chatId, "operator_took_over", {
-        operatorId: conn.operatorId,
-      });
       broadcastToOperators(tenantId, {
         type: "operator_took_over",
         chatId,
@@ -729,7 +751,6 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
 
     // Operador devolvendo para IA
     if (type === "release_to_ai" && chatId) {
-      await updateChatStatus(tenantId, chatId, "active", { operatorId: undefined });
       broadcastToOperators(tenantId, { type: "released_to_ai", chatId, visitorId });
       return;
     }
@@ -740,7 +761,6 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
         LiveChatDebouncer.getInstance().clearSession(visitorId);
       }
 
-      await updateChatStatus(tenantId, chatId, "closed", { outcome: "resolved" });
       const visitorConn = [...visitorConnections.values()].find(
         (c) => c.chatId === chatId && c.tenantId === tenantId,
       );
@@ -754,6 +774,7 @@ async function handleOperatorMessage(conn: LcConnection, rawData: string) {
       return;
     }
   } catch (e: any) {
+    send(conn.ws, { type: "error", code: e?.code ?? "INTERNAL_ERROR", message: e?.statusCode ? e.message : "Não foi possível alterar o atendimento." });
     console.error("[LC WS] Erro ao processar mensagem do operador:", e?.message);
   }
 }

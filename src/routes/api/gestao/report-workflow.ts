@@ -34,12 +34,18 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        const canAccess =
+          session.permissions?.views?.analytics === true &&
+          session.permissions?.analytics?.canAccessAiReports === true;
+        if (!canAccess) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem alterar o workflow de relatórios.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para alterar o workflow de relatórios de IA.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+
+        const actorId = session.operator.id;
+        const actorLabel = session.operator.name || session.operator.id || "Operador";
 
         try {
           const body = await request.json();
@@ -63,7 +69,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
           // ACTION: ADVANCE-STAGE
           // ==========================================
           if (action === "advance-stage") {
-            const { operatorId, note } = body;
+            const { note } = body;
             
             const [report] = await db
               .select()
@@ -92,7 +98,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
               await tx
                 .update(aiReports)
                 .set({ stage: nextStage })
-                .where(eq(aiReports.id, reportId));
+                .where(and(eq(aiReports.tenantId, tenantId), eq(aiReports.id, reportId)));
 
               await tx.insert(aiReportVersions).values({
                 id: generateId("rev"),
@@ -100,7 +106,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                 tenantId,
                 version: report.currentVersion,
                 createdAt: nowStr(),
-                author: operatorId || "Operador",
+                author: actorLabel,
                 note: note || `Avanço para ${nextStage}`,
                 stage: nextStage,
                 reportData: report.reportData
@@ -116,7 +122,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
           // ACTION: REJECT + RE-SÍNTESE IA
           // ==========================================
           if (action === "reject") {
-            const { operatorId, note } = body;
+            const { note } = body;
 
             const [report] = await db
               .select()
@@ -138,7 +144,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
               await tx
                 .update(aiReports)
                 .set({ stage: rejectStage })
-                .where(eq(aiReports.id, reportId));
+                .where(and(eq(aiReports.tenantId, tenantId), eq(aiReports.id, reportId)));
 
               await tx.insert(aiReportVersions).values({
                 id: generateId("rev"),
@@ -146,7 +152,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                 tenantId,
                 version: report.currentVersion,
                 createdAt: nowStr(),
-                author: operatorId || "Operador",
+                author: actorLabel,
                 note: note || "Rejeitado e retornado para rascunho — re-síntese IA iniciada.",
                 stage: rejectStage,
                 reportData: report.reportData
@@ -178,7 +184,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                     currentVersion: newVersion,
                     stage: "rascunho",
                   })
-                  .where(eq(aiReports.id, reportId));
+                  .where(and(eq(aiReports.tenantId, tenantId), eq(aiReports.id, reportId)));
 
                 await db.insert(aiReportVersions).values({
                   id: generateId("rev-resynth"),
@@ -210,8 +216,6 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
           // ACTION: DISPATCH (envio manual à diretoria)
           // ==========================================
           if (action === "dispatch") {
-            const { operatorId } = body;
-
             const [report] = await db
               .select()
               .from(aiReports)
@@ -247,7 +251,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
             const dispatchResult = await ReportDispatcher.dispatch(tenantId, storedReport, markdownReport);
 
             // Marca como enviado
-            await ReportDispatcher.markAsEnviado(reportId, tenantId, operatorId || "system");
+            await ReportDispatcher.markAsEnviado(reportId, tenantId, actorId);
 
             return new Response(
               JSON.stringify({
@@ -268,7 +272,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
           // ACTION: FEEDBACK
           // ==========================================
           if (action === "feedback") {
-            const { version, sectionId, vote, comment, operatorId } = body;
+            const { version, sectionId, vote, comment } = body;
 
             if (!version || !sectionId) {
               return new Response(JSON.stringify({ error: "version e sectionId são obrigatórios" }), {
@@ -286,7 +290,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                   eq(aiReportFeedback.reportId, reportId),
                   eq(aiReportFeedback.version, version),
                   eq(aiReportFeedback.sectionId, sectionId),
-                  eq(aiReportFeedback.operatorId, operatorId || "system")
+                  eq(aiReportFeedback.operatorId, actorId)
                 )
               )
               .limit(1);
@@ -295,7 +299,12 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
               await db
                 .update(aiReportFeedback)
                 .set({ vote, comment })
-                .where(eq(aiReportFeedback.id, existingFeedback[0].id));
+                .where(
+                  and(
+                    eq(aiReportFeedback.tenantId, tenantId),
+                    eq(aiReportFeedback.id, existingFeedback[0].id)
+                  )
+                );
             } else {
               await db.insert(aiReportFeedback).values({
                 id: generateId("fbk"),
@@ -305,7 +314,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                 sectionId,
                 vote,
                 comment,
-                operatorId: operatorId || "system"
+                operatorId: actorId
               });
             }
 

@@ -6,6 +6,7 @@ import { requireSession } from "../../../lib/auth-session";
 import { applyOperatorReaction } from "../../../lib/whatsapp/meta-reactions";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { baileysAdapter } from "../../../lib/whatsapp/adapters/baileys";
+import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -31,6 +32,8 @@ export const Route = createFileRoute("/api/whatsapp/react")({
           if (!conversationId || !messageId) {
             return json({ error: "conversationId e messageId são obrigatórios." }, 400);
           }
+          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (denied) return denied;
 
           // 1. Busca conversa e valida tenant estritamente
           const [conv] = await db

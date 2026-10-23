@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 
 import { requireSession } from "../../../lib/auth-session";
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
+import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,16 +38,18 @@ export const Route = createFileRoute("/api/baileys/send-media")({
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (denied) return denied;
 
           const [config] = await db.select({ activeProvider: channelConfigs.activeProvider, connectionStatus: channelConfigs.connectionStatus })
             .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
           if (config?.activeProvider !== "baileys" || config.connectionStatus === "switching") {
             return Response.json({ error: "Canal Baileys não está ativo." }, { status: 409 });
           }
-          const [conv] = await db.select({ contactId: conversations.contactId, operatorId: conversations.operatorId })
+          const [conv] = await db.select({ contactId: conversations.contactId, operatorId: conversations.operatorId, queueState: conversations.queueState })
             .from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
           if (!conv) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
-          if (!["admin", "supervisor"].includes(session.operator.role) && conv.operatorId !== session.operator.id) {
+          if (conv.queueState !== "meus" || conv.operatorId !== session.operator.id) {
             return Response.json({ error: "Sem permissão para responder nesta conversa." }, { status: 403 });
           }
           if (!conv.contactId) return Response.json({ error: "Conversa sem contato." }, { status: 400 });

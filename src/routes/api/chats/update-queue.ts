@@ -9,6 +9,7 @@ import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
 import { recordCommercialTransfer } from "../../../lib/commercial/tma";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
+import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 
 export const Route = createFileRoute("/api/chats/update-queue")({
   server: {
@@ -59,6 +60,8 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           }
 
           // 1. Verificar conversa existente dentro do tenant da sessão
+          const denied = await requireConversationAccess(session, conversationId);
+          if (denied) return denied;
           const [conv] = await db
             .select()
             .from(conversations)
@@ -79,8 +82,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           const permissions = session.permissions.chat;
           const isOwner = conv.operatorId === session.operator.id;
           const isOverride = permissions.canOverrideChat === true;
-          const isAdmin = session.operator.role === "admin";
-          const can = (permission: boolean) => isAdmin || permission;
+          const can = (permission: boolean) => permission === true;
           const forbidden = () => Response.json({ error: "Permissão insuficiente para alterar este atendimento.", code: "FORBIDDEN" }, { status: 403 });
 
           // Captura, tomada de controle e transferência são ações distintas. O operador

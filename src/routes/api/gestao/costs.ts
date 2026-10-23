@@ -21,9 +21,12 @@ export const Route = createFileRoute("/api/gestao/costs")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        if (
+          session.permissions?.analytics?.canAccessCosts !== true ||
+          (session.permissions?.views?.analytics !== true && session.permissions?.views?.monitor !== true)
+        ) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem visualizar custos.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para visualizar custos.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }

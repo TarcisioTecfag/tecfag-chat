@@ -1,0 +1,6259 @@
+{
+  "date": "2026-10-22",
+  "scope": "static checkout inventory; guard references are evidence, not proof of end-to-end authorization",
+  "files": 163,
+  "handlers": [
+    {
+      "file": "src/routes/api/calls.ts",
+      "route": "/api/calls",
+      "method": "GET",
+      "line": 39,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "callSessions.findFirst"
+      ],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/calls.ts",
+      "route": "/api/calls",
+      "method": "POST",
+      "line": 67,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/chats.ts",
+      "route": "/api/chats",
+      "method": "PATCH",
+      "line": 25,
+      "session": true,
+      "guards": [
+        {
+          "line": 34,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/chats.ts",
+      "route": "/api/chats",
+      "method": "POST",
+      "line": 79,
+      "session": true,
+      "guards": [
+        {
+          "line": 88,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 140,
+          "text": "if (isInternalNote && session.operator.role !== \"admin\" && session.permissions.chat.canSendInternalNotes !== true) {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "140: if (isInternalNote && session.operator.role !== \"admin\" && session.permissions.chat.canSendInternalNotes !== true) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/chats.ts",
+      "route": "/api/chats",
+      "method": "GET",
+      "line": 220,
+      "session": true,
+      "guards": [
+        {
+          "line": 229,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 243,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {"
+        },
+        {
+          "line": 260,
+          "text": "role: session.operator.role,"
+        },
+        {
+          "line": 261,
+          "text": "permissions: session.permissions,"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "243: if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {",
+        "260: role: session.operator.role,",
+        "261: permissions: session.permissions,"
+      ]
+    },
+    {
+      "file": "src/routes/api/contacts.ts",
+      "route": "/api/contacts",
+      "method": "GET",
+      "line": 25,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 30,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.contacts) {"
+        },
+        {
+          "line": 47,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "30: if (session.operator.role !== \"admin\" && !session.permissions?.views?.contacts) {",
+        "47: if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/contacts.ts",
+      "route": "/api/contacts",
+      "method": "POST",
+      "line": 156,
+      "session": true,
+      "guards": [
+        {
+          "line": 158,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 162,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.contacts?.canCreateContact) {"
+        },
+        {
+          "line": 253,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && duplicate.walletOperatorId !== session.operator.id) return Response.json({ error: \"Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.\", code: \"CONTACT_EXISTS\" }, { status: 409 });"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "contactDealPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "162: if (session.operator.role !== \"admin\" && !session.permissions?.contacts?.canCreateContact) {",
+        "253: if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && duplicate.walletOperatorId !== session.operator.id) return Response.json({ error: \"Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.\", code: \"CONTACT_EXISTS\" }, { status: 409 });"
+      ]
+    },
+    {
+      "file": "src/routes/api/elevenlabs-audio.ts",
+      "route": "/api/elevenlabs-audio",
+      "method": "GET",
+      "line": 10,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/elevenlabs-conversations.ts",
+      "route": "/api/elevenlabs-conversations",
+      "method": "GET",
+      "line": 56,
+      "session": true,
+      "guards": [
+        {
+          "line": 57,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/events.ts",
+      "route": "/api/events",
+      "method": "GET",
+      "line": 10,
+      "session": true,
+      "guards": [
+        {
+          "line": 11,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 50,
+          "text": "const stillAuthorized = heartbeatCount % 4 === 0"
+        },
+        {
+          "line": 53,
+          "text": "if (!stillAuthorized || (typeof stillAuthorized !== \"boolean\" && stillAuthorized.tenantId !== tenantId)) return close();"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance",
+        "sessionManager.unregisterListener",
+        "isSessionTokenActive",
+        "sessionManager.registerListener",
+        "getAuthSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "50: const stillAuthorized = heartbeatCount % 4 === 0",
+        "53: if (!stillAuthorized || (typeof stillAuthorized !== \"boolean\" && stillAuthorized.tenantId !== tenantId)) return close();"
+      ]
+    },
+    {
+      "file": "src/routes/api/groups.ts",
+      "route": "/api/groups",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 22,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/groups.ts",
+      "route": "/api/groups",
+      "method": "POST",
+      "line": 42,
+      "session": true,
+      "guards": [
+        {
+          "line": 44,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 50,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "accessGroups.findFirst"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "50: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/groups.ts",
+      "route": "/api/groups",
+      "method": "DELETE",
+      "line": 147,
+      "session": true,
+      "guards": [
+        {
+          "line": 148,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 154,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "accessGroups.findFirst"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "154: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/health.ts",
+      "route": "/api/health",
+      "method": "GET",
+      "line": 14,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Pública: diagnóstico/versão",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/operators.ts",
+      "route": "/api/operators",
+      "method": "GET",
+      "line": 36,
+      "session": true,
+      "guards": [
+        {
+          "line": 37,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/operators.ts",
+      "route": "/api/operators",
+      "method": "POST",
+      "line": 165,
+      "session": true,
+      "guards": [
+        {
+          "line": 167,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 173,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "accessGroups.findFirst",
+        "revokeAccountSessions",
+        "revokeAllOperatorSessions"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "173: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/operators.ts",
+      "route": "/api/operators",
+      "method": "DELETE",
+      "line": 300,
+      "session": true,
+      "guards": [
+        {
+          "line": 301,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 307,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "revokeAllOperatorSessions"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "307: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/push.ts",
+      "route": "/api/push",
+      "method": "GET",
+      "line": 10,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/push.ts",
+      "route": "/api/push",
+      "method": "POST",
+      "line": 28,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/push.ts",
+      "route": "/api/push",
+      "method": "DELETE",
+      "line": 106,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/quick-responses.ts",
+      "route": "/api/quick-responses",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 22,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/quick-responses.ts",
+      "route": "/api/quick-responses",
+      "method": "POST",
+      "line": 42,
+      "session": true,
+      "guards": [
+        {
+          "line": 44,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 49,
+          "text": "const denied = requirePermission(session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requirePermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "49: const denied = requirePermission(session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+      ]
+    },
+    {
+      "file": "src/routes/api/quick-responses.ts",
+      "route": "/api/quick-responses",
+      "method": "DELETE",
+      "line": 105,
+      "session": true,
+      "guards": [
+        {
+          "line": 106,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 111,
+          "text": "const denied = requirePermission(session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requirePermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "111: const denied = requirePermission(session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+      ]
+    },
+    {
+      "file": "src/routes/api/sectors.ts",
+      "route": "/api/sectors",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 22,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/sectors.ts",
+      "route": "/api/sectors",
+      "method": "POST",
+      "line": 42,
+      "session": true,
+      "guards": [
+        {
+          "line": 44,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/sectors.ts",
+      "route": "/api/sectors",
+      "method": "DELETE",
+      "line": 100,
+      "session": true,
+      "guards": [
+        {
+          "line": 101,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/tasks.ts",
+      "route": "/api/tasks",
+      "method": "GET",
+      "line": 198,
+      "session": true,
+      "guards": [
+        {
+          "line": 200,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 208,
+          "text": "const isAdmin = session.operator.role === \"admin\";"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "208: const isAdmin = session.operator.role === \"admin\";"
+      ]
+    },
+    {
+      "file": "src/routes/api/tasks.ts",
+      "route": "/api/tasks",
+      "method": "PUT",
+      "line": 503,
+      "session": true,
+      "guards": [
+        {
+          "line": 505,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "crmService.updateDealActivity"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/templates.ts",
+      "route": "/api/templates",
+      "method": "GET",
+      "line": 20,
+      "session": true,
+      "guards": [
+        {
+          "line": 21,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/templates.ts",
+      "route": "/api/templates",
+      "method": "POST",
+      "line": 50,
+      "session": true,
+      "guards": [
+        {
+          "line": 52,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/templates.ts",
+      "route": "/api/templates",
+      "method": "DELETE",
+      "line": 107,
+      "session": true,
+      "guards": [
+        {
+          "line": 108,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 141,
+          "text": "if (session.operator.role !== \"admin\" && existing.operatorId !== operatorId) {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "141: if (session.operator.role !== \"admin\" && existing.operatorId !== operatorId) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/trigger-outbound-call.ts",
+      "route": "/api/trigger-outbound-call",
+      "method": "POST",
+      "line": 22,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/twilio-voice-webhook.ts",
+      "route": "/api/twilio-voice-webhook",
+      "method": "GET",
+      "line": 368,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/twilio-voice-webhook.ts",
+      "route": "/api/twilio-voice-webhook",
+      "method": "POST",
+      "line": 389,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina-voice.ts",
+      "route": "/api/valentina-voice",
+      "method": "POST",
+      "line": 40,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/version.ts",
+      "route": "/api/version",
+      "method": "GET",
+      "line": 15,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Pública: diagnóstico/versão",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-agenda.ts",
+      "route": "/api/voice-agenda",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-agenda.ts",
+      "route": "/api/voice-agenda",
+      "method": "POST",
+      "line": 54,
+      "session": true,
+      "guards": [
+        {
+          "line": 55,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-agenda.ts",
+      "route": "/api/voice-agenda",
+      "method": "PUT",
+      "line": 119,
+      "session": true,
+      "guards": [
+        {
+          "line": 120,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-agenda.ts",
+      "route": "/api/voice-agenda",
+      "method": "DELETE",
+      "line": 148,
+      "session": true,
+      "guards": [
+        {
+          "line": 149,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-buffer.ts",
+      "route": "/api/voice-buffer",
+      "method": "GET",
+      "line": 125,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-buffer.ts",
+      "route": "/api/voice-buffer",
+      "method": "POST",
+      "line": 126,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-calls.ts",
+      "route": "/api/voice-calls",
+      "method": "GET",
+      "line": 13,
+      "session": true,
+      "guards": [
+        {
+          "line": 14,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-campaigns.ts",
+      "route": "/api/voice-campaigns",
+      "method": "GET",
+      "line": 19,
+      "session": true,
+      "guards": [
+        {
+          "line": 20,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-campaigns.ts",
+      "route": "/api/voice-campaigns",
+      "method": "POST",
+      "line": 70,
+      "session": true,
+      "guards": [
+        {
+          "line": 71,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 75,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "75: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/voice-campaigns.ts",
+      "route": "/api/voice-campaigns",
+      "method": "PATCH",
+      "line": 127,
+      "session": true,
+      "guards": [
+        {
+          "line": 128,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 132,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "132: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/voice-clients.ts",
+      "route": "/api/voice-clients",
+      "method": "GET",
+      "line": 69,
+      "session": true,
+      "guards": [
+        {
+          "line": 70,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-enrich-contact.ts",
+      "route": "/api/voice-enrich-contact",
+      "method": "POST",
+      "line": 13,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-objectives.ts",
+      "route": "/api/voice-objectives",
+      "method": "GET",
+      "line": 192,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-objectives.ts",
+      "route": "/api/voice-objectives",
+      "method": "POST",
+      "line": 204,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-objectives.ts",
+      "route": "/api/voice-objectives",
+      "method": "PUT",
+      "line": 231,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-objectives.ts",
+      "route": "/api/voice-objectives",
+      "method": "DELETE",
+      "line": 247,
+      "session": true,
+      "guards": [
+        {
+          "line": 249,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/voice-stream.ts",
+      "route": "/api/voice-stream",
+      "method": "GET",
+      "line": 10,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/admin/reset.ts",
+      "route": "/api/admin/reset",
+      "method": "GET",
+      "line": 69,
+      "session": true,
+      "guards": [
+        {
+          "line": 77,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 80,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "clearSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "80: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/admin/reset.ts",
+      "route": "/api/admin/reset",
+      "method": "POST",
+      "line": 244,
+      "session": true,
+      "guards": [
+        {
+          "line": 253,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 256,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "256: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/auth/login.ts",
+      "route": "/api/auth/login",
+      "method": "POST",
+      "line": 30,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "createSession",
+        "buildSessionCookie"
+      ],
+      "authentication": "Pública: credenciais + limitador de login",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/auth/logout.ts",
+      "route": "/api/auth/logout",
+      "method": "POST",
+      "line": 7,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "extractSessionToken",
+        "revokeSessionByToken"
+      ],
+      "authentication": "Revogação pelo token apresentado",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/auth/session.ts",
+      "route": "/api/auth/session",
+      "method": "GET",
+      "line": 11,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "code: \"UNAUTHORIZED\","
+        },
+        {
+          "line": 69,
+          "text": "permissions: session.permissions,"
+        }
+      ],
+      "calls": [
+        "getAuthSession",
+        "canManagePlatformAccess"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "19: code: \"UNAUTHORIZED\",",
+        "69: permissions: session.permissions,"
+      ]
+    },
+    {
+      "file": "src/routes/api/auth/switch-tenant.ts",
+      "route": "/api/auth/switch-tenant",
+      "method": "POST",
+      "line": 15,
+      "session": true,
+      "guards": [
+        {
+          "line": 16,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "createSession",
+        "extractSessionToken",
+        "revokeSessionByToken",
+        "buildSessionCookie"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/baileys/connect.ts",
+      "route": "/api/baileys/connect",
+      "method": "GET",
+      "line": 19,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance",
+        "sessionManager.registerListener",
+        "sessionManager.getStatus",
+        "sessionManager.getQr",
+        "sessionManager.getSession",
+        "sessionManager.resetAndInitSession",
+        "sessionManager.initSession",
+        "sessionManager.unregisterListener"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/baileys/disconnect.ts",
+      "route": "/api/baileys/disconnect",
+      "method": "POST",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 30,
+          "text": "const permDenied = requirePermission(session, () => session.operator.role === \"admin\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requirePermission",
+        "SessionManager.getInstance",
+        "sessionManager.disconnectSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "30: const permDenied = requirePermission(session, () => session.operator.role === \"admin\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/baileys/media.ts",
+      "route": "/api/baileys/media",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 29,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/baileys/presence.ts",
+      "route": "/api/baileys/presence",
+      "method": "POST",
+      "line": 17,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance",
+        "sessionManager.subscribePresence"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/baileys/send-media.ts",
+      "route": "/api/baileys/send-media",
+      "method": "POST",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 49,
+          "text": "if (![\"admin\", \"supervisor\"].includes(session.operator.role) && conv.operatorId !== session.operator.id) {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance",
+        "sessionManager.getSession",
+        "sessionManager.getStatus"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "49: if (![\"admin\", \"supervisor\"].includes(session.operator.role) && conv.operatorId !== session.operator.id) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/baileys/send.ts",
+      "route": "/api/baileys/send",
+      "method": "POST",
+      "line": 19,
+      "session": true,
+      "guards": [
+        {
+          "line": 21,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/baileys/status.ts",
+      "route": "/api/baileys/status",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 25,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance",
+        "sessionManager.getStatus",
+        "sessionManager.getQr",
+        "sessionManager.getSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/baileys/sync-avatars.ts",
+      "route": "/api/baileys/sync-avatars",
+      "method": "POST",
+      "line": 27,
+      "session": true,
+      "guards": [
+        {
+          "line": 29,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance",
+        "sessionManager.getSession",
+        "sessionManager.getStatus",
+        "sessionManager.notifyPublic"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/chats/reconcile-message.ts",
+      "route": "/api/chats/reconcile-message",
+      "method": "POST",
+      "line": 12,
+      "session": true,
+      "guards": [
+        {
+          "line": 13,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 35,
+          "text": "![\"admin\", \"supervisor\"].includes(session.operator.role) &&"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "35: ![\"admin\", \"supervisor\"].includes(session.operator.role) &&"
+      ]
+    },
+    {
+      "file": "src/routes/api/chats/resolve.ts",
+      "route": "/api/chats/resolve",
+      "method": "GET",
+      "line": 10,
+      "session": true,
+      "guards": [
+        {
+          "line": 11,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 14,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "14: if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/chats/tag-task.ts",
+      "route": "/api/chats/tag-task",
+      "method": "POST",
+      "line": 28,
+      "session": true,
+      "guards": [
+        {
+          "line": 30,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/chats/update-queue.ts",
+      "route": "/api/chats/update-queue",
+      "method": "POST",
+      "line": 26,
+      "session": true,
+      "guards": [
+        {
+          "line": 34,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 79,
+          "text": "const permissions = session.permissions.chat;"
+        },
+        {
+          "line": 82,
+          "text": "const isAdmin = session.operator.role === \"admin\";"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "clearSession",
+        "SessionManager.getInstance"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "79: const permissions = session.permissions.chat;",
+        "82: const isAdmin = session.operator.role === \"admin\";"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/analysis.ts",
+      "route": "/api/commercial/analysis",
+      "method": "GET",
+      "line": 29,
+      "session": true,
+      "guards": [
+        {
+          "line": 30,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 33,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "33: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/bi.ts",
+      "route": "/api/commercial/bi",
+      "method": "GET",
+      "line": 8,
+      "session": true,
+      "guards": [
+        {
+          "line": 9,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 13,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "13: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/calendar.ts",
+      "route": "/api/commercial/calendar",
+      "method": "GET",
+      "line": 27,
+      "session": true,
+      "guards": [
+        {
+          "line": 28,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 32,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "32: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/calendar.ts",
+      "route": "/api/commercial/calendar",
+      "method": "POST",
+      "line": 270,
+      "session": true,
+      "guards": [
+        {
+          "line": 271,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 275,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "275: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/calendar.ts",
+      "route": "/api/commercial/calendar",
+      "method": "DELETE",
+      "line": 321,
+      "session": true,
+      "guards": [
+        {
+          "line": 322,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 326,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "326: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/consultants.ts",
+      "route": "/api/commercial/consultants",
+      "method": "GET",
+      "line": 13,
+      "session": true,
+      "guards": [
+        {
+          "line": 14,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/commercial/consultants.ts",
+      "route": "/api/commercial/consultants",
+      "method": "POST",
+      "line": 48,
+      "session": true,
+      "guards": [
+        {
+          "line": 49,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 53,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "53: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/consultants.ts",
+      "route": "/api/commercial/consultants",
+      "method": "DELETE",
+      "line": 131,
+      "session": true,
+      "guards": [
+        {
+          "line": 132,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 136,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "136: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/directives.ts",
+      "route": "/api/commercial/directives",
+      "method": "GET",
+      "line": 26,
+      "session": true,
+      "guards": [
+        {
+          "line": 27,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 31,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "31: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/directives.ts",
+      "route": "/api/commercial/directives",
+      "method": "POST",
+      "line": 60,
+      "session": true,
+      "guards": [
+        {
+          "line": 61,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 65,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "65: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/evidence.ts",
+      "route": "/api/commercial/evidence",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 27,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "27: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/goals.ts",
+      "route": "/api/commercial/goals",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 27,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "27: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/goals.ts",
+      "route": "/api/commercial/goals",
+      "method": "POST",
+      "line": 280,
+      "session": true,
+      "guards": [
+        {
+          "line": 281,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 285,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "285: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/home.ts",
+      "route": "/api/commercial/home",
+      "method": "GET",
+      "line": 12,
+      "session": true,
+      "guards": [
+        {
+          "line": 13,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 18,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 28,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "18: const permError = requireCrmPermission(session, \"canViewCrm\");",
+        "28: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/pipeline-mapping.ts",
+      "route": "/api/commercial/pipeline-mapping",
+      "method": "POST",
+      "line": 14,
+      "session": true,
+      "guards": [
+        {
+          "line": 15,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 19,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "19: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/settings.ts",
+      "route": "/api/commercial/settings",
+      "method": "GET",
+      "line": 14,
+      "session": true,
+      "guards": [
+        {
+          "line": 15,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 19,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "19: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/settings.ts",
+      "route": "/api/commercial/settings",
+      "method": "POST",
+      "line": 56,
+      "session": true,
+      "guards": [
+        {
+          "line": 57,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 61,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "61: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/contacts/$contactId.ts",
+      "route": "/api/contacts/$contactId",
+      "method": "PATCH",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 27,
+          "text": "if (session.operator.role !== \"admin\" &&"
+        },
+        {
+          "line": 28,
+          "text": "!session.permissions?.contacts?.canEditContact &&"
+        },
+        {
+          "line": 29,
+          "text": "!session.permissions?.chat?.canEditClientInfo &&"
+        },
+        {
+          "line": 30,
+          "text": "!session.permissions?.crm?.canEditDeals) {"
+        },
+        {
+          "line": 53,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && currentContact.walletOperatorId !== session.operator.id) {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "crmService.updateContactAccount",
+        "crmService.updateAccount"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "27: if (session.operator.role !== \"admin\" &&",
+        "28: !session.permissions?.contacts?.canEditContact &&",
+        "29: !session.permissions?.chat?.canEditClientInfo &&",
+        "30: !session.permissions?.crm?.canEditDeals) {",
+        "53: if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && currentContact.walletOperatorId !== session.operator.id) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/contacts/$contactId.ts",
+      "route": "/api/contacts/$contactId",
+      "method": "GET",
+      "line": 232,
+      "session": true,
+      "guards": [
+        {
+          "line": 234,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/contacts/account-options.ts",
+      "route": "/api/contacts/account-options",
+      "method": "GET",
+      "line": 10,
+      "session": true,
+      "guards": [
+        {
+          "line": 11,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 14,
+          "text": "if (session.operator.role !== \"admin\" &&"
+        },
+        {
+          "line": 15,
+          "text": "!session.permissions?.contacts?.canCreateContact &&"
+        },
+        {
+          "line": 16,
+          "text": "!session.permissions?.contacts?.canEditContact &&"
+        },
+        {
+          "line": 17,
+          "text": "!session.permissions?.chat?.canEditClientInfo &&"
+        },
+        {
+          "line": 18,
+          "text": "!session.permissions?.crm?.canViewCrm) {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "14: if (session.operator.role !== \"admin\" &&",
+        "15: !session.permissions?.contacts?.canCreateContact &&",
+        "16: !session.permissions?.contacts?.canEditContact &&",
+        "17: !session.permissions?.chat?.canEditClientInfo &&",
+        "18: !session.permissions?.crm?.canViewCrm) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/contacts/check-inactivity.ts",
+      "route": "/api/contacts/check-inactivity",
+      "method": "GET",
+      "line": 65,
+      "session": true,
+      "guards": [
+        {
+          "line": 72,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/contacts/check-inactivity.ts",
+      "route": "/api/contacts/check-inactivity",
+      "method": "POST",
+      "line": 166,
+      "session": true,
+      "guards": [
+        {
+          "line": 173,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/contacts/update-wallet.ts",
+      "route": "/api/contacts/update-wallet",
+      "method": "POST",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 31,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/crm/accounts.ts",
+      "route": "/api/crm/accounts",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 30,
+          "text": "session.permissions?.views?.contacts ||"
+        },
+        {
+          "line": 31,
+          "text": "session.permissions?.chat?.canEditClientInfo"
+        },
+        {
+          "line": 34,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getAccounts"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "30: session.permissions?.views?.contacts ||",
+        "31: session.permissions?.chat?.canEditClientInfo",
+        "34: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/accounts.ts",
+      "route": "/api/crm/accounts",
+      "method": "POST",
+      "line": 68,
+      "session": true,
+      "guards": [
+        {
+          "line": 70,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 76,
+          "text": "session.permissions?.contacts?.canCreateContact ||"
+        },
+        {
+          "line": 77,
+          "text": "session.permissions?.contacts?.canEditContact ||"
+        },
+        {
+          "line": 78,
+          "text": "session.permissions?.chat?.canEditClientInfo"
+        },
+        {
+          "line": 81,
+          "text": "const permError = requireCrmPermission(session, \"canCreateDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.createAccount"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "76: session.permissions?.contacts?.canCreateContact ||",
+        "77: session.permissions?.contacts?.canEditContact ||",
+        "78: session.permissions?.chat?.canEditClientInfo",
+        "81: const permError = requireCrmPermission(session, \"canCreateDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/action-history.ts",
+      "route": "/api/crm/action-history",
+      "method": "GET",
+      "line": 28,
+      "session": true,
+      "guards": [
+        {
+          "line": 29,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 34,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "34: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/calendar.ts",
+      "route": "/api/crm/calendar",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getCrmCalendarTasks"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "29: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/catalogs.ts",
+      "route": "/api/crm/catalogs",
+      "method": "GET",
+      "line": 19,
+      "session": true,
+      "guards": [
+        {
+          "line": 20,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 22,
+          "text": "const permission = requireCrmPermission(auth.session, \"canViewCrm\");"
+        },
+        {
+          "line": 38,
+          "text": "isAdmin: auth.session.operator.role === \"admin\","
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "22: const permission = requireCrmPermission(auth.session, \"canViewCrm\");",
+        "38: isAdmin: auth.session.operator.role === \"admin\","
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/catalogs.ts",
+      "route": "/api/crm/catalogs",
+      "method": "POST",
+      "line": 41,
+      "session": true,
+      "guards": [
+        {
+          "line": 42,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 45,
+          "text": "const permission = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 52,
+          "text": "session.operator.role !== \"admin\" &&"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "45: const permission = requireCrmPermission(session, \"canViewCrm\");",
+        "52: session.operator.role !== \"admin\" &&"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/catalogs.ts",
+      "route": "/api/crm/catalogs",
+      "method": "PATCH",
+      "line": 92,
+      "session": true,
+      "guards": [
+        {
+          "line": 93,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 96,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "96: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/contacts.ts",
+      "route": "/api/crm/contacts",
+      "method": "GET",
+      "line": 15,
+      "session": true,
+      "guards": [
+        {
+          "line": 16,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 20,
+          "text": "const permissionError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 63,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\") {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "20: const permissionError = requireCrmPermission(session, \"canViewCrm\");",
+        "63: if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/contacts.ts",
+      "route": "/api/crm/contacts",
+      "method": "POST",
+      "line": 129,
+      "session": true,
+      "guards": [
+        {
+          "line": 130,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 134,
+          "text": "const permissionError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 147,
+          "text": "if (!input.existingContactId && session.operator.role !== \"admin\" && !session.permissions?.contacts?.canCreateContact && !session.permissions?.crm?.canCreateDeals) return Response.json({ error: \"Permissão insuficiente.\" }, { status: 403 });"
+        },
+        {
+          "line": 176,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && existing.walletOperatorId !== session.operator.id) throw Object.assign(new Error(\"Permissão insuficiente.\"), { statusCode: 403 });"
+        },
+        {
+          "line": 195,
+          "text": "walletOperatorId: session.permissions?.contacts?.contactScope === \"wallet_only\" ? session.operator.id : null,"
+        },
+        {
+          "line": 202,
+          "text": "if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && outcome.existing.walletOperatorId !== session.operator.id) return Response.json({ error: \"Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.\", code: \"CONTACT_EXISTS\" }, { status: 409 });"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "contactDealPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "134: const permissionError = requireCrmPermission(session, \"canViewCrm\");",
+        "147: if (!input.existingContactId && session.operator.role !== \"admin\" && !session.permissions?.contacts?.canCreateContact && !session.permissions?.crm?.canCreateDeals) return Response.json({ error: \"Permissão insuficiente.\" }, { status: 403 });",
+        "176: if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && existing.walletOperatorId !== session.operator.id) throw Object.assign(new Error(\"Permissão insuficiente.\"), { statusCode: 403 });",
+        "195: walletOperatorId: session.permissions?.contacts?.contactScope === \"wallet_only\" ? session.operator.id : null,",
+        "202: if (session.operator.role !== \"admin\" && session.permissions?.contacts?.contactScope === \"wallet_only\" && outcome.existing.walletOperatorId !== session.operator.id) return Response.json({ error: \"Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.\", code: \"CONTACT_EXISTS\" }, { status: 409 });"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/custom-fields.ts",
+      "route": "/api/crm/custom-fields",
+      "method": "GET",
+      "line": 67,
+      "session": true,
+      "guards": [
+        {
+          "line": 68,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 71,
+          "text": "const permission = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 77,
+          "text": "return handleConditionalResponse(request, { fields, isAdmin: session.operator.role === \"admin\" });"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "71: const permission = requireCrmPermission(session, \"canViewCrm\");",
+        "77: return handleConditionalResponse(request, { fields, isAdmin: session.operator.role === \"admin\" });"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/custom-fields.ts",
+      "route": "/api/crm/custom-fields",
+      "method": "POST",
+      "line": 79,
+      "session": true,
+      "guards": [
+        {
+          "line": 80,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 83,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "83: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deal-filter-options.ts",
+      "route": "/api/crm/deal-filter-options",
+      "method": "GET",
+      "line": 12,
+      "session": true,
+      "guards": [
+        {
+          "line": 13,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 17,
+          "text": "const denied = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 21,
+          "text": "session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals;"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "17: const denied = requireCrmPermission(session, \"canViewCrm\");",
+        "21: session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals;"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals.ts",
+      "route": "/api/crm/deals",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 65,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals) {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDeals"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "29: const permError = requireCrmPermission(session, \"canViewCrm\");",
+        "65: if (session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals.ts",
+      "route": "/api/crm/deals",
+      "method": "POST",
+      "line": 119,
+      "session": true,
+      "guards": [
+        {
+          "line": 121,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 126,
+          "text": "const permError = requireCrmPermission(session, \"canCreateDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.createDeal"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "126: const permError = requireCrmPermission(session, \"canCreateDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/inventory.ts",
+      "route": "/api/crm/inventory",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 28,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "28: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/pipelines.ts",
+      "route": "/api/crm/pipelines",
+      "method": "GET",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 25,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 30,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getPipelines"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "30: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/pipelines.ts",
+      "route": "/api/crm/pipelines",
+      "method": "POST",
+      "line": 47,
+      "session": true,
+      "guards": [
+        {
+          "line": 49,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 54,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.initDefaultPipeline",
+        "crmService.createPipeline"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "54: const permError = requireCrmPermission(session, \"canManagePipelines\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/products.ts",
+      "route": "/api/crm/products",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 28,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getProducts"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "28: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/products.ts",
+      "route": "/api/crm/products",
+      "method": "POST",
+      "line": 51,
+      "session": true,
+      "guards": [
+        {
+          "line": 53,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 58,
+          "text": "const permError = requireCrmPermission(session, \"canManageProducts\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.createProduct"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "58: const permError = requireCrmPermission(session, \"canManageProducts\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/search.ts",
+      "route": "/api/crm/search",
+      "method": "GET",
+      "line": 14,
+      "session": true,
+      "guards": [
+        {
+          "line": 15,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 19,
+          "text": "const permissionError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 53,
+          "text": "session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "19: const permissionError = requireCrmPermission(session, \"canViewCrm\");",
+        "53: session.operator.role !== \"admin\" && !session.permissions?.crm?.canViewAllDeals"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/stage-settings.ts",
+      "route": "/api/crm/stage-settings",
+      "method": "GET",
+      "line": 11,
+      "session": true,
+      "guards": [
+        {
+          "line": 12,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 15,
+          "text": "const permissionError = requireCrmPermission(auth.session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "15: const permissionError = requireCrmPermission(auth.session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/stage-settings.ts",
+      "route": "/api/crm/stage-settings",
+      "method": "PUT",
+      "line": 31,
+      "session": true,
+      "guards": [
+        {
+          "line": 32,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 35,
+          "text": "const permissionError = requireCrmPermission(auth.session, \"canManagePipelines\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "35: const permissionError = requireCrmPermission(auth.session, \"canManagePipelines\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/alerts.ts",
+      "route": "/api/gestao/alerts",
+      "method": "GET",
+      "line": 27,
+      "session": true,
+      "guards": [
+        {
+          "line": 28,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 33,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "33: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/audits.ts",
+      "route": "/api/gestao/audits",
+      "method": "GET",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 29,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "29: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/audits.ts",
+      "route": "/api/gestao/audits",
+      "method": "PATCH",
+      "line": 143,
+      "session": true,
+      "guards": [
+        {
+          "line": 150,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 155,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "155: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/contacts-analytics.ts",
+      "route": "/api/gestao/contacts-analytics",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 28,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "28: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/costs.ts",
+      "route": "/api/gestao/costs",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 24,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "24: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/health.ts",
+      "route": "/api/gestao/health",
+      "method": "GET",
+      "line": 39,
+      "session": true,
+      "guards": [
+        {
+          "line": 40,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 45,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "45: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/live.ts",
+      "route": "/api/gestao/live",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 24,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "24: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/messages.ts",
+      "route": "/api/gestao/messages",
+      "method": "GET",
+      "line": 25,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/gestao/my-metrics.ts",
+      "route": "/api/gestao/my-metrics",
+      "method": "GET",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 40,
+          "text": "const operatorId = (session.operator.role === \"admin\" || session.operator.role === \"supervisor\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "40: const operatorId = (session.operator.role === \"admin\" || session.operator.role === \"supervisor\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/operator-history.ts",
+      "route": "/api/gestao/operator-history",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 34,
+          "text": "const operatorId = (session.operator.role === \"admin\" || session.operator.role === \"supervisor\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "34: const operatorId = (session.operator.role === \"admin\" || session.operator.role === \"supervisor\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/overview.ts",
+      "route": "/api/gestao/overview",
+      "method": "GET",
+      "line": 25,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 32,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "32: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/performance.ts",
+      "route": "/api/gestao/performance",
+      "method": "GET",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 29,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "29: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/report-workflow.ts",
+      "route": "/api/gestao/report-workflow",
+      "method": "POST",
+      "line": 31,
+      "session": true,
+      "guards": [
+        {
+          "line": 32,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 37,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "37: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/reports-v2.ts",
+      "route": "/api/gestao/reports-v2",
+      "method": "GET",
+      "line": 34,
+      "session": true,
+      "guards": [
+        {
+          "line": 35,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 40,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "40: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/reports.ts",
+      "route": "/api/gestao/reports",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 24,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "24: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/sla.ts",
+      "route": "/api/gestao/sla",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 28,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "28: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/gestao/tasks.ts",
+      "route": "/api/gestao/tasks",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/livechat/metrics.ts",
+      "route": "/api/livechat/metrics",
+      "method": "GET",
+      "line": 17,
+      "session": true,
+      "guards": [
+        {
+          "line": 18,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/livechat/tray-config.ts",
+      "route": "/api/livechat/tray-config",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/livechat/tray-config.ts",
+      "route": "/api/livechat/tray-config",
+      "method": "POST",
+      "line": 48,
+      "session": true,
+      "guards": [
+        {
+          "line": 49,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 53,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "53: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/livechat/visitors.ts",
+      "route": "/api/livechat/visitors",
+      "method": "GET",
+      "line": 17,
+      "session": true,
+      "guards": [
+        {
+          "line": 18,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/livechat/vtex-config.ts",
+      "route": "/api/livechat/vtex-config",
+      "method": "GET",
+      "line": 38,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "authenticate"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "23: if (auth.session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/livechat/vtex-config.ts",
+      "route": "/api/livechat/vtex-config",
+      "method": "POST",
+      "line": 47,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "authenticate"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "23: if (auth.session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/operators/profile.ts",
+      "route": "/api/operators/profile",
+      "method": "PATCH",
+      "line": 28,
+      "session": true,
+      "guards": [
+        {
+          "line": 30,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/platform/access.ts",
+      "route": "/api/platform/access",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "canManagePlatformAccess"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/platform/access.ts",
+      "route": "/api/platform/access",
+      "method": "POST",
+      "line": 71,
+      "session": true,
+      "guards": [
+        {
+          "line": 72,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "canManagePlatformAccess",
+        "platformAccessGroups.findFirst",
+        "revokeAccountSessions",
+        "accessGroups.findFirst"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/settings/rd-crm.ts",
+      "route": "/api/settings/rd-crm",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/settings/rd-crm.ts",
+      "route": "/api/settings/rd-crm",
+      "method": "POST",
+      "line": 42,
+      "session": true,
+      "guards": [
+        {
+          "line": 44,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 48,
+          "text": "if (session.operator.role !== \"admin\") {"
+        },
+        {
+          "line": 83,
+          "text": "const authUrl = `https://accounts.rdstation.com/oauth/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${redirectUri}&state=${encodeURIComponent(signedState)}`;"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "createSignedOAuthState"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "48: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/rd-marketing.ts",
+      "route": "/api/settings/rd-marketing",
+      "method": "GET",
+      "line": 27,
+      "session": true,
+      "guards": [
+        {
+          "line": 28,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 32,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "32: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/rd-marketing.ts",
+      "route": "/api/settings/rd-marketing",
+      "method": "POST",
+      "line": 51,
+      "session": true,
+      "guards": [
+        {
+          "line": 52,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 56,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "56: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/reports.ts",
+      "route": "/api/settings/reports",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/settings/reports.ts",
+      "route": "/api/settings/reports",
+      "method": "POST",
+      "line": 74,
+      "session": true,
+      "guards": [
+        {
+          "line": 75,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 81,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "81: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/whatsapp.ts",
+      "route": "/api/settings/whatsapp",
+      "method": "GET",
+      "line": 15,
+      "session": true,
+      "guards": [
+        {
+          "line": 17,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 66,
+          "text": "metaVerifyToken: session.operator.role === \"admin\" ? config.metaVerifyToken : undefined,"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "66: metaVerifyToken: session.operator.role === \"admin\" ? config.metaVerifyToken : undefined,"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/whatsapp.ts",
+      "route": "/api/settings/whatsapp",
+      "method": "POST",
+      "line": 87,
+      "session": true,
+      "guards": [
+        {
+          "line": 89,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 93,
+          "text": "const permDenied = requirePermission(session, () => session.operator.role === \"admin\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requirePermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "93: const permDenied = requirePermission(session, () => session.operator.role === \"admin\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/agents.ts",
+      "route": "/api/valentina/agents",
+      "method": "GET",
+      "line": 13,
+      "session": true,
+      "guards": [
+        {
+          "line": 14,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina/assistant.ts",
+      "route": "/api/valentina/assistant",
+      "method": "POST",
+      "line": 25,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina/catalog-images.ts",
+      "route": "/api/valentina/catalog-images",
+      "method": "GET",
+      "line": 100,
+      "session": true,
+      "guards": [
+        {
+          "line": 101,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina/config.ts",
+      "route": "/api/valentina/config",
+      "method": "GET",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina/config.ts",
+      "route": "/api/valentina/config",
+      "method": "POST",
+      "line": 80,
+      "session": true,
+      "guards": [
+        {
+          "line": 81,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 85,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "85: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/industrial-settings.ts",
+      "route": "/api/valentina/industrial-settings",
+      "method": "GET",
+      "line": 46,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "authenticate"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "21: if (auth.session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/industrial-settings.ts",
+      "route": "/api/valentina/industrial-settings",
+      "method": "POST",
+      "line": 60,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "authenticate"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "21: if (auth.session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/knowledge.ts",
+      "route": "/api/valentina/knowledge",
+      "method": "GET",
+      "line": 128,
+      "session": true,
+      "guards": [
+        {
+          "line": 129,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina/knowledge.ts",
+      "route": "/api/valentina/knowledge",
+      "method": "POST",
+      "line": 234,
+      "session": true,
+      "guards": [
+        {
+          "line": 235,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 239,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "239: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/knowledge.ts",
+      "route": "/api/valentina/knowledge",
+      "method": "PATCH",
+      "line": 530,
+      "session": true,
+      "guards": [
+        {
+          "line": 531,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 535,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "535: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/knowledge.ts",
+      "route": "/api/valentina/knowledge",
+      "method": "DELETE",
+      "line": 587,
+      "session": true,
+      "guards": [
+        {
+          "line": 588,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 592,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "592: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/messages.ts",
+      "route": "/api/valentina/messages",
+      "method": "GET",
+      "line": 1430,
+      "session": true,
+      "guards": [
+        {
+          "line": 1431,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 1442,
+          "text": "if ((session.operator.role === \"admin\" || session.operator.role === \"supervisor\") && reqOperatorId) {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "1442: if ((session.operator.role === \"admin\" || session.operator.role === \"supervisor\") && reqOperatorId) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/messages.ts",
+      "route": "/api/valentina/messages",
+      "method": "POST",
+      "line": 1573,
+      "session": true,
+      "guards": [
+        {
+          "line": 1574,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 1595,
+          "text": "const isActuallyAdmin = session.operator.role === \"admin\" || session.operator.role === \"supervisor\";"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "1595: const isActuallyAdmin = session.operator.role === \"admin\" || session.operator.role === \"supervisor\";"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/rodizio.ts",
+      "route": "/api/valentina/rodizio",
+      "method": "GET",
+      "line": 20,
+      "session": true,
+      "guards": [
+        {
+          "line": 21,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina/rodizio.ts",
+      "route": "/api/valentina/rodizio",
+      "method": "POST",
+      "line": 75,
+      "session": true,
+      "guards": [
+        {
+          "line": 76,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 80,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "80: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/sdr.ts",
+      "route": "/api/valentina/sdr",
+      "method": "GET",
+      "line": 107,
+      "session": true,
+      "guards": [
+        {
+          "line": 108,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "sessionsByConvId.get",
+        "sessions.push",
+        "sessionsByConvId.set",
+        "sessions.sort"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina/sdr.ts",
+      "route": "/api/valentina/sdr",
+      "method": "POST",
+      "line": 624,
+      "session": true,
+      "guards": [
+        {
+          "line": 625,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 682,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "clearSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "682: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/site-channel.ts",
+      "route": "/api/valentina/site-channel",
+      "method": "GET",
+      "line": 51,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "authenticate"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "24: if (auth.session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/site-channel.ts",
+      "route": "/api/valentina/site-channel",
+      "method": "POST",
+      "line": 65,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "authenticate"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "24: if (auth.session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/supervisor.ts",
+      "route": "/api/valentina/supervisor",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 23,
+          "text": "if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "23: if (session.operator.role !== \"admin\" && session.operator.role !== \"supervisor\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/triage-history.ts",
+      "route": "/api/valentina/triage-history",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "historyQueryScope"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/valentina/triage-review.ts",
+      "route": "/api/valentina/triage-review",
+      "method": "GET",
+      "line": 73,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "24: role: session.operator.role,",
+        "26: canView: permissions?.views?.chat === true || permissions?.valentina?.canAccessSdr === true,",
+        "28: permissions?.chat?.canViewAllChats === true ||",
+        "29: permissions?.valentina?.canAccessSdr === true,",
+        "30: canEditClientInfo: permissions?.chat?.canEditClientInfo === true,",
+        "31: canSendInternalNotes: permissions?.chat?.canSendInternalNotes === true,",
+        "32: canOverrideChat: permissions?.chat?.canOverrideChat === true,",
+        "35: if (actor.role !== \"admin\" && !actor.permissions.canView)"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina/triage-review.ts",
+      "route": "/api/valentina/triage-review",
+      "method": "POST",
+      "line": 74,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "24: role: session.operator.role,",
+        "26: canView: permissions?.views?.chat === true || permissions?.valentina?.canAccessSdr === true,",
+        "28: permissions?.chat?.canViewAllChats === true ||",
+        "29: permissions?.valentina?.canAccessSdr === true,",
+        "30: canEditClientInfo: permissions?.chat?.canEditClientInfo === true,",
+        "31: canSendInternalNotes: permissions?.chat?.canSendInternalNotes === true,",
+        "32: canOverrideChat: permissions?.chat?.canOverrideChat === true,",
+        "35: if (actor.role !== \"admin\" && !actor.permissions.canView)"
+      ]
+    },
+    {
+      "file": "src/routes/api/webhooks/meta.ts",
+      "route": "/api/webhooks/meta",
+      "method": "GET",
+      "line": 19,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Pública: token de verificação (GET) / assinatura (POST)",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/webhooks/meta.ts",
+      "route": "/api/webhooks/meta",
+      "method": "POST",
+      "line": 71,
+      "session": false,
+      "guards": [
+        {
+          "line": 77,
+          "text": "return new Response(JSON.stringify({ error: \"Unauthorized: Missing x-hub-signature-256 header\" }), {"
+        },
+        {
+          "line": 191,
+          "text": "JSON.stringify({ error: \"Unauthorized: metaAppSecret não configurado para este tenant\" }),"
+        },
+        {
+          "line": 211,
+          "text": "return new Response(JSON.stringify({ error: \"Unauthorized: Assinatura inválida\" }), {"
+        }
+      ],
+      "calls": [],
+      "authentication": "Pública: token de verificação (GET) / assinatura (POST)",
+      "authorizationSignals": [
+        "77: return new Response(JSON.stringify({ error: \"Unauthorized: Missing x-hub-signature-256 header\" }), {",
+        "191: JSON.stringify({ error: \"Unauthorized: metaAppSecret não configurado para este tenant\" }),",
+        "211: return new Response(JSON.stringify({ error: \"Unauthorized: Assinatura inválida\" }), {"
+      ]
+    },
+    {
+      "file": "src/routes/api/whatsapp/meta-state.ts",
+      "route": "/api/whatsapp/meta-state",
+      "method": "GET",
+      "line": 13,
+      "session": true,
+      "guards": [
+        {
+          "line": 14,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/whatsapp/meta-templates.ts",
+      "route": "/api/whatsapp/meta-templates",
+      "method": "GET",
+      "line": 30,
+      "session": false,
+      "guards": [
+        {
+          "line": 31,
+          "text": "const auth = await authorize(request);"
+        }
+      ],
+      "calls": [
+        "authorize"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "31: const auth = await authorize(request);",
+        "19: const denied = requirePermission(auth.session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+      ]
+    },
+    {
+      "file": "src/routes/api/whatsapp/meta-templates.ts",
+      "route": "/api/whatsapp/meta-templates",
+      "method": "POST",
+      "line": 39,
+      "session": false,
+      "guards": [
+        {
+          "line": 40,
+          "text": "const auth = await authorize(request);"
+        }
+      ],
+      "calls": [
+        "authorize"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "40: const auth = await authorize(request);",
+        "19: const denied = requirePermission(auth.session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+      ]
+    },
+    {
+      "file": "src/routes/api/whatsapp/meta-templates.ts",
+      "route": "/api/whatsapp/meta-templates",
+      "method": "PUT",
+      "line": 75,
+      "session": false,
+      "guards": [
+        {
+          "line": 76,
+          "text": "const auth = await authorize(request);"
+        }
+      ],
+      "calls": [
+        "authorize"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "76: const auth = await authorize(request);",
+        "19: const denied = requirePermission(auth.session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+      ]
+    },
+    {
+      "file": "src/routes/api/whatsapp/meta-templates.ts",
+      "route": "/api/whatsapp/meta-templates",
+      "method": "PATCH",
+      "line": 84,
+      "session": false,
+      "guards": [
+        {
+          "line": 85,
+          "text": "const auth = await authorize(request);"
+        }
+      ],
+      "calls": [
+        "authorize"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "85: const auth = await authorize(request);",
+        "19: const denied = requirePermission(auth.session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+      ]
+    },
+    {
+      "file": "src/routes/api/whatsapp/meta-templates.ts",
+      "route": "/api/whatsapp/meta-templates",
+      "method": "DELETE",
+      "line": 100,
+      "session": false,
+      "guards": [
+        {
+          "line": 101,
+          "text": "const auth = await authorize(request);"
+        }
+      ],
+      "calls": [
+        "authorize"
+      ],
+      "authentication": "Sessão em helper local",
+      "authorizationSignals": [
+        "101: const auth = await authorize(request);",
+        "19: const denied = requirePermission(auth.session, (permissions) => permissions.security?.canManageGlobalTemplates === true);"
+      ]
+    },
+    {
+      "file": "src/routes/api/whatsapp/presence.ts",
+      "route": "/api/whatsapp/presence",
+      "method": "POST",
+      "line": 31,
+      "session": true,
+      "guards": [
+        {
+          "line": 33,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "SessionManager.getInstance"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/whatsapp/react.ts",
+      "route": "/api/whatsapp/react",
+      "method": "POST",
+      "line": 19,
+      "session": true,
+      "guards": [
+        {
+          "line": 21,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/whatsapp/send.ts",
+      "route": "/api/whatsapp/send",
+      "method": "POST",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 25,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 162,
+          "text": "if (isInternalNote && session.operator.role !== \"admin\" && session.permissions.chat.canSendInternalNotes !== true) {"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "clearSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "162: if (isInternalNote && session.operator.role !== \"admin\" && session.permissions.chat.canSendInternalNotes !== true) {"
+      ]
+    },
+    {
+      "file": "src/routes/api/chats/$chatId/messages.ts",
+      "route": "/api/chats/$chatId/messages",
+      "method": "GET",
+      "line": 13,
+      "session": true,
+      "guards": [
+        {
+          "line": 15,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/chats/$conversationId/deals.ts",
+      "route": "/api/chats/$conversationId/deals",
+      "method": "GET",
+      "line": 26,
+      "session": true,
+      "guards": [
+        {
+          "line": 28,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 51,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: \"Permissão insuficiente.\" }, { status: 403 });"
+        },
+        {
+          "line": 54,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getConversationDeals"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "51: if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: \"Permissão insuficiente.\" }, { status: 403 });",
+        "54: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/chats/$conversationId/deals.ts",
+      "route": "/api/chats/$conversationId/deals",
+      "method": "POST",
+      "line": 109,
+      "session": true,
+      "guards": [
+        {
+          "line": 111,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 136,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "line": 152,
+          "text": "const permError = requireCrmPermission(session, \"canCreateDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.linkConversationDeal",
+        "crmService.createDeal"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "136: const permError = requireCrmPermission(session, \"canEditDeals\");",
+        "152: const permError = requireCrmPermission(session, \"canCreateDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/chats/$conversationId/deals.ts",
+      "route": "/api/chats/$conversationId/deals",
+      "method": "DELETE",
+      "line": 195,
+      "session": true,
+      "guards": [
+        {
+          "line": 197,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 202,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.unlinkConversationDeal"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "202: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/directives/point.ts",
+      "route": "/api/commercial/directives/point",
+      "method": "POST",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 28,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "28: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/contacts/$contactId/account-history.ts",
+      "route": "/api/contacts/$contactId/account-history",
+      "method": "GET",
+      "line": 20,
+      "session": true,
+      "guards": [
+        {
+          "line": 22,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "crmService.getContactAccountHistory"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/contacts/$contactId/conversations.ts",
+      "route": "/api/contacts/$contactId/conversations",
+      "method": "POST",
+      "line": 20,
+      "session": true,
+      "guards": [
+        {
+          "line": 21,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 25,
+          "text": "if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {"
+        },
+        {
+          "line": 41,
+          "text": "const canCapture = session.operator.role === \"admin\" || session.permissions?.chat?.canCaptureChat !== false;"
+        },
+        {
+          "line": 55,
+          "text": "session.operator.role !== \"admin\" &&"
+        },
+        {
+          "line": 56,
+          "text": "session.permissions?.contacts?.contactScope === \"wallet_only\" &&"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "contactDealPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "25: if (session.operator.role !== \"admin\" && !session.permissions?.views?.chat) {",
+        "41: const canCapture = session.operator.role === \"admin\" || session.permissions?.chat?.canCaptureChat !== false;",
+        "55: session.operator.role !== \"admin\" &&",
+        "56: session.permissions?.contacts?.contactScope === \"wallet_only\" &&"
+      ]
+    },
+    {
+      "file": "src/routes/api/contacts/$contactId/rd-deal.ts",
+      "route": "/api/contacts/$contactId/rd-deal",
+      "method": "GET",
+      "line": 33,
+      "session": true,
+      "guards": [
+        {
+          "line": 35,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/contacts/$contactId/rd-deal.ts",
+      "route": "/api/contacts/$contactId/rd-deal",
+      "method": "POST",
+      "line": 211,
+      "session": true,
+      "guards": [
+        {
+          "line": 213,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/contacts/$contactId/rd-deal.ts",
+      "route": "/api/contacts/$contactId/rd-deal",
+      "method": "PATCH",
+      "line": 299,
+      "session": true,
+      "guards": [
+        {
+          "line": 301,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/contacts/$contactId/rd-deal.ts",
+      "route": "/api/contacts/$contactId/rd-deal",
+      "method": "DELETE",
+      "line": 375,
+      "session": true,
+      "guards": [
+        {
+          "line": 377,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/crm/accounts/$accountId.ts",
+      "route": "/api/crm/accounts/$accountId",
+      "method": "GET",
+      "line": 26,
+      "session": true,
+      "guards": [
+        {
+          "line": 28,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 34,
+          "text": "session.permissions?.views?.contacts ||"
+        },
+        {
+          "line": 35,
+          "text": "session.permissions?.chat?.canEditClientInfo"
+        },
+        {
+          "line": 38,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getAccountById"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "34: session.permissions?.views?.contacts ||",
+        "35: session.permissions?.chat?.canEditClientInfo",
+        "38: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/accounts/$accountId.ts",
+      "route": "/api/crm/accounts/$accountId",
+      "method": "PATCH",
+      "line": 58,
+      "session": true,
+      "guards": [
+        {
+          "line": 60,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 66,
+          "text": "session.permissions?.contacts?.canEditContact ||"
+        },
+        {
+          "line": 67,
+          "text": "session.permissions?.chat?.canEditClientInfo"
+        },
+        {
+          "line": 70,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.updateAccount"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "66: session.permissions?.contacts?.canEditContact ||",
+        "67: session.permissions?.chat?.canEditClientInfo",
+        "70: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/accounts/$accountId.ts",
+      "route": "/api/crm/accounts/$accountId",
+      "method": "DELETE",
+      "line": 109,
+      "session": true,
+      "guards": [
+        {
+          "line": 111,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 116,
+          "text": "const canDeleteViaContacts = Boolean(session.permissions?.contacts?.canDeleteContact || session.permissions?.contacts?.canEditContact);"
+        },
+        {
+          "line": 118,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.archiveAccount"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "116: const canDeleteViaContacts = Boolean(session.permissions?.contacts?.canDeleteContact || session.permissions?.contacts?.canEditContact);",
+        "118: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/catalogs/$itemId.ts",
+      "route": "/api/crm/catalogs/$itemId",
+      "method": "PATCH",
+      "line": 12,
+      "session": true,
+      "guards": [
+        {
+          "line": 13,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 16,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "16: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/catalogs/$itemId.ts",
+      "route": "/api/crm/catalogs/$itemId",
+      "method": "DELETE",
+      "line": 134,
+      "session": true,
+      "guards": [
+        {
+          "line": 135,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 138,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "138: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/custom-fields/$fieldId.ts",
+      "route": "/api/crm/custom-fields/$fieldId",
+      "method": "PATCH",
+      "line": 12,
+      "session": true,
+      "guards": [
+        {
+          "line": 13,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 16,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "16: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId.ts",
+      "route": "/api/crm/deals/$dealId",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 44,
+          "text": "session.operator.role !== \"admin\" &&"
+        },
+        {
+          "line": 45,
+          "text": "!session.permissions?.crm?.canViewAllDeals &&"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealById"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "29: const permError = requireCrmPermission(session, \"canViewCrm\");",
+        "44: session.operator.role !== \"admin\" &&",
+        "45: !session.permissions?.crm?.canViewAllDeals &&"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId.ts",
+      "route": "/api/crm/deals/$dealId",
+      "method": "PATCH",
+      "line": 72,
+      "session": true,
+      "guards": [
+        {
+          "line": 74,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 84,
+          "text": "const stagePerm = requireCrmPermission(session, \"canMoveStages\");"
+        },
+        {
+          "line": 88,
+          "text": "const closePerm = requireCrmPermission(session, \"canCloseDeals\");"
+        },
+        {
+          "line": 104,
+          "text": "const editPerm = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.updateDeal"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "84: const stagePerm = requireCrmPermission(session, \"canMoveStages\");",
+        "88: const closePerm = requireCrmPermission(session, \"canCloseDeals\");",
+        "104: const editPerm = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/bulk.ts",
+      "route": "/api/crm/deals/bulk",
+      "method": "POST",
+      "line": 24,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 34,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 78,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.exportDealsRD",
+        "crmService.bulkUpdateDeals"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "34: const permError = requireCrmPermission(session, \"canViewCrm\");",
+        "78: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/import/rd-crm.ts",
+      "route": "/api/crm/import/rd-crm",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/crm/import/rd-crm.ts",
+      "route": "/api/crm/import/rd-crm",
+      "method": "POST",
+      "line": 65,
+      "session": true,
+      "guards": [
+        {
+          "line": 67,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 72,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "72: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/import/rd-crm.ts",
+      "route": "/api/crm/import/rd-crm",
+      "method": "PATCH",
+      "line": 126,
+      "session": true,
+      "guards": [
+        {
+          "line": 128,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 133,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "133: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/import/sync-status.ts",
+      "route": "/api/crm/import/sync-status",
+      "method": "GET",
+      "line": 26,
+      "session": true,
+      "guards": [
+        {
+          "line": 32,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/crm/import/sync-status.ts",
+      "route": "/api/crm/import/sync-status",
+      "method": "POST",
+      "line": 93,
+      "session": true,
+      "guards": [
+        {
+          "line": 97,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 99,
+          "text": "if (auth.session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "99: if (auth.session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/pipelines/$pipelineId.ts",
+      "route": "/api/crm/pipelines/$pipelineId",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getPipelineById"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "29: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/pipelines/$pipelineId.ts",
+      "route": "/api/crm/pipelines/$pipelineId",
+      "method": "PATCH",
+      "line": 49,
+      "session": true,
+      "guards": [
+        {
+          "line": 51,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 56,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.updatePipeline"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "56: const permError = requireCrmPermission(session, \"canManagePipelines\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/pipelines/$pipelineId.ts",
+      "route": "/api/crm/pipelines/$pipelineId",
+      "method": "DELETE",
+      "line": 84,
+      "session": true,
+      "guards": [
+        {
+          "line": 86,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 91,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getPipelineById",
+        "crmService.deletePipeline"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "91: const permError = requireCrmPermission(session, \"canManagePipelines\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/products/$productId.ts",
+      "route": "/api/crm/products/$productId",
+      "method": "PATCH",
+      "line": 9,
+      "session": true,
+      "guards": [
+        {
+          "line": 11,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 14,
+          "text": "const permission = requireCrmPermission(session, \"canManageProducts\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.updateProduct"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "14: const permission = requireCrmPermission(session, \"canManageProducts\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/stages/$stageId.ts",
+      "route": "/api/crm/stages/$stageId",
+      "method": "PATCH",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 25,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 30,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.updateStage"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "30: const permError = requireCrmPermission(session, \"canManagePipelines\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/stages/$stageId.ts",
+      "route": "/api/crm/stages/$stageId",
+      "method": "DELETE",
+      "line": 58,
+      "session": true,
+      "guards": [
+        {
+          "line": 60,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 65,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.deleteStage"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "65: const permError = requireCrmPermission(session, \"canManagePipelines\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/livechat/visitor/$visitorId.ts",
+      "route": "/api/livechat/visitor/$visitorId",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/settings/rd-crm/callback.ts",
+      "route": "/api/settings/rd-crm/callback",
+      "method": "GET",
+      "line": 16,
+      "session": false,
+      "guards": [],
+      "calls": [
+        "verifySignedOAuthState"
+      ],
+      "authentication": "Pública: estado OAuth assinado",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/settings/rd-crm/fields.ts",
+      "route": "/api/settings/rd-crm/fields",
+      "method": "GET",
+      "line": 16,
+      "session": true,
+      "guards": [
+        {
+          "line": 18,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 22,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "22: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/rd-marketing/callback.ts",
+      "route": "/api/settings/rd-marketing/callback",
+      "method": "GET",
+      "line": 8,
+      "session": true,
+      "guards": [
+        {
+          "line": 10,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 16,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "finishRdAuthorization"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "16: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/rd-marketing/connection.ts",
+      "route": "/api/settings/rd-marketing/connection",
+      "method": "GET",
+      "line": 17,
+      "session": true,
+      "guards": [
+        {
+          "line": 18,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 22,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "22: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/rd-marketing/connection.ts",
+      "route": "/api/settings/rd-marketing/connection",
+      "method": "POST",
+      "line": 35,
+      "session": true,
+      "guards": [
+        {
+          "line": 36,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 40,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "beginRdAuthorization"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "40: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/rd-marketing/diagnostics.ts",
+      "route": "/api/settings/rd-marketing/diagnostics",
+      "method": "GET",
+      "line": 9,
+      "session": true,
+      "guards": [
+        {
+          "line": 10,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 14,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "14: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/rd-marketing/sync.ts",
+      "route": "/api/settings/rd-marketing/sync",
+      "method": "GET",
+      "line": 18,
+      "session": true,
+      "guards": [
+        {
+          "line": 19,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 23,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "23: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/rd-marketing/sync.ts",
+      "route": "/api/settings/rd-marketing/sync",
+      "method": "POST",
+      "line": 36,
+      "session": true,
+      "guards": [
+        {
+          "line": 37,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 41,
+          "text": "if (session.operator.role !== \"admin\")"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "41: if (session.operator.role !== \"admin\")"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/whatsapp/actions.ts",
+      "route": "/api/settings/whatsapp/actions",
+      "method": "POST",
+      "line": 15,
+      "session": true,
+      "guards": [
+        {
+          "line": 17,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 21,
+          "text": "const permDenied = requirePermission(session, () => session.operator.role === \"admin\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requirePermission",
+        "SessionManager.getInstance",
+        "initSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "21: const permDenied = requirePermission(session, () => session.operator.role === \"admin\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/whatsapp/test-send.ts",
+      "route": "/api/settings/whatsapp/test-send",
+      "method": "POST",
+      "line": 11,
+      "session": true,
+      "guards": [
+        {
+          "line": 12,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 15,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "15: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/settings/whatsapp/usage.ts",
+      "route": "/api/settings/whatsapp/usage",
+      "method": "GET",
+      "line": 10,
+      "session": true,
+      "guards": [
+        {
+          "line": 11,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 14,
+          "text": "if (session.operator.role !== \"admin\") {"
+        }
+      ],
+      "calls": [
+        "requireSession"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "14: if (session.operator.role !== \"admin\") {"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina-voice/chat/completions.ts",
+      "route": "/api/valentina-voice/chat/completions",
+      "method": "POST",
+      "line": 209,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/webhooks/rd-marketing/$token.ts",
+      "route": "/api/webhooks/rd-marketing/$token",
+      "method": "GET",
+      "line": 14,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Pública: token de endpoint",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/webhooks/rd-marketing/$token.ts",
+      "route": "/api/webhooks/rd-marketing/$token",
+      "method": "POST",
+      "line": 39,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Pública: token de endpoint",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/commercial/directives/$directiveId/evidence.ts",
+      "route": "/api/commercial/directives/$directiveId/evidence",
+      "method": "GET",
+      "line": 29,
+      "session": true,
+      "guards": [
+        {
+          "line": 30,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 34,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 59,
+          "text": "session.operator.role !== \"admin\" &&"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "34: const permError = requireCrmPermission(session, \"canViewCrm\");",
+        "59: session.operator.role !== \"admin\" &&"
+      ]
+    },
+    {
+      "file": "src/routes/api/commercial/directives/$directiveId/evidence.ts",
+      "route": "/api/commercial/directives/$directiveId/evidence",
+      "method": "POST",
+      "line": 319,
+      "session": true,
+      "guards": [
+        {
+          "line": 320,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 324,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        },
+        {
+          "line": 408,
+          "text": "session.operator.role !== \"admin\" &&"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "324: const permError = requireCrmPermission(session, \"canEditDeals\");",
+        "408: session.operator.role !== \"admin\" &&"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/accounts/$accountId/conversations.ts",
+      "route": "/api/crm/accounts/$accountId/conversations",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 28,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getAccountConversations"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "28: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/accounts/$accountId/conversations.ts",
+      "route": "/api/crm/accounts/$accountId/conversations",
+      "method": "POST",
+      "line": 47,
+      "session": true,
+      "guards": [
+        {
+          "line": 49,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 54,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.linkAccountConversation"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "54: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/accounts/$accountId/conversations.ts",
+      "route": "/api/crm/accounts/$accountId/conversations",
+      "method": "DELETE",
+      "line": 90,
+      "session": true,
+      "guards": [
+        {
+          "line": 92,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 97,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.unlinkAccountConversation"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "97: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/activities.ts",
+      "route": "/api/crm/deals/$dealId/activities",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 28,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealActivities"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "28: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/activities.ts",
+      "route": "/api/crm/deals/$dealId/activities",
+      "method": "POST",
+      "line": 59,
+      "session": true,
+      "guards": [
+        {
+          "line": 61,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 66,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.createDealActivity"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "66: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/ai-priority.ts",
+      "route": "/api/crm/deals/$dealId/ai-priority",
+      "method": "POST",
+      "line": 24,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 31,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.calculateDealAiPriority"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "31: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/contacts.ts",
+      "route": "/api/crm/deals/$dealId/contacts",
+      "method": "GET",
+      "line": 21,
+      "session": true,
+      "guards": [
+        {
+          "line": 23,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 28,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealContacts"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "28: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/contacts.ts",
+      "route": "/api/crm/deals/$dealId/contacts",
+      "method": "POST",
+      "line": 47,
+      "session": true,
+      "guards": [
+        {
+          "line": 49,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 54,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.addDealContact"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "54: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/contacts.ts",
+      "route": "/api/crm/deals/$dealId/contacts",
+      "method": "PATCH",
+      "line": 91,
+      "session": true,
+      "guards": [
+        {
+          "line": 93,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 98,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.addDealContact",
+        "crmService.setPrimaryDealContact",
+        "crmService.getDealContacts"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "98: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/contacts.ts",
+      "route": "/api/crm/deals/$dealId/contacts",
+      "method": "DELETE",
+      "line": 146,
+      "session": true,
+      "guards": [
+        {
+          "line": 148,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 153,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.removeDealContact"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "153: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+      "route": "/api/crm/deals/$dealId/conversations",
+      "method": "GET",
+      "line": 28,
+      "session": true,
+      "guards": [
+        {
+          "line": 30,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 35,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 55,
+          "text": "session.operator.role !== \"admin\" &&"
+        },
+        {
+          "line": 56,
+          "text": "!session.permissions?.crm?.canViewAllDeals &&"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "35: const permError = requireCrmPermission(session, \"canViewCrm\");",
+        "55: session.operator.role !== \"admin\" &&",
+        "56: !session.permissions?.crm?.canViewAllDeals &&"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+      "route": "/api/crm/deals/$dealId/conversations",
+      "method": "POST",
+      "line": 132,
+      "session": true,
+      "guards": [
+        {
+          "line": 134,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 148,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 170,
+          "text": "session.operator.role !== \"admin\" &&"
+        },
+        {
+          "line": 171,
+          "text": "!session.permissions?.crm?.canViewAllDeals &&"
+        },
+        {
+          "line": 184,
+          "text": "const autoCapture = body.autoCapture === true && (session.operator.role === \"admin\" || session.permissions?.chat?.canCaptureChat === true);"
+        },
+        {
+          "line": 286,
+          "text": "if (session.operator.role !== \"admin\" && (!session.permissions?.contacts?.canCreateContact || !session.permissions?.crm?.canEditDeals)) throw Object.assign(new Error(\"Permissão insuficiente para criar e vincular um contato.\"), { statusCode: 403, code: \"FORBIDDEN\" });"
+        },
+        {
+          "line": 471,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.linkConversationDeal"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "148: const permError = requireCrmPermission(session, \"canViewCrm\");",
+        "170: session.operator.role !== \"admin\" &&",
+        "171: !session.permissions?.crm?.canViewAllDeals &&",
+        "184: const autoCapture = body.autoCapture === true && (session.operator.role === \"admin\" || session.permissions?.chat?.canCaptureChat === true);",
+        "286: if (session.operator.role !== \"admin\" && (!session.permissions?.contacts?.canCreateContact || !session.permissions?.crm?.canEditDeals)) throw Object.assign(new Error(\"Permissão insuficiente para criar e vincular um contato.\"), { statusCode: 403, code: \"FORBIDDEN\" });",
+        "471: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/conversations.ts",
+      "route": "/api/crm/deals/$dealId/conversations",
+      "method": "DELETE",
+      "line": 505,
+      "session": true,
+      "guards": [
+        {
+          "line": 507,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 512,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.unlinkConversationDeal"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "512: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/emails.ts",
+      "route": "/api/crm/deals/$dealId/emails",
+      "method": "GET",
+      "line": 24,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 31,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealEmails",
+        "crmService.getDealContacts"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "31: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/emails.ts",
+      "route": "/api/crm/deals/$dealId/emails",
+      "method": "POST",
+      "line": 81,
+      "session": true,
+      "guards": [
+        {
+          "line": 83,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 88,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.logDealEmail"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "88: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+      "route": "/api/crm/deals/$dealId/evidence",
+      "method": "GET",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealEvidenceMessages"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "29: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+      "route": "/api/crm/deals/$dealId/evidence",
+      "method": "POST",
+      "line": 49,
+      "session": true,
+      "guards": [
+        {
+          "line": 51,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 56,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.markMessageAsEvidence"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "56: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/evidence.ts",
+      "route": "/api/crm/deals/$dealId/evidence",
+      "method": "DELETE",
+      "line": 93,
+      "session": true,
+      "guards": [
+        {
+          "line": 95,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 100,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.unmarkMessageEvidence"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "100: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/files.ts",
+      "route": "/api/crm/deals/$dealId/files",
+      "method": "GET",
+      "line": 62,
+      "session": true,
+      "guards": [
+        {
+          "line": 64,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 69,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealFileById",
+        "crmService.getDealFiles"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "69: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/files.ts",
+      "route": "/api/crm/deals/$dealId/files",
+      "method": "POST",
+      "line": 124,
+      "session": true,
+      "guards": [
+        {
+          "line": 126,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 131,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.uploadDealFile"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "131: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/files.ts",
+      "route": "/api/crm/deals/$dealId/files",
+      "method": "DELETE",
+      "line": 278,
+      "session": true,
+      "guards": [
+        {
+          "line": 280,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 285,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.deleteDealFile"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "285: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/products.ts",
+      "route": "/api/crm/deals/$dealId/products",
+      "method": "GET",
+      "line": 26,
+      "session": true,
+      "guards": [
+        {
+          "line": 28,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 33,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealProducts"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "33: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/products.ts",
+      "route": "/api/crm/deals/$dealId/products",
+      "method": "POST",
+      "line": 71,
+      "session": true,
+      "guards": [
+        {
+          "line": 73,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 78,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.addDealProduct"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "78: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/products.ts",
+      "route": "/api/crm/deals/$dealId/products",
+      "method": "DELETE",
+      "line": 173,
+      "session": true,
+      "guards": [
+        {
+          "line": 175,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 180,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.removeDealProduct"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "180: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/proposals.ts",
+      "route": "/api/crm/deals/$dealId/proposals",
+      "method": "GET",
+      "line": 33,
+      "session": true,
+      "guards": [
+        {
+          "line": 35,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 40,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getProposals"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "40: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/proposals.ts",
+      "route": "/api/crm/deals/$dealId/proposals",
+      "method": "POST",
+      "line": 75,
+      "session": true,
+      "guards": [
+        {
+          "line": 77,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 82,
+          "text": "const permError = requireCrmPermission(session, \"canManageProposals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.createProposal"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "82: const permError = requireCrmPermission(session, \"canManageProposals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/proposals.ts",
+      "route": "/api/crm/deals/$dealId/proposals",
+      "method": "PATCH",
+      "line": 124,
+      "session": true,
+      "guards": [
+        {
+          "line": 126,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 131,
+          "text": "const permError = requireCrmPermission(session, \"canManageProposals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.updateProposalStatus"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "131: const permError = requireCrmPermission(session, \"canManageProposals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/questionnaires.ts",
+      "route": "/api/crm/deals/$dealId/questionnaires",
+      "method": "GET",
+      "line": 24,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 31,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealQuestionnaires"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "31: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/questionnaires.ts",
+      "route": "/api/crm/deals/$dealId/questionnaires",
+      "method": "POST",
+      "line": 64,
+      "session": true,
+      "guards": [
+        {
+          "line": 66,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 71,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.saveDealQuestionnaire"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "71: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/rd-marketing.ts",
+      "route": "/api/crm/deals/$dealId/rd-marketing",
+      "method": "GET",
+      "line": 11,
+      "session": true,
+      "guards": [
+        {
+          "line": 12,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 16,
+          "text": "const denied = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 29,
+          "text": "session.operator.role === \"admin\" || !!session.permissions?.crm?.canViewAllDeals,"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "16: const denied = requireCrmPermission(session, \"canViewCrm\");",
+        "29: session.operator.role === \"admin\" || !!session.permissions?.crm?.canViewAllDeals,"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/pipelines/$pipelineId/stages-summary.ts",
+      "route": "/api/crm/pipelines/$pipelineId/stages-summary",
+      "method": "GET",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 25,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 30,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        },
+        {
+          "line": 58,
+          "text": "session.operator.role !== \"admin\" &&"
+        },
+        {
+          "line": 59,
+          "text": "!session.permissions?.crm?.canViewAllDeals"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getPipelineStagesSummary"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "30: const permError = requireCrmPermission(session, \"canViewCrm\");",
+        "58: session.operator.role !== \"admin\" &&",
+        "59: !session.permissions?.crm?.canViewAllDeals"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/pipelines/$pipelineId/stages.ts",
+      "route": "/api/crm/pipelines/$pipelineId/stages",
+      "method": "POST",
+      "line": 22,
+      "session": true,
+      "guards": [
+        {
+          "line": 24,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 29,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.createStage"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "29: const permError = requireCrmPermission(session, \"canManagePipelines\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/pipelines/$pipelineId/stages.ts",
+      "route": "/api/crm/pipelines/$pipelineId/stages",
+      "method": "PATCH",
+      "line": 65,
+      "session": true,
+      "guards": [
+        {
+          "line": 67,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 72,
+          "text": "const permError = requireCrmPermission(session, \"canManagePipelines\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.reorderStages"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "72: const permError = requireCrmPermission(session, \"canManagePipelines\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/valentina-voice/v1/chat/completions.ts",
+      "route": "/api/valentina-voice/v1/chat/completions",
+      "method": "POST",
+      "line": 75,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Sem sessão de operador identificada; revisar contrato",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/webhooks/rd-marketing/journey/$token.ts",
+      "route": "/api/webhooks/rd-marketing/journey/$token",
+      "method": "GET",
+      "line": 12,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Pública: token de endpoint",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/webhooks/rd-marketing/journey/$token.ts",
+      "route": "/api/webhooks/rd-marketing/journey/$token",
+      "method": "POST",
+      "line": 23,
+      "session": false,
+      "guards": [],
+      "calls": [],
+      "authentication": "Pública: token de endpoint",
+      "authorizationSignals": []
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/activities/$activityId.ts",
+      "route": "/api/crm/deals/$dealId/activities/$activityId",
+      "method": "PATCH",
+      "line": 23,
+      "session": true,
+      "guards": [
+        {
+          "line": 25,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 30,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.updateDealActivity"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "30: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/activities/$activityId.ts",
+      "route": "/api/crm/deals/$dealId/activities/$activityId",
+      "method": "DELETE",
+      "line": 66,
+      "session": true,
+      "guards": [
+        {
+          "line": 68,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 73,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.deleteDealActivity"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "73: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/emails/send.ts",
+      "route": "/api/crm/deals/$dealId/emails/send",
+      "method": "POST",
+      "line": 27,
+      "session": true,
+      "guards": [
+        {
+          "line": 28,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 32,
+          "text": "const permissionError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.logDealEmail"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "32: const permissionError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/files/$fileId.ts",
+      "route": "/api/crm/deals/$dealId/files/$fileId",
+      "method": "GET",
+      "line": 24,
+      "session": true,
+      "guards": [
+        {
+          "line": 26,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 31,
+          "text": "const permError = requireCrmPermission(session, \"canViewCrm\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.getDealFileById"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "31: const permError = requireCrmPermission(session, \"canViewCrm\");"
+      ]
+    },
+    {
+      "file": "src/routes/api/crm/deals/$dealId/files/$fileId.ts",
+      "route": "/api/crm/deals/$dealId/files/$fileId",
+      "method": "DELETE",
+      "line": 84,
+      "session": true,
+      "guards": [
+        {
+          "line": 86,
+          "text": "const auth = await requireSession(request);"
+        },
+        {
+          "line": 91,
+          "text": "const permError = requireCrmPermission(session, \"canEditDeals\");"
+        }
+      ],
+      "calls": [
+        "requireSession",
+        "requireCrmPermission",
+        "crmService.deleteDealFile"
+      ],
+      "authentication": "Sessão no handler",
+      "authorizationSignals": [
+        "91: const permError = requireCrmPermission(session, \"canEditDeals\");"
+      ]
+    }
+  ]
+}

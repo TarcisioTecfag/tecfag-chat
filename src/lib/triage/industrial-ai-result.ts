@@ -16,6 +16,42 @@ const fieldNames = new Set([
   "MODELO DA MÁQUINA",
   "NÚMERO DO PEDIDO",
 ]);
+const nullableTrimmedString = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (!v || v.toLowerCase() === "null" ? null : v));
+
+const directOperatorIntentSet = new Set([
+  "direct_transfer",
+  "past_reference_only",
+  "ambiguous_homonym",
+  "not_found",
+]);
+
+const directOperatorRequestSchema = z
+  .object({
+    intent: z
+      .string()
+      .trim()
+      .nullable()
+      .optional()
+      .transform((v) =>
+        v && directOperatorIntentSet.has(v)
+          ? (v as "direct_transfer" | "past_reference_only" | "ambiguous_homonym" | "not_found")
+          : null,
+      ),
+    citedName: nullableTrimmedString(160),
+    matchedOperatorId: nullableTrimmedString(160),
+    matchedOperatorName: nullableTrimmedString(160),
+  })
+  .nullable()
+  .optional()
+  .default(null);
+
 const schema = z.object({
   subflow: z
     .string()
@@ -38,6 +74,7 @@ const schema = z.object({
     .transform(() => null),
   quoteMessageId: z.string().max(250).nullable().optional(),
   mediaDescription: z.string().max(8000).nullable().optional(),
+  directOperatorRequest: directOperatorRequestSchema,
   isCompleted: z.boolean().default(false),
 });
 

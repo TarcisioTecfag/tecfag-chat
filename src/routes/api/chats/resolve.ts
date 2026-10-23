@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { contacts, conversations } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 
 export const Route = createFileRoute("/api/chats/resolve")({
   server: {
@@ -31,6 +32,7 @@ export const Route = createFileRoute("/api/chats/resolve")({
             ))
             .where(and(
               eq(conversations.tenantId, session.tenantId),
+              conversationReadCondition(session),
               eq(contacts.tenantId, session.tenantId),
               sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${key}`,
             )).limit(2);
@@ -44,7 +46,7 @@ export const Route = createFileRoute("/api/chats/resolve")({
         }
 
         const [found] = await db.select({ id: conversations.id }).from(conversations)
-          .where(and(eq(conversations.tenantId, session.tenantId), eq(conversations.id, key)))
+          .where(and(eq(conversations.tenantId, session.tenantId), eq(conversations.id, key), conversationReadCondition(session)))
           .limit(1);
         if (!found) return Response.json({ error: "Atendimento não encontrado." }, { status: 404 });
         return Response.json({ conversationId: found.id }, { headers: { "Cache-Control": "no-store" } });

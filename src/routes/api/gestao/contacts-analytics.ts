@@ -7,6 +7,7 @@ import {
 } from "../../../db/schema";
 import { eq, and, gte, lte, count } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,12 +26,16 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        if (session.permissions?.views?.analytics !== true || session.permissions?.analytics?.canAccessContacts !== true) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem acessar métricas de contatos.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para acessar métricas de contatos.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+        const readScope = conversationReadCondition(session);
+        const walletScope = session.permissions?.contacts?.contactScope === "wallet_only"
+          ? eq(contacts.walletOperatorId, session.operator.id)
+          : undefined;
 
         const url = new URL(request.url);
         const queryTenantId = url.searchParams.get("tenantId");
@@ -65,6 +70,7 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
                 .where(
                   and(
                     eq(contacts.tenantId, tenantId),
+                    walletScope,
                     gte(contacts.createdAt, w.start),
                     lte(contacts.createdAt, w.end)
                   )
@@ -77,6 +83,7 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
                 .where(
                   and(
                     eq(conversations.tenantId, tenantId),
+                    readScope,
                     gte(conversations.createdAt, w.start),
                     lte(conversations.createdAt, w.end)
                   )
@@ -104,6 +111,7 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
             .where(
               and(
                 eq(conversations.tenantId, tenantId),
+                readScope,
                 eq(conversations.queueState, "finalizados")
               )
             );
@@ -123,14 +131,14 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
             await db
               .select({ count: count() })
               .from(contacts)
-              .where(eq(contacts.tenantId, tenantId))
+              .where(and(eq(contacts.tenantId, tenantId), walletScope))
           )[0]?.count ?? 0;
 
           const totalConvsCount = (
             await db
               .select({ count: count() })
               .from(conversations)
-              .where(eq(conversations.tenantId, tenantId))
+              .where(and(eq(conversations.tenantId, tenantId), readScope))
           )[0]?.count ?? 0;
 
           const avgFrequency = Number(allContactsCount) > 0
@@ -141,7 +149,8 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
           const audits = await db
             .select({ clientSentiment: aiConversationAudits.clientSentiment })
             .from(aiConversationAudits)
-            .where(eq(aiConversationAudits.tenantId, tenantId));
+            .innerJoin(conversations, and(eq(conversations.id, aiConversationAudits.conversationId), eq(conversations.tenantId, tenantId)))
+            .where(and(eq(aiConversationAudits.tenantId, tenantId), readScope));
 
           const satisfiedCount = audits.filter((a) => a.clientSentiment === "satisfeito").length;
           const ragConversionPct = audits.length > 0

@@ -3,6 +3,7 @@ import { requireSession } from "../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../lib/crm/crm-service";
 import { recordCrmAction } from "../../../../lib/crm/action-history";
+import { conversationReadCondition } from "../../../../lib/access-control/conversation-access";
 import { db } from "../../../../db";
 import { crmAccounts } from "../../../../db/schema";
 import { and, eq } from "drizzle-orm";
@@ -40,7 +41,7 @@ export const Route = createFileRoute("/api/crm/accounts/$accountId")({
           }
 
           const { accountId } = params as any;
-          const result = await crmService.getAccountById(tenantId, accountId);
+          const result = await crmService.getAccountById(tenantId, accountId, conversationReadCondition(session));
 
           return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },

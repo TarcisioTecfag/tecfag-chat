@@ -6,8 +6,10 @@ import {
   aiConversationAudits,
   operatorDailyMetrics,
 } from "../../../db/schema";
-import { eq, and, isNull, isNotNull, avg, count, ne, gte, lte } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, avg, count, ne, gte, lte, exists, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
+import { conversationReadRules } from "../../../lib/access-control/conversation-policy";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,6 +28,23 @@ export const Route = createFileRoute("/api/gestao/my-metrics")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
+        const rules = conversationReadRules(session);
+        const views = session.permissions?.views;
+        const monitor = session.permissions?.monitor;
+        const analytics = session.permissions?.analytics;
+        const canInspectOthers =
+          !rules.ownOnly &&
+          rules.others &&
+          ((views?.monitor === true && monitor?.canAccessRanking === true) ||
+            (views?.analytics === true && analytics?.canAccessOverview === true));
+
+        if (!rules.enabled && !canInspectOthers) {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente para consultar métricas de atendimento.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         const url = new URL(request.url);
         const queryTenantId = url.searchParams.get("tenantId");
         if (queryTenantId && queryTenantId !== tenantId) {
@@ -36,10 +55,14 @@ export const Route = createFileRoute("/api/gestao/my-metrics")({
         }
 
         const requestedOperatorId = url.searchParams.get("operatorId");
-        // Operadores comuns só podem ver suas próprias métricas; admins e supervisores podem ver de outros
-        const operatorId = (session.operator.role === "admin" || session.operator.role === "supervisor")
-          ? (requestedOperatorId || session.operator.id)
-          : session.operator.id;
+        if (requestedOperatorId && requestedOperatorId !== session.operator.id && !canInspectOthers) {
+          return new Response(
+            JSON.stringify({ error: "Permissão insuficiente para consultar métricas de outro operador.", code: "FORBIDDEN" }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const operatorId = requestedOperatorId || session.operator.id;
+        const scopeCond = conversationReadCondition(session);
 
         const today = new Date().toISOString().split("T")[0];
         const todayStart = new Date(today + "T00:00:00.000Z");
@@ -55,6 +78,7 @@ export const Route = createFileRoute("/api/gestao/my-metrics")({
               .where(
                 and(
                   eq(conversations.tenantId, tenantId),
+                  scopeCond,
                   eq(conversations.operatorId, operatorId),
                   ne(conversations.queueState, "finalizados")
                 )
@@ -74,6 +98,7 @@ export const Route = createFileRoute("/api/gestao/my-metrics")({
               .where(
                 and(
                   eq(responseTimeLogs.tenantId, tenantId),
+                  scopeCond,
                   eq(conversations.operatorId, operatorId),
                   isNull(responseTimeLogs.agentResponseId),
                   eq(responseTimeLogs.isOverdue, true)
@@ -94,6 +119,7 @@ export const Route = createFileRoute("/api/gestao/my-metrics")({
               .where(
                 and(
                   eq(responseTimeLogs.tenantId, tenantId),
+                  scopeCond,
                   eq(conversations.operatorId, operatorId),
                   isNotNull(responseTimeLogs.responseTimeSeconds),
                   gte(responseTimeLogs.createdAt, todayStart),
@@ -122,7 +148,19 @@ export const Route = createFileRoute("/api/gestao/my-metrics")({
                 and(
                   eq(aiConversationAudits.tenantId, tenantId),
                   eq(aiConversationAudits.operatorId, operatorId),
-                  eq(aiConversationAudits.status, "done")
+                  eq(aiConversationAudits.status, "done"),
+                  exists(
+                    db
+                      .select({ id: sql`1` })
+                      .from(conversations)
+                      .where(
+                        and(
+                          eq(conversations.tenantId, tenantId),
+                          eq(conversations.id, aiConversationAudits.conversationId),
+                          scopeCond
+                        )
+                      )
+                  )
                 )
               );
             performanceScore = r[0]?.avg ? Math.round(Number(r[0].avg)) : null;
@@ -158,6 +196,7 @@ export const Route = createFileRoute("/api/gestao/my-metrics")({
               .where(
                 and(
                   eq(conversations.tenantId, tenantId),
+                  scopeCond,
                   eq(conversations.operatorId, operatorId),
                   eq(conversations.queueState, "finalizados")
                 )

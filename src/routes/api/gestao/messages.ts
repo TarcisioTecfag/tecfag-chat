@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { messages } from "../../../db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,6 +48,9 @@ export const Route = createFileRoute("/api/gestao/messages")({
         }
 
         try {
+          if (session.permissions?.views?.monitor !== true || session.permissions?.monitor?.canAccessLive !== true) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+          const denied = await requireConversationAccess(session, conversationId);
+          if (denied) return denied;
           const rows = await db
             .select({
               id: messages.id,

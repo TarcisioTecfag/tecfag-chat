@@ -17,6 +17,9 @@ import {
 } from "../../db/schema";
 import { eq, and, desc, asc, gte, count, sql } from "drizzle-orm";
 import crypto from "crypto";
+import { canPerformSiteAction } from "../access-control/site-actions";
+import type { SiteOperatorAction } from "../access-control/site-actions";
+import type { ChatPermissions } from "../rbac";
 
 const uuid = () => crypto.randomUUID();
 
@@ -118,6 +121,13 @@ export async function getOrCreateActiveChat(tenantId: string, visitorId: string)
   return createChat(tenantId, visitorId);
 }
 
+/** Monitoring is read-only and must never create a visitor chat. */
+export async function getLatestVisitorChat(tenantId: string, visitorId: string): Promise<LcChat | null> {
+  const [chat] = await db.select().from(lcChats).where(and(eq(lcChats.tenantId, tenantId), eq(lcChats.visitorId, visitorId)))
+    .orderBy(desc(lcChats.startedAt)).limit(1);
+  return chat ?? null;
+}
+
 export async function updateChatStatus(
   tenantId: string,
   chatId: string,
@@ -151,6 +161,25 @@ export async function getChatById(tenantId: string, chatId: string): Promise<LcC
     .where(and(eq(lcChats.tenantId, tenantId), eq(lcChats.id, chatId)))
     .limit(1);
   return chat ?? null;
+}
+
+/** Check owner and mutate under the same row lock. External deliveries happen only after commit. */
+export async function applyOperatorChatAction(tenantId: string, chatId: string, operatorId: string,
+  action: SiteOperatorAction, permissions: Partial<ChatPermissions>, content = "") {
+  return db.transaction(async (tx) => {
+    const [chat] = await tx.select().from(lcChats).where(and(eq(lcChats.tenantId, tenantId), eq(lcChats.id, chatId))).for("update").limit(1);
+    if (!chat) throw Object.assign(new Error("Chat não encontrado."), { statusCode: 404, code: "NOT_FOUND" });
+    if (!canPerformSiteAction(operatorId, chat, action, permissions)) throw Object.assign(new Error("Permissão insuficiente."), { statusCode: 403, code: "FORBIDDEN" });
+    if (action === "operator_message") {
+      if (!content.trim()) throw Object.assign(new Error("Mensagem vazia."), { statusCode: 400, code: "BAD_REQUEST" });
+      const [message] = await tx.insert(lcMessages).values({ id: uuid(), tenantId, chatId, sender: "operator", content, contentType: "text" }).returning();
+      return { chat, message };
+    }
+    const patch = action === "take_over" ? { status: "operator_took_over", operatorId } : action === "release_to_ai" ?
+      { status: "active", operatorId: null } : { status: "closed", closedAt: new Date(), outcome: "resolved" };
+    await tx.update(lcChats).set(patch).where(and(eq(lcChats.tenantId, tenantId), eq(lcChats.id, chatId)));
+    return { chat, message: null };
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

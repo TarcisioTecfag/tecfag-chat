@@ -15,7 +15,7 @@ function attachWebSocketServer(server: Server, label: string) {
 
   server.on("upgrade", async (request, socket, head) => {
     const url = request.url || "";
-    console.log(`[Nitro WS] Upgrade request recebido: ${url}`);
+    console.log(`[Nitro WS] Upgrade request recebido: ${url.split("?")[0]}`);
 
     if (url.startsWith("/api/voice-stream")) {
       wss!.handleUpgrade(request, socket, head, async (ws) => {
@@ -44,7 +44,7 @@ function attachWebSocketServer(server: Server, label: string) {
         lcWss!.emit("connection", ws, request);
       });
     } else {
-      console.log(`[Nitro WS] URL não mapeada, destruindo socket: ${url}`);
+      console.log(`[Nitro WS] URL não mapeada, destruindo socket: ${url.split("?")[0]}`);
       socket.destroy();
     }
   });

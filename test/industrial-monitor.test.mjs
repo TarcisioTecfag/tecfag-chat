@@ -271,6 +271,26 @@ function sdrHarness({ authenticated = true, failSummary = false } = {}) {
     },
     "../../../lib/triage/industrial-monitor": { projectIndustrialMonitoring: project },
     "../../../lib/triage/industrial-cycle-stop": { stopIndustrialCycle: async () => true },
+    "../../../lib/triage/industrial-policy": {
+      computeIndustrialTriageProgress: () => ({
+        filledCount: 0,
+        totalCount: 7,
+        percentage: 0,
+        targetFields: [],
+        adaptiveData: {},
+      }),
+      resolveEffectiveIndustrialSubflow: () => null,
+    },
+    "../../../lib/triage/known-client-lookup": {
+      applyKnownClientConfirmationToData: (d) => d,
+      isValidKnownCompanyName: () => false,
+    },
+    "../../../lib/triage/known-client-db": {
+      lookupKnownClientByPhoneOrContact: async () => null,
+    },
+    "../../../lib/valentina/sdr-engine": {
+      syncContactDataFromTriage: async () => undefined,
+    },
     "../../../lib/triage/agent-monitor-store": {
       readLatestSdrFlows: async (_, tenantId) => {
         assert.equal(tenantId, "session-tenant");

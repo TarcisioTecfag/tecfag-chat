@@ -4,7 +4,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db";
 import { contacts, voiceCalls, tasks } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { requireSession, requirePermission } from "../../lib/auth-session";
+import { getAiPersona } from "../../lib/ai-persona";
+import { eq, and } from "drizzle-orm";
 import { rdRequest } from "../../lib/rdCrmService";
 
 export const Route = createFileRoute("/api/voice-enrich-contact")({
@@ -12,8 +14,15 @@ export const Route = createFileRoute("/api/voice-enrich-contact")({
     handlers: {
       POST: async ({ request }) => {
         try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+          const denied = requirePermission(session, (p) => p.views?.ligacoes === true && p.contacts?.canEditContact === true);
+          if (denied) return denied;
           const body = await request.json();
-          const { tenantId = "valem", contactId, callId, extractedInfo } = body;
+          const { contactId, callId, extractedInfo } = body;
+          if (!contactId || typeof contactId !== "string") return Response.json({ error: "contactId é obrigatório." }, { status: 400 });
 
           if (!extractedInfo) {
             return new Response(JSON.stringify({ error: "extractedInfo é obrigatório" }), { status: 400 });
@@ -23,8 +32,14 @@ export const Route = createFileRoute("/api/voice-enrich-contact")({
 
           // 1. Se existir contactId, atualiza os dados do contato
           if (contactId) {
-            const [existingContact] = await db.select().from(contacts).where(eq(contacts.id, contactId));
+            const [existingContact] = await db.select().from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
+            if (!existingContact) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
+            if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only" && existingContact.walletOperatorId !== session.operator.id) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
+            if (callId) {
+              const [call] = await db.select({ id: voiceCalls.id }).from(voiceCalls).where(and(eq(voiceCalls.id, callId), eq(voiceCalls.tenantId, tenantId), eq(voiceCalls.contactId, contactId)));
+              if (!call) return Response.json({ error: "Ligação não encontrada." }, { status: 404 });
+            }
             if (existingContact) {
               const currentTags = (existingContact.tags as string[]) || [];
               const newTags = new Set(currentTags);
@@ -41,7 +56,7 @@ export const Route = createFileRoute("/api/voice-enrich-contact")({
 
               // 2. Se o contato tiver deal no RD Station CRM, sincroniza as anotações via rdRequest
               if (existingContact.rdCrmDealId) {
-                const noteText = `[Valentina Voz - Resumo da Ligação]\n` +
+                const noteText = `[${getAiPersona(tenantId).name} Voz - Resumo da Ligação]\n` +
                   `• Interesse: ${interesse || "Não especificado"}\n` +
                   `• Objeções: ${objecoes || "Nenhuma"}\n` +
                   `• Próximo Passo: ${proximo_passo || "Nenhum"}`;

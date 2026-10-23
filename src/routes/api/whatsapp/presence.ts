@@ -5,6 +5,7 @@ import { channelConfigs, conversations } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { sendMetaConversationPresence, type MetaPresenceAction } from "../../../lib/whatsapp/meta-presence";
+import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 
 /**
  * Presença do atendimento em tempo real.
@@ -42,6 +43,8 @@ export const Route = createFileRoute("/api/whatsapp/presence")({
             return json({ error: "conversationId e action ('read' | 'typing') são obrigatórios." }, 400);
           }
 
+          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (denied) return denied;
           const [conv] = await db
             .select({ id: conversations.id, operatorId: conversations.operatorId, queueState: conversations.queueState })
             .from(conversations)

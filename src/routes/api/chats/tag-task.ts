@@ -4,6 +4,7 @@ import { conversations, contacts, messages } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { rdRequest, getCachedUsers, getCachedDeal } from "../../../lib/rdCrmService";
 import { requireSession } from "../../../lib/auth-session.js";
+import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -50,7 +51,7 @@ export const Route = createFileRoute("/api/chats/tag-task")({
           } = body;
 
           // operatorName: usa o do body se fornecido, senão o nome do operador autenticado
-          const operatorName = body.operatorName ?? session.operator.name;
+          const operatorName = session.operator.name;
 
           if (!conversationId || !tagName) {
             return new Response(
@@ -60,6 +61,9 @@ export const Route = createFileRoute("/api/chats/tag-task")({
           }
 
           // 1. Buscar conversa verificando tenant JÁ NA QUERY — nunca busca por id puro
+          const denied = await requireConversationWriteAccess(session, conversationId);
+          if (denied) return denied;
+          if (session.permissions?.chat?.canManageTags !== true) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
           const [conv] = await db
             .select({ contactId: conversations.contactId })
             .from(conversations)

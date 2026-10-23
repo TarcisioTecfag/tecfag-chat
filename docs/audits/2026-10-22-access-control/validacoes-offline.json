@@ -1,0 +1,160 @@
+{
+  "mode": "offline; DB, auth and services mocked; source handlers executed",
+  "results": [
+    {
+      "id": "grupo_ausente",
+      "canManageUsers": true,
+      "canManagePipelines": true,
+      "canViewAllDeals": true,
+      "canViewCrm": true
+    },
+    {
+      "id": "grupo_sem_permissions",
+      "canManageUsers": false,
+      "canManagePipelines": true,
+      "canViewAllDeals": true,
+      "canViewCrm": true
+    },
+    {
+      "id": "objeto_apenas_crm",
+      "canManageUsers": true,
+      "canManagePipelines": true,
+      "canViewAllDeals": true,
+      "canViewCrm": false
+    },
+    {
+      "id": "admin_ignora_negativa_crm",
+      "allowed": true
+    },
+    {
+      "id": "controle_edicao_negada",
+      "status": 403
+    },
+    {
+      "id": "reabrir_sem_permissao",
+      "status": 200,
+      "calls": [
+        {
+          "name": "updateDeal",
+          "args": [
+            "tenant-teste",
+            "negocio-b",
+            "operador-a",
+            {
+              "status": "open"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "editar_alheio_sem_ver_todos",
+      "status": 200,
+      "calls": [
+        {
+          "name": "updateDeal",
+          "args": [
+            "tenant-teste",
+            "negocio-b",
+            "operador-a",
+            {
+              "title": "Alterado"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "controle_leitura_detalhe_alheio",
+      "status": 403,
+      "calls": [
+        {
+          "name": "getDealById",
+          "args": [
+            "tenant-teste",
+            "negocio-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "exclusao_permanente_so_edicao",
+      "status": 200,
+      "calls": [
+        {
+          "name": "bulkUpdateDeals",
+          "args": [
+            "tenant-teste",
+            "operador-a",
+            {
+              "dealIds": [
+                "negocio-b"
+              ],
+              "action": "delete_permanent"
+            },
+            "A"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "export_sem_escopo_forcado",
+      "status": 200,
+      "calls": [
+        {
+          "name": "exportDealsRD",
+          "args": [
+            "tenant-teste",
+            {
+              "dealIds": [],
+              "allFiltered": true,
+              "filterParams": {},
+              "format": "csv"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "atividade_alheia_sem_ver_todos",
+      "status": 200,
+      "calls": [
+        {
+          "name": "getDealActivities",
+          "args": [
+            "tenant-teste",
+            "negocio-b",
+            {}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "admin_ignora_requirePermission",
+      "allowed": true
+    },
+    {
+      "id": "agenda_aceita_tenant_no_update",
+      "status": 200,
+      "payloadPassedToDatabase": {
+        "tenantId": "tenant-destino-teste",
+        "updatedAt": "2026-10-22T17:52:42.265Z"
+      },
+      "note": "Only simulated DB.set executed; no database connection"
+    },
+    {
+      "id": "lista_chat_modulo_negado",
+      "status": 200,
+      "sessionPermissions": {
+        "views": {
+          "chat": false
+        },
+        "chat": {
+          "canViewAllChats": false
+        }
+      },
+      "returned": [],
+      "note": "Actual handler passed authorization and queried simulated DB despite denied chat module"
+    }
+  ]
+}

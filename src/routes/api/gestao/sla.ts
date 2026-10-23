@@ -7,6 +7,8 @@ import {
 } from "../../../db/schema";
 import { eq, and, count, avg, isNotNull } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
+import { conversationReadRules } from "../../../lib/access-control/conversation-policy";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,12 +27,15 @@ export const Route = createFileRoute("/api/gestao/sla")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.operator.role !== "admin" && session.operator.role !== "supervisor") {
+        if (session.permissions?.views?.analytics !== true || session.permissions?.analytics?.canAccessSla !== true) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente. Apenas administradores e supervisores podem acessar métricas de SLA.", code: "FORBIDDEN" }),
+            JSON.stringify({ error: "Permissão insuficiente para acessar métricas de SLA.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+        const readScope = conversationReadCondition(session);
+        const rules = conversationReadRules(session);
+        const restrictOperatorScope = rules.ownOnly || !rules.others;
 
         const url = new URL(request.url);
         const queryTenantId = url.searchParams.get("tenantId");
@@ -49,7 +54,8 @@ export const Route = createFileRoute("/api/gestao/sla")({
               responseTimeSeconds: responseTimeLogs.responseTimeSeconds,
             })
             .from(responseTimeLogs)
-            .where(eq(responseTimeLogs.tenantId, tenantId));
+            .innerJoin(conversations, and(eq(conversations.id, responseTimeLogs.conversationId), eq(conversations.tenantId, tenantId)))
+            .where(and(eq(responseTimeLogs.tenantId, tenantId), readScope));
 
           const totalSlaCount = allSlaLogs.length;
           const overdueCount = allSlaLogs.filter((l) => l.isOverdue).length;
@@ -64,7 +70,10 @@ export const Route = createFileRoute("/api/gestao/sla")({
               name: operators.name,
             })
             .from(operators)
-            .where(eq(operators.tenantId, tenantId));
+            .where(and(
+              eq(operators.tenantId, tenantId),
+              restrictOperatorScope ? eq(operators.id, session.operator.id) : undefined,
+            ));
 
           const operatorSlaMetrics = await Promise.all(
             allOperators.map(async (op) => {
@@ -75,6 +84,7 @@ export const Route = createFileRoute("/api/gestao/sla")({
                   .where(
                     and(
                       eq(conversations.tenantId, tenantId),
+                      readScope,
                       eq(conversations.operatorId, op.id)
                     )
                   ),
@@ -84,9 +94,11 @@ export const Route = createFileRoute("/api/gestao/sla")({
                     isOverdue: responseTimeLogs.isOverdue,
                   })
                   .from(responseTimeLogs)
+                  .innerJoin(conversations, and(eq(conversations.id, responseTimeLogs.conversationId), eq(conversations.tenantId, tenantId)))
                   .where(
                     and(
                       eq(responseTimeLogs.tenantId, tenantId),
+                      readScope,
                       eq(responseTimeLogs.operatorId, op.id)
                     )
                   ),

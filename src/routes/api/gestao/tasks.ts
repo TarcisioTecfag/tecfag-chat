@@ -20,6 +20,7 @@ export const Route = createFileRoute("/api/gestao/tasks")({
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
+        if (session.operator.role !== "admin" && !session.permissions?.monitor?.canAccessTeamTasks) return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
 
         const url = new URL(request.url);
         const queryTenantId = url.searchParams.get("tenantId");

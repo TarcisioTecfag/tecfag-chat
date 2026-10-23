@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SessionManager } from "../../../lib/baileys/session-manager";
-import { requireSession } from "../../../lib/auth-session";
+import { requireSession, getAuthSession } from "../../../lib/auth-session";
+import { canManageWhatsappConnection } from "../../../lib/access-control/channel-permissions";
 import { getActiveProvider } from "../../../lib/whatsapp";
 
 export const Route = createFileRoute("/api/baileys/connect")({
@@ -26,6 +27,7 @@ export const Route = createFileRoute("/api/baileys/connect")({
         const auth = await requireSession(request);
         if ("response" in auth) return auth.response;
         const session = auth.session;
+        if (!canManageWhatsappConnection(session)) return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
 
         const url = new URL(request.url);
         const requestedTenant = url.searchParams.get("tenantId");
@@ -56,14 +58,30 @@ export const Route = createFileRoute("/api/baileys/connect")({
 
         const sessionManager = SessionManager.getInstance();
 
+        let cancelStream = () => {};
         const stream = new ReadableStream({
           start(controller) {
+            let closed = false;
+            let heartbeat: ReturnType<typeof setInterval>;
+            const close = () => {
+              if (closed) return;
+              closed = true;
+              clearInterval(heartbeat);
+              request.signal.removeEventListener("abort", close);
+              sessionManager.unregisterListener(tenantId, listener);
+              try { controller.close(); } catch {}
+            };
+            cancelStream = close;
+            const authorized = async () => {
+              const fresh = await getAuthSession(request);
+              if (!fresh || fresh.tenantId !== tenantId || fresh.operator.id !== session.operator.id || !canManageWhatsappConnection(fresh)) { close(); return false; }
+              return true;
+            };
             const listener = (event: any) => {
-              try {
-                controller.enqueue(`data: ${JSON.stringify(event)}\n\n`);
-              } catch (e) {
-                console.error("Erro ao enfileirar dados no stream SSE:", e);
-              }
+              if (closed || !["status", "qr"].includes(event.type)) return;
+              void authorized().then((allowed) => {
+                if (allowed && !closed) controller.enqueue(`data: ${JSON.stringify(event)}\n\n`);
+              }).catch(close);
             };
 
             // Um reset invalida o QR anterior: nunca reenviá-lo ao novo stream.
@@ -92,11 +110,11 @@ export const Route = createFileRoute("/api/baileys/connect")({
               } catch (e) {}
             });
 
-            request.signal.addEventListener("abort", () => {
-              console.log(`Cliente fechou conexão SSE para o tenant ${tenantId}`);
-              sessionManager.unregisterListener(tenantId, listener);
-            });
+            heartbeat = setInterval(() => { void authorized().catch(close); }, 15000);
+            request.signal.addEventListener("abort", close);
+            if (request.signal.aborted) close();
           },
+          cancel() { cancelStream(); },
         });
 
         return new Response(stream, {

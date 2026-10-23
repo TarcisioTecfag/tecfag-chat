@@ -22,6 +22,7 @@ import {
   OffscreenColumnMetric,
 } from "./sdr-kanban-data";
 import { getAiPersona } from "@/lib/ai-persona";
+import { computeIndustrialTriageProgress } from "@/lib/triage/industrial-policy";
 import { useChat } from "@/hooks/useChatState";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
@@ -512,26 +513,28 @@ export function SdrKanbanBoard({
                           .join("")
                           .toUpperCase() || "C";
 
-                      const filledFieldsCount = Object.values(session.collectedData || {}).filter((f: any) => {
-                        if (!f) return false;
-                        if (typeof f === "object" && f.status === "filled") return true;
-                        const textVal = typeof f === "string" ? f : f.value;
-                        return Boolean(
-                          textVal &&
-                            String(textVal).trim() !== "" &&
-                            String(textVal) !== "Aguardando..." &&
-                            !String(textVal).toLowerCase().includes("mantem")
-                        );
-                      }).length;
-
-                      const progress =
-                        (session as any).progressPct ??
-                        Math.min(100, Math.round((filledFieldsCount / 6) * 100));
-
                       const isConcluida =
                         session.status === "completed" ||
                         (session as any).triageStatus === "concluida" ||
-                        session.outcome === "completed";
+                        session.outcome === "completed" ||
+                        session.outcome === "transferred";
+
+                      const adaptiveProgress = computeIndustrialTriageProgress({
+                        subflow: (session as any).subflow || null,
+                        funnelStage: session.funnelStage || column.key || null,
+                        targetFunnel: session.targetFunnel || null,
+                        collectedData: session.collectedData || {},
+                        company:
+                          session.company && session.company !== "Empresa não informada"
+                            ? session.company
+                            : null,
+                        isCompleted: isConcluida,
+                      });
+
+                      const progress =
+                        (session as any).progressPct ??
+                        (session as any).triageProgress?.percentage ??
+                        adaptiveProgress.percentage;
 
                       const isSemResposta =
                         column.key === "sem_resposta" ||
