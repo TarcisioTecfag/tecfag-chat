@@ -1,4 +1,4 @@
-import { requireCrmDealAccess } from "../../../../../lib/access-control/crm-record-access";
+import { requireCrmDealAccess, getAllowedPipelineIds } from "../../../../../lib/access-control/crm-record-access";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
@@ -28,6 +28,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/rd-marketing")({
             params.dealId,
             {
               operatorId: session.operator.id,
+              allowedPipelineIds: getAllowedPipelineIds(session),
               canViewAll:
                 session.operator.role === "admin" || !!session.permissions?.crm?.canViewAllDeals,
             },

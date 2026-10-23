@@ -17,6 +17,7 @@ import {
   rdMarketingCommercialOutbox,
 } from "../../db/schema";
 import { CrmError } from "../crm/crm-service";
+import { getContactDealRows } from "../crm/contact-deals-query";
 import { parseRdEventPage, rdEventsPath, type RdFetch } from "./api-client";
 import { notificationKey } from "./notifications";
 import { readRdEventPage, probeRdLead } from "./api-service";
@@ -24,7 +25,7 @@ import { deliveryIdentity, flowSettingsSchema } from "./mapping";
 import type { RdJourney, JourneyEvent } from "./journey-types";
 import type { RdEventType } from "./api-types";
 
-type Viewer = { operatorId: string; canViewAll: boolean };
+type Viewer = { operatorId: string; canViewAll: boolean; allowedPipelineIds?: string[] | null };
 type Query = {
   contactId?: string;
   eventType?: RdEventType;
@@ -501,41 +502,7 @@ export async function dealRdJourney(
             event.deals.push({ id: match.id, title: match.title });
         }
   }
-  const related = await db
-    .select({
-      id: crmDeals.id,
-      title: crmDeals.title,
-      status: crmDeals.status,
-      owner: crmDeals.operatorId,
-      value: crmDeals.value,
-      currency: crmDeals.currency,
-      pipelineName: crmPipelines.name,
-      stageName: crmStages.name,
-      operatorName: operators.name,
-      createdAt: crmDeals.createdAt,
-    })
-    .from(crmDealContacts)
-    .innerJoin(
-      crmDeals,
-      and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
-    )
-    .leftJoin(
-      crmPipelines,
-      and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId)),
-    )
-    .leftJoin(crmStages, and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId)))
-    .leftJoin(
-      operators,
-      and(eq(operators.id, crmDeals.operatorId), eq(operators.tenantId, tenantId)),
-    )
-    .where(
-      and(
-        eq(crmDealContacts.tenantId, tenantId),
-        eq(crmDealContacts.contactId, contact.id),
-        eq(crmDeals.tenantId, tenantId),
-      ),
-    )
-    .orderBy(desc(crmDeals.createdAt), crmDeals.id);
+  const related = await getContactDealRows(db, tenantId, contact.id);
   const commercial = await db
     .select({
       delivery: rdMarketingCommercialOutbox,
@@ -592,10 +559,12 @@ export async function dealRdJourney(
     pages: normalizedPages,
     events,
     relatedDeals: related
-      .filter((deal) => canRead(deal.owner, viewer))
-      .map(({ owner: _owner, createdAt, ...deal }) => ({
-        ...deal,
-        createdAt: createdAt.toISOString(),
+      .filter((deal) => (viewer.canViewAll || deal.operatorId === viewer.operatorId) &&
+        (viewer.allowedPipelineIds == null || viewer.allowedPipelineIds.includes(deal.pipelineId)))
+      .map(deal => ({
+        id: deal.id, title: deal.title, status: deal.status, value: deal.value, currency: deal.currency,
+        pipelineName: deal.pipelineName, stageName: deal.stageName, operatorName: deal.operatorName,
+        createdAt: deal.createdAt.toISOString(),
       })),
   };
 }

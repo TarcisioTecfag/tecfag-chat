@@ -446,6 +446,7 @@ interface DealDetailModalProps {
   pipelineStages: Array<{ id: string; name: string; orderIndex: number }>;
   operatorsMap: Map<string, string>;
   backLabel?: string;
+  preferredContactId?: string;
 }
 
 function getTaskTypeMeta(type?: string | null) {
@@ -477,6 +478,7 @@ export function DealDetailModal({
   pipelineStages,
   operatorsMap,
   backLabel,
+  preferredContactId,
 }: DealDetailModalProps) {
   let chatContext: any = null;
   try {
@@ -622,7 +624,7 @@ export function DealDetailModal({
   const journeyContext = JSON.stringify([chatContext?.tenant, journeyViewerScope, dealId]);
   const journeyContacts = (deal?.id === dealId ? deal.contacts || [] : []).map((entry: { contactId: string; isPrimary: boolean; contact: { id: string; name: string } })=>({ id: entry.contactId, name: entry.contact.name, isPrimary: entry.isPrimary }));
   const journeyContactId = journeySelection.dealId === dealId && journeyContacts.some((entry: { id: string })=>entry.id === journeySelection.contactId)
-    ? journeySelection.contactId : journeyContacts.find((entry: { isPrimary: boolean })=>entry.isPrimary)?.id || journeyContacts[0]?.id || "";
+    ? journeySelection.contactId : journeyContacts.find((entry: { id: string }) => entry.id === preferredContactId)?.id || journeyContacts.find((entry: { isPrimary: boolean })=>entry.isPrimary)?.id || journeyContacts[0]?.id || "";
   const rdJourney = useRdMarketingJourney(chatContext?.tenant || null, dealId, journeyContactId || null,
     isOpen && activeTab === "history" && (historySourceFilter === "marketing" || ["conversion", "opportunity", "automation", "commercial"].includes(historyFilter) || journeyEnabledFor === journeyContext), journeyViewerScope);
   const [isCreatingNote, setIsCreatingNote] = useState(false);

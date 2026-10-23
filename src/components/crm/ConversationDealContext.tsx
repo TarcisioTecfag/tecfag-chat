@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { toast } from "sonner";
+import { isCurrentDealEligible } from "@/lib/crm/conversation-deal-policy";
 import {
   fetchDealContext,
   type ConversationDealContext as Context,
@@ -63,7 +64,17 @@ export function ConversationDealContext({
   if (!data)
     return <p className="text-xs text-muted-foreground">Carregando negociação do atendimento…</p>;
   return (
-    <div className="space-y-1 rounded-lg border border-primary/20 bg-primary/5 p-2 text-xs">
+    <div
+      role={!data.hasCurrentDeal && data.editable ? "alert" : undefined}
+      className={`space-y-1 rounded-lg border p-2 text-xs ${!data.hasCurrentDeal && data.editable ? "border-amber-500/50 bg-amber-500/10" : "border-primary/20 bg-primary/5"}`}
+    >
+      {!data.hasCurrentDeal && data.editable && (
+        <p className="font-semibold">
+          {data.deals.some(isCurrentDealEligible)
+            ? "Selecione a negociação atual para continuar"
+            : "Nenhuma negociação em andamento disponível"}
+        </p>
+      )}
       <label className="block font-semibold" htmlFor={selectId}>
         Negociação deste atendimento
       </label>
@@ -105,11 +116,32 @@ export function ConversationDealContext({
             ? "Negociação selecionada (acesso restrito)"
             : "Selecione uma negociação em andamento"}
         </option>
-        {data.deals.map((deal) => (
-          <option key={deal.id} value={deal.id}>
-            {deal.title}
-          </option>
-        ))}
+        <optgroup label="Em andamento — disponíveis para seleção">
+          {data.deals.filter(isCurrentDealEligible).map((deal) => (
+            <option key={deal.id} value={deal.id}>
+              {deal.title}
+            </option>
+          ))}
+        </optgroup>
+        {data.deals.some((deal) => !isCurrentDealEligible(deal)) && (
+          <optgroup label="Histórico — não pode ser definido como atual">
+            {data.deals
+              .filter((deal) => !isCurrentDealEligible(deal))
+              .map((deal) => (
+                <option key={deal.id} value={deal.id} disabled>
+                  {deal.title} (
+                  {deal.status === "won"
+                    ? "Vendido"
+                    : deal.status === "lost"
+                      ? "Perdido"
+                      : deal.status === "paused"
+                        ? "Pausado"
+                        : "Desvinculada"}
+                  )
+                </option>
+              ))}
+          </optgroup>
+        )}
       </select>
       <p className="text-muted-foreground">
         {data.hasCurrentDeal
@@ -162,7 +194,7 @@ export function ConversationDealTransferContext({
             ? `Manter: ${data.currentDeal?.title || "negociação atual"}`
             : "Escolha a negociação do atendimento"}
         </option>
-        {data.deals.map((deal) => (
+        {data.deals.filter(isCurrentDealEligible).map((deal) => (
           <option key={deal.id} value={deal.id}>
             {deal.title}
           </option>

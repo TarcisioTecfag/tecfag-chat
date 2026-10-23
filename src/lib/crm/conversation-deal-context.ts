@@ -9,6 +9,7 @@ import {
   messages,
 } from "../../db/schema";
 import type { DealTransaction } from "./deal-associations";
+import { getContactDealRows } from "./contact-deals-query";
 import {
   assertDealContextVersion,
   DealContextError,
@@ -16,6 +17,40 @@ import {
 } from "./conversation-deal-policy";
 
 export { DealContextError, assertDealContextVersion } from "./conversation-deal-policy";
+
+async function ensureCurrentDealLink(
+  tx: DealTransaction,
+  tenantId: string,
+  conversationId: string,
+  dealId: string,
+  operatorId: string | null,
+) {
+  const [link] = await tx
+    .select({ id: crmConversationDeals.id })
+    .from(crmConversationDeals)
+    .where(
+      and(
+        eq(crmConversationDeals.tenantId, tenantId),
+        eq(crmConversationDeals.conversationId, conversationId),
+        eq(crmConversationDeals.dealId, dealId),
+        eq(crmConversationDeals.isActive, true),
+      ),
+    )
+    .limit(1);
+  if (!link)
+    await tx
+      .insert(crmConversationDeals)
+      .values({
+        id: `cd-${crypto.randomUUID()}`,
+        tenantId,
+        conversationId,
+        dealId,
+        origin: "chat",
+        createdByOperatorId: operatorId,
+        isActive: true,
+      })
+      .onConflictDoNothing();
+}
 
 /** Todos os escritores serializam pela conversa, inclusive notas e transferências. */
 export async function getDealContext(
@@ -46,39 +81,31 @@ export async function getDealContext(
     )
     .for("update")
     .limit(1);
-  const deals = await tx
-    .select({
-      id: crmDeals.id,
-      title: crmDeals.title,
-      status: crmDeals.status,
-      pipelineId: crmDeals.pipelineId,
-      operatorId: crmDeals.operatorId,
-      rdDealId: crmDeals.rdDealId,
-    })
-    .from(crmConversationDeals)
-    .innerJoin(
-      crmDeals,
-      and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, crmConversationDeals.dealId)),
-    )
-    .where(
-      and(
-        eq(crmConversationDeals.tenantId, tenantId),
-        eq(crmConversationDeals.conversationId, conversationId),
-        eq(crmConversationDeals.isActive, true),
-      ),
-    );
+  const deals = (await getContactDealRows(tx, tenantId, conversation.contactId)).map(
+    ({ id, title, status, pipelineId, operatorId, rdDealId, isLinked }) => ({
+      id,
+      title,
+      status,
+      pipelineId,
+      operatorId,
+      rdDealId,
+      isLinked,
+    }),
+  );
   // Conversas encerradas só conservam a sugestão histórica, nunca o destino ativo.
   const selectedId =
     conversation.queueState === "finalizados"
       ? null
       : resolveDealSelection(
           context,
-          deals.filter((d) => d.status === "open").map((d) => d.id),
+          deals.filter((d) => d.status === "open" && d.isLinked).map((d) => d.id),
         );
   if (
     selectedId !== context.currentDealId ||
     (conversation.queueState === "finalizados" && !context.selectionRequired)
   ) {
+    if (selectedId)
+      await ensureCurrentDealLink(tx, tenantId, conversationId, selectedId, operatorId);
     const previousDealId = context.currentDealId || context.previousDealId;
     [context] = await tx
       .update(conversationDealContexts)
@@ -148,7 +175,7 @@ export async function selectDealContext(
 ) {
   const state = await getDealContext(tx, tenantId, conversationId, operatorId);
   assertDealContextVersion(state.context, expectedVersion);
-  if (dealId && !state.deals.some((d) => d.id === dealId && d.status === "open")) {
+  if (dealId && !state.deals.some((d) => d.id === dealId && d.status === "open" && d.isLinked)) {
     throw new DealContextError(
       "Selecione uma negociação vinculada e em andamento.",
       "INVALID_DEAL_CONTEXT",
@@ -158,6 +185,7 @@ export async function selectDealContext(
   if (state.conversation.queueState === "finalizados")
     throw new DealContextError("Reative o atendimento antes de selecionar a negociação.");
   if (state.context.currentDealId === dealId) return state.context;
+  if (dealId) await ensureCurrentDealLink(tx, tenantId, conversationId, dealId, operatorId);
   const [context] = await tx
     .update(conversationDealContexts)
     .set({

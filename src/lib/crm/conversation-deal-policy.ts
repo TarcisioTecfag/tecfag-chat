@@ -5,6 +5,21 @@ export type DealContextState = {
   version: number;
 };
 
+export function isCurrentDealEligible(deal: { status: string; isLinked?: boolean }) {
+  return deal.status === "open" && deal.isLinked !== false;
+}
+
+export function sortContactDeals<
+  T extends { id: string; status: string; createdAt?: string | Date },
+>(deals: readonly T[]): T[] {
+  return [...deals].sort((a, b) => {
+    const statusOrder = Number(b.status === "open") - Number(a.status === "open");
+    if (statusOrder) return statusOrder;
+    const time = (value?: string | Date) => (value ? new Date(value).getTime() || 0 : 0);
+    return time(b.createdAt) - time(a.createdAt) || a.id.localeCompare(b.id);
+  });
+}
+
 /** A escolha anterior tem precedência; nunca promove outro card após conclusão. */
 export function resolveDealSelection(
   state: DealContextState,

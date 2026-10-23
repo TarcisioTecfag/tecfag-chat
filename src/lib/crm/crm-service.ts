@@ -48,6 +48,7 @@ import type {
 } from "../../db/schema";
 import { vertexAi } from "../vertex-ai";
 import { recordDealChangeInConversation } from "./conversation-deal-context";
+import { getContactDealRows } from "./contact-deals-query";
 import {
   diffCustomFieldValues,
   formatCustomFieldLabel,
@@ -4574,6 +4575,7 @@ export class CrmService {
   ): Promise<
     Array<
       CrmDeal & {
+        isLinked: boolean;
         stageName?: string | null;
         stageColor?: string | null;
         stageOrderIndex?: number | null;
@@ -4583,89 +4585,12 @@ export class CrmService {
       }
     >
   > {
-    // Sincroniza negociações onde o contato da conversa já é participante em crm_deal_contacts
-    const [conv] = await db
-      .select({ id: conversations.id, contactId: conversations.contactId })
-      .from(conversations)
-      .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
-      .limit(1);
-
-    if (conv?.contactId) {
-      const contactDeals = await db
-        .select({ dealId: crmDealContacts.dealId })
-        .from(crmDealContacts)
-        .innerJoin(crmDeals, and(eq(crmDealContacts.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
-        .where(
-          and(
-            eq(crmDealContacts.tenantId, tenantId),
-            eq(crmDealContacts.contactId, conv.contactId)
-          )
-        );
-
-      if (contactDeals.length > 0) {
-        const existingConvLinks = await db
-          .select({ dealId: crmConversationDeals.dealId })
-          .from(crmConversationDeals)
-          .where(
-            and(
-              eq(crmConversationDeals.tenantId, tenantId),
-              eq(crmConversationDeals.conversationId, conversationId)
-            )
-          );
-
-        const existingDealIds = new Set(existingConvLinks.map((l) => l.dealId));
-        const missingDealIds = Array.from(
-          new Set(contactDeals.map((d) => d.dealId).filter((id) => !existingDealIds.has(id)))
-        );
-
-        for (const missingDealId of missingDealIds) {
-          await db.insert(crmConversationDeals).values({
-            id: `cd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            tenantId,
-            conversationId,
-            dealId: missingDealId,
-            origin: "crm",
-            createdByOperatorId: null,
-            isActive: true,
-            createdAt: new Date(),
-          });
-        }
-      }
-    }
-
-    const rows = await db
-      .select({
-        deal: crmDeals,
-        stageName: crmStages.name,
-        stageOrderIndex: crmStages.orderIndex,
-        pipelineName: crmPipelines.name,
-        accountName: crmAccounts.name,
-        operatorName: operators.name,
-      })
-      .from(crmConversationDeals)
-      .innerJoin(crmDeals, eq(crmConversationDeals.dealId, crmDeals.id))
-      .leftJoin(crmStages, eq(crmDeals.stageId, crmStages.id))
-      .leftJoin(crmPipelines, eq(crmDeals.pipelineId, crmPipelines.id))
-      .leftJoin(crmAccounts, eq(crmDeals.accountId, crmAccounts.id))
-      .leftJoin(operators, eq(crmDeals.operatorId, operators.id))
-      .where(
-        and(
-          eq(crmConversationDeals.tenantId, tenantId),
-          eq(crmConversationDeals.conversationId, conversationId),
-          eq(crmConversationDeals.isActive, true)
-        )
-      )
-      .orderBy(desc(crmDeals.lastActivityAt));
-
-    return rows.map((r) => ({
-      ...r.deal,
-      stageName: r.stageName ?? null,
-      stageColor: null,
-      stageOrderIndex: r.stageOrderIndex ?? null,
-      pipelineName: r.pipelineName ?? null,
-      accountName: r.accountName ?? null,
-      operatorName: r.operatorName ?? null,
-    }));
+    // Sincroniza negociações onde o contato da conversa já é participante em crm_deal_contacts:
+    // a leitura canônica inclui participantes e vínculos históricos sem depender de INSERTs no GET.
+    const [conv] = await db.select({ contactId: conversations.contactId }).from(conversations)
+      .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId))).limit(1);
+    if (!conv) return [];
+    return getContactDealRows(db, tenantId, conv.contactId);
   }
 
   /**

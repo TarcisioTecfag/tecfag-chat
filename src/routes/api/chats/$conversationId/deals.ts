@@ -8,6 +8,8 @@ import { listCustomFields } from "../../../../lib/crm/custom-fields";
 import { db } from "../../../../db";
 import { conversations, contacts, crmAccounts } from "../../../../db/schema";
 import { eq, and } from "drizzle-orm";
+import { getDealContext } from "../../../../lib/crm/conversation-deal-context";
+import { canReadCrmDeal } from "../../../../lib/access-control/crm-record-access";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,7 +54,13 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
 
           if (new URL(request.url).searchParams.get("statusOnly") === "1") {
             if (session.operator.role !== "admin" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
-            return Response.json({ dealRequired: !await conversationHasDeal(db, tenantId, conversationId, conv.contactId) });
+            const state = await db.transaction(tx => getDealContext(tx, tenantId, conversationId, session.operator.id));
+            const eligibleCount = state.deals.filter(deal => deal.status === "open" && deal.isLinked && canReadCrmDeal(session, deal)).length;
+            return Response.json({
+              dealRequired: !await conversationHasDeal(db, tenantId, conversationId, conv.contactId),
+              currentDealRequired: !state.context.currentDealId && eligibleCount > 0 && conv.queueState === "meus" && conv.operatorId === session.operator.id,
+              eligibleCount,
+            }, { headers: { "Cache-Control": "no-store" } });
           }
           const permError = requireCrmPermission(session, "canViewCrm");
           if (permError) return permError;
@@ -83,7 +91,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
 
           return new Response(
             JSON.stringify({
-              deals,
+              deals: deals.filter(deal => canReadCrmDeal(session, deal)),
               customFieldDefinitions,
               contact: contact
                 ? {

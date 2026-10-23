@@ -3071,7 +3071,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         >
           {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
           {dealRequirement.pending ? (
-            <ConversationDealRequirement conversationId={activeChat.id} contactId={activeChat.contactId} customerName={activeChat.name} error={dealRequirement.error} />
+            <ConversationDealRequirement conversationId={activeChat.id} contactId={activeChat.contactId} customerName={activeChat.name} error={dealRequirement.error} selectionRequired={dealRequirement.currentRequired} />
           ) : !isOwner && activeChat.operatorId ? (
             <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
               <div className="flex items-start gap-3.5">

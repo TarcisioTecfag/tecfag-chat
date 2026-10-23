@@ -29,6 +29,7 @@ function DealPage() {
     refreshConversations,
     setActiveView,
     setSelectedChatId,
+    activeChat,
   } = useChat();
   const [sessionChecked, setSessionChecked] = useState(() => Boolean(isAuthenticated));
   const [authorized, setAuthorized] = useState(() => Boolean(isAuthenticated));
@@ -130,6 +131,7 @@ function DealPage() {
       <DealDetailModal
         isOpen
         dealId={dealId}
+        preferredContactId={from === "chat" ? activeChat?.contactId : undefined}
         onClose={goBack}
         onDealUpdated={() => {}}
         onOpenConversation={openConversation}

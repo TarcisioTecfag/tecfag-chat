@@ -9,6 +9,7 @@ import {
 import type { RdJourney } from "@/lib/rd-marketing/journey-types";
 import type { RdEventPage } from "@/lib/rd-marketing/api-types";
 import { DealStatusBadge } from "./deal-status-config";
+import { sortContactDeals } from "@/lib/crm/conversation-deal-policy";
 
 type Props = {
   currentDealId: string;
@@ -93,11 +94,10 @@ export function RdMarketingJourneyControls({
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Acompanhe os cards vinculados a este contato e abra cada negociação.
+                Contato: <strong>{journey.data.contactName}</strong>. As negociações em andamento aparecem primeiro, seguidas pelo histórico.
               </p>
               <div className="grid gap-3 md:grid-cols-2 max-h-80 overflow-y-auto pr-1">
-                {[...journey.data.relatedDeals]
-                  .sort((a, b) => Number(b.id === currentDealId) - Number(a.id === currentDealId))
+                {sortContactDeals(journey.data.relatedDeals)
                   .map((deal) => {
                     const current = deal.id === currentDealId;
                     let value = "Valor não informado";
@@ -122,7 +122,7 @@ export function RdMarketingJourneyControls({
                           <DealStatusBadge status={deal.status} size="sm" className="rounded-full" />
                           {current && (
                             <span className="text-[11px] font-semibold text-primary">
-                              Card atual
+                              Card em visualização
                             </span>
                           )}
                         </div>

@@ -132,7 +132,7 @@ export const MobileLayout: React.FC = () => {
             transition={{ duration: 0.15 }}
           >
             {dealRequirement.pending && dealChat ? <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background p-3">
-              <ConversationDealRequirement conversationId={dealChat.id} contactId={dealChat.contactId} customerName={dealChat.name} error={dealRequirement.error} />
+              <ConversationDealRequirement conversationId={dealChat.id} contactId={dealChat.contactId} customerName={dealChat.name} error={dealRequirement.error} selectionRequired={dealRequirement.currentRequired} />
             </div> : <MobileMessageInput onSendMessage={handleSendMessage} />}
           </motion.div>
         )}

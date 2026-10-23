@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Columns3,
   Plus,
@@ -44,6 +44,7 @@ import {
 import { normalizePipelineId } from "@/lib/crm/custom-fields";
 import { ConversationDealContext } from "./ConversationDealContext";
 import { fetchDealContext } from "@/lib/crm/conversation-deal-client";
+import { sortContactDeals } from "@/lib/crm/conversation-deal-policy";
 
 interface ConversationDealsPanelProps {
   conversationId: string;
@@ -202,6 +203,8 @@ export function ConversationDealsPanel({
 }: ConversationDealsPanelProps) {
   const { currentOperatorId, tenant } = useChat();
   const navigate = useNavigate();
+  const conversationRef = useRef(conversationId);
+  conversationRef.current = conversationId;
 
   const [loading, setLoading] = useState(true);
   const [deals, setDeals] = useState<any[]>([]);
@@ -259,16 +262,17 @@ export function ConversationDealsPanel({
   }, []);
 
   // Carrega negócios vinculados a esta conversa
-  const fetchLinkedDeals = useCallback(async () => {
+  const fetchLinkedDeals = useCallback(async (notify = false, background = false) => {
     if (!conversationId) return;
-    setLoading(true);
+    if (!background) setLoading(true);
     try {
       const res = await fetch(`/api/chats/${conversationId}/deals`);
       if (!res.ok) throw new Error("Erro ao carregar negociações da conversa.");
       const data = await res.json();
+      if (conversationRef.current !== conversationId) return;
       const loadedDeals = Array.isArray(data?.deals) ? data.deals : [];
-      setDeals(loadedDeals);
-      window.dispatchEvent(new Event("crm-deals-changed"));
+      setDeals(sortContactDeals(loadedDeals));
+      if (notify) window.dispatchEvent(new Event("crm-deals-changed"));
 
       if (data?.customFieldDefinitions) {
         setCustomFieldDefinitions(normalizeCustomFieldDefs(data.customFieldDefinitions));
@@ -291,12 +295,21 @@ export function ConversationDealsPanel({
     } catch (err: any) {
       console.warn("[ConversationDealsPanel] Erro ao buscar deals:", err);
     } finally {
-      setLoading(false);
+      if (conversationRef.current === conversationId && !background) setLoading(false);
     }
   }, [conversationId]);
 
   useEffect(() => {
-    fetchLinkedDeals();
+    void fetchLinkedDeals();
+    const refresh = () => { void fetchLinkedDeals(false, true); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener("crm-deals-changed", refresh);
+    window.addEventListener("conversation-deal-context-changed", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("crm-deals-changed", refresh);
+      window.removeEventListener("conversation-deal-context-changed", refresh);
+    };
   }, [fetchLinkedDeals]);
 
   // Alterna expansão de campos personalizados do deal
@@ -368,7 +381,7 @@ export function ConversationDealsPanel({
 
       toast.success("Negociação atualizada com sucesso!");
       setEditingDealId(null);
-      fetchLinkedDeals();
+      fetchLinkedDeals(true);
     } catch (e: any) {
       toast.error(e.message || "Erro ao atualizar negociação.");
     } finally {
@@ -387,7 +400,7 @@ export function ConversationDealsPanel({
       });
       if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || "Falha ao desvincular conversa."); }
       toast.success("Conversa desvinculada da negociação.");
-      fetchLinkedDeals();
+      fetchLinkedDeals(true);
     } catch (e: any) {
       toast.error(e.message || "Erro ao desvincular.");
     }
@@ -405,7 +418,7 @@ export function ConversationDealsPanel({
       const res = await fetch(`/api/crm/deals?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        const linkedIds = new Set(deals.map((d) => d.id));
+        const linkedIds = new Set(deals.filter(d => d.isLinked !== false).map((d) => d.id));
         const rawList = Array.isArray(data?.deals) ? data.deals : [];
         setAvailableDealsToLink(rawList.filter((d: any) => !linkedIds.has(d.id)));
       }
@@ -441,7 +454,7 @@ export function ConversationDealsPanel({
       toast.success("Negociação vinculada com sucesso!");
       setIsLinkingOpen(false);
       setSearchDealsQuery("");
-      fetchLinkedDeals();
+      fetchLinkedDeals(true);
     } catch (e: any) {
       toast.error(e.message || "Erro ao vincular.");
     }
@@ -567,7 +580,7 @@ export function ConversationDealsPanel({
         </div>
       ) : (
         <div className="space-y-3">
-          {deals.map((deal) => {
+          {deals.map((deal, index) => {
             const isEditing = editingDealId === deal.id;
             const isSaving = savingDealId === deal.id;
             const isExpanded = expandedDealIds.has(deal.id);
@@ -598,6 +611,8 @@ export function ConversationDealsPanel({
                 key={deal.id}
                 className="group relative rounded-2xl border border-border/80 bg-card p-3 shadow-xs hover:border-primary/40 transition-all duration-150"
               >
+                {(index === 0 || (deals[index - 1].status === "open") !== (deal.status === "open")) && <p className="mb-2 text-xs font-semibold text-muted-foreground">{deal.status === "open" ? "Em andamento" : "Histórico — vendidas, perdidas e pausadas"}</p>}
+                {deal.isLinked === false && <p className="mb-2 text-[10px] text-muted-foreground">Vínculo histórico — negociação desvinculada</p>}
                 {isEditing ? (
                   /* ── MODO EDIÇÃO INLINE DO CARD ── */
                   <div className="space-y-3">
@@ -1003,7 +1018,7 @@ export function ConversationDealsPanel({
                           </button>
                         </SystemTooltip>
 
-                        <SystemTooltip content="Desvincular negociação deste atendimento">
+                        {deal.isLinked !== false && <SystemTooltip content="Desvincular negociação deste atendimento">
                           <button
                             type="button"
                             onClick={() => handleUnlink(deal.id)}
@@ -1012,7 +1027,7 @@ export function ConversationDealsPanel({
                           >
                             <Unlink className="h-3 w-3" />
                           </button>
-                        </SystemTooltip>
+                        </SystemTooltip>}
                       </div>
                     </div>
 
@@ -1190,7 +1205,7 @@ export function ConversationDealsPanel({
               if (!res.ok) throw new Error(data.error || "Falha ao criar e vincular negociação.");
               toast.success("Nova negociação criada e vinculada com sucesso!");
               setIsLinkingOpen(false);
-              fetchLinkedDeals();
+              fetchLinkedDeals(true);
             } catch (e: any) {
               toast.error(e.message || "Erro ao criar negociação.");
             }
@@ -1204,7 +1219,7 @@ export function ConversationDealsPanel({
         onClose={() => setIsCreateOpen(false)}
         offerUseAsCurrent
         onSuccess={async (newDeal, createAnother, useAsCurrent) => {
-          await fetchLinkedDeals();
+          await fetchLinkedDeals(true);
           if (useAsCurrent) {
             try {
               const context = await fetchDealContext(tenant!, currentOperatorId!, conversationId);

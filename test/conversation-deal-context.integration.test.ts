@@ -10,10 +10,12 @@ import {
 } from "../src/lib/crm/conversation-deal-context";
 import { DEFAULT_ADMIN_PERMISSIONS } from "../src/lib/rbac";
 import { readFile } from "node:fs/promises";
+import { getContactDealRows } from "../src/lib/crm/contact-deals-query";
+import { isCurrentDealEligible, sortContactDeals } from "../src/lib/crm/conversation-deal-policy";
 
 // PostgreSQL WASM: esta suíte nunca abre conexões com bancos operacionais.
 describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL isolado", () => {
-  let pg: any, db: any, notes: any, queue: any, contextApi: any, taskApi: any;
+  let pg: any, db: any, notes: any, queue: any, contextApi: any, taskApi: any, dealsApi: any;
   let authenticated = true;
   const session: any = {
     tenantId: "context-a",
@@ -175,12 +177,124 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
     ).server.handlers;
     taskApi = ((await import("../src/routes/api/chats/tag-task")).Route.options as any).server
       .handlers.POST;
+    dealsApi = (
+      (await import("../src/routes/api/chats/$conversationId/deals")).Route.options as any
+    ).server.handlers;
   }, 120000);
   afterAll(async () => {
     mock.restore();
     if (pg) await pg.close();
   });
 
+  test("nove cards do contato aparecem mesmo com apenas dois vínculos diretos; aviso exige seleção e histórico não é elegível", async () => {
+    const f = await fixture(9);
+    await db.insert(schema.crmDealContacts).values(
+      f.deals.map((dealId: string) => ({
+        id: `participant-${dealId}`,
+        tenantId: "context-a",
+        contactId: f.id,
+        dealId,
+      })),
+    );
+    for (let i = 2; i < f.deals.length; i++)
+      await db
+        .delete(schema.crmConversationDeals)
+        .where(
+          and(
+            eq(schema.crmConversationDeals.tenantId, "context-a"),
+            eq(schema.crmConversationDeals.dealId, f.deals[i]),
+          ),
+        );
+    for (const [i, status] of [
+      [0, "won"],
+      [1, "lost"],
+      [2, "paused"],
+    ] as const)
+      await db
+        .update(schema.crmDeals)
+        .set({ status, createdAt: new Date("2030-01-01T00:00:00Z") })
+        .where(and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, f.deals[i])));
+    const rows = await getContactDealRows(db, "context-a", f.id);
+    expect(rows).toHaveLength(9);
+    expect(await getContactDealRows(db, "context-b", f.id)).toHaveLength(0);
+    expect(rows.slice(0, 6).every((d) => d.status === "open")).toBe(true);
+    expect(rows.slice(6).every((d) => d.status !== "open")).toBe(true);
+    const result = await dealsApi.GET({
+      params: { conversationId: f.id },
+      request: new Request("http://localhost/api/chats/" + f.id + "/deals"),
+    });
+    expect(result.status).toBe(200);
+    expect((await result.json()).deals.map((d: any) => d.id)).toEqual(rows.map((d) => d.id));
+    const before = await dealsApi.GET({
+      params: { conversationId: f.id },
+      request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
+    });
+    expect(await before.json()).toMatchObject({
+      dealRequired: false,
+      currentDealRequired: true,
+      eligibleCount: 6,
+    });
+    const contextResponse = await contextApi.GET({
+      params: { conversationId: f.id },
+      request: new Request("http://localhost"),
+    });
+    const options = await contextResponse.json();
+    expect(options.deals).toHaveLength(9);
+    expect(options.deals.filter(isCurrentDealEligible)).toHaveLength(6);
+    expect(options.hasCurrentDeal).toBe(false);
+    expect(
+      (
+        await contextApi.PATCH(
+          request(f.id, { dealId: f.deals[0], expectedVersion: options.version }, "PATCH"),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await contextApi.PATCH(
+          request(f.id, { dealId: f.deals[3], expectedVersion: options.version }, "PATCH"),
+        )
+      ).status,
+    ).toBe(200);
+    const after = await dealsApi.GET({
+      params: { conversationId: f.id },
+      request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
+    });
+    expect((await after.json()).currentDealRequired).toBe(false);
+    expect((await state(f.id)).context.currentDealId).toBe(f.deals[3]);
+  });
+  test("leitura canônica não duplica cards e mantém desvinculados somente no histórico", async () => {
+    const f = await fixture(2);
+    await db.insert(schema.crmDealContacts).values({
+      id: `participant-${f.deals[0]}`,
+      tenantId: "context-a",
+      contactId: f.id,
+      dealId: f.deals[0],
+    });
+    await db
+      .update(schema.crmConversationDeals)
+      .set({ isActive: false })
+      .where(
+        and(
+          eq(schema.crmConversationDeals.tenantId, "context-a"),
+          eq(schema.crmConversationDeals.dealId, f.deals[1]),
+        ),
+      );
+    const rows = await getContactDealRows(db, "context-a", f.id);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((d) => d.id === f.deals[1])?.isLinked).toBe(false);
+    expect((await state(f.id)).context.currentDealId).toBe(f.deals[0]);
+    expect(rows.filter(isCurrentDealEligible).map((d) => d.id)).toEqual([f.deals[0]]);
+  });
+  test("ordenar lista nunca promove card concluído, mesmo sendo o aberto em visualização", () => {
+    const sorted = sortContactDeals([
+      { id: "won", status: "won", createdAt: "2026-10-23" },
+      { id: "open-old", status: "open", createdAt: "2026-10-21" },
+      { id: "lost", status: "lost", createdAt: "2026-10-22" },
+      { id: "open-new", status: "open", createdAt: "2026-10-22" },
+    ]);
+    expect(sorted.map((d) => d.id)).toEqual(["open-new", "open-old", "won", "lost"]);
+  });
   test("seleção automática única é persistente; um segundo card não a substitui", async () => {
     const f = await fixture();
     const first = await state(f.id);

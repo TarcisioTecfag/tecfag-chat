@@ -5,7 +5,8 @@ export type ConversationDealContext = {
   hasCurrentDeal: boolean;
   selectionRequired: boolean;
   editable: boolean;
-  deals: Array<{ id: string; title: string }>;
+  contactId: string;
+  deals: Array<{ id: string; title: string; status: string; isLinked: boolean }>;
 };
 const cache = new Map<string, ConversationDealContext>();
 const key = (tenantId: string, operatorId: string, conversationId: string) =>

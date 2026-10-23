@@ -200,8 +200,8 @@ export const Route = createFileRoute("/api/chats/update-queue")({
               const isCapture = queueState === "meus" && operatorId === session.operator.id &&
                 (state.conversation.operatorId !== session.operator.id || state.conversation.queueState !== "meus");
               if (!isCapture) assertDealContextVersion(state.context, body.expectedContextVersion);
-              if (body.nextDealId && !state.deals.some(d => d.id === body.nextDealId && d.status === "open")) throw new DealContextError("A negociação de destino deve estar vinculada e em andamento.", "INVALID_DEAL_CONTEXT", 400);
-              if (!isCapture && !state.context.currentDealId && !body.nextDealId && state.deals.some(d => d.status === "open")) {
+              if (body.nextDealId && !state.deals.some(d => d.id === body.nextDealId && d.status === "open" && d.isLinked)) throw new DealContextError("A negociação de destino deve estar vinculada e em andamento.", "INVALID_DEAL_CONTEXT", 400);
+              if (!isCapture && !state.context.currentDealId && !body.nextDealId && state.deals.some(d => d.status === "open" && d.isLinked)) {
                 throw new DealContextError("Selecione a negociação deste atendimento antes de transferir ou encerrar.", "DEAL_CONTEXT_REQUIRED");
               }
               const updatedRows = await tx

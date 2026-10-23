@@ -28,6 +28,23 @@ com negociações são preservados; a seleção operacional fica separada em
 - Leitura de mensagens e preferências pessoais de interface não são atividades
   comerciais.
 
+## Listagem e aviso de seleção
+
+Chat, seletor e jornada usam a mesma consulta de negociações do contato, reunindo
+participação e vínculos de conversa sem duplicar cards. A listagem não depende de
+uma sincronização prévia da interface. Vínculos removidos permanecem visíveis como
+histórico e não são reativados pela leitura.
+
+Negociações em andamento aparecem antes das vendidas, perdidas ou pausadas. O
+seletor mostra o histórico desabilitado; somente cards vinculados e em andamento
+podem ser atuais. Havendo opções em andamento e nenhuma selecionada, o responsável
+recebe o aviso de escolha, mesmo que já existam cards associados ao contato.
+
+A lista do chat atualiza após alterações e em segundo plano a cada 15 segundos.
+Na jornada, “Card em visualização” identifica apenas a página aberta, sem indicar
+uma seleção operacional. Ao abrir pelo atendimento, a jornada prioriza o contato
+da conversa e informa explicitamente o nome do contato consultado.
+
 ## Consistência
 
 O contexto possui versão própria. Notas pendentes preservam a versão da seleção

@@ -6,6 +6,15 @@ import { getAllowedPipelineIds, isPipelineAllowed, requireCrmPermission } from "
 
 export { getAllowedPipelineIds, isPipelineAllowed };
 
+/** Mesma visibilidade de cards para lista do chat e seletor da negociação atual. */
+export function canReadCrmDeal(session: AuthSessionContext, deal: { pipelineId: string; operatorId: string | null }) {
+  const admin = session.operator.role === "admin";
+  const pipelines = getAllowedPipelineIds(session);
+  return (admin || session.permissions?.crm?.canViewCrm === true) &&
+    (pipelines === null || pipelines.includes(deal.pipelineId)) &&
+    (admin || session.permissions?.crm?.canViewAllDeals === true || deal.operatorId === session.operator.id);
+}
+
 /** Shared parent-record check for every deal subresource; IDs never override tenant. */
 export async function requireCrmDealAccess(session: AuthSessionContext, dealId: string): Promise<Response | null> {
   const permission = requireCrmPermission(session, "canViewCrm");

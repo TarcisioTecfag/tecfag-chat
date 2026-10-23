@@ -6,7 +6,7 @@ import {
   requireConversationWriteAccess,
 } from "../../../../lib/access-control/conversation-access";
 import {
-  getAllowedPipelineIds,
+  canReadCrmDeal,
   requireCrmDealAccess,
 } from "../../../../lib/access-control/crm-record-access";
 import {
@@ -38,16 +38,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/deal-context")(
           const state = await db.transaction((tx) =>
             getDealContext(tx, tenantId, params.conversationId, session.operator.id),
           );
-          const pipelines = getAllowedPipelineIds(session);
-          const isAdmin = session.operator.role === "admin";
-          const visible = state.deals.filter(
-            (deal) =>
-              (isAdmin || session.permissions?.crm?.canViewCrm === true) &&
-              (pipelines === null || pipelines.includes(deal.pipelineId)) &&
-              (isAdmin ||
-                session.permissions?.crm?.canViewAllDeals === true ||
-                deal.operatorId === session.operator.id),
-          );
+          const visible = state.deals.filter(deal => canReadCrmDeal(session, deal));
           const editable =
             state.conversation.queueState === "meus" &&
             state.conversation.operatorId === session.operator.id;
@@ -59,7 +50,8 @@ export const Route = createFileRoute("/api/chats/$conversationId/deal-context")(
               hasCurrentDeal: Boolean(state.context.currentDealId),
               selectionRequired: !state.context.currentDealId,
               editable,
-              deals: visible.filter((d) => d.status === "open"),
+              deals: visible,
+              contactId: state.conversation.contactId,
             },
             { headers: { "Cache-Control": "no-store" } },
           );
