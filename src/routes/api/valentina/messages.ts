@@ -47,18 +47,33 @@ function emitRealTimeThoughtProgress(params: {
   operatorId: string;
   scope: "admin" | "operator";
   taskTitle: string;
-  finishedTitle: string;
-  startedAtMs: number;
+  finishedTitle?: string;
+  startedAtMs?: number;
   steps: AgenticThoughtStep[];
 }) {
   try {
+    const safeTaskTitle =
+      typeof params.taskTitle === "string" && params.taskTitle.trim().length > 0
+        ? params.taskTitle
+        : "Processando solicitação...";
+    const safeFinishedTitle =
+      typeof params.finishedTitle === "string" && params.finishedTitle.trim().length > 0
+        ? params.finishedTitle
+        : "Consulta concluída";
+    const safeSteps = Array.isArray(params.steps)
+      ? params.steps.filter(
+          (s): s is AgenticThoughtStep =>
+            Boolean(s && typeof s === "object" && typeof s.id === "string" && typeof s.actionVerb === "string")
+        )
+      : [];
+    const startedMs = typeof params.startedAtMs === "number" ? params.startedAtMs : Date.now();
     const trace: AgenticThoughtTraceData = {
-      taskTitle: params.taskTitle,
-      finishedTitle: params.finishedTitle,
-      totalDurationSeconds: Math.max(1, Math.round((Date.now() - params.startedAtMs) / 1000)),
+      taskTitle: safeTaskTitle,
+      finishedTitle: safeFinishedTitle,
+      totalDurationSeconds: Math.max(1, Math.round((Date.now() - startedMs) / 1000)),
       scope: params.scope,
       isRealTimeStream: true,
-      steps: params.steps,
+      steps: safeSteps,
     };
     SessionManager.getInstance().notifyPublic(params.tenantId, {
       type: "valentina_thought_progress",
@@ -1529,10 +1544,11 @@ Você está conversando diretamente com "${operatorName}" (Diretoria / Gestão E
      * **Seção 9**: Escala do Rodízio (consultores ativos, pausados, saldo de compensação) e Telemetria de Custos de IA.
      * **Seção 10 e 11**: Busca Profunda sob demanda (conversas com transcrição, negociações e empresas específicas) e Catálogo/Base de Conhecimento.
 
-2. **REGRA INVIOLÁVEL — PROIBIDO DIZER "NÃO TENHO ACESSO" E PROIBIDO INVENTAR DADOS FICTÍCIOS**:
+2. **REGRA INVIOLÁVEL — PROIBIDO DIZER "NÃO TENHO ACESSO", PROIBIDO INVENTAR DADOS FICTÍCIOS E PROIBIDO USAR EMOJIS**:
    - **JAMAIS** responda que "não tem acesso", "não consigo consultar", "os dados não estão disponíveis no contexto" ou que houve "falha no início do ciclo / erro na compilação da métrica".
    - **PROIBIÇÃO ABSOLUTA DE ALUCINAÇÃO (FIDELIDADE 100% AO DOSSIÊ)**: Você SÓ pode citar nomes de operadores/vendedores, nomes de clientes/empresas, CNPJs, valores em R$ e quantidades que estejam **literalmente escritos** no dossiê abaixo (\`DADOS REAIS DA OPERAÇÃO AGORA\`). **JAMAIS** invente nomes fictícios de exemplo (como "Ana Paula", "Carlos Dias", "Mecânica Souza Ltda", "Construtora Alfa", "Agropecuária do Vale") nem números fictícios (como "48 alertas" ou "3 conversas")!
    - Quando um indicador específico estiver em \`0\` no dossiê (por exemplo: \`0 alertas de SLA disparados hoje\` e \`0 conversas com SLA estourado agora\`), **informe com exatidão que o número é 0 (operação 100% dentro do SLA no momento)** e mostre nos blocos visuais os indicadores reais correlatos do dossiê (como operadores ativos na escala do rodízio, volume de negociações abertas/paradas no CRM dos vendedores reais da empresa, ou histórico real de 7 dias), **nunca fabricando clientes ou operadores inexistentes**.
+   - **PROIBIÇÃO ABSOLUTA DE EMOJIS**: O sistema utiliza exclusivamente ícones vetoriais nativos na interface. **JAMAIS** inclua emojis no texto das suas respostas ou dentro dos blocos.
 
 3. **USO OBRIGATRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\` COM DADOS 100% REAIS DO DOSSIÊ)**:
    - Sempre que a pergunta envolver métricas, comparativos, rankings, funil, relatórios ou objeções, enriqueça sua resposta com **1 ou 2 blocos visuais** dentro do array \`"blocks"\` usando **exclusivamente** os números e nomes reais do dossiê:
@@ -1544,7 +1560,7 @@ Você está conversando diretamente com "${operatorName}" (Diretoria / Gestão E
      * **Perguntas sobre Relatório Detalhado por Vendedor**: Gere obrigatoriamente um \`ReportBlock\` completo com os vendedores reais da Seção 6 (Colunas sugeridas: \`["Vendedor", "Divisão", "Meta Mês", "Realizado Mês", "Pipeline Aberto", "Parados >=3d", "Perdidos Mês"]\`) + um \`InsightBlock\` com o resumo da meta global e realizado real da empresa.
      * **Perguntas sobre Objeções dos Leads**: Gere um \`ChartBlock\` (\`"bar"\` ou \`"pie"\`) com o ranking real das categorias/objeções da Seção 7 (usando as 5 macro-categorias e os Top 12 motivos específicos de perda do CRM quando a amostra de mensagens do chat estiver em 0) + um \`ReportBlock\` ou \`InsightBlock\` detalhando os valores em R$ e ocorrências reais.
 
-## 📊 DADOS REAIS DA OPERAÇÃO AGORA (DOSSIÊ EXECUTIVO 360º):
+## DADOS REAIS DA OPERAÇÃO AGORA (DOSSIÊ EXECUTIVO 360º):
 ${operationalContext}
 ${fileContext}
 
@@ -1562,7 +1578,7 @@ ${chatHistoryText ? `## HISTÓRICO RECENTE DESTA CONVERSA:\n${chatHistoryText}\n
 {
   "fragments": [
     {
-      "text": "Análise executiva direta, clara e completa respondendo à pergunta do gestor com os números reais da operação (sem repetir de forma idêntica o que já está desenhado na tabela/gráfico abaixo, mas interpretando os destaques e gargalos).",
+      "text": "Análise executiva direta, clara e completa respondendo à pergunta do gestor com os números reais da operação (sem emojis e sem repetir de forma idêntica o que já está desenhado na tabela/gráfico abaixo, mas interpretando os destaques e gargalos).",
       "delay": 0,
       "blocks": [ ... ]
     }
@@ -1586,8 +1602,8 @@ function buildColeaguePrompt(
 
   return `Você é ${persona.name}, ${colleagueRole} de vendas e atendimento da ${persona.company}.
 Você trabalha lado a lado com ${operatorName} (consultor(a)/vendedor(a)) durante o dia a dia comercial no WhatsApp interno.
-📅 DATA E HORA ATUAL (HORÁRIO DE BRASÍLIA): ${brtNowLabel}.
-⚠️ ATENÇÃO TEMPORAL: No histórico da conversa abaixo, cada mensagem possui um marcador temporal exato (\`[Hoje HH:mm]\`, \`[Ontem DD/MM HH:mm]\` ou \`[DD/MM/YYYY HH:mm]\`). Nunca trate assuntos ou perguntas marcadas como \`[Hoje ...]\` como se fossem de ontem, e nunca trate alertas antigos de \`[Ontem ...]\` como se estivessem acontecendo agora.
+DATA E HORA ATUAL (HORÁRIO DE BRASÍLIA): ${brtNowLabel}.
+ATENÇÃO TEMPORAL: No histórico da conversa abaixo, cada mensagem possui um marcador temporal exato (\`[Hoje HH:mm]\`, \`[Ontem DD/MM HH:mm]\` ou \`[DD/MM/YYYY HH:mm]\`). Nunca trate assuntos ou perguntas marcadas como \`[Hoje ...]\` como se fossem de ontem, e nunca trate alertas antigos de \`[Ontem ...]\` como se estivessem acontecendo agora.
 
 ## SEU PAPEL NO DIA A DIA DO VENDEDOR:
 Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets"). Você é um colega de trabalho afiado, direto e prestativo que ajuda ${firstName} com:
@@ -1598,14 +1614,14 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
 5. **Negociações (CRM) Abertas, Histórico de Atividades e Negociações Paradas/Esfriando**: Quais orçamentos/deals estão em aberto, histórico detalhado de anotações/atividades de cada card, telefone do contato e quais estão parados há 3+ dias sem interação.
 6. **Dúvidas Técnicas de Produtos/Máquinas**: Especificações técnicas do catálogo da ${persona.company} para ajudar ${firstName} a responder rápido ao cliente.
 
-## 💬 ESTILO DE CONVERSA NATURAL (COMO UM COLEGA NO WHATSAPP):
+## ESTILO DE CONVERSA NATURAL (COMO UM COLEGA NO WHATSAPP):
 1. **DIVIDA EM BALÕES CURTOS (1 A 3 FRAGMENTOS)**:
    - Em agradecimentos ou confirmações rápidas (ex: *"ta obrigado"*, *"valeu"*, *"beleza"*, *"ok"*), responda em **1 único balão curto** (1 frase natural, sem puxar novos assuntos ou empurrar atendimentos).
    - Em consultas comerciais, quebre sua resposta em **2 a 3 balões curtos** dentro do array \`"fragments"\` (cada balão com 1 a 3 frases curtas).
 2. **PROIBIDO CUMPRIMENTAR TODA HORA**:
    - ${
      alreadyTalkingToday
-       ? `🚨 **VOCÊS JÁ ESTÃO CONVERSANDO HOJE!** Veja o histórico abaixo. É **ESTRITAMENTE PROIBIDO** começar a resposta com saudação ("Fala, ${firstName}!", "E aí, ${firstName}!", "Bom dia", "Boa tarde", "Olá", "Tudo certo?", "Opa"). Responda DIRETO ao ponto como em uma conversa contínua de WhatsApp!`
+       ? `**VOCÊS JÁ ESTÃO CONVERSANDO HOJE!** Veja o histórico abaixo. É **ESTRITAMENTE PROIBIDO** começar a resposta com saudação ("Fala, ${firstName}!", "E aí, ${firstName}!", "Bom dia", "Boa tarde", "Olá", "Tudo certo?", "Opa"). Responda DIRETO ao ponto como em uma conversa contínua de WhatsApp!`
        : `Como é a primeira troca de mensagens de hoje, se ${firstName} mandou um cumprimento ("Oi", "Olá", "Bom dia"), responda de forma curta e natural apenas no primeiro balão.`
    }
 3. **PROIBIDO EMPURRAR ATENDIMENTOS OU NEGOCIAÇÕES NÃO SOLICITADOS (ZERO POLUIÇÃO)**:
@@ -1613,7 +1629,8 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
    - Se ${firstName} apenas agradeceu (*"ta obrigado"*, *"valeu"*), encerre de forma leve sem anexar nenhum card (\`"mentionedConversationIds": []\`, \`"mentionedDealIds": []\`, \`"suggestedCallDealIds": []\`).
    - Se ${firstName} perguntou sobre um cliente/negociação de outro vendedor (bloqueado por sigilo comercial) ou que não foi encontrado na carteira, informe apenas isso de forma objetiva — **JAMAIS** ofereça outras negociações aleatórias da carteira como "compensação".
    - **PROIBIDO REPETIR INDICAÇÕES**: Olhe o \`HISTÓRICO RECENTE DA CONVERSA\`. Se você já sugeriu determinados clientes/negociações (ex: nas mensagens anteriores de hoje), **NÃO volte a oferecer os mesmos clientes** a menos que ${firstName} pergunte especificamente por eles pelo nome.
-4. **PROIBIDO REPETIR PALAVRAS, NOMES OU BORDÕES**:
+4. **PROIBIDO USAR EMOJIS E PROIBIDO REPETIR BORDÕES**:
+   - **PROIBIÇÃO ABSOLUTA DE EMOJIS**: O sistema utiliza exclusivamente ícones nativos na interface. **JAMAIS** inclua emojis em nenhuma mensagem!
    - **NUNCA** use as palavras **"parceiro"**, **"parceira"**, **"campeão"**, **"fera"**, **"chefe"**, **"meu caro"** ou **"amigo"**.
    - **NÃO** fique repetindo o nome "${firstName}" em toda mensagem ou em todo balão.
    - **NUNCA** use frases de fechamento batidas/repetitivas como *"Qualquer coisa estou na escuta"*, *"Fico na escuta"*, *"É só chamar"*, *"Estou por aqui"*, *"Bora pra cima"*, *"Bons negócios"*.
@@ -1621,12 +1638,12 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
    - **JAMAIS** use crases (\`0017418\`) para destacar códigos ou nomes. Use apenas negrito simples do WhatsApp (\`*0017418*\` ou \`**0017418**\`).
    - **JAMAIS** escreva \`[ID: ...]\`, \`[dealId: ...]\` ou \`[convId: ...]\` no texto visível de \`"text"\`. Coloque os IDs exclusivamente nos arrays do JSON (\`"mentionedConversationIds"\`, \`"mentionedDealIds"\`, \`"suggestedCallDealIds"\`).
 6. **CARDS UNIFICADOS E SEM DUPLICIDADE (MÁXIMO 1 A 3 CARDS RELEVANTES)**:
-   - Cada Card de Negociação em \`"mentionedDealIds"\` **já possui embutidos** o telefone do cliente, o botão de discagem direta no VigosPhone (\`📞\`), o atalho da conversa no WhatsApp (\`💬\`) e o botão **"Abrir CRM →"**.
+   - Cada Card de Negociação em \`"mentionedDealIds"\` **já possui embutidos** o telefone do cliente, o botão de discagem direta no VigosPhone, o atalho da conversa no WhatsApp e o botão **"Abrir CRM →"**.
    - Portanto, quando citar uma negociação do CRM (\`[dealId: ...]\`), coloque o ID **APENAS em \`"mentionedDealIds"\`** (limite-se às 1 a 3 negociações realmente citadas no seu texto; nunca despeje 6 cards de uma vez).
    - Use \`"suggestedCallDealIds"\` **apenas** quando o foco específico for uma ligação agendada hoje ou quando não houver card de CRM correspondente.
    - Use \`"mentionedConversationIds"\` **apenas** quando citar conversas de WhatsApp que não sejam negociações já listadas em \`"mentionedDealIds"\`.
 
-## 🔒 REGRAS INVIOLÁVEIS DE SIGILO E SEGURANÇA (RBAC):
+## REGRAS INVIOLÁVEIS DE SIGILO E SEGURANÇA (RBAC):
 - Você tem acesso EXCLUSIVO à carteira, metas, tarefas, clientes e negociações de **${operatorName}**.
 - **PROIBIDO** revelar, estimar ou comentar sobre negociações de terceiros (outros vendedores/operadores), ranking confidencial de salários/comissões de colegas ou dados estratégicos/financeiros restritos à Diretoria.
 - Use SEMPRE os dados reais fornecidos abaixo. Nunca invente valores, telefones, nomes de clientes ou tarefas que não estejam listados no contexto.
@@ -1643,7 +1660,7 @@ ${chatHistoryText ? `## HISTÓRICO RECENTE DA CONVERSA COM ${operatorName.toUppe
 {
   "fragments": [
     {
-      "text": "Primeiro balão curto e direto (sem saudação repetida e sem palavras-muleta)",
+      "text": "Primeiro balão curto e direto (sem emojis, sem saudação repetida e sem palavras-muleta)",
       "delay": 0
     }
   ],
@@ -1653,6 +1670,16 @@ ${chatHistoryText ? `## HISTÓRICO RECENTE DA CONVERSA COM ${operatorName.toUppe
 }`;
 }
 
+function stripAllEmojis(text: string): string {
+  return (text || "")
+    .replace(
+      /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{200D}\u{FE0E}\u{FE0F}]/gu,
+      ""
+    )
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 // ── Helpers para Pós-Processamento de Balões Naturais e Conversas Citadas ───
 function cleanColleagueText(
   text: string,
@@ -1660,7 +1687,7 @@ function cleanColleagueText(
   alreadyTalkingToday: boolean,
   isFirstBubble: boolean
 ): string {
-  let out = (text || "").trim();
+  let out = stripAllEmojis(text || "");
   const firstName = (operatorName.split(" ")[0] || operatorName).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   // Remove bordões/muletas proibidas ("parceiro", "parceira", "campeão", "fera")
@@ -1694,7 +1721,7 @@ function cleanColleagueText(
   // Converte crases inline (`0017418`) em negrito limpo de WhatsApp (*0017418*)
   out = out.replace(/`([^`\n]+)`/g, "*$1*");
 
-  return out || text.trim();
+  return out || stripAllEmojis(text || "");
 }
 
 function splitIntoNaturalFragments(
@@ -2463,7 +2490,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
               operatorId,
               scope: useManagerContext ? "admin" : "operator",
               taskTitle: customTitle || liveTaskTitle,
+              finishedTitle: liveFinishedTitle,
               steps: stepsToSend,
+              startedAtMs: requestStartedMs,
             });
           };
 
@@ -2471,7 +2500,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           if (attachment?.base64 && attachment?.name) {
             const tFile0 = Date.now();
             const extracted = await extractFileText(attachment.name, attachment.mimeType || "", attachment.base64);
-            fileContext = `\n\n📎 ARQUIVO ANEXADO PELO USUÁRIO: "${attachment.name}"\n${extracted}`;
+            fileContext = `\n\nARQUIVO ANEXADO PELO USUÁRIO: "${attachment.name}"\n${extracted}`;
             const fileMs = Math.max(8, Date.now() - tFile0);
             liveExecutedSteps.push({
               id: "step-attachment-extract",
@@ -2530,22 +2559,30 @@ export const Route = createFileRoute("/api/valentina/messages")({
               operatorEmail,
               userText,
               recentAiContextText,
-              (taskTitle, steps) => {
-                liveTaskTitle = taskTitle;
-                liveExecutedSteps.splice(
-                  liveExecutedSteps.findIndex((s) => s.id.startsWith("step-op-")) >= 0
-                    ? liveExecutedSteps.findIndex((s) => s.id.startsWith("step-op-"))
-                    : liveExecutedSteps.length,
-                  liveExecutedSteps.length,
-                  ...steps
+              (steps, taskTitle, finishedTitle) => {
+                if (typeof taskTitle === "string" && taskTitle.trim()) {
+                  liveTaskTitle = taskTitle;
+                }
+                if (typeof finishedTitle === "string" && finishedTitle.trim()) {
+                  liveFinishedTitle = finishedTitle;
+                }
+                const validIncomingSteps = Array.isArray(steps)
+                  ? steps.filter((s) => s && typeof s === "object" && typeof s.id === "string")
+                  : [];
+                const nonOpSteps = liveExecutedSteps.filter(
+                  (s) => s && typeof s.id === "string" && !s.id.startsWith("step-op-")
                 );
-                broadcastLiveProgress(taskTitle);
+                liveExecutedSteps.length = 0;
+                liveExecutedSteps.push(...nonOpSteps, ...validIncomingSteps);
+                broadcastLiveProgress(liveTaskTitle);
               }
             );
             liveTaskTitle = operatorContextResult.taskTitle;
             liveFinishedTitle = operatorContextResult.finishedTitle;
             // Garante sincronização final das etapas reais do operador
-            const nonOpSteps = liveExecutedSteps.filter((s) => !s.id.startsWith("step-op-"));
+            const nonOpSteps = liveExecutedSteps.filter(
+              (s) => s && typeof s.id === "string" && !s.id.startsWith("step-op-")
+            );
             liveExecutedSteps.length = 0;
             liveExecutedSteps.push(...nonOpSteps, ...operatorContextResult.executedSteps);
           }
@@ -2661,7 +2698,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               {
                 text: useManagerContext
                   ? `Estou com dificuldade para processar sua solicitação agora. Por favor, tente novamente em instantes. Se o problema persistir, verifique se o serviço de IA está configurado corretamente.`
-                  : `Deu uma oscilada rápida aqui na consulta 😅 Pode me mandar de novo?`,
+                  : `Deu uma oscilada rápida aqui na consulta. Pode me mandar de novo?`,
               },
             ];
           }
@@ -2669,6 +2706,10 @@ export const Route = createFileRoute("/api/valentina/messages")({
           // ── Pós-processamento: fragmentação natural em balões curtos + cards interativos ──
           if (!useManagerContext) {
             fragments = splitIntoNaturalFragments(fragments, operatorName, alreadyTalkingToday);
+          } else {
+            fragments = fragments
+              .map((f) => ({ ...f, text: stripAllEmojis(f.text || "") }))
+              .filter((f) => f.text.length > 0 || (f.blocks && f.blocks.length > 0));
           }
 
           const fullReplyText = fragments.map((f) => f.text).join("\n");

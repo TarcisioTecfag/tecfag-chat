@@ -2586,7 +2586,9 @@ export function CrmChatWidget() {
                                   )}
                                   <MiniMediaRenderer
                                     text={
-                                      message.isWarning
+                                      message.isWarning ||
+                                      message.sender === "valentina" ||
+                                      selected.id === "valentina"
                                         ? stripNotificationEmojis(message.text)
                                         : message.text
                                     }
@@ -2934,8 +2936,9 @@ export function CrmChatWidget() {
                                                           .join(" • ")}
                                                       </div>
                                                       {deal.contactPhone ? (
-                                                        <div className="text-[9.5px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                                                          📞 {formatDisplayPhone(deal.contactPhone)}
+                                                        <div className="text-[9.5px] font-mono font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                                          <PhoneCall className="h-2.5 w-2.5 shrink-0" />
+                                                          <span>{formatDisplayPhone(deal.contactPhone)}</span>
                                                         </div>
                                                       ) : (
                                                         <div className="text-[9px] text-muted-foreground/80 italic">

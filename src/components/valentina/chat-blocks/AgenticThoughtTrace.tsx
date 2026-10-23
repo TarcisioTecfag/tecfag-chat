@@ -187,13 +187,34 @@ export function AgenticThoughtTrace({
     }));
   };
 
+  // Sanitização defensiva para garantir que nunca ocorra React Error #31 (objeto renderizado como child)
+  const safeTaskTitle =
+    typeof trace?.taskTitle === "string" && trace.taskTitle.trim()
+      ? trace.taskTitle
+      : "Analisando solicitação comercial";
+  const safeFinishedTitle =
+    typeof trace?.finishedTitle === "string" && trace.finishedTitle.trim()
+      ? trace.finishedTitle
+      : "Consulta concluída";
+  const safeSteps: AgenticThoughtStep[] = Array.isArray(trace?.steps)
+    ? trace.steps
+        .filter((s): s is AgenticThoughtStep => Boolean(s && typeof s === "object" && typeof s.id === "string"))
+        .map((s) => ({
+          ...s,
+          actionVerb: typeof s.actionVerb === "string" ? s.actionVerb : String(s.actionVerb ?? "Executou"),
+          targetLabel: typeof s.targetLabel === "string" ? s.targetLabel : String(s.targetLabel ?? ""),
+          scopeTag: typeof s.scopeTag === "string" ? s.scopeTag : undefined,
+          detailText: typeof s.detailText === "string" ? s.detailText : undefined,
+        }))
+    : [];
+
   // Filtra etapas visíveis: se vier em tempo real via SSE do servidor (isRealTimeStream), exibe imediatamente cada etapa real conforme o backend conclui; caso contrário, usa fallback progressivo
   const visibleSteps: AgenticThoughtStep[] =
     mode === "live"
-      ? trace.isRealTimeStream
-        ? trace.steps
-        : trace.steps.filter((s, idx) => idx === 0 || elapsedMs >= (s.revealAfterMs ?? idx * 700))
-      : trace.steps;
+      ? trace?.isRealTimeStream
+        ? safeSteps
+        : safeSteps.filter((s, idx) => idx === 0 || elapsedMs >= (s.revealAfterMs ?? idx * 700))
+      : safeSteps;
 
   // Auto-scroll progressivo sempre que uma nova linha aparece ou atualiza no modo "live"
   const stepsSignature = visibleSteps.map((s) => `${s.id}:${s.scopeTag || ""}`).join("|");
@@ -203,10 +224,10 @@ export function AgenticThoughtTrace({
     return cleanup;
   }, [mode, isOpen, visibleSteps.length, stepsSignature, triggerFollowScroll]);
 
-  const actionStepsCount = trace.steps.filter((s) => s.kind !== "thought").length;
+  const actionStepsCount = safeSteps.filter((s) => s.kind !== "thought").length;
   const liveSeconds = Math.max(1, Math.floor(elapsedMs / 1000));
   const displayDurationSec =
-    mode === "live" ? liveSeconds : Math.max(1, trace.totalDurationSeconds || 3);
+    mode === "live" ? liveSeconds : Math.max(1, Number(trace?.totalDurationSeconds) || 3);
 
   const textSize = compact ? "text-[11px]" : "text-xs";
   const subTextSize = compact ? "text-[10.5px]" : "text-[11.5px]";
@@ -257,13 +278,13 @@ export function AgenticThoughtTrace({
                 <div
                   className={`${subTextSize} font-medium text-foreground/80 mb-1.5 flex items-center gap-1.5`}
                 >
-                  <span>{trace.taskTitle}</span>
+                  <span>{safeTaskTitle}</span>
                   <ChevronDown className="h-3 w-3 text-muted-foreground/70" />
                 </div>
 
                 {/* Linhas indentadas estilo Antigravity */}
                 <div className="ml-2 pl-3.5 border-l border-border/70 space-y-1.5">
-                  {trace.steps.map((step, idx) => {
+                  {safeSteps.map((step, idx) => {
                     const isStepOpen = !!expandedStepIds[step.id];
                     return (
                       <motion.div
@@ -347,7 +368,7 @@ export function AgenticThoughtTrace({
                   className={`mt-2 flex items-center gap-1.5 ${subTextSize} text-muted-foreground/85`}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5 text-primary/85 shrink-0" />
-                  <span className="font-medium text-foreground/80">{trace.finishedTitle}</span>
+                  <span className="font-medium text-foreground/80">{safeFinishedTitle}</span>
                 </div>
               </div>
             </motion.div>
@@ -375,7 +396,7 @@ export function AgenticThoughtTrace({
         className={`group flex items-center gap-1.5 ${textSize} font-medium text-foreground/85 hover:text-foreground transition-colors duration-200 cursor-pointer text-left`}
       >
         <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse shrink-0" />
-        <span>{trace.taskTitle}</span>
+        <span>{safeTaskTitle}</span>
         <ChevronDown
           className={`h-3.5 w-3.5 text-muted-foreground/80 shrink-0 transition-transform duration-300 ease-out ${
             isOpen ? "rotate-0" : "-rotate-90"

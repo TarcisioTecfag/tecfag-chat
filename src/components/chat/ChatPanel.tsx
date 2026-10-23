@@ -2227,7 +2227,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             {activeChat.id === "valentina" && isValentinaTyping ? (
               <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
                 <Zap className="h-3 w-3 text-primary animate-bounce" />
-                <span>{valentinaThoughtTrace?.taskTitle || `${aiPersona.name} executando ações...`}</span>
+                <span>
+                  {typeof valentinaThoughtTrace?.taskTitle === "string" && valentinaThoughtTrace.taskTitle.trim()
+                    ? valentinaThoughtTrace.taskTitle
+                    : `${aiPersona.name} executando ações...`}
+                </span>
               </span>
             ) : activeTyping ? (
               <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">

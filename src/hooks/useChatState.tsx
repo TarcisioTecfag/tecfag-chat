@@ -3164,18 +3164,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       qrCodeUrl: "",
     });
   };
-  // Subscrever presença no Baileys quando o operador seleciona um chat ativo
+  // Subscrever presença no Baileys quando o operador seleciona um chat ativo (exceto chat interno da IA)
   useEffect(() => {
-    if (!selectedChatId) return;
-    const currentChat = conversations.find((c) => c.id === selectedChatId);
-    if (currentChat && currentChat.phone && (currentChat.channel === "whatsapp" || !currentChat.channel)) {
+    if (!selectedChatId || selectedChatId === "valentina") return;
+    const currentChat = conversationsRef.current.find((c) => c.id === selectedChatId);
+    const hasNumericPhone = Boolean(currentChat?.phone && /\d{8,}/.test(currentChat.phone));
+    if (currentChat && hasNumericPhone && (currentChat.channel === "whatsapp" || !currentChat.channel)) {
       fetch(`${BACKEND_URL}/api/baileys/presence`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId: currentChat.id }),
       }).catch(() => {});
     }
-  }, [selectedChatId, conversations, tenant]);
+  }, [selectedChatId, tenant]);
 
   // Auto-limpar estados de "digitando" / "gravando" antigos (> 5s) caso evento 'paused' falhe
   useEffect(() => {

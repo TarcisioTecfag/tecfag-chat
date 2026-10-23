@@ -26,6 +26,12 @@ export const Route = createFileRoute("/api/baileys/presence")({
 
           const body = await request.json();
           const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
+          if (conversationId === "valentina") {
+            return new Response(JSON.stringify({ success: true, skipped: true }), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
           const jid = typeof body.jid === "string" && !body.jid.includes("@") ? `${body.jid.replace(/\D/g, "")}@s.whatsapp.net` : body.jid;
 
           if (!conversationId && (typeof jid !== "string" || !/^\d{8,20}@(s\.whatsapp\.net|lid|c\.us)$/.test(jid))) {
