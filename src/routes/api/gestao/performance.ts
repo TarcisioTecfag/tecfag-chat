@@ -161,9 +161,9 @@ export const Route = createFileRoute("/api/gestao/performance")({
           }
 
           const channels = [
-            { name: "WhatsApp", value: channelCounts.WhatsApp, color: "#10b981" },
-            { name: "Instagram", value: channelCounts.Instagram, color: "#a855f7" },
-            { name: "Messenger", value: channelCounts.Messenger, color: "#3b82f6" },
+            { name: "WhatsApp", value: channelCounts.WhatsApp, color: "var(--primary)" },
+            { name: "Instagram", value: channelCounts.Instagram, color: "var(--muted-foreground)" },
+            { name: "Messenger", value: channelCounts.Messenger, color: "var(--border)" },
           ];
 
           // ── 3. Desempenho por Setor/Departamento ───────────────────────────

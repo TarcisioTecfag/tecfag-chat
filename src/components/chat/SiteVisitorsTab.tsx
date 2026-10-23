@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { Globe, MousePointerClick, Users2, Clock } from "lucide-react";
 
 interface SiteVisitorsTabProps {
@@ -37,8 +37,8 @@ export function SiteVisitorsTab({ tenantId }: SiteVisitorsTabProps) {
       <div className="grid grid-cols-3 gap-3 px-5 py-4 shrink-0">
         {[
           { icon: Users2,            label: "Online agora",  value: "—", color: "text-primary" },
-          { icon: MousePointerClick, label: "Sessoes hoje",  value: "—", color: "text-violet-500" },
-          { icon: Clock,             label: "Tempo medio",   value: "—", color: "text-amber-500" },
+          { icon: MousePointerClick, label: "Sessoes hoje",  value: "—", color: "text-primary" },
+          { icon: Clock,             label: "Tempo medio",   value: "—", color: "text-muted-foreground" },
         ].map(({ icon: Icon, label, value, color }) => (
           <div
             key={label}
@@ -64,8 +64,8 @@ export function SiteVisitorsTab({ tenantId }: SiteVisitorsTabProps) {
             oportunidades de conversao via chat.
           </p>
         </div>
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[10px] font-bold text-amber-700">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[10px] font-bold text-primary">
+          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
           Em breve
         </div>
       </div>

@@ -121,8 +121,8 @@ type AuditItem = {
 function TrafficDot({ light }: { light: "green" | "yellow" | "red" | "gray" }) {
   const colors = {
     green: "bg-primary",
-    yellow: "bg-amber-400",
-    red: "bg-red-500",
+    yellow: "bg-muted-foreground",
+    red: "bg-primary",
     gray: "bg-muted-foreground/40",
   };
   return (
@@ -137,9 +137,9 @@ function TrafficDot({ light }: { light: "green" | "yellow" | "red" | "gray" }) {
 function ScoreBadge({ score }: { score: number | null }) {
   if (score === null) return <span className="text-xs text-muted-foreground">–</span>;
   const color =
-    score >= 75 ? "text-primary bg-primary/10" :
-    score >= 50 ? "text-amber-600 bg-amber-50" :
-    "text-red-600 bg-red-50";
+    score >= 75
+      ? "text-primary bg-primary/10 border border-primary/20"
+      : "text-muted-foreground bg-muted border border-border";
   return (
     <span className={`inline-flex items-center justify-center h-7 w-12 rounded-lg text-xs font-extrabold ${color}`}>
       {score}
@@ -201,15 +201,11 @@ function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number
   
   // Identificação do Gradiente Único
   const getGradientId = () => {
-    if (score >= 75) return `greenGrad-${uuid}`;
-    if (score >= 50) return `yellowGrad-${uuid}`;
-    return `redGrad-${uuid}`;
+    if (score >= 75) return `primaryGrad-${uuid}`;
+    return `mutedGrad-${uuid}`;
   };
   
-  const color =
-    score >= 75 ? "#10b981" :
-    score >= 50 ? "#f59e0b" :
-    "#ef4444";
+  const color = score >= 75 ? "var(--primary)" : "var(--muted-foreground)";
     
   const fontSizeClass = isSmall ? "text-[13px]" : "text-[18px]";
   const indicatorRadius = isSmall ? 4.5 : 6;
@@ -219,23 +215,19 @@ function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number
     <div className="relative flex flex-col items-center justify-center shrink-0" style={{ width: size, height: size * 0.62 }}>
       <svg viewBox="0 0 100 52" className="w-full h-full overflow-visible">
         <defs>
-          {/* Definições de Gradientes Lineares Premium */}
-          <linearGradient id={`greenGrad-${uuid}`} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#059669" />
-            <stop offset="100%" stopColor="#34d399" />
+          {/* Definições de Gradientes Lineares Nativos */}
+          <linearGradient id={`primaryGrad-${uuid}`} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="var(--primary)" />
+            <stop offset="100%" stopColor="var(--primary)" />
           </linearGradient>
-          <linearGradient id={`yellowGrad-${uuid}`} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#d97706" />
-            <stop offset="100%" stopColor="#fbbf24" />
-          </linearGradient>
-          <linearGradient id={`redGrad-${uuid}`} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#dc2626" />
-            <stop offset="100%" stopColor="#f87171" />
+          <linearGradient id={`mutedGrad-${uuid}`} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="var(--muted-foreground)" />
+            <stop offset="100%" stopColor="var(--muted-foreground)" />
           </linearGradient>
           
           {/* Sombra de Glow para o arco e indicador */}
           <filter id={`shadowGlow-${uuid}`} x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor={color} floodOpacity="0.4" />
+            <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor={color} floodOpacity="0.3" />
           </filter>
         </defs>
         
@@ -246,7 +238,7 @@ function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number
           stroke="currentColor"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
-          className="text-muted/15"
+          className="text-muted/30"
         />
         
         {/* Arco de progresso com gradiente e glow */}
@@ -268,7 +260,7 @@ function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number
             cx={indicatorX}
             cy={indicatorY}
             r={indicatorRadius}
-            fill="#ffffff"
+            fill="var(--card)"
             stroke={color}
             strokeWidth={indicatorStroke}
             filter={`url(#shadowGlow-${uuid})`}
@@ -286,10 +278,10 @@ function ScoreGauge({ score, size = 140 }: { score: number | null; size?: number
 
 function WaitBadge({ minutes, isCritical }: { minutes: number; isCritical: boolean }) {
   const color = isCritical
-    ? "text-red-600 bg-red-50 border border-red-200"
+    ? "text-primary bg-primary/10 border border-primary/20"
     : minutes >= 10
-    ? "text-amber-600 bg-amber-50 border border-amber-200"
-    : "text-muted-foreground bg-muted";
+    ? "text-foreground bg-muted border border-border"
+    : "text-muted-foreground bg-muted/60 border border-border";
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${color}`}>
       <Clock className="h-3 w-3" />
@@ -383,21 +375,21 @@ export function OverviewTab({
       label: "Aguardando Resposta",
       value: overview.overdueAlerts,
       icon: AlertTriangle,
-      color: overview.overdueAlerts > 0 ? "text-red-600 bg-red-50" : "text-primary bg-primary/10",
+      color: "text-primary bg-primary/10",
       pulse: overview.overdueAlerts > 0,
     },
     {
       label: "Tempo Médio Hoje",
       value: overview.avgResponseTimeFormatted,
       icon: Clock,
-      color: "text-slate-600 bg-slate-100",
+      color: "text-primary bg-primary/10",
       isText: true,
     },
     {
       label: "Score da Equipe",
       value: overview.teamPerformanceScore !== null ? `${overview.teamPerformanceScore}/100` : "–",
       icon: BarChart2,
-      color: "text-violet-600 bg-violet-50",
+      color: "text-primary bg-primary/10",
       isText: true,
     },
   ];
@@ -442,13 +434,13 @@ export function OverviewTab({
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                 <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
                 <YAxis yAxisId="left" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} domain={[0, 100]} />
-                <YAxis yAxisId="right" orientation="right" stroke="#ef4444" fontSize={10} tickLine={false} unit="m" />
+                <YAxis yAxisId="right" orientation="right" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} unit="m" />
                 <RechartsTooltip 
-                  contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px" }}
+                  contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px", color: "var(--foreground)" }}
                 />
                 <Legend verticalAlign="top" height={36} iconSize={8} wrapperStyle={{ fontSize: "11px" }} />
                 <Bar yAxisId="left" dataKey="score" name="Score de Qualidade" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={16} isAnimationActive={false} />
-                <Line yAxisId="right" type="monotone" dataKey="tmr" name="TMR Médio (min)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+                <Line yAxisId="right" type="monotone" dataKey="tmr" name="TMR Médio (min)" stroke="var(--muted-foreground)" strokeWidth={2} dot={{ r: 3, fill: "var(--foreground)", stroke: "var(--muted-foreground)" }} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -462,7 +454,7 @@ export function OverviewTab({
           <div className="flex-1 min-h-0">
             {chartDataAlertas.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-1">
-                <CheckCircle className="h-6 w-6 text-emerald-400" />
+                <CheckCircle className="h-6 w-6 text-primary" />
                 <span className="text-xs">Fila zerada no momento</span>
               </div>
             ) : (
@@ -471,10 +463,10 @@ export function OverviewTab({
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
                   <XAxis type="number" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} unit=" min" />
                   <YAxis dataKey="cliente" type="category" stroke="var(--muted-foreground)" fontSize={9} tickLine={false} width={80} />
-                  <RechartsTooltip contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px" }} />
+                  <RechartsTooltip contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px", color: "var(--foreground)" }} />
                   <Bar dataKey="espera" name="Minutos de Espera" radius={[0, 4, 4, 0]} barSize={10} isAnimationActive={false}>
                     {chartDataAlertas.map((entry, index) => {
-                      const color = entry.espera >= 20 ? "#dc2626" : entry.espera >= 15 ? "#f97316" : "#f59e0b";
+                      const color = entry.espera >= 15 ? "var(--primary)" : "var(--muted-foreground)";
                       return <Cell key={`cell-${index}`} fill={color} />;
                     })}
                   </Bar>
@@ -491,7 +483,7 @@ export function OverviewTab({
         <div className="col-span-3 bg-card rounded-2xl border border-border shadow-soft flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-line shrink-0">
             <div className="flex items-center gap-2">
-              <div className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+              <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
               <span className="text-sm font-extrabold text-foreground">Alertas Críticos</span>
             </div>
             <button
@@ -504,7 +496,7 @@ export function OverviewTab({
           <div className="flex-1 overflow-y-auto scrollbar-thin">
             {alerts.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full py-8 text-muted-foreground gap-2">
-                <CheckCircle className="h-8 w-8 text-emerald-400" />
+                <CheckCircle className="h-8 w-8 text-primary" />
                 <span className="text-sm font-medium">Nenhum cliente aguardando</span>
               </div>
             ) : (
@@ -516,7 +508,7 @@ export function OverviewTab({
                   } hover:bg-muted/50 transition`}
                 >
                   {alert.isCritical && (
-                    <div className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse shrink-0" />
                   )}
                   <Avatar name={alert.contactName} size="sm" />
                   <div className="flex-1 min-w-0">
@@ -591,10 +583,10 @@ export function OverviewTab({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <ScoreBadge score={audit.performanceScore} />
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 ${
-                    audit.clientSentiment === "satisfeito" ? "text-emerald-700 bg-emerald-50" :
-                    audit.clientSentiment === "frustrado" ? "text-red-700 bg-red-50" :
-                    "text-amber-700 bg-amber-50"
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border inline-flex items-center gap-1 ${
+                    audit.clientSentiment === "satisfeito"
+                      ? "text-primary bg-primary/10 border-primary/20"
+                      : "text-muted-foreground bg-muted border-border"
                   }`}>
                     {audit.clientSentiment === "satisfeito" ? <Smile className="h-3 w-3" /> : audit.clientSentiment === "frustrado" ? <Frown className="h-3 w-3" /> : <Meh className="h-3 w-3" />}
                     <span className="capitalize">{audit.clientSentiment || "neutro"}</span>
@@ -624,7 +616,7 @@ function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean 
     <div className="flex flex-col gap-4 overflow-y-auto scrollbar-thin pr-1">
       {alerts.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 py-20 text-muted-foreground gap-3">
-          <CheckCircle className="h-12 w-12 text-emerald-400" />
+          <CheckCircle className="h-12 w-12 text-primary" />
           <p className="font-semibold text-base">Tudo em dia!</p>
           <p className="text-sm">Nenhum cliente aguardando resposta agora.</p>
         </div>
@@ -637,9 +629,9 @@ function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean 
               key={alert.logId}
               className={`bg-card rounded-2xl border shadow-soft p-5 flex flex-col gap-4 transition-all hover:border-muted-foreground/20 ${
                 alert.isCritical 
-                  ? "border-red-200 bg-red-50/10" 
+                  ? "border-primary/40 bg-primary/5" 
                   : isConflict 
-                  ? "border-amber-200 bg-amber-50/10" 
+                  ? "border-border bg-muted/20" 
                   : "border-border"
               }`}
             >
@@ -651,19 +643,19 @@ function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean 
                     <div className="flex items-center flex-wrap gap-2">
                       <p className="text-sm font-bold text-foreground">{alert.contactName}</p>
                       {alert.isCritical && (
-                        <span className="text-[10px] font-extrabold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md border border-red-200">
+                        <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-md border border-primary/20">
                           CRÍTICO
                         </span>
                       )}
                       
                       {/* Tipo de Alerta */}
                       {isConflict ? (
-                        <span className="text-[10px] font-extrabold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 flex items-center gap-1">
+                        <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20 flex items-center gap-1">
                           <AlertTriangle className="h-3 w-3 shrink-0" />
                           Conflito Detectado (I.A.)
                         </span>
                       ) : (
-                        <span className="text-[10px] font-extrabold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                        <span className="text-[10px] font-extrabold text-muted-foreground bg-muted px-2 py-0.5 rounded-full border border-border flex items-center gap-1">
                           <Clock className="h-3 w-3 shrink-0" />
                           Tempo de Resposta (SLA)
                         </span>
@@ -701,13 +693,13 @@ function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean 
                   <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground ml-2">Última Mensagem do Cliente</span>
                   <div className={`rounded-xl p-3 text-sm relative max-w-[85%] border self-start ${
                     isConflict 
-                      ? "bg-red-50/40 text-red-950 border-red-100" 
+                      ? "bg-primary/5 text-foreground border-primary/20" 
                       : "bg-muted/50 text-foreground border-border"
                   }`}>
                     {/* Seta do balão de chat (estilo WhatsApp) */}
                     <div className={`absolute top-3 -left-[6px] w-3 h-3 rotate-45 border-l border-b ${
                       isConflict 
-                        ? "bg-red-50/40 border-red-100" 
+                        ? "bg-primary/5 border-primary/20" 
                         : "bg-muted/50 border-border"
                     }`} style={{ borderTopColor: 'transparent', borderRightColor: 'transparent' }} />
                     <p className="font-medium relative z-10 break-words leading-relaxed select-text">
@@ -814,8 +806,8 @@ function OperatorsTab({
                   </div>
                   <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-1.5 ${
                     op.trafficLight === "green" ? "bg-primary/10 text-primary border border-primary/20" :
-                    op.trafficLight === "yellow" ? "bg-amber-50 text-amber-700 border border-amber-100" :
-                    op.trafficLight === "red" ? "bg-red-50 text-red-700 border border-red-100" :
+                    op.trafficLight === "yellow" ? "bg-muted text-foreground border border-border" :
+                    op.trafficLight === "red" ? "bg-primary/15 text-primary border border-primary/30" :
                     "bg-muted/60 text-muted-foreground border border-border"
                   }`}>
                     {op.trafficLight === "green" ? "No ritmo" :
@@ -875,10 +867,10 @@ function OperatorsTab({
               {/* Row 1: Hoje */}
               <div className="col-span-3 grid grid-cols-3 items-center py-1 hover:bg-muted/30 rounded-md">
                 <span className="font-bold text-foreground text-xs" title="Hoje">{op.avgResponseTimeFormatted}</span>
-                <span className={`font-bold text-xs ${op.overdueCount > 0 ? "text-red-600 font-extrabold animate-pulse" : "text-foreground"}`}>{op.overdueCount}</span>
+                <span className={`font-bold text-xs ${op.overdueCount > 0 ? "text-primary font-extrabold animate-pulse" : "text-foreground"}`}>{op.overdueCount}</span>
                 <span className="font-bold text-foreground text-xs flex items-center justify-center gap-1">
                   <span>{satisfiedPct}%</span>
-                  <Smile className="h-3 w-3 text-emerald-500" />
+                  <Smile className="h-3 w-3 text-primary" />
                 </span>
               </div>
               
@@ -888,7 +880,7 @@ function OperatorsTab({
                 <span className="text-[11px] font-medium">{op.overdueCountLastWeek ?? 0}</span>
                 <span className="text-[11px] font-medium flex items-center justify-center gap-1">
                   <span>{op.satisfiedPctLastWeek ?? 0}%</span>
-                  <Smile className="h-3 w-3 text-emerald-500" />
+                  <Smile className="h-3 w-3 text-primary" />
                 </span>
               </div>
               
@@ -898,7 +890,7 @@ function OperatorsTab({
                 <span className="text-[11px] font-medium">{op.overdueCountLastMonth ?? 0}</span>
                 <span className="text-[11px] font-medium flex items-center justify-center gap-1">
                   <span>{op.satisfiedPctLastMonth ?? 0}%</span>
-                  <Smile className="h-3 w-3 text-emerald-500" />
+                  <Smile className="h-3 w-3 text-primary" />
                 </span>
               </div>
             </div>
@@ -948,8 +940,8 @@ function OperatorsTab({
                               </div>
                             )}
                             {audit.weaknesses && (
-                              <div className="text-red-700 bg-red-50/50 dark:bg-red-950/10 px-2 py-1 rounded border border-red-100/50">
-                                <span className="font-extrabold uppercase text-[9px] tracking-wider block mb-0.5 text-red-800">Pontos a Melhorar:</span>
+                              <div className="text-muted-foreground bg-muted/40 px-2 py-1 rounded border border-border">
+                                <span className="font-extrabold uppercase text-[9px] tracking-wider block mb-0.5 text-foreground">Pontos a Melhorar:</span>
                                 <span className="line-clamp-2 leading-relaxed">{audit.weaknesses}</span>
                               </div>
                             )}
@@ -1062,9 +1054,9 @@ function AuditsTab({
   }, [selectedAuditId, audits]);
 
   function renderAuditSentiment(sentiment?: string | null) {
-    if (sentiment === "satisfeito") return <Smile className="h-3.5 w-3.5 text-emerald-500" />;
-    if (sentiment === "frustrado") return <Frown className="h-3.5 w-3.5 text-red-500" />;
-    if (sentiment === "neutro") return <Meh className="h-3.5 w-3.5 text-amber-500" />;
+    if (sentiment === "satisfeito") return <Smile className="h-3.5 w-3.5 text-primary" />;
+    if (sentiment === "frustrado") return <Frown className="h-3.5 w-3.5 text-muted-foreground" />;
+    if (sentiment === "neutro") return <Meh className="h-3.5 w-3.5 text-muted-foreground" />;
     return <span className="text-xs text-muted-foreground">–</span>;
   }
 
@@ -1072,17 +1064,17 @@ function AuditsTab({
   function AuditStatusBadge({ status }: { status: string }) {
     if (status === "done") return null;
     if (status === "processing") return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-extrabold">
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-[10px] font-extrabold">
         <Cpu className="h-3 w-3 animate-pulse" /> Processando
       </span>
     );
     if (status === "pending") return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-extrabold">
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border text-[10px] font-extrabold">
         <Clock className="h-3 w-3" /> Pendente
       </span>
     );
     return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[10px] font-extrabold">
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted/60 text-foreground border border-border text-[10px] font-extrabold">
         <XCircle className="h-3 w-3" /> Erro
       </span>
     );
@@ -1108,17 +1100,17 @@ function AuditsTab({
             >
               {s === "done" ? (
                 <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                   <span>Concluídas</span>
                 </>
               ) : s === "pending" ? (
                 <>
-                  <Clock className="h-3.5 w-3.5 text-amber-500" />
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>Pendentes</span>
                 </>
               ) : (
                 <>
-                  <XCircle className="h-3.5 w-3.5 text-red-500" />
+                  <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>Com Erro</span>
                 </>
               )}
@@ -1175,7 +1167,7 @@ function AuditsTab({
             <button
               onClick={retryAll}
               disabled={retrying || loading}
-              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary hover:opacity-90 bg-primary/10 border border-primary/20 px-2.5 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-40"
             >
               {retrying
                 ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -1255,7 +1247,7 @@ function AuditsTab({
                 <div className="flex items-center gap-1 mt-2">
                   <span className="text-sm">{renderAuditSentiment(audit.clientSentiment)}</span>
                   {audit.flagCount > 0 && (
-                    <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-md">
+                    <span className="text-[10px] font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded-md border border-border">
                       {audit.flagCount} falha{audit.flagCount > 1 ? "s" : ""}
                     </span>
                   )}
@@ -1304,13 +1296,13 @@ function AuditsTab({
 
                 {/* Estados de Pendente / Processando / Erro */}
                 {(selected.status === "pending" || selected.status === "processing") && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
-                    <RefreshCw className={`h-5 w-5 text-amber-500 shrink-0 ${selected.status === "processing" ? "animate-spin" : ""}`} />
+                  <div className="bg-muted/50 border border-border rounded-2xl p-4 flex items-center gap-3">
+                    <RefreshCw className={`h-5 w-5 text-primary shrink-0 ${selected.status === "processing" ? "animate-spin" : ""}`} />
                     <div>
-                      <p className="text-sm font-semibold text-amber-900">
+                      <p className="text-sm font-semibold text-foreground">
                         {selected.status === "processing" ? "Processando agora..." : "Aguardando processamento"}
                       </p>
-                      <p className="text-xs text-amber-700">
+                      <p className="text-xs text-muted-foreground">
                         {selected.status === "processing"
                           ? "A Vertex AI está analisando este atendimento. Atualize em alguns instantes."
                           : "A IA irá analisar este atendimento no próximo ciclo (a cada 5 minutos)."}
@@ -1319,18 +1311,18 @@ function AuditsTab({
                   </div>
                 )}
                 {selected.status === "error" && (
-                  <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start justify-between gap-4">
+                  <div className="bg-muted/40 border border-border rounded-2xl p-4 flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-600 mb-1 flex items-center gap-1">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-1 flex items-center gap-1">
                         <AlertTriangle className="h-3 w-3" />
                         <span>Erro no processamento</span>
                       </p>
-                      <p className="text-sm text-red-900 break-words">{selected.errorMessage ?? "Erro desconhecido durante a auditoria."}</p>
+                      <p className="text-sm text-foreground break-words">{selected.errorMessage ?? "Erro desconhecido durante a auditoria."}</p>
                     </div>
                     <button
                       onClick={() => retryAudit(selected.id)}
                       disabled={retrying}
-                      className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                      className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-bold text-primary-foreground bg-primary hover:opacity-90 px-3 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
                     >
                       {retrying
                         ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -1343,12 +1335,12 @@ function AuditsTab({
 
                 {/* Insight Acionável */}
                 {selected.actionableInsight && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600 mb-1 flex items-center gap-1">
+                  <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-1 flex items-center gap-1">
                       <Zap className="h-3 w-3" />
                       <span>Insight da IA para agir agora</span>
                     </p>
-                    <p className="text-sm font-semibold text-amber-900">{selected.actionableInsight}</p>
+                    <p className="text-sm font-semibold text-foreground">{selected.actionableInsight}</p>
                   </div>
                 )}
 
@@ -1356,27 +1348,27 @@ function AuditsTab({
                 {selected.flagCount > 0 && (
                   <div className="grid grid-cols-2 gap-2">
                     {selected.hadLongResponseGap && (
-                      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                        <Clock className="h-3.5 w-3.5 text-red-500" />
-                        <span className="text-xs font-semibold text-red-700">Demora excessiva</span>
+                      <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-xl px-3 py-2">
+                        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs font-semibold text-foreground">Demora excessiva</span>
                       </div>
                     )}
                     {selected.hadMissedObjection && (
-                      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                        <XCircle className="h-3.5 w-3.5 text-red-500" />
-                        <span className="text-xs font-semibold text-red-700">Objeção ignorada</span>
+                      <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-xl px-3 py-2">
+                        <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs font-semibold text-foreground">Objeção ignorada</span>
                       </div>
                     )}
                     {selected.hadRudeLanguage && (
-                      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                        <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
-                        <span className="text-xs font-semibold text-red-700">Linguagem inadequada</span>
+                      <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-xl px-3 py-2">
+                        <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs font-semibold text-foreground">Linguagem inadequada</span>
                       </div>
                     )}
                     {selected.hadNoFollowUp && (
-                      <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                        <Minus className="h-3.5 w-3.5 text-red-500" />
-                        <span className="text-xs font-semibold text-red-700">Sem próximo passo</span>
+                      <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-xl px-3 py-2">
+                        <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs font-semibold text-foreground">Sem próximo passo</span>
                       </div>
                     )}
                   </div>
@@ -1395,19 +1387,19 @@ function AuditsTab({
                   {selected.strengths && (
                     <div className="bg-primary/5 border border-primary/15 rounded-2xl p-4">
                       <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-2 flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        <CheckCircle2 className="h-3 w-3 text-primary" />
                         <span>Pontos Fortes</span>
                       </p>
                       <p className="text-xs text-foreground/80 leading-relaxed">{selected.strengths}</p>
                     </div>
                   )}
                   {selected.weaknesses && (
-                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
-                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-red-700 mb-2 flex items-center gap-1">
-                        <XCircle className="h-3 w-3 text-red-600" />
+                    <div className="bg-muted/40 border border-border rounded-2xl p-4">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-foreground mb-2 flex items-center gap-1">
+                        <XCircle className="h-3 w-3 text-muted-foreground" />
                         <span>Falhas</span>
                       </p>
-                      <p className="text-xs text-red-900 leading-relaxed">{selected.weaknesses}</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{selected.weaknesses}</p>
                     </div>
                   )}
                 </div>
@@ -1648,7 +1640,7 @@ function LiveOperatorSelect({
                 {op.operatorId && (
                   <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
                     op.status === "disponivel" ? "bg-primary" :
-                    op.status === "ocupado" ? "bg-amber-500" : "bg-muted-foreground/40"
+                    op.status === "ocupado" ? "bg-muted-foreground" : "bg-muted-foreground/40"
                   }`} />
                 )}
                 {!op.operatorId && <Users className="h-3 w-3 text-muted-foreground" />}
@@ -1671,7 +1663,7 @@ const LIVE_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
  * Renderiza o conteúdo de uma mensagem ao vivo:
  * - Suporta texto puro
  * - Suporta [MEDIA:type]messageId:caption
- * - Notas internas ficam em amarelo
+ * - Notas internas usam destaque neutro/primário nativo
  */
 function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolean }) {
   const content = msg.content || "";
@@ -1681,7 +1673,7 @@ function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolea
 
   const bubbleCls = `max-w-[72%] rounded-2xl px-3.5 py-2 shadow-sm text-xs leading-relaxed ${
     msg.isInternalNote
-      ? "bg-amber-50 border border-amber-200 text-amber-900 italic"
+      ? "bg-muted border border-border text-foreground italic"
       : isAgent
       ? "bg-primary text-primary-foreground rounded-tr-none"
       : "bg-card text-foreground border border-border rounded-tl-none"
@@ -1856,6 +1848,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
     return () => clearInterval(interval);
   }, [fetchLive]);
 
+
   // Encontrar conversa selecionada em qualquer seção
   const allConvs = [
     ...(liveData?.operators.flatMap((op) => op.conversations) ?? []),
@@ -1955,8 +1948,8 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
           {!loading && !opIdFilter && (liveData?.unassigned.filter(matchesSearch).length ?? 0) > 0 && (
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 px-2 py-1">
-                <Clock className="h-3.5 w-3.5 text-amber-500" />
-                <span className="text-[10px] font-extrabold text-amber-600 uppercase tracking-wider">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-[10px] font-extrabold text-muted-foreground uppercase tracking-wider">
                   Na Fila · {liveData!.unassigned.filter(matchesSearch).length}
                 </span>
               </div>
@@ -2017,15 +2010,15 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   <div className="flex items-center gap-1.5">
                     <span className={`h-2 w-2 rounded-full ${
                       op.status === "disponivel" ? "bg-primary" :
-                      op.status === "ocupado" ? "bg-amber-500" :
-                      "bg-slate-400"
+                      op.status === "ocupado" ? "bg-muted-foreground" :
+                      "bg-muted-foreground/40"
                     }`} />
                     <span className="text-[11px] font-bold text-foreground truncate max-w-[120px]">{op.operatorName}</span>
                   </div>
                   <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase ${
                     op.status === "disponivel" ? "text-primary bg-primary/10" :
-                    op.status === "ocupado" ? "text-amber-700 bg-amber-50" :
-                    "text-slate-600 bg-slate-100"
+                    op.status === "ocupado" ? "text-foreground bg-muted" :
+                    "text-muted-foreground bg-muted/60"
                   }`}>
                     {op.conversations.length} atend.
                   </span>
@@ -2099,10 +2092,10 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   Abrir Conversa
                 </button>
                 {/* Badge AO VIVO */}
-                <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-red-50 border border-red-100 text-red-600 text-[10px] font-bold">
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold">
                   <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
                   </span>
                   AO VIVO
                 </div>
@@ -2152,8 +2145,8 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
               <div className="flex items-center gap-1.5">
                 {fullHistoryConvId === selectedConvId ? (
                   <>
-                    <Clock className="h-3.5 w-3.5 text-amber-500" />
-                    <span className="text-amber-600 font-semibold">
+                    <Clock className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-primary font-semibold">
                       Histórico completo · {fullHistory.length} mensagens
                     </span>
                   </>
@@ -2283,7 +2276,7 @@ function LiveConvCard({
           )}
           {conv.isUnanswered && (
             <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
-              isSelected ? "bg-white/20 text-white" : "bg-red-50 text-red-600 border border-red-100 animate-pulse"
+              isSelected ? "bg-white/20 text-white" : "bg-primary/10 text-primary border border-primary/20 animate-pulse"
             }`}>
               {conv.waitingMinutes}m
             </span>
@@ -2381,11 +2374,8 @@ function getTaskTypeIcon(type: string) {
   }
 }
 
-function getTaskTypeColor(type: string): string {
-  switch (type) {
-    case "whatsapp": return "#128c7e";
-    default: return "var(--primary)";
-  }
+function getTaskTypeColor(_type: string): string {
+  return "var(--primary)";
 }
 
 function formatTime(dateStr: string | null): string {
@@ -3180,7 +3170,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
             <h2 className="text-sm font-extrabold text-foreground flex items-center gap-2">
               Gestão de Custos & Telemetria Vertex AI
               {data?.isSimulated ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold border border-amber-500/20">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px] font-bold border border-border">
                   <Sparkles className="h-3 w-3" />
                   Demonstrativo Dev
                 </span>
@@ -3291,7 +3281,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
         <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
           <div className="flex items-center justify-between text-muted-foreground mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider">Tokens Processados</span>
-            <div className="p-1.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+            <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
               <Cpu className="h-4 w-4" />
             </div>
           </div>
@@ -3301,9 +3291,9 @@ export function CostsTab({ tenant }: { tenant: string }) {
               <span className="text-xs font-normal text-muted-foreground ml-1">tokens</span>
             </div>
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-semibold mt-1">
-              <span className="text-blue-600 dark:text-blue-400">Prompt: {(summary.promptTokens / 1_000_000).toFixed(2)}M</span>
+              <span className="text-foreground">Prompt: {(summary.promptTokens / 1_000_000).toFixed(2)}M</span>
               <span>•</span>
-              <span className="text-indigo-600 dark:text-indigo-400">Resp: {(summary.completionTokens / 1000).toFixed(0)}k</span>
+              <span className="text-muted-foreground">Resp: {(summary.completionTokens / 1000).toFixed(0)}k</span>
             </div>
           </div>
         </div>
@@ -3311,7 +3301,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
         <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
           <div className="flex items-center justify-between text-muted-foreground mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider">Requisições à IA</span>
-            <div className="p-1.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
+            <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
               <Bot className="h-4 w-4" />
             </div>
           </div>
@@ -3320,8 +3310,8 @@ export function CostsTab({ tenant }: { tenant: string }) {
               {summary.totalCalls}
               <span className="text-xs font-normal text-muted-foreground ml-1">chamadas</span>
             </div>
-            <p className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold mt-1 flex items-center gap-1">
-              <CheckCircle2 className="h-3 w-3" />
+            <p className="text-[11px] text-muted-foreground font-semibold mt-1 flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3 text-primary" />
               Sucesso: {summary.totalCalls > 0 ? ((summary.successCount / summary.totalCalls) * 100).toFixed(1) : 100}%
             </p>
           </div>
@@ -3330,7 +3320,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
         <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
           <div className="flex items-center justify-between text-muted-foreground mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider">Custo Médio / Interação</span>
-            <div className="p-1.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
               <BarChart2 className="h-4 w-4" />
             </div>
           </div>
@@ -3339,7 +3329,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
               R$ {summary.avgCostPerCallBrl.toFixed(3)}
             </div>
             <p className="text-[11px] text-muted-foreground font-semibold mt-1 flex items-center gap-1">
-              <Clock className="h-3 w-3 text-amber-500" />
+              <Clock className="h-3 w-3 text-primary" />
               Latência média: {summary.avgLatencyMs} ms
             </p>
           </div>
@@ -3363,12 +3353,12 @@ export function CostsTab({ tenant }: { tenant: string }) {
             {timeline.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={timeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="dateFormatted" tick={{ fontSize: 10 }} stroke="#888888" />
-                  <YAxis yAxisId="left" tick={{ fontSize: 10 }} stroke="#888888" tickFormatter={(v) => `R$${v}`} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} stroke="#888888" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
+                  <XAxis dataKey="dateFormatted" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
+                  <YAxis yAxisId="left" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" tickFormatter={(v) => `R$${v}`} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
                   <RechartsTooltip
-                    contentStyle={{ backgroundColor: "rgba(15, 23, 42, 0.9)", borderColor: "#334155", borderRadius: "12px", color: "#fff", fontSize: "11px" }}
+                    contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", color: "var(--foreground)", fontSize: "11px" }}
                     formatter={(value: any, name: any) => {
                       if (name === "Custo (R$)") return [`R$ ${Number(value).toFixed(2)}`, name];
                       if (name === "Tokens") return [`${Number(value).toLocaleString()} tokens`, name];
@@ -3376,8 +3366,8 @@ export function CostsTab({ tenant }: { tenant: string }) {
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "5px" }} />
-                  <Bar yAxisId="left" dataKey="costBrl" name="Custo (R$)" fill="#10b981" radius={[6, 6, 0, 0]} barSize={22} isAnimationActive={false} />
-                  <Line yAxisId="right" type="monotone" dataKey="tokens" name="Tokens" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
+                  <Bar yAxisId="left" dataKey="costBrl" name="Custo (R$)" fill="var(--primary)" radius={[6, 6, 0, 0]} barSize={22} isAnimationActive={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="tokens" name="Tokens" stroke="var(--muted-foreground)" strokeWidth={2.5} dot={{ r: 3, fill: "var(--foreground)", stroke: "var(--muted-foreground)" }} isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (
@@ -3488,10 +3478,9 @@ export function CostsTab({ tenant }: { tenant: string }) {
                       </td>
                       <td className="py-2 px-3.5">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                          log.feature === "sdr_agent" ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20" :
-                          log.feature === "conversation_audit" ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" :
-                          log.feature === "supervisor_chat" || log.feature === "valentina_chat" || log.feature === "fagner_chat" ? "bg-primary/10 text-primary border border-primary/20" :
-                          "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                          log.feature === "supervisor_chat" || log.feature === "valentina_chat" || log.feature === "fagner_chat"
+                            ? "bg-primary/10 text-primary border border-primary/20"
+                            : "bg-muted/60 text-foreground border border-border"
                         }`}>
                           {log.feature === "sdr_agent" ? "SDR Bot" :
                            log.feature === "conversation_audit" ? "Auditoria QA" :
@@ -3523,7 +3512,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
                             <CheckCircle2 className="h-3 w-3" /> OK
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 text-[10px] font-extrabold">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/30 text-[10px] font-extrabold">
                             <XCircle className="h-3 w-3" /> ERRO
                           </span>
                         )}
@@ -3648,7 +3637,7 @@ export function MonitorView() {
             <Eye className="h-4.5 w-4.5 text-primary" />
             Monitoramento da Operação
             {DEMO_MODE && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-700 text-[10px] font-extrabold border border-amber-300 animate-pulse">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-primary/10 text-primary text-[10px] font-extrabold border border-primary/30 animate-pulse">
                 <FlaskConical className="h-3 w-3" />
                 MODO DEMO
               </span>
@@ -3689,7 +3678,7 @@ export function MonitorView() {
               {tab.label}
               {tab.badge !== undefined && tab.badge > 0 && (
                 <span className={`ml-0.5 h-4 min-w-4 px-1 rounded-full text-[9px] font-extrabold flex items-center justify-center ${
-                  isActive ? "bg-white/30 text-white" : "bg-red-500 text-white"
+                  isActive ? "bg-white/30 text-white" : "bg-primary text-primary-foreground"
                 }`}>
                   {tab.badge}
                 </span>
@@ -3907,14 +3896,13 @@ function OperatorHistoryModal({
                       <td className="p-3 font-semibold text-foreground">{row.date}</td>
                       <td className="p-3 text-center font-medium text-foreground">{row.totalConversations}</td>
                       <td className="p-3 font-medium text-foreground">{row.avgResponseTimeFormatted}</td>
-                      <td className={`p-3 text-center font-bold ${row.overdueCount > 0 ? "text-red-600" : "text-foreground"}`}>
+                      <td className={`p-3 text-center font-bold ${row.overdueCount > 0 ? "text-primary" : "text-foreground"}`}>
                         {row.overdueCount}
                       </td>
                       <td className="p-3 text-center">
                         <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
                           row.avgPerformanceScore >= 75 ? "text-primary bg-primary/10 border border-primary/20" :
-                          row.avgPerformanceScore >= 50 ? "text-amber-700 bg-amber-50 border border-amber-200" :
-                          "text-red-700 bg-red-50 border border-red-200"
+                          "text-muted-foreground bg-muted border border-border"
                         }`}>
                           {row.avgPerformanceScore ?? "–"}
                         </span>
@@ -3922,7 +3910,7 @@ function OperatorHistoryModal({
                       <td className="p-3 text-center font-bold text-foreground">
                         <span className="inline-flex items-center gap-1 justify-center">
                           <span>{row.satisfiedPct}%</span>
-                          <Smile className="h-3 w-3 text-emerald-500" />
+                          <Smile className="h-3 w-3 text-primary" />
                         </span>
                       </td>
                     </tr>

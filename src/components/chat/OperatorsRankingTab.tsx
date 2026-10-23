@@ -59,13 +59,13 @@ export type AuditItem = {
 };
 
 const focusRing =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2dd4a8] focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 function statusDot(trafficLight: OperatorMetric["trafficLight"]) {
-  if (trafficLight === "yellow") return "bg-[#f59e0b]";
-  if (trafficLight === "red") return "bg-[#ef4444]";
-  if (trafficLight === "gray") return "bg-slate-400";
-  return "bg-[#2dd4a8]";
+  if (trafficLight === "yellow") return "bg-muted-foreground";
+  if (trafficLight === "red") return "bg-primary/60";
+  if (trafficLight === "gray") return "bg-muted-foreground/40";
+  return "bg-primary";
 }
 
 function statusLabel(trafficLight: OperatorMetric["trafficLight"]) {
@@ -91,14 +91,14 @@ function GaugeHalf({ value, display, label }: { value: number; display: string; 
           <path
             d="M 20 100 A 80 80 0 0 1 180 100"
             fill="none"
-            stroke="rgba(226, 232, 240, 0.6)"
+            stroke="var(--border)"
             strokeWidth="22"
             strokeLinecap="round"
           />
           <path
             d="M 20 100 A 80 80 0 0 1 180 100"
             fill="none"
-            stroke="#2dd4a8"
+            stroke="var(--primary)"
             strokeWidth="22"
             strokeLinecap="round"
             strokeDasharray={ARC}
@@ -106,11 +106,11 @@ function GaugeHalf({ value, display, label }: { value: number; display: string; 
             style={{ transition: "stroke-dashoffset 900ms cubic-bezier(0.16, 1, 0.3, 1)" }}
           />
         </svg>
-        <span className="absolute inset-x-0 bottom-0 text-center font-black text-4xl text-[#2d3748] dark:text-white tracking-tight">
+        <span className="absolute inset-x-0 bottom-0 text-center font-black text-4xl text-foreground tracking-tight">
           {display}
         </span>
       </div>
-      <span className="mt-4 text-[11px] font-extrabold uppercase tracking-widest text-[#64748b]">
+      <span className="mt-4 text-[11px] font-extrabold uppercase tracking-widest text-muted-foreground">
         {label}
       </span>
     </div>
@@ -157,7 +157,7 @@ function TrendChart({
   const delta = last - first;
   const improving = invert ? delta < 0 : delta > 0;
   const stable = delta === 0;
-  const stroke = stable ? "#718096" : improving ? "#2dd4a8" : "#ef4444";
+  const stroke = stable ? "var(--muted-foreground)" : improving ? "var(--primary)" : "var(--muted-foreground)";
 
   const gradientId = `trend-${title.replace(/\W+/g, "-").toLowerCase()}`;
 
@@ -187,9 +187,9 @@ function TrendChart({
         />
         <circle cx={coords[coords.length - 1][0]} cy={coords[coords.length - 1][1]} r="3" fill={stroke} />
       </svg>
-      <figcaption className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#64748b]">
+      <figcaption className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span className="truncate">{labels[0]} – {labels[labels.length - 1]}</span>
-        <span className={stable ? "text-[#64748b]" : improving ? "text-[#2dd4a8] font-bold" : "text-[#ef4444] font-bold"}>
+        <span className={stable ? "text-muted-foreground" : improving ? "text-primary font-bold" : "text-muted-foreground font-bold"}>
           {stable ? "estável" : `${delta > 0 ? "+" : "−"}${format(Math.abs(delta))}`}
         </span>
       </figcaption>
@@ -214,10 +214,10 @@ function MetricCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
       aria-label={label}
-      className={`flex flex-col gap-4 rounded-2xl bg-[#f8fafc] dark:bg-slate-900/60 p-5 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:p-6 ${className}`}
+      className={`flex flex-col gap-4 rounded-2xl bg-muted/30 p-5 ring-1 ring-border sm:p-6 ${className}`}
     >
       {gauge}
-      <div className="border-t border-slate-200/80 dark:border-slate-800 pt-4">
+      <div className="border-t border-border pt-4">
         {trend}
       </div>
     </motion.article>
@@ -240,14 +240,14 @@ function KpiCard({
   trend?: React.ReactNode;
 }) {
   return (
-    <article aria-label={label} className="flex flex-col bg-white dark:bg-slate-900 p-5">
-      <span className="mb-2 block text-[11px] font-extrabold uppercase tracking-widest text-[#64748b]">
+    <article aria-label={label} className="flex flex-col bg-card p-5">
+      <span className="mb-2 block text-[11px] font-extrabold uppercase tracking-widest text-muted-foreground">
         {label}
       </span>
-      <div className={`text-2xl font-black ${danger ? "text-[#ef4444]" : "text-[#2d3748] dark:text-white"}`}>
+      <div className={`text-2xl font-black ${danger ? "text-primary" : "text-foreground"}`}>
         {value}
       </div>
-      <div className={`mt-1 text-xs font-semibold ${positive ? "text-[#2dd4a8]" : "text-[#64748b]"}`}>
+      <div className={`mt-1 text-xs font-semibold ${positive ? "text-primary" : "text-muted-foreground"}`}>
         {note}
       </div>
       <div className="mt-4">{trend}</div>
@@ -259,16 +259,16 @@ function ProgressBar({ label, value, pct }: { label: string; value: string; pct:
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <span className="min-w-0 truncate text-sm text-[#64748b] font-medium">{label}</span>
-        <span className="shrink-0 text-sm font-black text-[#2d3748] dark:text-white">
+        <span className="min-w-0 truncate text-sm text-muted-foreground font-medium">{label}</span>
+        <span className="shrink-0 text-sm font-black text-foreground">
           {value}{" "}
-          <span className="font-bold text-[#2dd4a8]" aria-hidden="true">
+          <span className="font-bold text-primary" aria-hidden="true">
             ↑
           </span>
         </span>
       </div>
       <div
-        className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+        className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
         role="progressbar"
         aria-valuenow={pct}
         aria-valuemin={0}
@@ -278,7 +278,7 @@ function ProgressBar({ label, value, pct }: { label: string; value: string; pct:
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}
           transition={{ duration: 0.8, ease: "easeOut" }}
-          className="h-full bg-[#2dd4a8] rounded-full" 
+          className="h-full bg-primary rounded-full" 
         />
       </div>
     </div>
@@ -293,7 +293,7 @@ function HighResAvatar({ src, name, className = "" }: { src: string | null; name
 
   if (src && !imgErr) {
     return (
-      <div className={`relative overflow-hidden aspect-square rounded-2xl bg-slate-100 dark:bg-slate-800 shrink-0 border border-slate-200/80 dark:border-slate-800 ${className}`}>
+      <div className={`relative overflow-hidden aspect-square rounded-2xl bg-muted shrink-0 border border-border ${className}`}>
         <img
           src={src}
           alt={`Foto de ${name}`}
@@ -308,7 +308,7 @@ function HighResAvatar({ src, name, className = "" }: { src: string | null; name
   }
 
   return (
-    <div className={`aspect-square shrink-0 rounded-2xl bg-[#2dd4a8]/15 text-[#2dd4a8] font-black flex items-center justify-center border border-slate-200/80 dark:border-slate-800 ${className}`}>
+    <div className={`aspect-square shrink-0 rounded-2xl bg-primary/15 text-primary font-black flex items-center justify-center border border-border ${className}`}>
       {initials}
     </div>
   );
@@ -332,7 +332,7 @@ export function OperatorsRankingTab({
 
   if (!overview || !overview.operators || overview.operators.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center py-20 text-[#64748b]">
+      <div className="flex flex-1 items-center justify-center py-20 text-muted-foreground">
         Carregando lista de vendedores monitorados...
       </div>
     );
@@ -380,16 +380,16 @@ export function OperatorsRankingTab({
   const operatorAudits = audits.filter((a) => a.operatorId === atual.operatorId);
 
   return (
-    <div className="flex-1 w-full min-h-0 overflow-y-auto scrollbar-thin bg-[#f9fafb] dark:bg-slate-950 text-[#2d3748] dark:text-slate-100 selection:bg-[#2dd4a8]/30 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+    <div className="flex-1 w-full min-h-0 overflow-y-auto scrollbar-thin bg-background text-foreground selection:bg-primary/30 rounded-2xl border border-border">
       <main className="flex min-h-full w-full min-w-0 flex-col lg:flex-row">
         
         {/* ── SIDEBAR DE VENDEDORES COM RANKING (#1, #2, #3) ────────────────── */}
         <section
           aria-label="Vendedores monitorados"
-          className="flex w-full shrink-0 flex-col border-b border-slate-200/80 dark:border-slate-800 bg-[#f8fafc]/60 dark:bg-slate-900/40 lg:w-[380px] xl:w-[420px] lg:border-b-0 lg:border-r"
+          className="flex w-full shrink-0 flex-col border-b border-border bg-muted/30 lg:w-[380px] xl:w-[420px] lg:border-b-0 lg:border-r"
         >
           <h2 className="sr-only">Lista de vendedores</h2>
-          <ul className="flex flex-col divide-y divide-slate-200/80 dark:divide-slate-800 overflow-y-auto" role="list">
+          <ul className="flex flex-col divide-y divide-border overflow-y-auto" role="list">
             {operadores.map((op, idx) => {
               const ativo = op.operatorId === atual.operatorId;
               const opScore = op.avgPerformanceScore ?? 0;
@@ -407,16 +407,16 @@ export function OperatorsRankingTab({
                     }}
                     aria-pressed={ativo}
                     className={`flex w-full items-center gap-3.5 p-4 text-left transition-all sm:gap-4 sm:p-5 ${focusRing} focus-visible:ring-inset focus-visible:ring-offset-0 cursor-pointer ${
-                      ativo ? "bg-white dark:bg-slate-900 ring-1 ring-inset ring-[#2dd4a8]" : "hover:bg-slate-100/60 dark:hover:bg-slate-800/40"
+                      ativo ? "bg-card ring-1 ring-inset ring-primary" : "hover:bg-muted/50"
                     }`}
                   >
                     {/* Badge da Posição no Ranking (#1, #2, #3) */}
                     <span
                       className={`font-black text-xs sm:text-sm shrink-0 w-6 text-center ${
-                        rankPos === 1 ? "text-[#2dd4a8] font-black" :
-                        rankPos === 2 ? "text-slate-400 font-bold" :
-                        rankPos === 3 ? "text-amber-700 font-bold" :
-                        "text-[#64748b] font-medium"
+                        rankPos === 1 ? "text-primary font-black" :
+                        rankPos === 2 ? "text-foreground font-bold" :
+                        rankPos === 3 ? "text-muted-foreground font-bold" :
+                        "text-muted-foreground font-medium"
                       }`}
                     >
                       #{rankPos}
@@ -434,14 +434,14 @@ export function OperatorsRankingTab({
                       <span className="flex items-start justify-between gap-2">
                         <span
                           className={`truncate text-base font-bold sm:text-lg ${
-                            ativo ? "text-[#2d3748] dark:text-white" : "text-[#4a5568] dark:text-slate-300"
+                            ativo ? "text-foreground" : "text-foreground/80"
                           }`}
                         >
                           {op.operatorName}
                         </span>
                         <span
                           className={`shrink-0 font-black text-2xl leading-none ${
-                            ativo ? "text-[#2dd4a8]" : "text-[#4a5568] dark:text-slate-400"
+                            ativo ? "text-primary" : "text-muted-foreground"
                           }`}
                         >
                           <span className="sr-only">Score </span>
@@ -450,11 +450,11 @@ export function OperatorsRankingTab({
                       </span>
                       <span className="mt-1 flex items-center gap-2">
                         <span className={`size-2 shrink-0 rounded-full ${statusDot(op.trafficLight)}`} aria-hidden="true" />
-                        <span className="truncate text-xs font-semibold uppercase tracking-wider text-[#64748b]">
+                        <span className="truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                           {statusLabel(op.trafficLight)} • {op.totalConversations} ATEND.
                         </span>
                       </span>
-                      <span className="block text-xs font-semibold text-[#2dd4a8] mt-0.5">
+                      <span className="block text-xs font-semibold text-primary mt-0.5">
                         ↑ Alta vs ontem
                       </span>
                     </span>
@@ -465,18 +465,18 @@ export function OperatorsRankingTab({
           </ul>
 
           {/* Resumo do Time no Rodapé da Sidebar (Online Real vs Offline) */}
-          <div className="mt-auto border-t border-slate-200/80 dark:border-slate-800 p-5">
-            <h3 className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+          <div className="mt-auto border-t border-border p-5">
+            <h3 className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
               Resumo do time
             </h3>
             <dl className="mt-3 grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-3 ring-1 ring-slate-200/80 dark:ring-slate-800">
-                <dt className="text-[11px] font-extrabold uppercase tracking-wider text-[#64748b]">Score médio</dt>
-                <dd className="font-black text-2xl leading-none text-[#2dd4a8] mt-1">{mediaScore}</dd>
+              <div className="rounded-xl bg-card p-3 ring-1 ring-border">
+                <dt className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">Score médio</dt>
+                <dd className="font-black text-2xl leading-none text-primary mt-1">{mediaScore}</dd>
               </div>
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-3 ring-1 ring-slate-200/80 dark:ring-slate-800">
-                <dt className="text-[11px] font-extrabold uppercase tracking-wider text-[#64748b]">Online / Offline</dt>
-                <dd className="font-black text-2xl leading-none text-[#2d3748] dark:text-white mt-1">
+              <div className="rounded-xl bg-card p-3 ring-1 ring-border">
+                <dt className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">Online / Offline</dt>
+                <dd className="font-black text-2xl leading-none text-foreground mt-1">
                   {onlineCount}/{operadores.length}
                 </dd>
               </div>
@@ -488,7 +488,7 @@ export function OperatorsRankingTab({
         <div
           id="detalhe-vendedor"
           tabIndex={-1}
-          className="min-w-0 flex-1 bg-white dark:bg-slate-900 p-4 sm:p-6 lg:p-8"
+          className="min-w-0 flex-1 bg-card p-4 sm:p-6 lg:p-8"
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -512,18 +512,18 @@ export function OperatorsRankingTab({
                 <div className="min-w-0 flex-1">
                   <h2
                     id="titulo-vendedor"
-                    className="font-black text-2xl leading-tight tracking-tight text-[#2d3748] dark:text-white sm:text-3xl lg:text-4xl uppercase"
+                    className="font-black text-2xl leading-tight tracking-tight text-foreground sm:text-3xl lg:text-4xl uppercase"
                   >
                     {atual.operatorName}
                   </h2>
-                  <p className="max-w-[56ch] text-pretty text-sm text-[#64748b] lg:text-base font-medium mt-1">
+                  <p className="max-w-[56ch] text-pretty text-sm text-muted-foreground lg:text-base font-medium mt-1">
                     Senior Account Executive • Time de Operações Brasil
                   </p>
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button
                       type="button"
                       onClick={() => setShowOccurrences(!showOccurrences)}
-                      className={`flex min-h-11 items-center gap-2 rounded-lg bg-[#2d3748] dark:bg-slate-100 px-4 py-2 text-sm font-bold uppercase text-white dark:text-slate-900 transition-colors hover:bg-[#4a5568] cursor-pointer ${focusRing}`}
+                      className={`flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold uppercase text-primary-foreground transition-colors hover:opacity-90 cursor-pointer ${focusRing}`}
                     >
                       <Eye className="size-4 shrink-0" aria-hidden="true" />
                       {showOccurrences ? "Ocultar Ocorrências" : "Ver Ocorrências"}
@@ -531,7 +531,7 @@ export function OperatorsRankingTab({
                     <button
                       type="button"
                       onClick={() => onOpenHistory(atual.operatorId, atual.operatorName)}
-                      className={`flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold uppercase text-[#4a5568] dark:text-slate-300 ring-1 ring-slate-200/80 dark:ring-slate-800 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer ${focusRing}`}
+                      className={`flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold uppercase text-foreground ring-1 ring-border transition-colors hover:bg-muted cursor-pointer ${focusRing}`}
                     >
                       <Clock className="size-4 shrink-0" aria-hidden="true" />
                       Ver Histórico
@@ -541,10 +541,10 @@ export function OperatorsRankingTab({
 
                 {/* Score Geral Numérico Imponente */}
                 <div className="shrink-0 text-right">
-                  <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+                  <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
                     Score Geral
                   </span>
-                  <div className="mt-1 font-black text-5xl leading-none text-[#2dd4a8] sm:text-6xl lg:text-7xl">
+                  <div className="mt-1 font-black text-5xl leading-none text-primary sm:text-6xl lg:text-7xl">
                     {scoreVal > 0 ? scoreVal : 94}
                   </div>
                 </div>
@@ -554,7 +554,7 @@ export function OperatorsRankingTab({
               <section aria-labelledby="titulo-qualidade" className="space-y-4">
                 <h3
                   id="titulo-qualidade"
-                  className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]"
+                  className="text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground"
                 >
                   Métricas macro • hoje e últimas horas
                 </h3>
@@ -615,10 +615,10 @@ export function OperatorsRankingTab({
 
               {/* Seção Indicadores Operacionais (4 KPIs com Gráficos 7d) */}
               <section aria-labelledby="titulo-kpis" className="space-y-4">
-                <h3 id="titulo-kpis" className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+                <h3 id="titulo-kpis" className="text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
                   Indicadores operacionais • últimos 7 dias
                 </h3>
-                <div className="grid gap-px overflow-hidden rounded-2xl bg-slate-200/80 dark:bg-slate-800 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-px overflow-hidden rounded-2xl bg-border ring-1 ring-border sm:grid-cols-2 xl:grid-cols-4">
                   <KpiCard
                     label="Atendimentos Hoje"
                     value={String(atual.totalConversations > 0 ? atual.totalConversations : 48)}
@@ -686,8 +686,8 @@ export function OperatorsRankingTab({
 
               {/* Evolução do Score & Comparativo Mensal */}
               <section aria-labelledby="titulo-evolucao" className="grid gap-4 lg:grid-cols-2">
-                <article className="rounded-2xl bg-[#f8fafc] dark:bg-slate-900/60 p-5 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:p-6">
-                  <h4 className="mb-4 text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+                <article className="rounded-2xl bg-muted/30 p-5 ring-1 ring-border sm:p-6">
+                  <h4 className="mb-4 text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
                     Evolução do Score (hoje)
                   </h4>
                   <TrendChart
@@ -697,8 +697,8 @@ export function OperatorsRankingTab({
                     height={96}
                   />
                 </article>
-                <article className="rounded-2xl bg-[#f8fafc] dark:bg-slate-900/60 p-5 ring-1 ring-slate-200/80 dark:ring-slate-800 sm:p-6">
-                  <h4 className="mb-4 text-xs font-extrabold uppercase tracking-[0.2em] text-[#64748b]">
+                <article className="rounded-2xl bg-muted/30 p-5 ring-1 ring-border sm:p-6">
+                  <h4 className="mb-4 text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
                     Comparativo Mensal
                   </h4>
                   <div className="space-y-4">
@@ -724,15 +724,15 @@ export function OperatorsRankingTab({
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-[#f8fafc] dark:bg-slate-900/60 p-6 space-y-4 overflow-hidden"
+                    className="rounded-2xl border border-border bg-muted/30 p-6 space-y-4 overflow-hidden"
                   >
-                    <h4 className="text-xs font-extrabold text-[#2d3748] dark:text-white uppercase tracking-wider flex items-center gap-2">
-                      <ClipboardCheck className="h-4 w-4 text-[#2dd4a8]" />
+                    <h4 className="text-xs font-extrabold text-foreground uppercase tracking-wider flex items-center gap-2">
+                      <ClipboardCheck className="h-4 w-4 text-primary" />
                       Ocorrências Recentes e Auditorias de I.A. ({operatorAudits.length})
                     </h4>
 
                     {operatorAudits.length === 0 ? (
-                      <p className="text-xs text-[#64748b] py-2 italic">
+                      <p className="text-xs text-muted-foreground py-2 italic">
                         Nenhuma auditoria recente encontrada para este operador.
                       </p>
                     ) : (
@@ -741,28 +741,28 @@ export function OperatorsRankingTab({
                           <div
                             key={audit.id}
                             onClick={() => onSelectAudit(audit.id)}
-                            className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition cursor-pointer flex flex-col gap-2 group"
+                            className="p-4 rounded-xl border border-border bg-card hover:bg-muted/50 transition cursor-pointer flex flex-col gap-2 group"
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-bold text-[#2d3748] dark:text-white truncate">
+                              <span className="text-xs font-bold text-foreground truncate">
                                 Atendimento: {audit.contactName || "Cliente"}
                               </span>
-                              <span className="text-xs font-black text-[#2dd4a8] flex items-center gap-1">
+                              <span className="text-xs font-black text-primary flex items-center gap-1">
                                 Score: {audit.performanceScore ?? "–"}
                                 <ChevronRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
                               </span>
                             </div>
 
                             {audit.strengths && (
-                              <div className="text-xs bg-[#2dd4a8]/10 text-emerald-800 dark:text-emerald-300 p-2 rounded border border-[#2dd4a8]/20">
-                                <strong className="block text-[10px] font-extrabold uppercase text-[#2dd4a8] mb-0.5">Pontos Fortes:</strong>
+                              <div className="text-xs bg-primary/10 text-foreground p-2 rounded border border-primary/20">
+                                <strong className="block text-[10px] font-extrabold uppercase text-primary mb-0.5">Pontos Fortes:</strong>
                                 <p className="line-clamp-2">{audit.strengths}</p>
                               </div>
                             )}
 
                             {audit.weaknesses && (
-                              <div className="text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300 p-2 rounded border border-red-200/50">
-                                <strong className="block text-[10px] font-extrabold uppercase text-red-600 mb-0.5">Pontos a Melhorar:</strong>
+                              <div className="text-xs bg-muted/40 text-muted-foreground p-2 rounded border border-border">
+                                <strong className="block text-[10px] font-extrabold uppercase text-foreground mb-0.5">Pontos a Melhorar:</strong>
                                 <p className="line-clamp-2">{audit.weaknesses}</p>
                               </div>
                             )}

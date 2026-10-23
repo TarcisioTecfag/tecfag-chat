@@ -132,7 +132,7 @@ function PerformanceTab({ volumes, channels, sectors }: {
             <h3 className="text-xs font-extrabold text-foreground">Volumetria Semanal</h3>
             <p className="text-[10px] text-muted-foreground">Evolução de chats recebidos vs. finalizados por dia</p>
           </div>
-          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 flex items-center gap-0.5">
+          <span className="text-[10px] font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/20 flex items-center gap-1">
             <TrendingUp className="h-3.5 w-3.5" />
             Operação Ativa
           </span>
@@ -143,20 +143,20 @@ function PerformanceTab({ volumes, channels, sectors }: {
               <AreaChart data={volumes} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorChats" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.15}/>
+                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.2}/>
                     <stop offset="95%" stopColor="var(--primary)" stopOpacity={0.01}/>
                   </linearGradient>
                   <linearGradient id="colorAtendidos" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
-                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.01}/>
+                    <stop offset="5%" stopColor="var(--muted-foreground)" stopOpacity={0.18}/>
+                    <stop offset="95%" stopColor="var(--muted-foreground)" stopOpacity={0.01}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
-                <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: 12, fontSize: 11 }} />
+                <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
+                <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
+                <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: 12, fontSize: 11, color: "var(--foreground)" }} />
                 <Area type="monotone" dataKey="chats" name="Recebidas" stroke="var(--primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorChats)" isAnimationActive={false} />
-                <Area type="monotone" dataKey="atendidos" name="Finalizadas" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorAtendidos)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="atendidos" name="Finalizadas" stroke="var(--muted-foreground)" strokeWidth={2} fillOpacity={1} fill="url(#colorAtendidos)" isAnimationActive={false} />
                 <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: 10 }} />
               </AreaChart>
             </ResponsiveContainer>
@@ -187,11 +187,12 @@ function PerformanceTab({ volumes, channels, sectors }: {
                 dataKey="value"
                 isAnimationActive={false}
               >
-                {channels.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
+                {channels.map((_, index) => {
+                  const nativeColors = ["var(--primary)", "var(--muted-foreground)", "var(--border)"];
+                  return <Cell key={`cell-${index}`} fill={nativeColors[index % nativeColors.length]} />;
+                })}
               </Pie>
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: 12, fontSize: 11, color: "var(--foreground)" }} />
             </PieChart>
           </ResponsiveContainer>
           <div className="absolute text-center">
@@ -200,15 +201,19 @@ function PerformanceTab({ volumes, channels, sectors }: {
           </div>
         </div>
         <div className="space-y-1.5">
-          {channels.map((chan) => (
-            <div key={chan.name} className="flex items-center justify-between text-[11px] font-semibold">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full" style={{ background: chan.color }} />
-                <span className="text-muted-foreground">{chan.name}</span>
+          {channels.map((chan, index) => {
+            const nativeColors = ["var(--primary)", "var(--muted-foreground)", "var(--border)"];
+            const dotColor = nativeColors[index % nativeColors.length];
+            return (
+              <div key={chan.name} className="flex items-center justify-between text-[11px] font-semibold">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full" style={{ background: dotColor }} />
+                  <span className="text-muted-foreground">{chan.name}</span>
+                </div>
+                <span className="text-foreground">{chan.value} ({totalVolume > 0 ? Math.round((chan.value / totalVolume) * 100) : 0}%)</span>
               </div>
-              <span className="text-foreground">{chan.value} ({totalVolume > 0 ? Math.round((chan.value / totalVolume) * 100) : 0}%)</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -243,8 +248,8 @@ function PerformanceTab({ volumes, channels, sectors }: {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1.5">
-                        <span className={`h-1.5 w-1.5 rounded-full ${sec.slaPct >= 90 ? "bg-emerald-500" : "bg-amber-400"}`} />
-                        <span className={sec.slaPct >= 90 ? "text-emerald-600 font-bold" : "text-amber-600"}>{sec.slaPct}%</span>
+                        <span className={`h-1.5 w-1.5 rounded-full ${sec.slaPct >= 90 ? "bg-primary" : "bg-muted-foreground"}`} />
+                        <span className={sec.slaPct >= 90 ? "text-primary font-bold" : "text-muted-foreground font-semibold"}>{sec.slaPct}%</span>
                       </div>
                     </td>
                   </tr>
@@ -297,7 +302,7 @@ function SlaTab({
           <div className="absolute text-center">
             <span className="text-3xl font-black text-foreground">{avgSla}%</span>
             <p className={`text-[9px] font-bold px-2 py-0.5 rounded-full border mt-0.5 ${
-              avgSla >= 90 ? "text-emerald-600 bg-emerald-50 border-emerald-100" : "text-amber-600 bg-amber-50 border-amber-100"
+              avgSla >= 90 ? "text-primary bg-primary/10 border-primary/20" : "text-muted-foreground bg-muted border-border"
             }`}>
               {avgSla >= 90 ? "DENTRO DA META" : "ATENÇÃO"}
             </p>
@@ -311,7 +316,7 @@ function SlaTab({
           </div>
           <div>
             <span className="text-muted-foreground block text-[10px] uppercase">Excedidos</span>
-            <span className={`font-black text-sm ${overdueCount > 0 ? "text-red-500" : "text-foreground"}`}>
+            <span className={`font-black text-sm ${overdueCount > 0 ? "text-primary" : "text-foreground"}`}>
               {overdueCount} chats
             </span>
           </div>
@@ -329,12 +334,12 @@ function SlaTab({
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={operators} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--line)" />
-                <XAxis type="number" stroke="#94a3b8" fontSize={9} domain={[0, 100]} />
-                <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={9} width={90} tickLine={false} />
-                <Tooltip contentStyle={{ fontSize: 11 }} />
+                <XAxis type="number" stroke="var(--muted-foreground)" fontSize={9} domain={[0, 100]} />
+                <YAxis dataKey="name" type="category" stroke="var(--muted-foreground)" fontSize={9} width={90} tickLine={false} />
+                <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: 12, fontSize: 11, color: "var(--foreground)" }} />
                 <Bar dataKey="slaPct" name="SLA %" radius={[0, 4, 4, 0]} isAnimationActive={false}>
                   {operators.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.slaPct >= 90 ? "var(--primary)" : "#f59e0b"} />
+                    <Cell key={`cell-${index}`} fill={entry.slaPct >= 90 ? "var(--primary)" : "var(--muted-foreground)"} />
                   ))}
                 </Bar>
               </BarChart>
@@ -382,8 +387,8 @@ function SlaTab({
                     </td>
                     <td className="px-5 py-3">
                       {op.chats > 0 ? (
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          op.slaPct >= 90 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                          op.slaPct >= 90 ? "bg-primary/10 text-primary border-primary/20" : "bg-muted text-muted-foreground border-border"
                         }`}>
                           {op.slaPct}%
                         </span>
@@ -427,12 +432,12 @@ function ContactsTab({
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={clientMetrics} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} />
-                <YAxis stroke="#94a3b8" fontSize={9} />
-                <Tooltip contentStyle={{ fontSize: 11 }} />
+                <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={9} />
+                <YAxis stroke="var(--muted-foreground)" fontSize={9} />
+                <Tooltip contentStyle={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: 12, fontSize: 11, color: "var(--foreground)" }} />
                 <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" />
                 <Bar dataKey="novos" name="Novos Clientes" fill="var(--primary)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-                <Bar dataKey="recorrentes" name="Recorrentes" fill="#6366f1" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                <Bar dataKey="recorrentes" name="Recorrentes" fill="var(--muted-foreground)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -534,7 +539,7 @@ function ReportsTab({ reports, loading }: { reports: AiReportData[]; loading: bo
             <div className="flex items-center justify-between border-b border-line pb-4">
               <div>
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
-                  selectedReport.type === "weekly" ? "bg-violet-50 text-violet-700 border border-violet-100" : "bg-blue-50 text-blue-700 border border-blue-100"
+                  selectedReport.type === "weekly" ? "bg-primary/10 text-primary border border-primary/20" : "bg-muted text-foreground border border-border"
                 }`}>
                   Relatório {selectedReport.type === "weekly" ? "Semanal" : "Diário"}
                 </span>

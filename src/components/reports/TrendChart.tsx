@@ -42,7 +42,7 @@ export function TrendChart({
             <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
           </linearGradient>
         </defs>
-        <g className={improving ? "text-primary" : "text-warning"}>
+        <g className={improving ? "text-primary" : "text-muted-foreground"}>
           <path d={area} fill="url(#trendFill)" />
           <path d={line} fill="none" stroke="currentColor" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />
         </g>

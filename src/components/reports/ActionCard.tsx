@@ -3,9 +3,9 @@ import type { Action } from "@/data/reports";
 import { cn } from "@/lib/utils";
 
 const priorityStyles: Record<Action["priority"], string> = {
-  Crítica: "border-critical/40 bg-critical/12 text-critical",
-  Alta: "border-warning/40 bg-warning/12 text-warning",
-  Média: "border-info/40 bg-info/12 text-info",
+  Crítica: "border-primary/30 bg-primary/15 text-primary",
+  Alta: "border-primary/20 bg-primary/10 text-primary",
+  Média: "border-border bg-muted text-muted-foreground",
 };
 
 export function ActionCard({ action, index }: { action: Action; index: number }) {
