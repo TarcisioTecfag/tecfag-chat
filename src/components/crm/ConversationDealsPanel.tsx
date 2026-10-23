@@ -42,7 +42,7 @@ import {
   normalizePipelineIds,
 } from "./CustomFieldsEditor";
 import { normalizePipelineId } from "@/lib/crm/custom-fields";
-import { ConversationDealContext } from "./ConversationDealContext";
+import { ConversationDealContext, useConversationDealContext } from "./ConversationDealContext";
 import { fetchDealContext } from "@/lib/crm/conversation-deal-client";
 import { sortContactDeals } from "@/lib/crm/conversation-deal-policy";
 
@@ -50,6 +50,7 @@ interface ConversationDealsPanelProps {
   conversationId: string;
   contactId?: string;
   customerName?: string;
+  variant?: "sidebar" | "chat";
 }
 
 export interface CustomFieldDef {
@@ -200,17 +201,21 @@ export function ConversationDealsPanel({
   conversationId,
   contactId,
   customerName,
+  variant = "sidebar",
 }: ConversationDealsPanelProps) {
   const { currentOperatorId, tenant } = useChat();
   const navigate = useNavigate();
   const conversationRef = useRef(conversationId);
   conversationRef.current = conversationId;
+  const dealContext = useConversationDealContext(conversationId);
+  const currentDealId = dealContext.data?.currentDeal?.id || null;
 
   const [loading, setLoading] = useState(true);
   const [deals, setDeals] = useState<any[]>([]);
   const [customFieldDefinitions, setCustomFieldDefinitions] = useState<CustomFieldDef[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isLinkingOpen, setIsLinkingOpen] = useState(false);
+  const [selectingDealId, setSelectingDealId] = useState<string | null>(null);
 
   // Estados de Edição Inline
   const [editingDealId, setEditingDealId] = useState<string | null>(null);
@@ -516,6 +521,59 @@ export function ConversationDealsPanel({
     return String(val);
   };
 
+  // Selecionar uma oportunidade diretamente como a negociação atual deste atendimento
+  const handleSelectAsCurrentDeal = async (deal: any) => {
+    if (!conversationId || !deal?.id || selectingDealId) return;
+    setSelectingDealId(deal.id);
+    try {
+      // Se a oportunidade do contato estiver desvinculada da conversa, vincula primeiro
+      if (deal.isLinked === false) {
+        const linkRes = await fetch(
+          `/api/crm/deals/${encodeURIComponent(deal.id)}/conversations`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ conversationId, isPrimary: deals.length === 0 }),
+          },
+        );
+        if (!linkRes.ok) {
+          const errData = await linkRes.json().catch(() => ({}));
+          throw new Error(errData.error || "Falha ao vincular negociação ao atendimento.");
+        }
+      }
+
+      if (tenant && currentOperatorId) {
+        const freshCtx = await fetchDealContext(tenant, currentOperatorId, conversationId);
+        if (freshCtx.editable) {
+          const res = await fetch(
+            `/api/chats/${encodeURIComponent(conversationId)}/deal-context`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                dealId: deal.id,
+                expectedVersion: freshCtx.version,
+              }),
+            },
+          );
+          const result = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(result.error || "Falha ao selecionar negociação atual.");
+          }
+        }
+      }
+
+      await Promise.all([fetchLinkedDeals(true, true), dealContext.refresh()]);
+      window.dispatchEvent(new Event("conversation-deal-context-changed"));
+      window.dispatchEvent(new Event("crm-deals-changed"));
+      toast.success("As próximas ações serão registradas na negociação selecionada.");
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível selecionar esta negociação.");
+    } finally {
+      setSelectingDealId(null);
+    }
+  };
+
   // Status badge helper padronizado
   const renderStatusBadge = (status?: string | null) => (
     <DealStatusBadge status={status} size="xs" className="rounded-full" />
@@ -558,7 +616,7 @@ export function ConversationDealsPanel({
         </div>
       </div>
 
-      <ConversationDealContext conversationId={conversationId} />
+      {variant === "chat" && <ConversationDealContext conversationId={conversationId} />}
 
       {/* Lista de Cards Vinculados */}
       {loading ? (
@@ -579,11 +637,14 @@ export function ConversationDealsPanel({
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className={variant === "chat" ? "grid grid-cols-1 md:grid-cols-2 gap-3" : "space-y-3"}>
           {deals.map((deal, index) => {
             const isEditing = editingDealId === deal.id;
             const isSaving = savingDealId === deal.id;
             const isExpanded = expandedDealIds.has(deal.id);
+            const isCurrentDeal = currentDealId === deal.id;
+            const showGroupHeader =
+              index === 0 || (deals[index - 1].status === "open") !== (deal.status === "open");
 
             const rawValue = deal.value !== null && deal.value !== undefined ? Number(deal.value) : null;
             const formattedValue =
@@ -607,21 +668,35 @@ export function ConversationDealsPanel({
               : [];
 
             return (
-              <div
-                key={deal.id}
-                className="group relative rounded-2xl border border-border/80 bg-card p-3 shadow-xs hover:border-primary/40 transition-all duration-150"
-              >
-                {(index === 0 || (deals[index - 1].status === "open") !== (deal.status === "open")) && <p className="mb-2 text-xs font-semibold text-muted-foreground">{deal.status === "open" ? "Em andamento" : "Histórico — vendidas, perdidas e pausadas"}</p>}
-                {deal.isLinked === false && <p className="mb-2 text-[10px] text-muted-foreground">Vínculo histórico — negociação desvinculada</p>}
-                {isEditing ? (
-                  /* ── MODO EDIÇÃO INLINE DO CARD ── */
-                  <div className="space-y-3">
-                    {/* Header da Edição */}
-                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                        <Pencil className="h-3.5 w-3.5 text-primary" />
-                        <span>Editar Negociação</span>
-                      </div>
+              <React.Fragment key={deal.id}>
+                {showGroupHeader && (
+                  <p className="col-span-full text-xs font-bold text-muted-foreground uppercase tracking-wider pt-0.5">
+                    {deal.status === "open"
+                      ? "Em andamento"
+                      : "Histórico — vendidas, perdidas e pausadas"}
+                  </p>
+                )}
+                <div
+                  className={`group relative rounded-2xl border bg-card p-3 shadow-xs transition-all duration-150 ${
+                    isCurrentDeal
+                      ? "border-red-500/80 ring-1 ring-red-500/25"
+                      : "border-border/80 hover:border-primary/40"
+                  } ${variant === "chat" && isEditing ? "md:col-span-2" : ""}`}
+                >
+                  {deal.isLinked === false && (
+                    <p className="mb-2 text-[10px] text-muted-foreground">
+                      Vínculo histórico — negociação desvinculada
+                    </p>
+                  )}
+                  {isEditing ? (
+                    /* ── MODO EDIÇÃO INLINE DO CARD ── */
+                    <div className="space-y-3">
+                      {/* Header da Edição */}
+                      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                          <Pencil className="h-3.5 w-3.5 text-primary" />
+                          <span>Editar Negociação</span>
+                        </div>
                       <div className="flex items-center gap-1">
                         <SystemTooltip content="Cancelar alterações">
                           <button
@@ -974,7 +1049,7 @@ export function ConversationDealsPanel({
                   /* ── MODO VISUALIZAÇÃO DO CARD (ENRIQUECIDO E ELEGANTE) ── */
                   <div className="space-y-2.5">
                     {/* Linha Superior: Status, Rating e Ações */}
-                    <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {renderStatusBadge(deal.status)}
 
@@ -988,8 +1063,36 @@ export function ConversationDealsPanel({
                         )}
                       </div>
 
-                      {/* Barra de Ações Rápidas */}
+                      {/* Barra de Ações Rápidas + Botão "Escolher essa" */}
                       <div className="flex items-center gap-1 shrink-0">
+                        {deal.status === "open" && (
+                          isCurrentDeal ? (
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-red-600/15 border border-red-500/40 px-2.5 py-1 text-[11px] font-bold text-red-500 mr-0.5">
+                              <CheckCircle2 className="h-3 w-3 shrink-0" />
+                              <span>Negociação atual</span>
+                            </span>
+                          ) : (
+                            <SystemTooltip content="Definir esta oportunidade como a negociação atual deste atendimento">
+                              <button
+                                type="button"
+                                onClick={() => void handleSelectAsCurrentDeal(deal)}
+                                disabled={
+                                  selectingDealId !== null ||
+                                  (dealContext.data?.editable === false && deal.isLinked !== false)
+                                }
+                                className="inline-flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 active:bg-red-800 px-2.5 py-1 text-[11px] font-bold text-white shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mr-0.5"
+                              >
+                                {selectingDealId === deal.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                                ) : (
+                                  <Check className="h-3 w-3 shrink-0" />
+                                )}
+                                <span>Escolher essa</span>
+                              </button>
+                            </SystemTooltip>
+                          )
+                        )}
+
                         <SystemTooltip content="Editar informações deste card">
                           <button
                             type="button"
@@ -1163,6 +1266,7 @@ export function ConversationDealsPanel({
                   </div>
                 )}
               </div>
+              </React.Fragment>
             );
           })}
         </div>

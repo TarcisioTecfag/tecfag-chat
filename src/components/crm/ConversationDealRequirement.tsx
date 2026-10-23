@@ -61,17 +61,21 @@ export function ConversationDealRequirement({
   selectionRequired?: boolean;
 }) {
   return (
-    <div className="mx-auto max-h-[50vh] max-w-2xl space-y-3 overflow-y-auto rounded-xl border border-primary/30 bg-card p-4">
-      <p role="alert" className="text-sm font-semibold">
-        {selectionRequired
-          ? "Escolha a negociação atual deste atendimento"
-          : "Vincule uma negociação para iniciar o atendimento"}
-      </p>
-      <p className="text-xs text-muted-foreground">
-        {selectionRequired
-          ? "Há negociações em andamento, mas nenhuma foi escolhida como atual. Selecione abaixo o card que corresponde ao assunto deste atendimento."
-          : "As mensagens recebidas estão preservadas. Associe um card ou crie uma negociação para continuar."}
-      </p>
+    <div className="w-full max-h-[62vh] space-y-3 overflow-y-auto rounded-2xl border-2 border-red-600/70 dark:border-red-500/70 bg-card p-4 shadow-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <div>
+          <p role="alert" className="text-sm font-bold text-foreground">
+            {selectionRequired
+              ? "Escolha a negociação atual deste atendimento"
+              : "Vincule uma negociação para iniciar o atendimento"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {selectionRequired
+              ? "Há negociações em andamento, mas nenhuma foi escolhida como atual. Selecione pelo menu suspenso ou clique em \"Escolher essa\" diretamente em um dos cards abaixo."
+              : "As mensagens recebidas estão preservadas. Associe um card ou crie uma negociação para continuar."}
+          </p>
+        </div>
+      </div>
       {error && (
         <p role="alert" className="text-xs text-destructive">
           {error}
@@ -81,6 +85,7 @@ export function ConversationDealRequirement({
         conversationId={conversationId}
         contactId={contactId}
         customerName={customerName}
+        variant="chat"
       />
     </div>
   );

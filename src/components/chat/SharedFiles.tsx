@@ -19,7 +19,7 @@ import {
 import { useChat } from "@/hooks/useChatState";
 import { RdCrmCard } from "./RdCrmCard";
 import { ConversationDealsPanel } from "@/components/crm/ConversationDealsPanel";
-import { ConversationDealContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
+import { useConversationDealContext } from "@/components/crm/ConversationDealContext";
 import { AccountPicker } from "@/components/crm/AccountPicker";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
@@ -952,9 +952,6 @@ export function SharedFiles() {
 
             {/* Formulário de nova tarefa */}
             <form onSubmit={handleCreateTask} className="space-y-2">
-
-              <ConversationDealContext conversationId={activeChat.id} />
-
               {/* Nome da tarefa */}
               <input
                 type="text"
