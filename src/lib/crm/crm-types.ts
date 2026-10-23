@@ -164,6 +164,8 @@ export interface CrmAccountDetailDTO extends CrmAccountDTO {
 }
 
 export type CrmDealEventType =
+  | "conversation_context_changed"
+  | "conversation_action"
   | "created"
   | "title_changed"
   | "value_changed"

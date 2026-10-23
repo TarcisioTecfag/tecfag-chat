@@ -5,6 +5,8 @@ export type BrowserIntent = {
   conversationId: string;
   text: string;
   isInternal: boolean;
+  expectedContextVersion?: number;
+  noteScope?: "current" | "general";
   attachments?: File[];
   audioBlob?: Blob | null;
   quoted?: { id: string; sender: string; content: string } | null;

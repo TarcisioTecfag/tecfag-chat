@@ -42,6 +42,8 @@ import {
   normalizePipelineIds,
 } from "./CustomFieldsEditor";
 import { normalizePipelineId } from "@/lib/crm/custom-fields";
+import { ConversationDealContext } from "./ConversationDealContext";
+import { fetchDealContext } from "@/lib/crm/conversation-deal-client";
 
 interface ConversationDealsPanelProps {
   conversationId: string;
@@ -198,7 +200,7 @@ export function ConversationDealsPanel({
   contactId,
   customerName,
 }: ConversationDealsPanelProps) {
-  const { currentOperatorId } = useChat();
+  const { currentOperatorId, tenant } = useChat();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -542,6 +544,8 @@ export function ConversationDealsPanel({
           </SystemTooltip>
         </div>
       </div>
+
+      <ConversationDealContext conversationId={conversationId} />
 
       {/* Lista de Cards Vinculados */}
       {loading ? (
@@ -1158,7 +1162,7 @@ export function ConversationDealsPanel({
         confirmLabel="Vincular Negociação ao Atendimento"
         contactContext={{
           contactId: contactId || contactInfo?.id || null,
-          name: contactInfo?.name || customerName || null,
+          name: contactInfo?.name || customerName || undefined,
           accountId: contactInfo?.accountId || null,
           accountName: contactInfo?.accountName || null,
         }}
@@ -1198,8 +1202,18 @@ export function ConversationDealsPanel({
       <CreateDealDialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        onSuccess={(newDeal, createAnother) => {
-          fetchLinkedDeals();
+        offerUseAsCurrent
+        onSuccess={async (newDeal, createAnother, useAsCurrent) => {
+          await fetchLinkedDeals();
+          if (useAsCurrent) {
+            try {
+              const context = await fetchDealContext(tenant!, currentOperatorId!, conversationId);
+              const res = await fetch(`/api/chats/${encodeURIComponent(conversationId)}/deal-context`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dealId: newDeal.id, expectedVersion: context.version }) });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || "Não foi possível selecionar o card criado.");
+            } catch (error) { toast.error(`Card criado. ${error instanceof Error ? error.message : "Selecione a negociação atual no atendimento."}`); }
+          }
+          window.dispatchEvent(new Event("conversation-deal-context-changed"));
           if (!createAnother) {
             navigate({
               to: "/crm/deals/$dealId",

@@ -34,7 +34,7 @@ export const MobileLayout: React.FC = () => {
 
   const handleSendMessage = (text: string, isInternalNote: boolean) => {
     if (selectedChatId) {
-      sendMessage(text, isInternalNote);
+      return sendMessage(text, isInternalNote);
     } else {
       console.log("Enviando mensagem para Valentina:", text, isInternalNote);
     }

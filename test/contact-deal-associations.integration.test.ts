@@ -2,6 +2,7 @@ import { beforeAll, afterAll, describe, expect, test, mock } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { and, eq } from "drizzle-orm";
 import * as schema from "../src/db/schema";
+import { DEFAULT_ADMIN_PERMISSIONS } from "../src/lib/rbac";
 import {
   linkContactToDeal,
   syncAccountDealContacts,
@@ -22,7 +23,7 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)(
     const session = {
       tenantId: "tenant-a",
       operator: { id: "operator-a", role: "admin", name: "Operador" },
-      permissions: { chat: {}, views: { chat: true } },
+      permissions: structuredClone(DEFAULT_ADMIN_PERMISSIONS),
     };
     let serial = 0;
     const id = (label: string) => `${label}-${++serial}`;

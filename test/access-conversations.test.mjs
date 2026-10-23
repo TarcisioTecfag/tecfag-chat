@@ -249,8 +249,11 @@ test("persisting a chat note rechecks capture inside the transaction before any 
       requireSession: async () => ({ session }), requireConversationWriteAccess: async () => null,
       db: { select: () => query, transaction: async (fn) => fn(tx) }, conversations: {}, messages: {},
       eq: (...x) => x, and: (...x) => x, conversationReadCondition: () => ({}),
+      getDealContext: async () => ({ context: { currentDealId: "deal-a", version: 1 }, deals: [] }),
+      assertDealContextVersion: (context, expected) => assert.equal(context.version, expected),
+      recordConversationAction: async () => {}, DealContextError: class extends Error {},
     });
-    const response = await handler({ request: apiRequest({ conversationId: "conv-a", content: "internal note", isInternalNote: true }) });
+    const response = await handler({ request: apiRequest({ conversationId: "conv-a", content: "internal note", isInternalNote: true, expectedContextVersion: 1 }) });
     assert.equal(response.status, stillOwner ? 200 : 403); assert.equal(locked, true); assert.equal(writes, stillOwner ? 2 : 0);
   }
 });

@@ -10,6 +10,8 @@ import { getAiPersona } from "../../../lib/ai-persona";
 import { recordCommercialTransfer } from "../../../lib/commercial/tma";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
+import { getDealContext, recordConversationAction, endDealContext, selectDealContext, assertDealContextVersion, DealContextError } from "../../../lib/crm/conversation-deal-context";
+import { requireCrmDealAccess } from "../../../lib/access-control/crm-record-access";
 
 export const Route = createFileRoute("/api/chats/update-queue")({
   server: {
@@ -62,6 +64,11 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           // 1. Verificar conversa existente dentro do tenant da sessão
           const denied = await requireConversationAccess(session, conversationId);
           if (denied) return denied;
+          if (body.nextDealId !== undefined) {
+            if (typeof body.nextDealId !== "string" || !body.nextDealId || queueState === "finalizados") return Response.json({ error: "Negociação de destino inválida." }, { status: 400 });
+            const deniedDeal = await requireCrmDealAccess(session, body.nextDealId);
+            if (deniedDeal) return deniedDeal;
+          }
           const [conv] = await db
             .select()
             .from(conversations)
@@ -112,11 +119,13 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             ));
             if (!target) return Response.json({ error: "Operador não encontrado neste tenant." }, { status: 400 });
           }
+          let targetSectorName: string | null = null;
           if (sectorId) {
-            const [sector] = await db.select({ id: sectors.id }).from(sectors).where(and(
+            const [sector] = await db.select({ id: sectors.id, name: sectors.name }).from(sectors).where(and(
               eq(sectors.id, sectorId), eq(sectors.tenantId, session.tenantId)
             ));
             if (!sector) return Response.json({ error: "Setor não encontrado neste tenant." }, { status: 400 });
+            targetSectorName = sector.name;
           }
           if (sectorId !== undefined && sectorId !== conv.sectorId && !can(permissions.canTransferChat === true)) {
             return forbidden();
@@ -146,10 +155,13 @@ export const Route = createFileRoute("/api/chats/update-queue")({
               );
             const opName = op?.name || "Operador";
             respName = opName;
-            systemMessageText = `Atendimento assumido por ${opName}.`;
+            systemMessageText = conv.operatorId !== targetOpId && conv.queueState === "meus"
+              ? `Atendimento transferido para ${opName} por ${session.operator.name}.`
+              : `Atendimento assumido por ${opName}.`;
+            if (targetSectorName) systemMessageText += ` Setor: ${targetSectorName}.`;
           } else if (queueState === "fila") {
             respName = "Na Fila";
-            systemMessageText = `Atendimento devolvido para a Fila de Espera.`;
+            systemMessageText = targetSectorName ? `Atendimento transferido para a fila de ${targetSectorName} por ${session.operator.name}.` : `Atendimento devolvido para a Fila de Espera.`;
           } else if (queueState === "finalizados") {
             respName = "Finalizado";
             systemMessageText = `Atendimento encerrado e encaminhado para os Finalizados.`;
@@ -182,6 +194,16 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           let updatedConv: any;
           try {
             updatedConv = await db.transaction(async (tx) => {
+              const state = await getDealContext(tx, session.tenantId, conversationId, session.operator.id);
+              // Captura inicial continua possível para o operador escolher o contexto na tela.
+              if (body.expectedContextVersion !== undefined) assertDealContextVersion(state.context, body.expectedContextVersion);
+              const isCapture = queueState === "meus" && operatorId === session.operator.id &&
+                (state.conversation.operatorId !== session.operator.id || state.conversation.queueState !== "meus");
+              if (!isCapture) assertDealContextVersion(state.context, body.expectedContextVersion);
+              if (body.nextDealId && !state.deals.some(d => d.id === body.nextDealId && d.status === "open")) throw new DealContextError("A negociação de destino deve estar vinculada e em andamento.", "INVALID_DEAL_CONTEXT", 400);
+              if (!isCapture && !state.context.currentDealId && !body.nextDealId && state.deals.some(d => d.status === "open")) {
+                throw new DealContextError("Selecione a negociação deste atendimento antes de transferir ou encerrar.", "DEAL_CONTEXT_REQUIRED");
+              }
               const updatedRows = await tx
                 .update(conversations)
                 .set(updateData)
@@ -238,7 +260,16 @@ export const Route = createFileRoute("/api/chats/update-queue")({
                   sentAt: new Date(),
                   updatedAt: new Date(),
                 });
+                await recordConversationAction(tx, {
+                  tenantId: session.tenantId, conversationId, dealId: state.context.currentDealId || body.nextDealId || null,
+                  operatorId: session.operator.id, messageId, content: systemMessageText, type: "system_event",
+                  metadata: { fromQueueState: state.conversation.queueState, toQueueState: queueState,
+                    fromOperatorId: state.conversation.operatorId, toOperatorId: convResult.operatorId,
+                    fromSectorId: state.conversation.sectorId, toSectorId: convResult.sectorId },
+                });
               }
+              if (body.nextDealId) await selectDealContext(tx, session.tenantId, conversationId, body.nextDealId, session.operator.id, state.context.version);
+              if (queueState === "finalizados") await endDealContext(tx, session.tenantId, conversationId);
 
               // Se saiu da automação em tenant industrial, encerrar/cancelar ciclo de silêncio da IA
               if (aiPersona.triagePolicy === "industrial" && queueState !== "automacao") {
@@ -358,6 +389,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           );
 
         } catch (e: any) {
+          if (e instanceof DealContextError) return Response.json({ error: e.message, code: e.code }, { status: e.statusCode });
           console.error("[api/chats/update-queue] Erro ao atualizar fila da conversa:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,

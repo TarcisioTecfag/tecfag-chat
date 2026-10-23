@@ -18,6 +18,7 @@ import {
 import { useChat } from "@/hooks/useChatState";
 import { RdCrmCard } from "./RdCrmCard";
 import { ConversationDealsPanel } from "@/components/crm/ConversationDealsPanel";
+import { ConversationDealContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
 import { AccountPicker } from "@/components/crm/AccountPicker";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
@@ -352,29 +353,7 @@ export function SharedFiles() {
     return cells;
   };
 
-  // Negócios vinculados à conversa ativa (Fase 3: Multi-card)
-  const [linkedDeals, setLinkedDeals] = useState<any[]>([]);
-  const [selectedTargetDealId, setSelectedTargetDealId] = useState<string>("");
-
-  useEffect(() => {
-    if (activeChat?.id && activeChat.id !== "valentina") {
-      fetch(`/api/chats/${activeChat.id}/deals`)
-        .then((res) => (res.ok ? res.json() : { deals: [] }))
-        .then((data) => {
-          const list = data.deals || [];
-          setLinkedDeals(list);
-          if (list.length === 1) {
-            setSelectedTargetDealId(list[0].id);
-          } else {
-            setSelectedTargetDealId("");
-          }
-        })
-        .catch(() => setLinkedDeals([]));
-    } else {
-      setLinkedDeals([]);
-      setSelectedTargetDealId("");
-    }
-  }, [activeChat?.id]);
+  const taskDealContext = useConversationDealContext(activeChat?.id);
 
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [linkedAccount, setLinkedAccount] = useState<CrmAccountDTO | null>(null);
@@ -640,67 +619,41 @@ export function SharedFiles() {
     e.preventDefault();
     if (!taskSubject.trim()) return;
 
-    // Se houver mais de 1 negociação vinculada, seleção de um card específico é estritamente obrigatória
-    if (linkedDeals.length > 1 && (!selectedTargetDealId || selectedTargetDealId === "general")) {
-      toast.error("Por favor, selecione qual negociação comercial receberá esta tarefa.");
+    if (!taskDealContext.data?.hasCurrentDeal) {
+      toast.error("Selecione a negociação deste atendimento antes de criar a tarefa.");
       return;
     }
 
     setTaskCreating(true);
     const label = taskSubject.trim();
 
-    // 1. Salvar como tag internamente (mantém compatibilidade com exibição e banco)
-    if (!activeChat.tags.includes(label)) {
-      const updated = [...activeChat.tags, label];
-      updateTags(activeChat.id, updated);
-    }
-
-    // 2. Se houver card de destino selecionado (ou card único pré-selecionado), gravar em crm_deal_activities
-    const targetDealId = selectedTargetDealId && selectedTargetDealId !== "general"
-      ? selectedTargetDealId
-      : linkedDeals.length === 1
-        ? linkedDeals[0].id
-        : null;
-
-    if (targetDealId) {
-      try {
-        await fetch(`/api/crm/deals/${targetDealId}/activities`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: taskType,
-            title: label,
-            dueDate: `${taskDate}T${taskTime}:00`,
-            conversationId: activeChat.id,
-          }),
-        });
-      } catch (err) {
-        console.warn("[CRM Task] Erro ao gravar atividade no deal:", err);
-      }
-    }
-
-    // 3. Criar tarefa no RD CRM (legado) com todos os campos
     try {
-      await fetch(`/api/chats/tag-task`, {
+      const response = await fetch(`/api/chats/tag-task`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: activeChat.id,
           tagName: label,
-          tenantId: tenant,
+          expectedContextVersion: taskDealContext.data.version,
           taskType,
           dueDate: taskDate,
           dueTime: taskTime,
         }),
       });
-    } catch {/* silencioso */}
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível criar a tarefa.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível criar a tarefa.");
+      setTaskCreating(false);
+      void taskDealContext.refresh();
+      return;
+    }
+    if (!activeChat.tags.includes(label)) updateTags(activeChat.id, [...activeChat.tags, label]);
+    window.dispatchEvent(new Event("crm-deals-changed"));
 
     // Reset form
     setTaskSubject("");
     setTaskType("task");
-    if (linkedDeals.length !== 1) {
-      setSelectedTargetDealId("");
-    }
     setTaskDueDate(getRelativeDateYMD(1));
     setTaskDueTime("09:00");
     setTaskCreating(false);
@@ -1093,40 +1046,7 @@ export function SharedFiles() {
             {/* Formulário de nova tarefa */}
             <form onSubmit={handleCreateTask} className="space-y-2">
 
-              {/* Vínculo explícito de Card CRM (Fase 3: Multi-card) */}
-              {linkedDeals.length === 1 ? (
-                <div className="rounded-lg bg-primary/10 border border-primary/20 px-2.5 py-1.5 flex items-center justify-between text-[11px]">
-                  <span className="text-muted-foreground font-medium">Negociação:</span>
-                  <span className="font-bold text-primary truncate max-w-[220px]" title={linkedDeals[0].title}>
-                    {linkedDeals[0].title}
-                  </span>
-                </div>
-              ) : linkedDeals.length > 1 ? (
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[9px] font-bold text-muted-foreground uppercase">
-                    <span>Card de Destino</span>
-                    <span className="text-primary font-semibold">* Seleção obrigatória</span>
-                  </div>
-                  <Select
-                    value={selectedTargetDealId || "__none__"}
-                    onValueChange={(val) => setSelectedTargetDealId(val === "__none__" ? "" : val)}
-                  >
-                    <SelectTrigger className="w-full h-8 rounded-lg bg-muted px-2 text-xs text-foreground font-medium border border-border focus:ring-1 focus:ring-primary truncate">
-                      <SelectValue placeholder="Selecione a negociação comercial obrigatória..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__" className="text-xs text-muted-foreground">
-                        Selecione a negociação comercial obrigatória...
-                      </SelectItem>
-                      {linkedDeals.map((d) => (
-                        <SelectItem key={d.id} value={d.id} className="text-xs">
-                          {d.title} {d.value ? `(R$ ${d.value})` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
+              <ConversationDealContext conversationId={activeChat.id} />
 
               {/* Nome da tarefa */}
               <input

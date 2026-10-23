@@ -59,7 +59,8 @@ interface OperatorOption {
 interface CreateDealDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (newDeal: any, createAnother: boolean) => void;
+  onSuccess: (newDeal: any, createAnother: boolean, useAsCurrent?: boolean) => void | Promise<void>;
+  offerUseAsCurrent?: boolean;
   pipelines: PipelineOption[];
   operators: OperatorOption[];
   defaultPipelineId?: string;
@@ -104,6 +105,7 @@ export function CreateDealDialog({
   isOpen,
   onClose,
   onSuccess,
+  offerUseAsCurrent = false,
   pipelines,
   operators,
   defaultPipelineId,
@@ -114,6 +116,7 @@ export function CreateDealDialog({
   currentOperatorId,
 }: CreateDealDialogProps) {
   const [title, setTitle] = useState("");
+  const [useAsCurrent, setUseAsCurrent] = useState(false);
   const [pipelineId, setPipelineId] = useState(defaultPipelineId || pipelines[0]?.id || "");
   const [stageId, setStageId] = useState(defaultStageId || "");
   const [value, setValue] = useState("");
@@ -311,7 +314,7 @@ export function CreateDealDialog({
 
       const data = await res.json();
       toast.success("Negociação criada com sucesso!");
-      onSuccess(data.deal, createAnother);
+      await onSuccess(data.deal, createAnother, useAsCurrent);
       if (createAnother) {
         setTitle("");
         setValue("");
@@ -717,6 +720,10 @@ export function CreateDealDialog({
             />
           </div>
 
+          {offerUseAsCurrent && <label className="flex items-center gap-2 rounded-lg border border-primary/20 p-3 text-xs">
+            <input type="checkbox" checked={useAsCurrent} onChange={event => setUseAsCurrent(event.target.checked)} />
+            Criar e definir como negociação atual deste atendimento
+          </label>}
           {/* Rodapé com botões de ação */}
           </div>
           <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card p-3">

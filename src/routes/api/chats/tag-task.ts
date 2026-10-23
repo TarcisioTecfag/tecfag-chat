@@ -1,187 +1,129 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { conversations, contacts, messages } from "../../../db/schema";
-import { eq, and } from "drizzle-orm";
-import { rdRequest, getCachedUsers, getCachedDeal } from "../../../lib/rdCrmService";
-import { requireSession } from "../../../lib/auth-session.js";
+import { crmDealActivities, crmDealEvents, messages } from "../../../db/schema";
+import { requireSession } from "../../../lib/auth-session";
 import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
-// Mapa de tipos para label legivel no CRM
-const TASK_TYPE_LABELS: Record<string, string> = {
-  task:    "Tarefa",
-  call:    "Ligacao",
-  meeting: "Reuniao",
-  email:   "E-mail",
-  lunch:   "Almoco / Visita",
-};
+import {
+  getDealContext,
+  assertDealContextVersion,
+  DealContextError,
+} from "../../../lib/crm/conversation-deal-context";
+import { rdRequest, getCachedDeal } from "../../../lib/rdCrmService";
 
 export const Route = createFileRoute("/api/chats/tag-task")({
   server: {
     handlers: {
-      OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
-
       POST: async ({ request }) => {
         try {
           const auth = await requireSession(request);
-          if ("response" in auth) return auth.response; // retorna 401 automaticamente
+          if ("response" in auth) return auth.response;
           const { session } = auth;
-          const tenantId = session.tenantId; // SEMPRE da sessão
-
-          // tenantId removido do body tipado — vem exclusivamente da sessão
-          const body = await request.json() as {
-            conversationId: string;
-            tagName: string;
-            operatorName?: string;
-            taskType?: string;
-            dueDate?: string;  // "YYYY-MM-DD"
-            dueTime?: string;  // "HH:MM"
-          };
-
-          const {
-            conversationId, tagName,
-            taskType = "task",
-            dueDate,
-            dueTime,
-          } = body;
-
-          // operatorName: usa o do body se fornecido, senão o nome do operador autenticado
-          const operatorName = session.operator.name;
-
-          if (!conversationId || !tagName) {
-            return new Response(
-              JSON.stringify({ error: "conversationId e tagName sao obrigatorios" }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          // 1. Buscar conversa verificando tenant JÁ NA QUERY — nunca busca por id puro
+          const tenantId = session.tenantId;
+          const body = await request.json();
+          const { conversationId, tagName, taskType = "task", dueDate, dueTime = "09:00" } = body;
+          if (typeof conversationId !== "string" || !conversationId)
+            return Response.json({ error: "Atendimento inválido." }, { status: 400 });
           const denied = await requireConversationWriteAccess(session, conversationId);
           if (denied) return denied;
-          if (session.permissions?.chat?.canManageTags !== true) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
-          const [conv] = await db
-            .select({ contactId: conversations.contactId })
-            .from(conversations)
-            .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
-
-          if (!conv?.contactId) {
-            return new Response(
-              JSON.stringify({ error: "Conversa não encontrada.", code: "NOT_FOUND" }),
-              { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          if (!session.permissions.chat.canManageTags)
+            return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+          if (
+            typeof conversationId !== "string" ||
+            typeof tagName !== "string" ||
+            !tagName.trim() ||
+            !["task", "call", "meeting", "email", "lunch"].includes(taskType)
+          )
+            return Response.json(
+              { error: "Atendimento, nome ou tipo de tarefa inválido." },
+              { status: 400 },
             );
-          }
-
-          const [contact] = await db
-            .select({ rdCrmDealId: contacts.rdCrmDealId, name: contacts.name })
-            .from(contacts)
-            .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
-
-          if (!contact?.rdCrmDealId) {
-            return new Response(
-              JSON.stringify({ skipped: true, reason: "Contato sem card no CRM" }),
-              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          // 2. Montar data/hora de vencimento (formato ISO 8601)
-          let dueDateISO = dueDate;
-          if (!dueDateISO) {
-            const d = new Date();
-            d.setDate(d.getDate() + 1);
-            dueDateISO = d.toISOString().split("T")[0];
-          }
-          const dueDateTimeFull = dueTime
-            ? `${dueDateISO}T${dueTime}:00-03:00`
-            : `${dueDateISO}T09:00:00-03:00`;
-
-          const typeLabel = TASK_TYPE_LABELS[taskType] || "Tarefa";
-
-          // 3. Buscar o user_id do responsável pelo deal no RD CRM
-          //    A tarefa SEMPRE fica no nome do dono atual do card (required: created_by).
-          let dealOwnerId: string | undefined;
-
-          // 3a. Tentar via deal (múltiplos campos possíveis na API v2)
-          try {
-            const deal = await getCachedDeal(tenantId, contact.rdCrmDealId);
-            dealOwnerId =
-              deal?.user_id          ||  // campo plano
-              deal?.user?.id         ||  // objeto aninhado
-              deal?.owner?.id        ||  // alternativa owner
-              deal?.responsible?.id  ||  // alternativa responsible
-              deal?.user_ids?.[0];       // array (improvável mas cobre)
-            console.log(`[TagTask] deal owner lookup — user_id=${deal?.user_id} user.id=${deal?.user?.id} → resultado=${dealOwnerId}`);
-          } catch (e: any) {
-            console.warn("[TagTask] Erro ao buscar deal:", e.message);
-          }
-
-          // 3b. Fallback: primeiro usuário ativo disponível no CRM
-          if (!dealOwnerId) {
-            try {
-              const users = await getCachedUsers(tenantId);
-              console.log(`[TagTask] fallback getCachedUsers: ${users.length} users, first=${JSON.stringify(users[0] ?? null)}`);
-              if (users.length > 0) dealOwnerId = users[0].id;
-            } catch (e: any) {
-              console.warn("[TagTask] Erro ao buscar users fallback:", e.message);
-            }
-          }
-
-          console.log(`[TagTask] created_by final = ${dealOwnerId ?? "UNDEFINED — task vai falhar"}`);
-
-          // 4. Criar Task no RD CRM
-          let taskCreated = false;
-          try {
-            await rdRequest(tenantId, "POST", "/tasks", {
-              name: tagName,
+          if (
+            typeof dueDate !== "string" ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) ||
+            typeof dueTime !== "string" ||
+            !/^([01]\d|2[0-3]):[0-5]\d$/.test(dueTime)
+          )
+            return Response.json({ error: "Data ou horário inválido." }, { status: 400 });
+          const dueAt = new Date(`${dueDate}T${dueTime}:00-03:00`);
+          if (Number.isNaN(dueAt.getTime()))
+            return Response.json({ error: "Data inválida." }, { status: 400 });
+          const result = await db.transaction(async (tx) => {
+            const state = await getDealContext(tx, tenantId, conversationId, session.operator.id);
+            if (
+              state.conversation.operatorId !== session.operator.id ||
+              state.conversation.queueState !== "meus"
+            )
+              throw new DealContextError("O responsável pelo atendimento mudou.", "FORBIDDEN", 403);
+            assertDealContextVersion(state.context, body.expectedContextVersion);
+            const deal = state.deals.find((d) => d.id === state.context.currentDealId);
+            if (!deal)
+              throw new DealContextError(
+                "Selecione a negociação deste atendimento antes de criar a tarefa.",
+                "DEAL_CONTEXT_REQUIRED",
+              );
+            const activityId = `task-${crypto.randomUUID()}`;
+            const messageId = `sys-${crypto.randomUUID()}`;
+            await tx.insert(crmDealActivities).values({
+              id: activityId,
+              tenantId,
+              dealId: deal.id,
+              conversationId,
               type: taskType,
-              deal_id: contact.rdCrmDealId,
-              due_date: dueDateTimeFull,
-              notes: `Tarefa criada via Valem Chat${operatorName ? " por " + operatorName : ""}. Tipo: ${typeLabel}.`,
-              user_id: dealOwnerId,
-              created_by: dealOwnerId,
+              title: tagName.trim(),
+              dueDate: dueAt,
+              operatorId: session.operator.id,
+              assignedToOperatorId: deal.operatorId || session.operator.id,
             });
-            taskCreated = true;
-          } catch (crmErr: any) {
-            console.warn(`[TagTask] Falha ao criar task no CRM:`, crmErr.message);
-          }
-
-
-
-          // 5. Salvar mensagem de sistema no chat (so se criou com sucesso)
-          if (taskCreated) {
+            await tx.insert(crmDealEvents).values({
+              id: `evt-${crypto.randomUUID()}`,
+              tenantId,
+              dealId: deal.id,
+              operatorId: session.operator.id,
+              eventType: "activity_created",
+              metadata: { activityId, conversationId, messageId, title: tagName.trim() },
+            });
+            await tx.insert(messages).values({
+              id: messageId,
+              tenantId,
+              conversationId,
+              senderType: "system",
+              senderName: "Sistema",
+              content: `Tarefa criada na negociação “${deal.title}”: ${tagName.trim()}.`,
+              isInternalNote: true,
+              direction: "outbound",
+              status: "accepted",
+            });
+            return { activityId, rdDealId: deal.rdDealId };
+          });
+          // Compatibilidade com RD: o destino externo é o do card atual validado, nunca o do contato.
+          if (result.rdDealId) {
             try {
-              const [d, m, y] = dueDateISO.split("-");
-              const dueFmt = `${y}/${m}/${d}${dueTime ? " as " + dueTime : ""}`;
-
-              await db.insert(messages).values({
-                id: `sys-task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                conversationId,
-                tenantId,
-                senderType: "system",
-                senderName: "Sistema",
-                content: `Tarefa criada: "${tagName}" (${typeLabel}) — Venc. ${dueFmt}`,
-                isInternalNote: false,
-                sentAt: new Date(),
+              const deal = await getCachedDeal(tenantId, result.rdDealId);
+              const ownerId = deal?.user_id || deal?.user?.id || deal?.owner?.id;
+              await rdRequest(tenantId, "POST", "/tasks", {
+                name: tagName.trim(),
+                type: taskType,
+                deal_id: result.rdDealId,
+                due_date: dueAt.toISOString(),
+                user_id: ownerId,
+                created_by: ownerId,
               });
-            } catch (msgErr: any) {
-              console.warn(`[TagTask] Falha ao salvar system message:`, msgErr.message);
+            } catch (error) {
+              console.warn(
+                "[TagTask] Tarefa local salva; falha na integração RD:",
+                error instanceof Error ? error.message : "erro",
+              );
             }
           }
-
-          return new Response(
-            JSON.stringify({ success: true, taskCreated }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        } catch (e: any) {
-          console.error("[TagTask] Erro inesperado:", e.message);
-          return new Response(
-            JSON.stringify({ error: e.message }),
-            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          return Response.json({ success: true, taskCreated: true, activityId: result.activityId });
+        } catch (error) {
+          if (error instanceof DealContextError)
+            return Response.json(
+              { error: error.message, code: error.code },
+              { status: error.statusCode },
+            );
+          console.error("[TagTask]", error);
+          return Response.json({ error: "Não foi possível criar a tarefa." }, { status: 500 });
         }
       },
     },

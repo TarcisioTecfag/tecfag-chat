@@ -184,6 +184,10 @@ const migrations = [
     name: "0044_rd_marketing_activity_events",
     url: new URL("../src/db/migrations/0044_rd_marketing_activity_events.sql", import.meta.url),
   },
+  {
+    name: "0045_conversation_deal_context",
+    url: new URL("../src/db/migrations/0045_conversation_deal_context.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

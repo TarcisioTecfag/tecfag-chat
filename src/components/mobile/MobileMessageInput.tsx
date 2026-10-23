@@ -20,9 +20,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaAssistantModal } from "../chat/ValentinaAssistantModal";
 import { ProductCatalogPicker } from "../chat/ProductCatalogPicker";
 import { getAiPersona } from "@/lib/ai-persona";
+import { ConversationDealContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
 
 interface MobileMessageInputProps {
-  onSendMessage?: (text: string, isInternalNote: boolean) => void;
+  onSendMessage?: (text: string, isInternalNote: boolean) => void | Promise<boolean>;
 }
 
 const COMMON_EMOJIS = [
@@ -39,6 +40,17 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
 
   const [activeTab, setActiveTab] = useState<"message" | "internal_note">("message");
   const [text, setText] = useState("");
+  const dealContext = useConversationDealContext(selectedChatId || undefined);
+  const draftContextVersion = useRef<number | undefined>(undefined);
+  const [noteScope, setNoteScope] = useState<"current" | "general">("current");
+  useEffect(() => {
+    draftContextVersion.current = undefined;
+    setNoteScope("current");
+  }, [selectedChatId]);
+  useEffect(() => {
+    if (!text || activeTab !== "internal_note") draftContextVersion.current = undefined;
+    else if (draftContextVersion.current === undefined) draftContextVersion.current = dealContext.data?.version;
+  }, [text, activeTab, dealContext.data?.version]);
   const [showValentinaModal, setShowValentinaModal] = useState(false);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
 
@@ -87,11 +99,11 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   const handleSend = async () => {
     if (!text.trim() && attachments.length === 0) return;
 
-    if (onSendMessage) {
-      onSendMessage(text, activeTab === "internal_note");
-    } else {
-      await sendMessage(text, activeTab === "internal_note", attachments);
-    }
+    const internal = activeTab === "internal_note";
+    const accepted = internal && selectedChatId && tenant
+      ? await sendMessage(text, true, attachments, undefined, undefined, { id: crypto.randomUUID(), conversationId: selectedChatId, tenantId: tenant, expectedContextVersion: draftContextVersion.current, noteScope })
+      : onSendMessage ? await onSendMessage(text, internal) : await sendMessage(text, internal, attachments);
+    if (accepted === false) return;
 
     setText("");
     setAttachments([]);
@@ -187,6 +199,13 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
       />
 
       <div className="max-w-lg mx-auto px-3.5 pt-2 pb-1.5 flex flex-col gap-2 relative">
+        {selectedChatId && selectedChatId !== "valentina" && <>
+          <ConversationDealContext conversationId={selectedChatId} onSelected={version => { draftContextVersion.current = version; }} />
+          {activeTab === "internal_note" && <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input type="checkbox" checked={noteScope === "general"} onChange={event => setNoteScope(event.target.checked ? "general" : "current")} />
+            Nota geral do contato (somente na conversa)
+          </label>}
+        </>}
         
         {/* ── POPUP: RESPOSTAS RÁPIDAS (⚡) ── */}
         <AnimatePresence>

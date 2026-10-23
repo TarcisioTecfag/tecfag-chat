@@ -887,6 +887,19 @@ export const crmConversationDeals = pgTable("crm_conversation_deals", {
   tenantDealIdx: index("idx_crm_conv_deals_tenant_deal").on(table.tenantId, table.dealId),
 }));
 
+// A seleção operacional é independente dos vínculos históricos N:N.
+export const conversationDealContexts = pgTable("conversation_deal_contexts", {
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).primaryKey(),
+  currentDealId: text("current_deal_id").references(() => crmDeals.id, { onDelete: "set null" }),
+  previousDealId: text("previous_deal_id").references(() => crmDeals.id, { onDelete: "set null" }),
+  selectionRequired: boolean("selection_required").default(false).notNull(),
+  version: integer("version").default(1).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantDealIdx: index("idx_conversation_deal_context_tenant_deal").on(table.tenantId, table.currentDealId),
+}));
+
 // ─── 14.8. ATIVIDADES DA NEGOCIAÇÃO (Tarefas, Notas, Reuniões) ───────────────
 export const crmDealActivities = pgTable("crm_deal_activities", {
   rdMarketingCycle: integer("rd_marketing_cycle").default(0).notNull(),

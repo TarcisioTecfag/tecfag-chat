@@ -1,4 +1,5 @@
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
+import { cachedDealContext, fetchDealContext } from "@/lib/crm/conversation-deal-client";
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
@@ -195,13 +196,14 @@ type ChatContextType = {
     attachments?: File[],
     quotedMessage?: { id: string; sender: string; content: string } | null,
     metaTemplate?: { name: string; language: string; parameters: string[] },
-    intent?: { id: string; conversationId: string; tenantId: string },
+    intent?: { id: string; conversationId: string; tenantId: string; expectedContextVersion?: number; noteScope?: "current" | "general" },
   ) => Promise<boolean>;
   captureChat: (id: string) => void;
   transferChat: (
     id: string,
     sectorName: string | null,
     targetOperatorId?: string | null,
+    dealSelection?: { dealId: string; expectedVersion: number },
   ) => Promise<boolean>;
   finishChat: (id: string) => void;
   logSystemEvent: (chatId: string, eventText: string) => Promise<void>;
@@ -1639,7 +1641,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     attachments?: File[],
     quotedMessage?: { id: string; sender: string; content: string } | null,
     metaTemplate?: { name: string; language: string; parameters: string[] },
-    intent?: { id: string; conversationId: string; tenantId: string },
+    intent?: { id: string; conversationId: string; tenantId: string; expectedContextVersion?: number; noteScope?: "current" | "general" },
   ) => {
     const targetChatId = intent?.conversationId || selectedChatId;
     if (intent && intent.tenantId !== tenant) return false;
@@ -2058,6 +2060,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       // Para mensagens internas, outras plataformas ou outros inquilinos (ex: Tecfag), persistir no banco de dados local
       try {
+        const noteContext = isInternalNote && !intent
+          ? cachedDealContext(tenant!, currentOperatorId!, targetChatId) || await fetchDealContext(tenant!, currentOperatorId!, targetChatId)
+          : null;
         const response = await fetch(`${BACKEND_URL}/api/chats`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2069,6 +2074,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             senderEmail: operatorProfile.email,
             content: text,
             isInternalNote,
+            expectedContextVersion: intent?.expectedContextVersion ?? noteContext?.version,
+            noteScope: intent?.noteScope || "current",
+            clientMessageId: intent?.id,
             quotedMessageId: quotedMessage?.id || null,
             quotedMessageSender: quotedMessage?.sender || null,
             quotedMessageContent: quotedMessage?.content || null,
@@ -2076,7 +2084,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         if (!response.ok) {
-          toast.error("Erro ao salvar mensagem local no banco.");
+          const error = await response.json().catch(() => ({}));
+          toast.error(error.error || "Erro ao salvar mensagem local no banco.");
+          if (response.status === 409) window.dispatchEvent(new Event("conversation-deal-context-changed"));
           return false;
         }
         const savedMessage = await response.json().catch(() => ({}));
@@ -2254,6 +2264,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     id: string,
     sectorName: string | null,
     targetOperatorId?: string | null,
+    dealSelection?: { dealId: string; expectedVersion: number },
   ): Promise<boolean> => {
     const previousState = conversationsRef.current.find((c) => c.id === id);
     const targetOp = targetOperatorId ? operators.find((op) => op.id === targetOperatorId) : null;
@@ -2274,6 +2285,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ? `Atendimento transferido diretamente para ${targetOp.name} por ${operatorProfile.name}.`
       : `Atendimento transferido para a fila do setor ${sectorName || "geral"} por ${operatorProfile.name}.`;
     try {
+      const dealContext = cachedDealContext(tenant!, currentOperatorId!, id) || await fetchDealContext(tenant!, currentOperatorId!, id);
       const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2285,12 +2297,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...(sectorId !== undefined ? { sectorId } : {}),
           systemMessageText: textLog,
           isTransfer: true,
+          expectedContextVersion: dealSelection?.expectedVersion ?? dealContext.version,
+          nextDealId: dealSelection?.dealId,
           expectedVersion: previousState?.version ?? 1,
         }),
       });
 
       if (res.status === 409) {
-        toast.error("Este atendimento mudou. Atualizei o responsável; tente novamente se ainda tiver permissão.");
+        const error = await res.json().catch(() => ({}));
+        toast.error(error.error || "Este atendimento mudou. Confira a negociação e tente novamente.");
+        window.dispatchEvent(new Event("conversation-deal-context-changed"));
         await refreshConversations(id);
         return false;
       }
@@ -2313,6 +2329,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSelectedChatId(id);
       void refreshConversations(id).catch((error) => console.warn("Atendimento transferido; falha ao recarregar o histórico:", error));
       toast.success(targetOp ? `Atendimento transferido para ${targetOp.name}.` : "Atendimento enviado para a fila.");
+      window.dispatchEvent(new Event("conversation-deal-context-changed"));
       return true;
     } catch (err) {
       console.error("[transferChat] Erro ao transferir atendimento:", err);
@@ -2350,6 +2367,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSelectedChatId(id);
 
     try {
+      const dealContext = cachedDealContext(tenant!, currentOperatorId!, id) || await fetchDealContext(tenant!, currentOperatorId!, id);
       const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2357,6 +2375,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({
           conversationId: id,
           queueState: "finalizados",
+          expectedContextVersion: dealContext.version,
           systemMessageText: textLog,
           expectedVersion: previousState?.version ?? 1,
         }),
@@ -2364,7 +2383,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (res.status === 409) {
         console.warn("[finishChat] Conflito: chat já foi finalizado ou alterado por outro operador.");
-        toast.error("Conflito: Esta conversa já foi alterada por outro atendente.");
+        const error = await res.json().catch(() => ({}));
+        toast.error(error.error || "O atendimento mudou. Confira a negociação antes de encerrar.");
+        window.dispatchEvent(new Event("conversation-deal-context-changed"));
         if (previousState) {
           setConversations((prev) =>
             prev.map((c) => (c.id === id ? { ...previousState } : c))
@@ -2680,12 +2701,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 4. Se há conversa ativa e um operador-alvo, sincroniza o atendimento via update-queue
     if (activeConversation && targetOperatorId !== undefined) {
       try {
+        const dealContext = cachedDealContext(tenant!, currentOperatorId!, activeConversation.id) || await fetchDealContext(tenant!, currentOperatorId!, activeConversation.id);
         const res = await fetch(`${BACKEND_URL}/api/chats/update-queue`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({
             conversationId: activeConversation.id,
+            expectedContextVersion: dealContext.version,
             queueState: newQueueState,
             operatorId: targetOperatorId,
             systemMessageText: logText,

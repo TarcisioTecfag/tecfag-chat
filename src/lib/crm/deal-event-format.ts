@@ -115,6 +115,11 @@ export function formatDealEvent(
     text(meta.reason);
 
   switch (event.eventType) {
+    case "conversation_context_changed":
+      return { title: meta.toDealId ? (meta.direction === "released" ? "Atendimento direcionado a outra negociação" : "Negociação do atendimento definida") : "Atendimento aguardando nova negociação",
+        description: meta.reason === "automatic" ? "Selecionada automaticamente por ser a única negociação em andamento." : "A alteração vale apenas para as próximas ações do atendimento." };
+    case "conversation_action":
+      return { title: meta.actionType === "note" ? "Nota do atendimento" : "Ação no atendimento", description: text(meta.description) };
     case "created":
       return { title: "Negociação criada", description: null };
 

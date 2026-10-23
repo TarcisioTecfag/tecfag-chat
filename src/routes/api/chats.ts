@@ -8,6 +8,7 @@ import { getAiPersona } from "../../lib/ai-persona";
 import { readReactions } from "../../lib/whatsapp/meta-reactions";
 import { conversationReadCondition, requireConversationWriteAccess } from "../../lib/access-control/conversation-access";
 import { conversationReadRules } from "../../lib/access-control/conversation-policy";
+import { getDealContext, recordConversationAction, assertDealContextVersion, DealContextError } from "../../lib/crm/conversation-deal-context";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -106,6 +107,9 @@ export const Route = createFileRoute("/api/chats")({
             quotedMessageSender?: string | null;
             quotedMessageContent?: string | null;
             dealId?: string | null;
+            expectedContextVersion?: number;
+            noteScope?: "current" | "general";
+            clientMessageId?: string;
             checkAccessIds?: string[];
           };
 
@@ -162,7 +166,10 @@ export const Route = createFileRoute("/api/chats")({
             return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
           }
 
-          const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          if (body.noteScope !== undefined && !["current", "general"].includes(body.noteScope)) return Response.json({ error: "Destino da nota inválido." }, { status: 400 });
+          if (body.clientMessageId !== undefined && (typeof body.clientMessageId !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(body.clientMessageId))) return Response.json({ error: "Identificador de mensagem inválido." }, { status: 400 });
+          let msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          let selectedRdDealId: string | null = null;
           const now = new Date();
 
           const stored = await db.transaction(async (tx) => {
@@ -171,6 +178,20 @@ export const Route = createFileRoute("/api/chats")({
               eq(conversations.operatorId, session.operator.id), eq(conversations.queueState, "meus"), conversationReadCondition(session),
             )).for("update").limit(1);
             if (!owned) return false;
+            if (body.clientMessageId) {
+              const [existing] = await tx.select({ id: messages.id }).from(messages).where(and(
+                eq(messages.tenantId, session.tenantId), eq(messages.conversationId, conversationId), eq(messages.idempotencyKey, body.clientMessageId),
+              )).limit(1);
+              if (existing) { msgId = existing.id; return true; }
+            }
+            const state = isInternalNote ? await getDealContext(tx, session.tenantId, conversationId, session.operator.id) : null;
+            const generalNote = body.noteScope === "general";
+            if (state && senderType !== "system" && !generalNote) {
+              assertDealContextVersion(state.context, body.expectedContextVersion);
+              if (!state.context.currentDealId) throw new DealContextError("Selecione a negociação deste atendimento ou marque a nota como geral.", "DEAL_CONTEXT_REQUIRED");
+            }
+            const selectedDealId = generalNote ? null : state?.context.currentDealId || null;
+            selectedRdDealId = state?.deals.find(d => d.id === selectedDealId)?.rdDealId || null;
             await tx.insert(messages).values({
               id: msgId,
               conversationId,
@@ -179,6 +200,7 @@ export const Route = createFileRoute("/api/chats")({
               senderName: senderName || session.operator.name,
               content,
               isInternalNote,
+              idempotencyKey: body.clientMessageId || null,
               quotedMessageId: quotedMessageId ?? null,
               quotedMessageSender: quotedMessageSender ?? null,
               quotedMessageContent: quotedMessageContent ?? null,
@@ -186,6 +208,11 @@ export const Route = createFileRoute("/api/chats")({
               status: "accepted",
               sentAt: now,
               updatedAt: now,
+            });
+
+            if (isInternalNote) await recordConversationAction(tx, {
+              tenantId: session.tenantId, conversationId, dealId: selectedDealId, operatorId: session.operator.id,
+              messageId: msgId, content, type: senderType === "system" ? "system_event" : "note",
             });
 
             await tx.update(conversations).set({
@@ -197,10 +224,8 @@ export const Route = createFileRoute("/api/chats")({
           });
           if (!stored) return Response.json({ error: "O responsável pelo atendimento mudou. Atualize a conversa.", code: "FORBIDDEN" }, { status: 403 });
 
-          // Se for nota comercial vinculada explicitamente a um card/deal
-          // NOTA MANDATÓRIA (Fase 0): Nota geral permanece apenas na conversa.
-          // Envio ao CRM exige dealId explícito, sem presunção cega de card único no contato.
-          if (isInternalNote && dealId) {
+          // Integração externa usa exclusivamente o ID RD do card validado no servidor.
+          if (isInternalNote && selectedRdDealId) {
             (async () => {
               try {
                 let noteUserId: string | undefined;
@@ -215,7 +240,7 @@ export const Route = createFileRoute("/api/chats")({
                 await rdRequest(
                   session.tenantId,
                   "POST",
-                  `/deals/${dealId}/activity_notes`,
+                  `/deals/${selectedRdDealId}/activity_notes`,
                   {
                     activity_note: {
                       text: content,
@@ -235,6 +260,7 @@ export const Route = createFileRoute("/api/chats")({
           });
 
         } catch (e: any) {
+          if (e instanceof DealContextError) return Response.json({ error: e.message, code: e.code }, { status: e.statusCode });
           console.error("[api/chats POST] Erro:", e);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,

@@ -1,4 +1,5 @@
 import { useConversationDealRequirement, ConversationDealRequirement } from "@/components/crm/ConversationDealRequirement";
+import { ConversationDealContext, ConversationDealTransferContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
 import {
   saveBrowserIntent,
   readBrowserIntents,
@@ -956,6 +957,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   // ── Flags de permissão derivadas do grupo de acesso ──────────────────────
   const dealRequirement = useConversationDealRequirement(activeChat?.id);
+  const dealContext = useConversationDealContext(activeChat?.id);
+  const draftContextVersion = useRef<number | undefined>(undefined);
+  const [noteScope, setNoteScope] = useState<"current" | "general">("current");
   const isOwner = !!activeChat && activeChat.operatorId === currentOperatorId;
   const canCapture = canCaptureChat;
   const canTransfer = canTransferChat;
@@ -1058,6 +1062,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   }, [activeChat?.id]);
 
   const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
+  useEffect(() => {
+    draftContextVersion.current = undefined;
+    setNoteScope("current");
+  }, [activeChat?.id]);
+  useEffect(() => {
+    if (!text || msgMode !== "internal") draftContextVersion.current = undefined;
+    else if (draftContextVersion.current === undefined) draftContextVersion.current = dealContext.data?.version;
+  }, [text, msgMode, dealContext.data?.version]);
   const [showValentinaModal, setShowValentinaModal] = useState(false);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
   const [showFinishConfirmModal, setShowFinishConfirmModal] = useState(false);
@@ -1096,6 +1108,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setSelectedTransferSectorId(null);
   };
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferDealSelection, setTransferDealSelection] = useState<{ dealId: string; expectedVersion: number } | undefined>();
+  useEffect(() => { setTransferDealSelection(undefined); }, [showTransferModal, activeChat?.id]);
   const [transferModalSearch, setTransferModalSearch] = useState("");
   const [transferModalSubmitting, setTransferModalSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -2028,6 +2042,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     const isInternal = msgMode === "internal";
 
     if (!activeChat || !currentOperatorId) return;
+    if (isInternal && noteScope === "current" && (!dealContext.data?.hasCurrentDeal || draftContextVersion.current === undefined)) {
+      toast.error("Selecione a negociação do atendimento ou marque a nota como geral.");
+      return;
+    }
     const intent: BrowserIntent = {
       id: crypto.randomUUID(),
       tenantId: tenant,
@@ -2035,6 +2053,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       conversationId: activeChat.id,
       text: currentText,
       isInternal,
+      expectedContextVersion: isInternal ? draftContextVersion.current : undefined,
+      noteScope: isInternal ? noteScope : undefined,
       attachments: currentAttachments,
       quoted,
       audioBlob: currentAudioBlob,
@@ -2878,6 +2898,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               .map((item) => (
                 <div key={item.id} className="flex items-center gap-2">
                   <span className="truncate flex-1">{item.text || "Anexo pendente"}</span>
+                  {item.isInternal && item.noteScope !== "general" && dealContext.data?.currentDeal && item.expectedContextVersion !== dealContext.data.version && <button className="underline text-primary" onClick={async () => {
+                    if (isQueueProcessingRef.current || !dealContext.data) return;
+                    const reviewed = { ...item, expectedContextVersion: dealContext.data.version };
+                    await saveBrowserIntent(reviewed);
+                    setLocalPending(rows => rows.map(row => row.id === item.id ? reviewed : row));
+                    sendQueueRef.current.push(reviewed);
+                    void processSendQueue();
+                  }}>Enviar para: {dealContext.data.currentDeal.title}</button>}
                   <button
                     className="underline"
                     onClick={() => {
@@ -3292,6 +3320,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 )}
 
               {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo vs Templates Meta) ── */}
+              {activeChat.id !== "valentina" && <div className="mb-2">
+                <ConversationDealContext conversationId={activeChat.id} onSelected={version => { draftContextVersion.current = version; }} />
+                {msgMode === "internal" && <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={noteScope === "general"} onChange={event => setNoteScope(event.target.checked ? "general" : "current")} />
+                  Nota geral do contato (salvar somente na conversa)
+                </label>}
+              </div>}
               <div className="flex flex-wrap items-center gap-3 pl-1 mb-2 text-[11px] font-bold select-none">
                 <button
                   type="button"
@@ -3891,6 +3926,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           </DialogHeader>
 
           <div className="mt-2 space-y-3">
+            {activeChat && <ConversationDealTransferContext conversationId={activeChat.id} onChange={setTransferDealSelection} />}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <input
@@ -3923,7 +3959,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           if (transferModalSubmitting || !activeChat) return;
                           setTransferModalSubmitting(true);
                           try {
-                            const ok = await transferChat(activeChat.id, null, op.id);
+                            const ok = await transferChat(activeChat.id, null, op.id, transferDealSelection);
                             if (ok) {
                               setShowTransferModal(false);
                               setTransferModalSearch("");
@@ -3998,7 +4034,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             if (transferModalSubmitting || !activeChat) return;
                             setTransferModalSubmitting(true);
                             try {
-                              const ok = await transferChat(activeChat.id, sec.name, null);
+                              const ok = await transferChat(activeChat.id, sec.name, null, transferDealSelection);
                               if (ok) {
                                 setShowTransferModal(false);
                                 setTransferModalSearch("");
