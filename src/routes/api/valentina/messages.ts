@@ -3200,6 +3200,24 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 continue;
               }
 
+              // Limpa relatedDeals falsos-positivos anexados anteriormente em respostas técnicas de máquinas (ex: "Envasadora - Pamells" e "Dora" na resposta da APF300-2B)
+              if (
+                row.direction === "from_agent" &&
+                Array.isArray(meta?.relatedDeals) &&
+                meta.relatedDeals.length > 0 &&
+                typeof row.content === "string" &&
+                /componentes\s+pneum[aá]ticos\s+da\s+AIRTIC|ciclos\s+por\s+minuto,\s*por\s+bico|Envasadora\s+Autom[aá]tica\s+da\s+linha\s+Personnalite|Puxei\s+as\s+informa[çc][oõ]es\s+do\s+manual\s+dela/i.test(
+                  row.content
+                )
+              ) {
+                const { relatedDeals: _rd, relatedConversations: _rc, relatedCalls: _rcl, ...cleanMeta } = meta;
+                row.metadata = cleanMeta;
+                db.update(internalMessages)
+                  .set({ metadata: cleanMeta })
+                  .where(and(eq(internalMessages.tenantId, tenantId), eq(internalMessages.id, row.id)))
+                  .catch(() => {});
+              }
+
               const isOverload =
                 meta?.type === "operator_overload" ||
                 meta?.warningType === "overload" ||
