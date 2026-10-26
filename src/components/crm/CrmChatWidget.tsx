@@ -83,10 +83,19 @@ import { getConversationSortTimestamp, type Conversation, type Message } from "@
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
-export function isAutoDealContextSystemNote(msg?: Message | null): boolean {
-  if (!msg || !msg.isInternalNote) return false;
-  const text = (msg.text || "").trim();
-  return /^(?:\[Sistema\]\s*)?Negociaç(?:ão|ões) (?:atual|deste atendimento|criada neste atendimento|vinculada)/i.test(
+export function isAutoDealContextSystemNote(msg?: Message | string | null): boolean {
+  if (!msg) return false;
+  if (
+    typeof msg === "object" &&
+    !msg.isInternalNote &&
+    msg.sender !== "system" &&
+    msg.author !== "Sistema" &&
+    !/^\[(?:Nota|Sistema)\]/i.test((msg.text || "").trim())
+  ) {
+    return false;
+  }
+  const text = (typeof msg === "string" ? msg : msg.text || "").trim();
+  return /^(?:\[(?:Sistema|Nota)\]\s*)?Negociaç(?:ão|ões) (?:atual|deste atendimento|criada neste atendimento|vinculada)/i.test(
     text
   );
 }
@@ -2591,15 +2600,43 @@ export function CrmChatWidget() {
                         ) : (
                           threadMessages.map((message: any, i: number) => {
                             const isMe = message.side === "out";
-                            const isSystem = message.author === "Sistema";
+                            const isSystem =
+                              message.author === "Sistema" || message.senderType === "system";
 
-                            // Mensagem de Sistema (oculta por padrão no ícone ? discreto)
+                            // Mensagem de Sistema (oculta por padrão no ícone ? discreto, agrupada quando em sequência)
                             if (isSystem) {
+                              const prevMsg = i > 0 ? threadMessages[i - 1] : null;
+                              const prevIsSystem = Boolean(
+                                prevMsg &&
+                                  (prevMsg.author === "Sistema" || prevMsg.senderType === "system"),
+                              );
+                              if (prevIsSystem) {
+                                return null;
+                              }
+
+                              const systemGroup: Array<{ id: string; text: string; time: string }> =
+                                [];
+                              for (let j = i; j < threadMessages.length; j++) {
+                                const cand = threadMessages[j];
+                                if (
+                                  !cand ||
+                                  (cand.author !== "Sistema" && cand.senderType !== "system")
+                                ) {
+                                  break;
+                                }
+                                systemGroup.push({
+                                  id: cand.id || `mini-sys-${j}`,
+                                  text: cand.text,
+                                  time: cand.time,
+                                });
+                              }
+
                               return (
                                 <SystemAnnotationBubble
                                   key={message.id || i}
                                   text={message.text}
                                   time={message.time}
+                                  items={systemGroup}
                                 />
                               );
                             }

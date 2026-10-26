@@ -3103,6 +3103,72 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             return extractRawMessageDateStr(msg);
           };
 
+          const isSystemMsg = (msg: (typeof displayed)[0] | null | undefined): boolean =>
+            Boolean(msg && (msg.author === "Sistema" || msg.senderType === "system"));
+
+          const resolveMessageConnectionInfo = (msg: (typeof displayed)[0] | null | undefined) => {
+            if (
+              !msg ||
+              !connectionsState.enabled ||
+              activeChat.channel !== "whatsapp" ||
+              activeChat.id === "valentina" ||
+              isSystemMsg(msg) ||
+              msg.isInternalNote ||
+              msg.isWarning ||
+              msg.id === "val_welcome"
+            ) {
+              return null;
+            }
+
+            const isForeign = Boolean(msg.conversationId && msg.conversationId !== activeChat.id);
+            const effectiveConnId =
+              msg.whatsappConnectionId ||
+              (!isForeign ? activeChat.whatsappConnectionId || null : null);
+
+            const matchedConn = effectiveConnId
+              ? connectionsState.connections.find((c) => c.id === effectiveConnId)
+              : connectionsState.connections.find((c) => c.corporate);
+
+            const connName =
+              msg.connectionName ||
+              (effectiveConnId ? matchedConn?.name : "Empresa · histórico principal") ||
+              "Empresa · histórico principal";
+
+            const connPhone = msg.connectionPhone ?? matchedConn?.phone ?? null;
+
+            const isCorporate =
+              !effectiveConnId && connName === "Empresa · histórico principal";
+
+            const rawProvider = isCorporate
+              ? matchedConn?.provider ||
+                (msg.provider === "meta" || msg.provider === "baileys"
+                  ? msg.provider
+                  : activeProvider) ||
+                "meta"
+              : msg.provider || matchedConn?.provider || "baileys";
+
+            const providerLabel =
+              rawProvider === "meta"
+                ? "Meta"
+                : rawProvider === "baileys"
+                ? "Baileys"
+                : "Interno";
+
+            const key = effectiveConnId
+              ? `conn:${effectiveConnId}`
+              : !isCorporate
+              ? `name:${connName}:${connPhone || ""}`
+              : "corporate";
+
+            const label = `${connName}${connPhone ? ` · ${connPhone}` : ""} · ${providerLabel}`;
+
+            return {
+              key,
+              label,
+              foreignConversationId: isForeign ? msg.conversationId || null : null,
+            };
+          };
+
           // Decide se duas mensagens adjacentes pertencem ao mesmo grupo visual
           const canLink = (
             a: (typeof displayed)[0],
@@ -3111,10 +3177,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const dateA = getMessageDateStr(a);
             const dateB = getMessageDateStr(b);
             if (dateA && dateB && dateA !== dateB) return false;
+            const connA = resolveMessageConnectionInfo(a)?.key ?? null;
+            const connB = resolveMessageConnectionInfo(b)?.key ?? null;
+            if (connA !== connB) return false;
             return (
               a.side === b.side &&
               a.author === b.author &&
-              a.author !== "Sistema" &&
+              !isSystemMsg(a) &&
+              !isSystemMsg(b) &&
               a.id !== "val_welcome" &&
               b.id !== "val_welcome" &&
               !a.isWarning &&
@@ -3128,23 +3198,47 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
           let lastRenderedDate: string | null = null;
           const renderedDates = new Set<string>();
+          let lastRenderedConnectionKey: string | null = null;
 
           return displayed.map((m, i) => {
             const prev = i > 0 ? displayed[i - 1] : null;
             const next = i < displayed.length - 1 ? displayed[i + 1] : null;
+            const isSystem = isSystemMsg(m);
+            const currDate = getMessageDateStr(m);
+
+            // Se for mensagem de sistema e a anterior imediata (no mesmo dia) também for de sistema,
+            // ela já foi agrupada no primeiro ícone (?) da sequência.
+            if (isSystem && prev && isSystemMsg(prev) && getMessageDateStr(prev) === currDate) {
+              return null;
+            }
+
+            let systemGroup: Array<{ id: string; text: string; time: string }> | undefined;
+            if (isSystem) {
+              systemGroup = [];
+              for (let j = i; j < displayed.length; j++) {
+                const candidate = displayed[j];
+                if (!isSystemMsg(candidate)) break;
+                if (getMessageDateStr(candidate) !== currDate) break;
+                systemGroup.push({
+                  id: candidate.clientMessageId || candidate.id || `sys-${j}`,
+                  text: candidate.text,
+                  time: candidate.time,
+                });
+              }
+            }
+
             const prevLinked = prev ? canLink(prev, m) : false;
             const nextLinked = next ? canLink(m, next) : false;
 
             const isFirst = !prevLinked; // primeira do grupo
             const isLast  = !nextLinked; // última do grupo
             const isMe     = m.side === "out";
-            const isSystem = m.author === "Sistema";
             const isExpanded = expandedMsgId === m.id;
 
             // Espaçamento: 3px dentro do grupo, compacto para anotações de sistema, 12px entre grupos, extra para avisos
             const gap = m.isWarning || (i > 0 && displayed[i - 1].isWarning)
               ? "mt-6"
-              : isSystem && prev?.author === "Sistema"
+              : isSystem && prev && isSystemMsg(prev)
               ? "mt-0.5"
               : isSystem
               ? "mt-1"
@@ -3155,7 +3249,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               : "";
 
             // ── Separador de Data por Período / Dia (Ex: 22/10/2026, 23/10/2026) — Único por dia ──
-            const currDate = getMessageDateStr(m);
             const showDateSeparator = Boolean(
               currDate &&
               (!lastRenderedDate || currDate !== lastRenderedDate) &&
@@ -3166,6 +3259,19 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               renderedDates.add(currDate);
             }
             const dateLabel = showDateSeparator ? currDate : null;
+
+            // ── Balão Centralizado de Conexão/Número (estilo Data: só exibe no início ou quando trocar de número) ──
+            const connInfo = resolveMessageConnectionInfo(m);
+            let connectionBanner: { label: string; foreignConversationId?: string | null } | null = null;
+            if (connInfo) {
+              if (connInfo.key !== lastRenderedConnectionKey) {
+                connectionBanner = {
+                  label: connInfo.label,
+                  foreignConversationId: connInfo.foreignConversationId,
+                };
+                lastRenderedConnectionKey = connInfo.key;
+              }
+            }
 
             const quotedTarget = m.quotedMessageId ? messageMap.get(m.quotedMessageId) : null;
             const displayQuotedContent =
@@ -3187,8 +3293,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
             const foreignConversation = Boolean(m.conversationId && m.conversationId !== activeChat.id);
             return (
-              <div key={m.clientMessageId || m.id}>
-              {connectionsState.enabled && m.connectionName && !isSystem && (foreignConversation || isFirst) && <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><span>{m.connectionName}{m.connectionPhone ? ` · ${m.connectionPhone}` : ""} · {m.provider === "meta" ? "Meta" : m.provider === "baileys" ? "Baileys" : "Interno"}</span>{foreignConversation && <button className="underline" onClick={() => void openSourceConversation(m.conversationId!).catch(() => toast.error("Conversa indisponível."))}>Abrir conversa deste número</button>}</div>}
               <ChatMessageBubble
                 key={m.clientMessageId || m.id}
                 m={m}
@@ -3198,6 +3302,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 isLast={isLast}
                 gap={gap}
                 dateLabel={dateLabel}
+                connectionBanner={connectionBanner}
+                systemGroup={systemGroup}
                 isMe={isMe}
                 isSystem={isSystem}
                 isExpanded={isExpanded}
@@ -3211,6 +3317,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 reactingMsgId={reactingMsgId}
                 effectiveStatus={effectiveStatus}
                 effectiveError={effectiveError}
+                onOpenSourceConversation={(convId) => {
+                  void openSourceConversation(convId).catch(() =>
+                    toast.error("Conversa indisponível."),
+                  );
+                }}
                 onReconcile={async (id, action, uncertain) => {
                   if (foreignConversation) { toast.info("Abra a conversa deste número para revisar o envio."); return; }
                   if (
@@ -3263,7 +3374,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 onOpenWarningChat={handleOpenWarningChat}
                 onSendWelcomeSuggestion={handleSendWelcomeSuggestion}
               />
-              </div>
             );
           });
         })()}

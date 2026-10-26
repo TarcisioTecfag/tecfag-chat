@@ -21,7 +21,7 @@ import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { MessageReactionPicker } from "./MessageReactionPicker";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
-import { SystemAnnotationBubble } from "./SystemAnnotationBubble";
+import { SystemAnnotationBubble, type SystemAnnotationItem } from "./SystemAnnotationBubble";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { Message } from "@/lib/mockData";
 import {
@@ -49,6 +49,43 @@ function formatDisplayPhone(phone?: string | null): string {
   return phone;
 }
 
+export interface ConnectionBannerInfo {
+  label: string;
+  foreignConversationId?: string | null;
+}
+
+function ConnectionBannerPill({
+  banner,
+  onOpenSourceConversation,
+}: {
+  banner?: ConnectionBannerInfo | null;
+  onOpenSourceConversation?: (conversationId: string) => void;
+}) {
+  if (!banner) return null;
+  return (
+    <div className="flex justify-center my-2.5 select-none">
+      <div className="inline-flex flex-wrap items-center justify-center gap-1.5 rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs text-center max-w-[92%]">
+        <span>{banner.label}</span>
+        {banner.foreignConversationId && onOpenSourceConversation && (
+          <>
+            <span className="opacity-50">·</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenSourceConversation(banner.foreignConversationId!);
+              }}
+              className="underline text-primary hover:opacity-80 transition cursor-pointer font-extrabold"
+            >
+              Abrir conversa deste número
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export interface ChatMessageBubbleProps {
   m: Message;
   prevLinked: boolean;
@@ -57,6 +94,8 @@ export interface ChatMessageBubbleProps {
   isLast: boolean;
   gap: string;
   dateLabel: string | null;
+  connectionBanner?: ConnectionBannerInfo | null;
+  systemGroup?: SystemAnnotationItem[];
   isMe: boolean;
   isSystem: boolean;
   isExpanded: boolean;
@@ -79,6 +118,7 @@ export interface ChatMessageBubbleProps {
   effectiveStatus?: string;
   effectiveError?: string | null;
   onReconcile?: (id: string, action: "resend" | "confirm_sent", uncertain: boolean) => void;
+  onOpenSourceConversation?: (conversationId: string) => void;
   onBubbleClick: (e: React.MouseEvent, id: string) => void;
   onScrollToQuoted: (e: React.MouseEvent, targetId: string) => void;
   onSetReactingMsgId: (id: string | null) => void;
@@ -102,6 +142,8 @@ function ChatMessageBubbleComponent({
   isLast,
   gap,
   dateLabel,
+  connectionBanner,
+  systemGroup,
   isMe,
   isSystem,
   isExpanded,
@@ -116,6 +158,7 @@ function ChatMessageBubbleComponent({
   effectiveStatus,
   effectiveError,
   onReconcile,
+  onOpenSourceConversation,
   onBubbleClick,
   onScrollToQuoted,
   onSetReactingMsgId,
@@ -129,7 +172,7 @@ function ChatMessageBubbleComponent({
 }: ChatMessageBubbleProps) {
   const navigate = useNavigate();
   const [dealSearchQuery, setDealSearchQuery] = React.useState("");
-  // ── 1. Mensagens de Sistema (ocultas por padrão no ícone ? discreto) ──
+  // ── 1. Mensagens de Sistema (ocultas por padrão no ícone ? discreto, agrupadas quando em sequência) ──
   if (isSystem) {
     return (
       <div key={m.clientMessageId || m.id} className="w-full">
@@ -143,6 +186,7 @@ function ChatMessageBubbleComponent({
         <SystemAnnotationBubble
           text={m.text}
           time={m.time}
+          items={systemGroup}
           gap={gap}
           renderText={(val) => renderTextWithLinks(val)}
         />
@@ -215,6 +259,10 @@ function ChatMessageBubbleComponent({
             </span>
           </div>
         )}
+        <ConnectionBannerPill
+          banner={connectionBanner}
+          onOpenSourceConversation={onOpenSourceConversation}
+        />
         <motion.div
           id={`msg-dom-${m.id}`}
           initial={{ opacity: 0, x: 18, scale: 0.98 }}
@@ -432,6 +480,10 @@ function ChatMessageBubbleComponent({
           </span>
         </div>
       )}
+      <ConnectionBannerPill
+        banner={connectionBanner}
+        onOpenSourceConversation={onOpenSourceConversation}
+      />
       <motion.div
         id={`msg-dom-${m.id}`}
         initial={{ opacity: 0, x: -18, scale: 0.98 }}
@@ -1174,6 +1226,13 @@ export const ChatMessageBubble = memo(
     if (prev.isFirst !== next.isFirst || prev.isLast !== next.isLast) return false;
     if (prev.prevLinked !== next.prevLinked || prev.nextLinked !== next.nextLinked) return false;
     if (prev.gap !== next.gap || prev.dateLabel !== next.dateLabel) return false;
+    if ((prev.systemGroup?.length ?? 0) !== (next.systemGroup?.length ?? 0)) return false;
+    if (
+      prev.connectionBanner?.label !== next.connectionBanner?.label ||
+      prev.connectionBanner?.foreignConversationId !== next.connectionBanner?.foreignConversationId
+    ) {
+      return false;
+    }
     if (prev.effectiveStatus !== next.effectiveStatus || prev.effectiveError !== next.effectiveError) return false;
     if (
       prev.reactingMsgId !== next.reactingMsgId &&
