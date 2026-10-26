@@ -2409,13 +2409,13 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative"
     >
       {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
-      <header className="flex items-center justify-between gap-2 px-3 md:px-6 py-2.5 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[54px]">
+      <header className="flex items-center justify-between gap-1.5 md:gap-2 px-2.5 md:px-6 py-2 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[52px]">
         <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
           <button
             type="button"
             onClick={() => setSelectedChatId(null)}
             aria-label="Voltar para lista de conversas"
-            className="md:hidden grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground hover:bg-muted transition cursor-pointer"
+            className="md:hidden grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground hover:bg-muted transition cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -2425,17 +2425,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             {activeChat.id === "valentina" ? (
               <AiAvatar
                 tenantId={tenant}
-                className="h-10 w-10 rounded-full border border-border shadow-xs"
+                className="h-9 w-9 md:h-10 md:w-10 rounded-full border border-border shadow-xs"
               />
             ) : activeChat.avatar ? (
               <img
                 src={activeChat.avatar}
                 alt={activeChat.name}
-                className="h-10 w-10 rounded-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                className="h-9 w-9 md:h-10 md:w-10 rounded-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
                 onClick={() => setActiveMedia({ type: "image", url: activeChat.avatar })}
               />
             ) : (
-              <div className="grid h-10 w-10 place-items-center rounded-full text-xs font-bold text-primary bg-primary/10 border border-primary/20">
+              <div className="grid h-9 w-9 md:h-10 md:w-10 place-items-center rounded-full text-xs font-bold text-primary bg-primary/10 border border-primary/20">
                 {activeChat.initials || "U"}
               </div>
             )}
@@ -2530,22 +2530,22 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         </div>
 
         {/* Handover Operations Actions */}
-        <div className="flex items-center gap-1.5 md:gap-2 relative shrink-0">
+        <div className="flex items-center gap-1 md:gap-2 relative shrink-0">
           {activeChat.id !== "valentina" && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-                  className={`grid h-9 w-9 place-items-center rounded-xl border transition cursor-pointer ${
+                  className={`grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border transition cursor-pointer ${
                     rightSidebarOpen
                       ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
                       : "border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
                   }`}
                 >
                   {rightSidebarOpen ? (
-                    <ChevronRight className="h-4.5 w-4.5" strokeWidth={2.5} />
+                    <ChevronRight className="h-4 w-4 md:h-4.5 md:w-4.5" strokeWidth={2.5} />
                   ) : (
-                    <ChevronLeft className="h-4.5 w-4.5" strokeWidth={2.5} />
+                    <ChevronLeft className="h-4 w-4 md:h-4.5 md:w-4.5" strokeWidth={2.5} />
                   )}
                 </button>
               </TooltipTrigger>
@@ -2563,7 +2563,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => setShowMsgSearch((v) => !v)}
-                    className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                    className={`grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
                       showMsgSearch
                         ? "bg-primary text-primary-foreground"
                         : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -2583,7 +2583,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => setShowValWarnings((v) => !v)}
-                        className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                        className={`grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
                           showValWarnings
                             ? "bg-primary text-primary-foreground"
                             : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -2600,7 +2600,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => setShowValResponses((v) => !v)}
-                        className={`grid h-9 w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
+                        className={`grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border text-xs font-semibold transition cursor-pointer ${
                           showValResponses
                             ? "bg-primary text-primary-foreground"
                             : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -2630,7 +2630,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         return `tel:${n}`;
                       })()}
                       onClick={logVigosPhoneCall}
-                      className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-primary hover:bg-primary/10 hover:border-primary/30 transition cursor-pointer"
+                      className="grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border bg-card text-primary hover:bg-primary/10 hover:border-primary/30 transition cursor-pointer"
                     >
                       <PhoneCall className="h-3.5 w-3.5" />
                     </a>
@@ -2646,11 +2646,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <div className="relative">
                   <button
                     onClick={() => setShowTransferDropdown(!showTransferDropdown)}
-                    className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 md:px-4 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                    className="grid sm:flex h-8 w-8 sm:h-9 sm:w-auto place-items-center items-center gap-1.5 rounded-xl border border-border bg-card sm:px-2.5 md:px-4 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
                   >
                     <ArrowRightLeft className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">Transferir</span>
-                    <ChevronDown className="h-3.5 w-3.5" />
+                    <ChevronDown className="hidden sm:inline h-3.5 w-3.5" />
                   </button>
 
                   {showTransferDropdown && (
@@ -2790,7 +2790,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               {activeChat.id !== "valentina" && isOwner && canFinish && (
                 <button
                   onClick={() => setShowFinishConfirmModal(true)}
-                  className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-2.5 md:px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
+                  className="grid sm:flex h-8 w-8 sm:h-9 sm:w-auto place-items-center items-center gap-1.5 rounded-xl bg-primary sm:px-2.5 md:px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
                 >
                   <CheckCircle className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Finalizar</span>
@@ -2968,7 +2968,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         onTouchStart={handleMessagesTouchStart}
         onTouchMove={handleMessagesTouchMove}
         onLoadCapture={handleMediaLoadScroll}
-        className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin"
+        className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-4 scrollbar-thin"
       >
         <AnimatePresence>
           {activeChat.id === "valentina" &&
@@ -3188,7 +3188,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const foreignConversation = Boolean(m.conversationId && m.conversationId !== activeChat.id);
             return (
               <div key={m.clientMessageId || m.id}>
-              {connectionsState.enabled && m.connectionName && <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><span>{m.connectionName}{m.connectionPhone ? ` · ${m.connectionPhone}` : ""} · {m.provider === "meta" ? "Meta" : m.provider === "baileys" ? "Baileys" : "Interno"}</span>{foreignConversation && <button className="underline" onClick={() => void openSourceConversation(m.conversationId!).catch(() => toast.error("Conversa indisponível."))}>Abrir conversa deste número</button>}</div>}
+              {connectionsState.enabled && m.connectionName && !isSystem && (foreignConversation || isFirst) && <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><span>{m.connectionName}{m.connectionPhone ? ` · ${m.connectionPhone}` : ""} · {m.provider === "meta" ? "Meta" : m.provider === "baileys" ? "Baileys" : "Interno"}</span>{foreignConversation && <button className="underline" onClick={() => void openSourceConversation(m.conversationId!).catch(() => toast.error("Conversa indisponível."))}>Abrir conversa deste número</button>}</div>}
               <ChatMessageBubble
                 key={m.clientMessageId || m.id}
                 m={m}
@@ -3394,7 +3394,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          {connectionsState.enabled && activeChat.channel === "whatsapp" && activeChat.id !== "valentina" && <p className="mb-2 text-xs font-semibold text-primary">Respondendo por: {connectionsState.connections.find((c) => c.id === (activeChat.whatsappConnectionId || "corporate"))?.name || "Conexão deste atendimento"}{connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId)?.phone ? ` · ${connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId)?.phone}` : ""}</p>}
           {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
           {activeChat.whatsappConnectionId && connectionsState.connections.find(c => c.id === activeChat.whatsappConnectionId)?.canSend !== true ? (
             <div role="status" className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">Este número está disponível somente para visualização. Seu grupo não tem permissão para enviar mensagens por ele.</div>
@@ -3543,21 +3542,21 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 inline={true}
               />
 
-              <div className="rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
-                <div className="flex items-start gap-3.5">
+              <div className="rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-3.5 md:p-5 shadow-xs">
+                <div className="flex items-start gap-2.5 md:gap-3.5">
                   <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <Clock className="h-4.5 w-4.5" />
                   </div>
-                  <div className="flex-1 space-y-3">
+                  <div className="flex-1 space-y-2 md:space-y-3">
                     <div>
                       <h4 className="text-sm font-bold text-foreground">
                         Janela de 24 horas encerrada
                       </h4>
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      <p className="mt-0.5 md:mt-1 text-[11px] md:text-xs leading-relaxed text-muted-foreground">
                         O prazo de 24 horas desde a última interação do cliente expirou (ou a conversa ainda não foi iniciada). Envie um template aprovado pela Meta para iniciar ou retomar o atendimento.
                       </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2 md:gap-3">
                       <button
                         type="button"
                         onClick={() => {
@@ -3565,7 +3564,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           setShowMetaTemplateModal(next);
                           if (next) void loadMetaTemplates();
                         }}
-                        className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                        className="inline-flex items-center gap-1.5 md:gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-3 md:px-4 py-1.5 md:py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
                       >
                         <LayoutTemplate className="h-3.5 w-3.5 text-primary" />
                         <span>
@@ -3576,7 +3575,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         <button
                           type="button"
                           onClick={() => setShowTransferModal(true)}
-                          className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-1.5 md:gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-3 md:px-4 py-1.5 md:py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
                         >
                           <ArrowRightLeft className="h-3.5 w-3.5 text-primary" />
                           <span>Transferir Atendimento</span>
