@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
 
 export type CrmQuickCreateKind = "company" | "contact" | "task";
 
@@ -468,11 +469,13 @@ export function CrmQuickCreateDialog({
               <>
                 <div className="space-y-1.5">
                   <Label htmlFor="crm-quick-due">Prazo</Label>
-                  <Input
+                  <SystemDateTimePicker
                     id="crm-quick-due"
-                    type="datetime-local"
+                    mode="datetime"
+                    allowClear
                     value={dueDate}
-                    onChange={(event) => setDueDate(event.target.value)}
+                    onChange={setDueDate}
+                    tooltip="Selecione a data e horário de prazo da tarefa"
                   />
                 </div>
                 <div className="space-y-1.5">

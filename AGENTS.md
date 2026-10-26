@@ -130,6 +130,26 @@
 > }
 > ```
 
+---
+
+## 🎨 REGRA ESTRITA DE DESIGN SYSTEM & COMPONENTES DE UI (MANDATÓRIA)
+
+> [!CAUTION]
+> **PROIBIÇÃO ABSOLUTA DE CONTROLES NATIVOS DO NAVEGADOR**
+>
+> Em todas as telas, modais e componentes do sistema, **NÃO é aceito o uso de controles nativos de navegador**. Utilize obrigatoriamente os componentes personalizados do Design System:
+>
+> 1. **Tooltip Personalizado do Sistema (`SystemTooltip`)**:
+>    - **PROIBIDO** usar o atributo HTML nativo `title="..."`.
+>    - **OBRIGATÓRIO** usar `<SystemTooltip content="...">` de `src/components/ui/tooltip.tsx`.
+>
+> 2. **Menu Suspenso Personalizado (`Popover` / `Select`)**:
+>    - **PROIBIDO** usar `<select>` e `<option>` nativos do HTML.
+>    - **OBRIGATÓRIO** usar menus suspensos customizados com `<Popover>` + `<PopoverTrigger>` + `<PopoverContent>` (`src/components/ui/popover.tsx`) ou `<Select>` customizado (`src/components/ui/select.tsx`), acompanhados de `SystemTooltip`.
+>
+> 3. **Campo de Data e Hora Personalizado (`SystemDateTimePicker` / `CrmDatePicker`)**:
+>    - **PROIBIDO** usar `<input type="date">`, `<input type="time">` ou `<input type="datetime-local">` nativos do navegador.
+>    - **OBRIGATÓRIO** usar o seletor customizado do sistema `<SystemDateTimePicker>` (`src/components/ui/system-date-time-picker.tsx`) ou `<CrmDatePicker>` (`src/components/crm/CrmDatePicker.tsx`).
 
 ---
 

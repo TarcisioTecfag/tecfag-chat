@@ -64,6 +64,7 @@ import { AccountDetailModal } from "./AccountDetailModal";
 import { CreateTaskModal } from "./CreateTaskModal";
 import { CustomFieldsEditor, CustomFieldsSummary, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { CrmDatePicker } from "./CrmDatePicker";
+import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
 import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
 import { DealEmailTab } from "./DealEmailTab";
 import { CatalogSelect } from "./CatalogSelect";
@@ -3085,13 +3086,13 @@ export function DealDetailModal({
 
                                     {/* Formulário Inline de Reagendamento */}
                                     {reschedulingActivityId === act.id && (
-                                      <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2 animate-in fade-in">
+                                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2 animate-in fade-in">
                                         <span className="text-[11px] font-bold text-foreground">Novo Prazo:</span>
-                                        <input
-                                          type="datetime-local"
+                                        <SystemDateTimePicker
+                                          mode="datetime"
                                           value={rescheduleDueDate}
-                                          onChange={(e) => setRescheduleDueDate(e.target.value)}
-                                          className="h-7 rounded border border-border bg-card px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                          onChange={setRescheduleDueDate}
+                                          tooltip="Selecione a nova data e horário da atividade"
                                         />
                                         <button
                                           type="button"

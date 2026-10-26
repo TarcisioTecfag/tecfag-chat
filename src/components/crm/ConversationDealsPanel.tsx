@@ -28,6 +28,7 @@ import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import { useChat } from "@/hooks/useChatState";
 import { useNavigate } from "@tanstack/react-router";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
 import {
   Select,
   SelectContent,
@@ -1001,16 +1002,17 @@ export function ConversationDealsPanel({
                                     <label className="text-[9px] font-bold text-muted-foreground uppercase">
                                       {field.name}
                                     </label>
-                                    <input
-                                      type="date"
+                                    <SystemDateTimePicker
+                                      mode="date"
+                                      allowClear
                                       value={typeof val === "string" ? val : ""}
-                                      onChange={(e) =>
+                                      onChange={(nextVal) =>
                                         setEditForm((prev) => ({
                                           ...prev,
-                                          customFields: { ...prev.customFields, [field.id]: e.target.value },
+                                          customFields: { ...prev.customFields, [field.id]: nextVal },
                                         }))
                                       }
-                                      className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                      tooltip={`Selecionar data para ${field.name}`}
                                     />
                                   </div>
                                 );

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
 
 interface DirectiveEvidenceTarget {
   id: string;
@@ -687,18 +688,12 @@ export function CommercialEvidenceDialog({
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-300 mb-1 font-mono">
                     DATA E HORA DA PRÓXIMA AÇÃO <span className="text-red-500">*</span>
                   </label>
-                  <div className="relative">
-                    <input
-                      required
-                      type="datetime-local"
-                      value={nextTaskDueAt}
-                      onChange={(e) => setNextTaskDueAt(e.target.value)}
-                      className="w-full rounded-[4px] border border-zinc-800 bg-zinc-900/80 px-3.5 py-2 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
-                      <Calendar className="h-4 w-4" />
-                    </div>
-                  </div>
+                  <SystemDateTimePicker
+                    mode="datetime"
+                    value={nextTaskDueAt}
+                    onChange={setNextTaskDueAt}
+                    tooltip="Selecione a data e horário da próxima ação comercial"
+                  />
                 </div>
 
                 {/* Nome da Tarefa com Dropdown Autocomplete Estilizado */}
