@@ -2701,7 +2701,7 @@ export function CrmChatWidget() {
 
                             // Mensagem do Cliente / Assistente IA (Recebida) com Foto ao Lado
                             return (
-                              <div key={message.id || i} className="flex items-end gap-2 w-full group">
+                              <div key={message.id || i} className="flex items-end gap-2 w-full min-w-0 group">
                                 {selected.id === "valentina" ? (
                                   <AiAvatar
                                     tenantId={tenant}
@@ -2720,7 +2720,7 @@ export function CrmChatWidget() {
                                   />
                                 )}
                                 <div
-                                  className={`rounded-2xl rounded-bl-xs ${
+                                  className={`rounded-2xl rounded-bl-xs min-w-0 overflow-hidden break-words ${
                                     message.isWarning
                                       ? `w-full max-w-[90%] border border-border/80 border-l-4 ${
                                           message.warningType === "delay"
@@ -3021,21 +3021,23 @@ export function CrmChatWidget() {
                                         {/* 1. Balão/Card interativo: Ligação Direta via VigosPhone */}
                                         {dedupedCalls.length > 0 && (
                                           <div
-                                            className="mt-2.5 p-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/35 border border-emerald-500/35 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs"
+                                            className="mt-2.5 p-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/35 border border-emerald-500/35 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs min-w-0 max-w-full overflow-hidden"
                                             onClick={(e) => e.stopPropagation()}
                                           >
-                                            <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
-                                              <span className="flex items-center gap-1">
-                                                <PhoneCall className="h-3 w-3" />
-                                                {dedupedCalls.length === 1
-                                                  ? "Discagem Direta • VigosPhone"
-                                                  : `Discagem Direta • VigosPhone (${dedupedCalls.length})`}
+                                            <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-between gap-2 min-w-0">
+                                              <span className="flex items-center gap-1 min-w-0 truncate">
+                                                <PhoneCall className="h-3 w-3 shrink-0" />
+                                                <span className="truncate">
+                                                  {dedupedCalls.length === 1
+                                                    ? "Discagem Direta • VigosPhone"
+                                                    : `Discagem Direta • VigosPhone (${dedupedCalls.length})`}
+                                                </span>
                                               </span>
-                                              <span className="text-[9px] font-semibold">
+                                              <span className="text-[9px] font-semibold shrink-0">
                                                 Clique para ligar
                                               </span>
                                             </div>
-                                            <div className="flex flex-col gap-1.5">
+                                            <div className="flex flex-col gap-1.5 min-w-0 max-w-full overflow-x-hidden">
                                               {dedupedCalls.map((callItem) => (
                                                 <a
                                                   key={callItem.id || callItem.phone}
@@ -3046,26 +3048,26 @@ export function CrmChatWidget() {
                                                       callItem.conversationId
                                                     )
                                                   }
-                                                  className="group/call p-2 rounded-lg bg-card/95 hover:bg-emerald-500/15 border border-emerald-500/30 hover:border-emerald-500/60 flex items-center justify-between gap-2 transition cursor-pointer no-underline"
+                                                  className="group/call p-2 rounded-lg bg-card/95 hover:bg-emerald-500/15 border border-emerald-500/30 hover:border-emerald-500/60 flex items-center justify-between gap-2 min-w-0 max-w-full overflow-hidden transition cursor-pointer no-underline"
                                                 >
-                                                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                  <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                                                     <div className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 group-hover/call:bg-emerald-500 group-hover/call:text-white transition">
                                                       <PhoneCall className="h-3.5 w-3.5" />
                                                     </div>
-                                                    <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-                                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                                        <span className="text-[11px] font-bold text-foreground truncate">
+                                                    <div className="min-w-0 flex-1 flex flex-col gap-0.5 overflow-hidden">
+                                                      <div className="flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden">
+                                                        <span className="text-[11px] font-bold text-foreground min-w-0 flex-1 truncate">
                                                           {callItem.clientName}
                                                         </span>
                                                         {callItem.company &&
                                                           callItem.company !==
                                                             callItem.clientName && (
-                                                            <span className="text-[9px] text-muted-foreground truncate">
+                                                            <span className="text-[9px] text-muted-foreground shrink-0 max-w-[40%] truncate">
                                                               • {callItem.company}
                                                             </span>
                                                           )}
                                                       </div>
-                                                      <div className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                                      <div className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400 truncate">
                                                         {formatDisplayPhone(callItem.phone)}
                                                       </div>
                                                       {(callItem.dealTitle || callItem.reason) && (
@@ -3090,19 +3092,19 @@ export function CrmChatWidget() {
                                         {/* 2. Card interativo unificado: Negociações do CRM */}
                                         {dealsList.length > 0 && (
                                           <div
-                                            className="mt-2.5 p-2 rounded-xl bg-card/95 border border-border/80 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs"
+                                            className="mt-2.5 p-2 rounded-xl bg-card/95 border border-border/80 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs min-w-0 max-w-full overflow-hidden"
                                             onClick={(e) => e.stopPropagation()}
                                           >
-                                            <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                                              <span className="flex items-center gap-1">
-                                                <Briefcase className="h-3 w-3 text-primary" />
-                                                {`Negociações do CRM (${dealsList.length})`}
+                                            <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between gap-2 min-w-0">
+                                              <span className="flex items-center gap-1 min-w-0 truncate">
+                                                <Briefcase className="h-3 w-3 text-primary shrink-0" />
+                                                <span className="truncate">{`Negociações do CRM (${dealsList.length})`}</span>
                                               </span>
-                                              <span className="text-[9px] font-semibold text-primary">
+                                              <span className="text-[9px] font-semibold text-primary shrink-0">
                                                 Ações rápidas
                                               </span>
                                             </div>
-                                            <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-0.5 scrollbar-thin">
+                                            <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto overflow-x-hidden pr-0.5 scrollbar-thin min-w-0 max-w-full">
                                               {dealsList.map((deal) => {
                                                 const formattedVal =
                                                   deal.valueFormatted ||
@@ -3124,15 +3126,15 @@ export function CrmChatWidget() {
                                                 return (
                                                   <div
                                                     key={deal.dealId}
-                                                    className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2 transition"
+                                                    className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2 min-w-0 max-w-full overflow-hidden transition"
                                                   >
-                                                    <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-                                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                                        <span className="text-[11px] font-bold text-foreground truncate">
+                                                    <div className="min-w-0 flex-1 flex flex-col gap-0.5 overflow-hidden">
+                                                      <div className="flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden">
+                                                        <span className="text-[11px] font-bold text-foreground min-w-0 flex-1 truncate">
                                                           {deal.title}
                                                         </span>
                                                         {formattedVal && (
-                                                          <span className="px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-primary/15 text-primary border border-primary/30">
+                                                          <span className="shrink-0 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-primary/15 text-primary border border-primary/30">
                                                             {formattedVal}
                                                           </span>
                                                         )}
@@ -3156,12 +3158,12 @@ export function CrmChatWidget() {
                                                           .join(" • ")}
                                                       </div>
                                                       {deal.contactPhone ? (
-                                                        <div className="text-[9.5px] font-mono font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                                        <div className="text-[9.5px] font-mono font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 min-w-0 truncate">
                                                           <PhoneCall className="h-2.5 w-2.5 shrink-0" />
-                                                          <span>{formatDisplayPhone(deal.contactPhone)}</span>
+                                                          <span className="truncate">{formatDisplayPhone(deal.contactPhone)}</span>
                                                         </div>
                                                       ) : (
-                                                        <div className="text-[9px] text-muted-foreground/80 italic">
+                                                        <div className="text-[9px] text-muted-foreground/80 italic truncate">
                                                           Sem telefone vinculado no card
                                                         </div>
                                                       )}
@@ -3173,40 +3175,44 @@ export function CrmChatWidget() {
                                                     </div>
                                                     <div className="shrink-0 flex items-center gap-1">
                                                       {deal.contactPhone && (
-                                                        <a
-                                                          href={getVigosPhoneLink(
-                                                            deal.contactPhone
-                                                          )}
-                                                          onClick={() =>
-                                                            handleVigosCallClick(
-                                                              deal.contactName ||
-                                                                deal.company ||
-                                                                deal.title,
-                                                              deal.conversationId
-                                                            )
-                                                          }
-                                                          title={`Ligar para ${formatDisplayPhone(deal.contactPhone)} via VigosPhone`}
-                                                          className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/15 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white border border-emerald-500/30 transition cursor-pointer"
+                                                        <SystemTooltip
+                                                          content={`Ligar para ${formatDisplayPhone(deal.contactPhone)} via VigosPhone`}
                                                         >
-                                                          <PhoneCall className="h-3.5 w-3.5" />
-                                                        </a>
+                                                          <a
+                                                            href={getVigosPhoneLink(
+                                                              deal.contactPhone
+                                                            )}
+                                                            onClick={() =>
+                                                              handleVigosCallClick(
+                                                                deal.contactName ||
+                                                                  deal.company ||
+                                                                  deal.title,
+                                                                deal.conversationId
+                                                              )
+                                                            }
+                                                            className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/15 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white border border-emerald-500/30 transition cursor-pointer"
+                                                          >
+                                                            <PhoneCall className="h-3.5 w-3.5" />
+                                                          </a>
+                                                        </SystemTooltip>
                                                       )}
                                                       {deal.conversationId && (
-                                                        <button
-                                                          type="button"
-                                                          onClick={() =>
-                                                            handleOpenWarningChat(
-                                                              deal.conversationId!,
-                                                              deal.contactName ||
-                                                                deal.accountName ||
-                                                                deal.title
-                                                            )
-                                                          }
-                                                          title="Abrir conversa no WhatsApp"
-                                                          className="grid h-7 w-7 place-items-center rounded-lg bg-primary/12 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/25 transition cursor-pointer"
-                                                        >
-                                                          <MessageSquare className="h-3.5 w-3.5" />
-                                                        </button>
+                                                        <SystemTooltip content="Abrir conversa no WhatsApp">
+                                                          <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                              handleOpenWarningChat(
+                                                                deal.conversationId!,
+                                                                deal.contactName ||
+                                                                  deal.accountName ||
+                                                                  deal.title
+                                                              )
+                                                            }
+                                                            className="grid h-7 w-7 place-items-center rounded-lg bg-primary/12 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/25 transition cursor-pointer"
+                                                          >
+                                                            <MessageSquare className="h-3.5 w-3.5" />
+                                                          </button>
+                                                        </SystemTooltip>
                                                       )}
                                                       <button
                                                         type="button"
@@ -3229,37 +3235,37 @@ export function CrmChatWidget() {
                                         {/* 3. Card interativo: Lista de Conversas Citadas */}
                                         {dedupedConvs && dedupedConvs.length > 0 && (
                                           <div
-                                            className="mt-2.5 p-2 rounded-xl bg-card/95 border border-border/80 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs"
+                                            className="mt-2.5 p-2 rounded-xl bg-card/95 border border-border/80 shadow-2xs flex flex-col gap-1.5 cursor-default text-xs min-w-0 max-w-full overflow-hidden"
                                             onClick={(e) => e.stopPropagation()}
                                           >
-                                            <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                                              <span>
+                                            <div className="text-[9.5px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center justify-between gap-2 min-w-0">
+                                              <span className="truncate">
                                                 {message.warningType === "overload"
                                                   ? `Atendimentos Ativos (${dedupedConvs.length})`
                                                   : `Conversas Citadas (${dedupedConvs.length})`}
                                               </span>
-                                              <span className="text-[9px] font-semibold text-primary">
+                                              <span className="text-[9px] font-semibold text-primary shrink-0">
                                                 Clique para abrir
                                               </span>
                                             </div>
-                                            <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto pr-0.5 scrollbar-thin">
+                                            <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto overflow-x-hidden pr-0.5 scrollbar-thin min-w-0 max-w-full">
                                               {dedupedConvs.map((conv: any) => (
                                                 <div
                                                   key={conv.clientId || conv.clientName}
-                                                  className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2 transition"
+                                                  className="p-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border/60 flex items-center justify-between gap-2 min-w-0 max-w-full overflow-hidden transition"
                                                 >
-                                                  <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-                                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                                      <span className="text-[11px] font-bold text-foreground truncate">
+                                                  <div className="min-w-0 flex-1 flex flex-col gap-0.5 overflow-hidden">
+                                                    <div className="flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden">
+                                                      <span className="text-[11px] font-bold text-foreground min-w-0 flex-1 truncate">
                                                         {conv.clientName}
                                                       </span>
                                                       {conv.company && (
-                                                        <span className="text-[9px] text-muted-foreground truncate">
+                                                        <span className="text-[9px] text-muted-foreground shrink-0 max-w-[35%] truncate">
                                                           • {conv.company}
                                                         </span>
                                                       )}
                                                       {conv.isWaiting && (
-                                                        <span className="px-1.5 py-0.2 rounded-full text-[8px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                                                        <span className="shrink-0 px-1.5 py-0.2 rounded-full text-[8px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30">
                                                           {conv.waitMinutes && conv.waitMinutes > 0
                                                             ? `Aguardando há ${conv.waitMinutes}min`
                                                             : "Aguardando resposta"}

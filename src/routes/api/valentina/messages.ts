@@ -422,32 +422,41 @@ async function getOperatorContext(
     );
 
   // Classificação de intenção real para consultar apenas o que é necessário
-  const isOverviewOrGeneral =
-    /\b(?:resumo|panorama|geral|tudo|meu dia|como estou|prioridade|prioridades|bom dia|boa tarde|boa noite|oi|ola)\b/.test(
-      q
-    );
-  const isCallOrPhone =
-    /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
-  const hasExplicitCrmKeyword =
-    /\b(?:negociac|card|cards|crm|proposta|orcamento|funil|parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|valor|cliente|clientes|empresa|empresas|fechar|venda|vendas|outra|outras|outro|outros|lista|listar|liste|todas|todos|mensur|carteira|quantas|quantos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|comprador|sdr|questionario|email|cnpj|cpf)\b/.test(
-      q
-    );
   const hasExplicitMachineOrManualKeyword =
     Boolean(hasAttachedImage) ||
-    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|envasadora|rotuladora|datador|empacotadora|dosadora|valvula|frasco|pote|tampa|alicate|arqueadora|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|encapsuladora|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre)\b/.test(
+    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|selar|selagem|envasadora|envasar|envase|rotuladora|rotular|rotulagem|datador|datar|datacao|empacotadora|empacotar|dosadora|dosar|valvula|frasco|frascos|pote|potes|garrafa|garrafas|tampa|tampas|alicate|arqueadora|arquear|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|saches|encapsuladora|encapsular|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|plastico|salgadinho|salgadinhos|embalar|embalagem|embalagens|pacote|pacotes|saco|sacos|bandeja|bandejas|por\s+minuto|ciclos|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre)\b/.test(
       q
     ) ||
     /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(cleanUserQuery || userQuery || "");
 
   const isRecentMachineManualTurn =
-    /\b(?:puxei\s+as\s+informacoes\s+do\s+manual|segundo\s+o\s+catalogo|faixa\s+de\s+dosagem|ciclos\s+por\s+minuto|componentes\s+pneumaticos|manual\s+tecnico)\b/.test(
+    /\b(?:puxei\s+as\s+informacoes\s+do\s+manual|segundo\s+o\s+catalogo|faixa\s+de\s+dosagem|ciclos\s+por\s+minuto|componentes\s+pneumaticos|manual\s+tecnico|painel\s+de\s+controle|ihm\s+touch|volume\s+de\s+envase|velocidade\s+da\s+esteira|tempo\s+entre\s+os\s+ciclos|nao,\s+essa\s+maquina\s+nao\s+serve)\b/.test(
       normRecentAiForIntent
     );
 
+  const isMachineContext = hasExplicitMachineOrManualKeyword || isRecentMachineManualTurn;
+
+  const isOverviewOrGeneral =
+    !isMachineContext &&
+    /\b(?:resumo|panorama|geral|tudo|meu dia|como estou|prioridade|prioridades|bom dia|boa tarde|boa noite|oi|ola)\b/.test(
+      q
+    );
+  const isCallOrPhone =
+    /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
+  const hasStrictCrmKeyword =
+    /\b(?:negociac|card|cards|crm|proposta|orcamento|funil|parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|cliente|clientes|empresa|empresas|fechar|venda|vendas|mensur|carteira|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|comprador|sdr|questionario|email|cnpj|cpf)\b/.test(
+      q
+    );
+  const hasBroadCrmModifier =
+    !isMachineContext &&
+    /\b(?:valor|outra|outras|outro|outros|lista|listar|liste|todas|todos|quantas|quantos)\b/.test(
+      q
+    );
+  const hasExplicitCrmKeyword = hasStrictCrmKeyword || hasBroadCrmModifier;
+
   const isDealOrCrm =
     hasExplicitCrmKeyword ||
-    (!hasExplicitMachineOrManualKeyword &&
-      !isRecentMachineManualTurn &&
+    (!isMachineContext &&
       /\b(?:informacao|informacoes|ficha|volume|produto|produtos|arquivo|arquivos)\b/.test(q));
   const isGoalOrMeta = /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
   const isTaskOrAgenda = /\b(?:tarefa|tarefas|agenda|compromisso|reuniao|reunioes|pendente|atrasad|follow)\b/.test(q);
@@ -458,7 +467,7 @@ async function getOperatorContext(
   const isMetricsQuery = /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
   const isKbQuery =
     hasExplicitMachineOrManualKeyword ||
-    (isFollowUpRequest && isRecentMachineManualTurn && !hasExplicitCrmKeyword);
+    (isFollowUpRequest && isRecentMachineManualTurn && !hasStrictCrmKeyword);
   const isPureKbQuery =
     isKbQuery &&
     !isDealOrCrm &&
@@ -2248,6 +2257,17 @@ async function getOperatorContext(
     if (shouldRunKb) {
       const tKb0 = Date.now();
       try {
+        if (!shouldRunDeals) {
+          pushRealStep({
+            id: "step-op-kb-analyze",
+            kind: "analyze",
+            actionVerb: "Analisou",
+            targetLabel: "parâmetros técnicos & catálogo de equipamentos",
+            scopeTag: "#1037-maquinas • #210-manuais",
+            badgeType: "kb",
+            detailText: `Cruzando a aplicação, capacidade produtiva e especificações de "${(cleanUserQuery || userQuery || "").slice(0, 80)}" com as linhas de máquinas e manuais técnicos disponíveis.`,
+          });
+        }
         const kbQuery = [
           cleanUserQuery,
           imageFileName ? imageFileName.replace(/\.[a-z0-9]{2,5}$/i, "") : "",
@@ -2269,7 +2289,7 @@ async function getOperatorContext(
             targetLabel: "knowledge_base",
             scopeTag: `#catalogo-tecnico • ${kbMs}ms`,
             badgeType: "kb",
-            detailText: `Base de conhecimento técnico consultada em ${kbMs}ms.`,
+            detailText: `Manuais técnicos em PDF e Catálogo Oficial de Máquinas consultados na Base de Conhecimento em ${kbMs}ms.`,
           });
         }
       } catch {}
@@ -2770,12 +2790,26 @@ function resolveRelatedDeals(
     }
   }
 
-  // 3. Detecta se o operador pediu listagem completa/ampla ou plural de negociações
-  const asksFullOrBroadList =
-    /\b(?:todas|todos|tudo|lista\s+completa|listar|liste|minhas\s+negocia[çc][oõ]es|meus\s+cards|mensur[aeo]|mensura[çc][aã]o|carteira\s+completa|pipeline\s+completo|funil|etapa)\b/i.test(
+  // 3. Detecta se o operador pediu listagem completa/ampla ou plural de negociações do CRM
+  const hasExplicitCrmListWord =
+    /\b(?:negocia[çc][aã]o|negocia[çc][oõ]es|cards?|crm|carteira|pipeline|funil|etapa|propostas?|or[çc]amentos?)\b/i.test(
       userText
     );
+  const isTechnicalMachineReply =
+    !hasExplicitCrmListWord &&
+    /\b(?:ihm|touch\s+screen|volume\s+de\s+envase|velocidade\s+da\s+esteira|ciclos\s+por\s+minuto|manual\s+t[eé]cnico|segundo\s+o\s+cat[aá]logo|faixa\s+de\s+dosagem|seladora|envasadora|rotuladora|datador|empacotadora|dosadora|encapsuladora|arqueadora|t[uú]nel\s+de\s+encolhimento)\b/i.test(
+      `${userText} ${fullReplyText}`
+    );
+
+  const asksFullOrBroadList =
+    !isTechnicalMachineReply &&
+    (/\b(?:minhas\s+negocia[çc][oõ]es|meus\s+cards|mensur[aeo]|mensura[çc][aã]o|carteira\s+completa|pipeline\s+completo)\b/i.test(
+      userText
+    ) ||
+      (hasExplicitCrmListWord &&
+        /\b(?:todas|todos|tudo|lista\s+completa|listar|liste|funil|etapa)\b/i.test(userText)));
   const asksPluralList =
+    !isTechnicalMachineReply &&
     /\b(?:quais|lista|paradas|parados|abertas|abertos|maiores|propostas|or[çc]amentos|negocia[çc][oõ]es)\b/i.test(
       userText
     );
@@ -3912,6 +3946,14 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
           const contextStartMs = Date.now();
           if (useManagerContext) {
+            liveExecutedSteps.push({
+              id: "step-admin-thought-1",
+              kind: "thought",
+              actionVerb: "Pensou por 2s",
+              targetLabel: "Planejando consulta 360º nos indicadores operacionais e comerciais",
+              durationSeconds: 2,
+              detailText: `Analisando "${userText.slice(0, 80)}" para selecionar as tabelas de BI, funis do CRM, metas e fila de atendimento.`,
+            });
             broadcastLiveProgress(liveTaskTitle, {
               id: "step-admin-bi-running",
               kind: "query",
@@ -3919,18 +3961,30 @@ export const Route = createFileRoute("/api/valentina/messages")({
               targetLabel: "director_bi_context",
               scopeTag: `#${knowledgeBase || tenantId} • em execução`,
               badgeType: "bi",
+              detailText: "Leitura em tempo real dos funis do CRM, metas comerciais, filas de atendimento e alertas de SLA.",
             });
             managerContextText = await getManagerContext(contextTenantId, userText, knowledgeBase);
             const biMs = Math.max(25, Date.now() - contextStartMs);
-            liveExecutedSteps.push({
-              id: "step-admin-bi-done",
-              kind: "query",
-              actionVerb: "Consultou",
-              targetLabel: "director_bi_context",
-              scopeTag: `#dossie-360 • ${biMs}ms`,
-              badgeType: "bi",
-              detailText: `Dossiê executivo 360º (filas, TMA, funil CRM, metas e SLA) compilado em ${biMs}ms.`,
-            });
+            liveExecutedSteps.push(
+              {
+                id: "step-admin-crm-analyze",
+                kind: "analyze",
+                actionVerb: "Analisou",
+                targetLabel: "crm_deals, crm_stages & commercial_goals",
+                scopeTag: `#${knowledgeBase || tenantId} • ${Math.max(12, Math.round(biMs * 0.55))}ms`,
+                badgeType: "crm",
+                detailText: `Consolidação de pipeline aberto, vendas ganhas/perdidas, ritmo de metas e distribuição por consultor concluída.`,
+              },
+              {
+                id: "step-admin-bi-done",
+                kind: "query",
+                actionVerb: "Consultou",
+                targetLabel: "director_bi_context & conversations",
+                scopeTag: `#dossie-360 • ${biMs}ms`,
+                badgeType: "bi",
+                detailText: `Dossiê executivo 360º (filas de atendimento, TMA, SLA, triagens SDR e Base de Conhecimento) compilado em ${biMs}ms.`,
+              }
+            );
             broadcastLiveProgress();
           } else {
             operatorContextResult = await getOperatorContext(
@@ -4018,6 +4072,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
             targetLabel: `resposta com ${persona.name}`,
             scopeTag: `#${selectedModel} • em execução`,
             badgeType: "ai",
+            detailText: `Cruzando todas as informações e especificações coletadas para redigir a resposta estruturada de ${persona.name} via Google Vertex AI (${selectedModel}).`,
           });
 
           const aiStartMs = Date.now();

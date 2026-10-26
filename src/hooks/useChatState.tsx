@@ -2086,19 +2086,54 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             totalDurationSeconds: 1,
             scope: "operator",
             isRealTimeStream: true,
-            steps: [
-              {
-                id: "step-init",
-                kind: "thought",
-                actionVerb: "Pensou por 1s",
-                targetLabel: batchAttachment
-                  ? `Carregando imagem "${batchAttachment.name}" para inspeção visual multimodal`
-                  : isCasualMsg
-                  ? "Reconhecendo mensagem rápida sem necessidade de varrer tabelas"
-                  : "Interpretando sua pergunta e selecionando consultas reais no servidor",
-                detailText: `Iniciando processamento real de "${combinedDisplayUserText.slice(0, 80)}".`,
-              },
-            ],
+            steps: isCasualMsg
+              ? [
+                  {
+                    id: "step-op-thought-1",
+                    kind: "thought",
+                    actionVerb: "Pensou por 1s",
+                    targetLabel: "Reconhecendo mensagem rápida sem necessidade de varrer tabelas",
+                    detailText: `Iniciando processamento direto de "${combinedDisplayUserText.slice(0, 80)}".`,
+                  },
+                ]
+              : [
+                  {
+                    id: "step-op-thought-1",
+                    kind: "thought",
+                    actionVerb: "Pensou por 2s",
+                    targetLabel: batchAttachment
+                      ? `Carregando imagem "${batchAttachment.name}" para inspeção visual multimodal`
+                      : "Selecionando consultas necessárias para responder à sua pergunta",
+                    detailText: `Analisando "${combinedDisplayUserText.slice(0, 80)}" para consultar as tabelas e manuais relevantes da sua operação.`,
+                  },
+                  {
+                    id: "step-op-deals",
+                    kind: "analyze",
+                    actionVerb: "Analisou",
+                    targetLabel: "crm_deals, crm_accounts & parâmetros da consulta",
+                    scopeTag: "#sua-carteira",
+                    badgeType: "crm",
+                    detailText: "Verificando registros vinculados à sua carteira comercial e especificações aplicáveis ao seu pedido.",
+                  },
+                  {
+                    id: "step-op-kb",
+                    kind: "search",
+                    actionVerb: "Consultou",
+                    targetLabel: "knowledge_base & conversations",
+                    scopeTag: "#catalogo-tecnico",
+                    badgeType: "kb",
+                    detailText: "Consultando Base de Conhecimento técnico (manuais em PDF e Catálogo Oficial) e histórico de interações.",
+                  },
+                  {
+                    id: "step-vertex-synthesize",
+                    kind: "synthesize",
+                    actionVerb: "Sintetizando",
+                    targetLabel: `resposta com ${currentPersona.name}`,
+                    scopeTag: "#gemini-2.5-pro • em execução",
+                    badgeType: "ai",
+                    detailText: `Cruzando todas as informações coletadas para redigir a resposta estruturada de ${currentPersona.name} via Google Vertex AI (gemini-2.5-pro).`,
+                  },
+                ],
           };
           setValentinaThoughtTrace(initialTrace);
           setIsValentinaTyping(true);

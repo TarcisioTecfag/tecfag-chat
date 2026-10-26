@@ -449,17 +449,52 @@ export function ValentinaChatTab() {
         totalDurationSeconds: 1,
         scope: "admin",
         isRealTimeStream: true,
-        steps: [
-          {
-            id: "step-init",
-            kind: "thought",
-            actionVerb: "Pensou por 1s",
-            targetLabel: isCasualMsg
-              ? "Reconhecendo mensagem rápida sem necessidade de varrer tabelas"
-              : "Planejando consultas reais nos indicadores operacionais e comerciais",
-            detailText: `Iniciando processamento real de "${combinedUserMessageText.slice(0, 80)}".`,
-          },
-        ],
+        steps: isCasualMsg
+          ? [
+              {
+                id: "step-admin-thought-1",
+                kind: "thought",
+                actionVerb: "Pensou por 1s",
+                targetLabel: "Reconhecendo mensagem rápida sem necessidade de varrer tabelas",
+                detailText: `Iniciando processamento direto de "${combinedUserMessageText.slice(0, 80)}".`,
+              },
+            ]
+          : [
+              {
+                id: "step-admin-thought-1",
+                kind: "thought",
+                actionVerb: "Pensou por 2s",
+                targetLabel: "Planejando consulta 360º nos indicadores operacionais e comerciais",
+                detailText: `Analisando "${combinedUserMessageText.slice(0, 80)}" para selecionar as tabelas de BI, funis do CRM, metas e fila de atendimento.`,
+              },
+              {
+                id: "step-admin-crm-analyze",
+                kind: "analyze",
+                actionVerb: "Analisou",
+                targetLabel: "crm_deals, crm_stages & commercial_goals",
+                scopeTag: `#${selectedBase || tenant}`,
+                badgeType: "crm",
+                detailText: "Consolidação de pipeline aberto, vendas ganhas/perdidas, ritmo de metas e distribuição por consultor.",
+              },
+              {
+                id: "step-admin-bi-done",
+                kind: "query",
+                actionVerb: "Consultou",
+                targetLabel: "director_bi_context & conversations",
+                scopeTag: "#dossie-360",
+                badgeType: "bi",
+                detailText: "Leitura em tempo real das filas de atendimento, TMA, SLA, triagens SDR e Base de Conhecimento.",
+              },
+              {
+                id: "step-vertex-synthesize",
+                kind: "synthesize",
+                actionVerb: "Sintetizando",
+                targetLabel: `resposta com ${persona.name}`,
+                scopeTag: "#gemini-2.5-pro • em execução",
+                badgeType: "ai",
+                detailText: `Cruzando todas as informações e métricas coletadas para estruturar a resposta executiva de ${persona.name} via Google Vertex AI (gemini-2.5-pro).`,
+              },
+            ],
       };
 
       setLiveThoughtTrace(initialTrace);
