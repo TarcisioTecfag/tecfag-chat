@@ -224,7 +224,10 @@ export function Index() {
 
   if (isMobile) {
     return (
-      <div className="fixed inset-0 h-full w-full bg-background overflow-hidden" style={themeStyles}>
+      <div
+        className="fixed inset-0 w-full bg-background overflow-hidden"
+        style={{ ...themeStyles, height: "var(--mobile-app-height, 100dvh)" }}
+      >
         <MobileLayout />
         <AnimatePresence>
           {isProfileModalOpen && <ProfileModal />}

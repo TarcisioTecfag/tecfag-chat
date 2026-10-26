@@ -504,14 +504,14 @@ export function CommercialHomeView({
           transition={{ duration: 0.35, ease: "easeOut" }}
           className="border-b border-border/80 pb-5 dark:border-zinc-800"
         >
-          <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-4">
             {/* Logomarca Oficial da Empresa com Micro-animação no Hover */}
-            <div className="flex items-center gap-3 group">
+            <div className="flex items-center gap-2.5 sm:gap-3 group">
               <motion.div
                 whileHover={{ scale: 1.08, rotate: 2 }}
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                className="flex size-10 items-center justify-center border border-border bg-card p-1 rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950 shadow-sm overflow-hidden cursor-pointer"
+                className="flex size-9 sm:size-10 items-center justify-center border border-border bg-card p-1 rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950 shadow-sm overflow-hidden cursor-pointer"
               >
                 <img
                   src={tenant === "tecfag" ? "/logo_tecfag.png" : "/logo_valem.jpg"}
@@ -520,18 +520,18 @@ export function CommercialHomeView({
                 />
               </motion.div>
               <div>
-                <div className="font-mono text-[17px] font-bold tracking-[-.03em] text-foreground dark:text-zinc-50 flex items-center">
+                <div className="font-mono text-[15px] sm:text-[17px] font-bold tracking-[-.03em] text-foreground dark:text-zinc-50 flex items-center">
                   {tenant === "tecfag" ? "TECFAG" : "VALEM"}
                   <span className="text-primary animate-pulse ml-0.5">.</span>
                 </div>
-                <div className="mt-0.5 text-[9px] font-bold uppercase tracking-[.22em] text-muted-foreground dark:text-zinc-500">
+                <div className="mt-0.5 text-[8px] sm:text-[9px] font-bold uppercase tracking-[.18em] sm:tracking-[.22em] text-muted-foreground dark:text-zinc-500">
                   PORTAL DO CONSULTOR
                 </div>
               </div>
             </div>
 
             {/* Ações Rápidas de Topo com Animações Fluidas */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <motion.button
                 whileHover={{ scale: 1.1, rotate: 60 }}
                 whileTap={{ scale: 0.9 }}
@@ -575,7 +575,7 @@ export function CommercialHomeView({
               <motion.div
                 whileHover={{ scale: 1.03, y: -1 }}
                 transition={{ duration: 0.15 }}
-                className="flex items-center gap-2 border border-border bg-card px-2.5 py-1.5 text-left rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950/70 shadow-sm cursor-default"
+                className="flex items-center gap-2 border border-border bg-card px-2 sm:px-2.5 py-1.5 text-left rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950/70 shadow-sm cursor-default"
               >
                 <img
                   src={data?.consultant.avatar || getDeterministicConsultantAvatar(consultantName)}
@@ -604,7 +604,7 @@ export function CommercialHomeView({
                 whileTap={{ scale: 0.96 }}
                 transition={{ duration: 0.15 }}
                 onClick={openCrm}
-                className="flex items-center gap-2 bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground hover:opacity-95 cursor-pointer rounded-[4px] shadow-sm transition-all"
+                className="flex items-center gap-1.5 sm:gap-2 bg-primary px-2.5 sm:px-3.5 py-2 text-xs font-bold text-primary-foreground hover:opacity-95 cursor-pointer rounded-[4px] shadow-sm transition-all whitespace-nowrap"
               >
                 <ExternalLink size={13} strokeWidth={2.4} />
                 Abrir CRM
@@ -613,18 +613,18 @@ export function CommercialHomeView({
           </div>
 
           {/* Subheader: Data por extenso, Saudação e Atalho de Agenda */}
-          <div className="mt-7 flex flex-wrap items-end justify-between gap-4">
+          <div className="mt-5 sm:mt-7 flex flex-wrap items-end justify-between gap-3.5 sm:gap-4">
             <div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.2em] text-muted-foreground dark:text-zinc-400">
                 <span>{weekdayName}</span>
                 <span className="h-1 w-1 rounded-full bg-primary" />
                 <span>{dateLongFormatted}</span>
               </div>
-              <h1 className="mt-2 font-mono text-3xl font-semibold tracking-[-.06em] text-foreground dark:text-zinc-50 sm:text-4xl">
+              <h1 className="mt-2 font-mono text-2xl sm:text-4xl font-semibold tracking-[-.06em] text-foreground dark:text-zinc-50">
                 {greeting}, {consultantFirstName}
                 <span className="text-primary">.</span>
               </h1>
-              <p className="mt-2 max-w-xl text-sm text-muted-foreground dark:text-zinc-400">
+              <p className="mt-1.5 sm:mt-2 max-w-xl text-xs sm:text-sm text-muted-foreground dark:text-zinc-400">
                 Seu foco de hoje está aqui: acompanhe o ritmo, execute as diretrizes e mova as
                 oportunidades certas.
               </p>
@@ -635,7 +635,7 @@ export function CommercialHomeView({
               whileTap={{ scale: 0.97 }}
               transition={{ duration: 0.15 }}
               onClick={() => setIsAgendaModalOpen(true)}
-              className="group flex items-center gap-2 border border-border bg-card px-3.5 py-2.5 text-xs font-bold text-foreground hover:border-primary hover:text-primary cursor-pointer rounded-[4px] transition-colors dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300 dark:hover:border-rose-400 dark:hover:text-zinc-50 shadow-sm"
+              className="group flex items-center gap-2 border border-border bg-card px-3.5 py-2 text-xs font-bold text-foreground hover:border-primary hover:text-primary cursor-pointer rounded-[4px] transition-colors dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300 dark:hover:border-rose-400 dark:hover:text-zinc-50 shadow-sm"
             >
               <CalendarDays size={15} className="text-primary group-hover:scale-110 transition-transform" />
               Ver agenda de hoje
@@ -655,7 +655,7 @@ export function CommercialHomeView({
           </div>
         ) : data ? (
           /* GRID PRINCIPAL EM 2 COLUNAS: ESQUERDA (COCKPIT & DIRETRIZES 65%) + DIREITA (CALENDÁRIO & DOSSIÊ 35%) */
-          <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,1fr)] 2xl:grid-cols-[minmax(0,1.65fr)_minmax(420px,1fr)] items-start">
+          <div className="mt-5 sm:mt-6 grid gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,1fr)] 2xl:grid-cols-[minmax(0,1.65fr)_minmax(420px,1fr)] items-start">
             {/* COLUNA ESQUERDA: COCKPIT OPERACIONAL & DIRETRIZES TÁTICAS */}
             <div className="space-y-4">
               {/* BLOCO 1: 3 CARDS DE TOPO (Ritmo de Hoje + KPIs com Barras de Progresso) */}
@@ -666,25 +666,25 @@ export function CommercialHomeView({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.05, ease: "easeOut" }}
                   whileHover={{ y: -4, transition: { duration: 0.2 } }}
-                  className="group relative overflow-hidden border border-primary/40 bg-card p-5 sm:p-6 flex flex-col justify-between dark:border-rose-800/80 dark:bg-zinc-950/70 rounded-[4px] shadow-sm hover:shadow-lg hover:border-primary/70 transition-all duration-300"
+                  className="group relative overflow-hidden border border-primary/40 bg-card p-4 sm:p-6 flex flex-col justify-between dark:border-rose-800/80 dark:bg-zinc-950/70 rounded-[4px] shadow-sm hover:shadow-lg hover:border-primary/70 transition-all duration-300"
                 >
                   <div className="pointer-events-none absolute -right-8 -top-14 h-48 w-48 rounded-full border-[26px] border-primary/10 group-hover:scale-110 group-hover:opacity-80 transition-all duration-500" />
                   <div className="relative">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
+                    <div className="flex items-start justify-between gap-3 sm:gap-4">
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] text-primary">
                           <Flame size={14} className="group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300" />
                           Ritmo de hoje
                         </div>
-                        <h2 className="mt-3 max-w-[320px] font-mono text-2xl font-semibold leading-[1.08] tracking-[-.05em] text-foreground dark:text-zinc-50 group-hover:text-primary transition-colors">
+                        <h2 className="mt-2.5 sm:mt-3 max-w-[320px] font-mono text-xl sm:text-2xl font-semibold leading-[1.12] sm:leading-[1.08] tracking-[-.05em] text-foreground dark:text-zinc-50 group-hover:text-primary transition-colors">
                           Você precisa fechar o próximo passo.
                         </h2>
                       </div>
                       <motion.div
                         whileHover={{ scale: 1.05 }}
-                        className="border border-primary/40 bg-primary/10 px-3 py-2 text-right rounded-[4px] dark:border-rose-800 dark:bg-rose-950/30 transition-transform"
+                        className="shrink-0 border border-primary/40 bg-primary/10 px-2.5 sm:px-3 py-1.5 sm:py-2 text-right rounded-[4px] dark:border-rose-800 dark:bg-rose-950/30 transition-transform"
                       >
-                        <div className="font-mono text-xl font-bold text-primary dark:text-rose-400">
+                        <div className="font-mono text-lg sm:text-xl font-bold text-primary dark:text-rose-400">
                           {openActionsCount}
                         </div>
                         <div className="text-[9px] font-bold uppercase tracking-[.15em] text-primary/90 dark:text-rose-300">

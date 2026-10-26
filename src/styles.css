@@ -218,8 +218,18 @@
     }
   }
 
-  /* Previne auto-zoom ao focar em campos de texto no iOS/Android Mobile */
+  /* Previne auto-zoom ao focar em campos de texto e garante 100% de preenchimento com Safe Area no iOS/Android Mobile */
   @media screen and (max-width: 767px) {
+    :root {
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    html, body {
+      height: var(--mobile-app-height, 100dvh) !important;
+      min-height: -webkit-fill-available;
+    }
+
     input, select, textarea {
       font-size: 16px !important;
       touch-action: manipulation;

@@ -81,7 +81,11 @@ export const MobileLayout: React.FC = () => {
                   animate={{ x: 0 }}
                   exit={{ x: "100%" }}
                   transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  className="fixed inset-0 z-[70] bg-background p-2 flex flex-col overflow-hidden"
+                  className="fixed inset-0 z-[70] bg-background px-2 flex flex-col overflow-hidden"
+                  style={{
+                    paddingTop: "max(var(--safe-top, env(safe-area-inset-top, 0px)), 8px)",
+                    paddingBottom: "max(var(--safe-bottom, env(safe-area-inset-bottom, 0px)), 8px)",
+                  }}
                 >
                   <SharedFiles />
                 </motion.div>
@@ -167,12 +171,22 @@ export const MobileLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full max-h-full w-full max-w-full bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-hidden touch-manipulation">
+    <div
+      className="flex flex-col h-full max-h-full w-full max-w-full bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-hidden touch-manipulation"
+      style={{
+        paddingTop: "var(--safe-top, env(safe-area-inset-top, 0px))",
+      }}
+    >
       {/* Conteúdo Dinâmico com base na View Ativa */}
       <main
         className={`flex-1 min-h-0 w-full overflow-hidden ${
-          isInsideChat ? "p-1.5" : "pb-16"
+          isInsideChat ? "p-1.5" : ""
         }`}
+        style={
+          isInsideChat
+            ? { paddingBottom: "max(var(--safe-bottom, env(safe-area-inset-bottom, 0px)), 6px)" }
+            : undefined
+        }
       >
         <AnimatePresence mode="wait">
           <motion.div
@@ -196,20 +210,8 @@ export const MobileLayout: React.FC = () => {
         </AnimatePresence>
       </main>
 
-      {/* Navegação Inferior Fixa */}
-      <AnimatePresence>
-        {!isInsideChat && (
-          <motion.div
-            key="mobile-bottom-nav"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            transition={{ duration: 0.15 }}
-          >
-            <MobileBottomNav />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Navegação Inferior Ancorada na Base Física da Tela */}
+      {!isInsideChat && <MobileBottomNav />}
     </div>
   );
 };

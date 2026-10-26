@@ -82,6 +82,9 @@ export const MobileBottomNav: React.FC = () => {
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 28, stiffness: 320 }}
               className="fixed inset-x-0 bottom-0 z-[90] max-h-[85dvh] rounded-t-3xl bg-card border-t border-border shadow-2xl flex flex-col overflow-hidden select-none"
+              style={{
+                paddingBottom: "var(--safe-bottom, env(safe-area-inset-bottom, 0px))",
+              }}
             >
               {/* Handle & Close */}
               <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-border/60 shrink-0">
@@ -342,7 +345,12 @@ export const MobileBottomNav: React.FC = () => {
         )}
       </AnimatePresence>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border/80 px-2 py-1.5 flex justify-around items-center shadow-lg select-none">
+      <nav
+        className="shrink-0 w-full z-50 bg-card/95 backdrop-blur-lg border-t border-border/80 px-2 pt-1.5 flex justify-around items-center shadow-lg select-none"
+        style={{
+          paddingBottom: "max(var(--safe-bottom, env(safe-area-inset-bottom, 0px)), 6px)",
+        }}
+      >
         {bottomItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeView === item.id && !drawerOpen;

@@ -8,6 +8,10 @@ import {
   resolveAuthorizedActiveView,
 } from "../src/lib/module-catalog";
 import { shouldShowMiniChatWidget } from "../src/lib/widget-visibility";
+import {
+  getConversationPreviewMessage,
+  isAutoDealContextSystemNote,
+} from "../src/components/crm/CrmChatWidget";
 import type { ViewId } from "../src/lib/rbac";
 
 describe("Paridade e Catálogo de Módulos (Desktop & Mobile)", () => {
@@ -162,5 +166,25 @@ describe("Paridade e Catálogo de Módulos (Desktop & Mobile)", () => {
         isMobile: true,
       }),
     ).toBe(true);
+  });
+
+  it("Ignora notas automáticas de seleção de negociação no preview da lista de conversas", () => {
+    expect(
+      isAutoDealContextSystemNote(
+        "[Nota] Negociação atual selecionada automaticamente: Matheus dos santos vieira - Equipamentos.",
+      ),
+    ).toBe(true);
+
+    const messages = [
+      { id: "m1", text: "Bom dia, gostaria de um orçamento de seladora", sender: "client" as const, time: "10:15" },
+      {
+        id: "m2",
+        text: "[Nota] Negociação atual selecionada automaticamente: Matheus dos santos vieira - Equipamentos.",
+        sender: "system" as const,
+        time: "10:16",
+      },
+    ];
+
+    expect(getConversationPreviewMessage(messages)?.id).toBe("m1");
   });
 });

@@ -68,6 +68,7 @@ import { AiAvatar } from "@/components/ui/AiAvatar";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
+import { isAppShellPath } from "@/lib/app-routes";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
 import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
 import {
@@ -80,6 +81,25 @@ import { toast } from "sonner";
 import { getConversationSortTimestamp, type Conversation, type Message } from "@/lib/mockData";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+export function isAutoDealContextSystemNote(msg?: Message | null): boolean {
+  if (!msg || !msg.isInternalNote) return false;
+  const text = (msg.text || "").trim();
+  return /^(?:\[Sistema\]\s*)?Negociaç(?:ão|ões) (?:atual|deste atendimento|criada neste atendimento|vinculada)/i.test(
+    text
+  );
+}
+
+export function getConversationPreviewMessage(messages?: Message[] | null): Message | undefined {
+  if (!Array.isArray(messages) || messages.length === 0) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const candidate = messages[i];
+    if (!isAutoDealContextSystemNote(candidate)) {
+      return candidate;
+    }
+  }
+  return messages[messages.length - 1];
+}
 
 export function getVigosPhoneLink(phone?: string | null): string {
   if (!phone) return "#";
@@ -2212,11 +2232,16 @@ export function CrmChatWidget() {
 
       <DismissableLayerBranch asChild>
         <div
-          className={`fixed bottom-16 md:bottom-0 z-[10050] pointer-events-auto flex flex-col items-end ${
+          className={`fixed md:bottom-0 z-[10050] pointer-events-auto flex flex-col items-end ${
             isDragging ? "select-none" : ""
           }`}
           style={{
             right: isMobile ? "12px" : `${rightOffset}px`,
+            bottom: isMobile
+              ? isAppShellPath(location.pathname)
+                ? "calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 58px)"
+                : "calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 12px)"
+              : undefined,
             touchAction: "none",
           }}
           data-crm-chat-widget
@@ -3526,7 +3551,7 @@ export function CrmChatWidget() {
                         </div>
                       ) : (
                         filtered.map((conversation) => {
-                          const last = conversation.messages.at(-1);
+                          const last = getConversationPreviewMessage(conversation.messages);
                           const isLastInternal = last?.isInternalNote;
 
                           return (
@@ -3615,55 +3640,57 @@ export function CrmChatWidget() {
           )}
         </AnimatePresence>
 
-        {/* Botão Gatilho / Barra Inferior Dockada (Arrastável horizontalmente) */}
-        <motion.button
-          ref={buttonRef}
-          type="button"
-          data-drag-trigger="true"
-          onPointerDown={startDrag}
-          onClick={() => {
-            if (dragInfoRef.current.moved) return;
-            setOpen((previous) => !previous);
-          }}
-          aria-expanded={open}
-          aria-controls="crm-chat-window"
-          aria-label={open ? "Recolher conversas" : "Abrir conversas"}
-          whileHover={{ scale: isDragging ? 1 : 1.02 }}
-          whileTap={{ scale: isDragging ? 1 : 0.98 }}
-          className={`flex h-10 min-w-40 items-center justify-between gap-2.5 rounded-t-xl border border-b-0 border-border/90 bg-card/95 hover:bg-card px-3 text-xs font-semibold text-foreground shadow-xl backdrop-blur-md transition-colors select-none ring-1 ring-black/5 dark:ring-white/5 ${
-            isDragging ? "cursor-grabbing shadow-2xl ring-primary/40" : "cursor-grab"
-          }`}
-          title="Clique para abrir/fechar · Arraste para mover para os lados"
-        >
-          <span className="flex items-center gap-1.5">
-            <span
-              className="text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors p-0.5"
-              title="Arraste horizontalmente"
-            >
-              <GripVertical className="h-3.5 w-3.5" />
-            </span>
-            <span className="relative flex items-center justify-center">
-              <MessageCircle className="h-4 w-4 text-primary" />
-              {unread > 0 && (
-                <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary animate-ping" />
-              )}
-            </span>
-            <span className="tracking-tight">Conversas</span>
-          </span>
-
-          <span className="flex items-center gap-1.5">
-            {unread > 0 && (
-              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-extrabold text-primary-foreground shadow-xs animate-in zoom-in-50">
-                {unread > 99 ? "99+" : unread}
+        {/* Botão Gatilho / Barra Inferior Dockada (Oculta no mobile quando a MobileBottomNav já está visível com a aba Chat) */}
+        {(!isMobile || !isAppShellPath(location.pathname) || open) && (
+          <motion.button
+            ref={buttonRef}
+            type="button"
+            data-drag-trigger="true"
+            onPointerDown={startDrag}
+            onClick={() => {
+              if (dragInfoRef.current.moved) return;
+              setOpen((previous) => !previous);
+            }}
+            aria-expanded={open}
+            aria-controls="crm-chat-window"
+            aria-label={open ? "Recolher conversas" : "Abrir conversas"}
+            whileHover={{ scale: isDragging ? 1 : 1.02 }}
+            whileTap={{ scale: isDragging ? 1 : 0.98 }}
+            className={`flex h-10 min-w-36 md:min-w-40 items-center justify-between gap-2 rounded-xl md:rounded-t-xl md:rounded-b-none border md:border-b-0 border-border/90 bg-card/95 hover:bg-card px-3 text-xs font-semibold text-foreground shadow-xl backdrop-blur-md transition-colors select-none ring-1 ring-black/5 dark:ring-white/5 ${
+              isDragging ? "cursor-grabbing shadow-2xl ring-primary/40" : "cursor-grab"
+            }`}
+            title="Clique para abrir/fechar · Arraste para mover para os lados"
+          >
+            <span className="flex items-center gap-1.5">
+              <span
+                className="hidden md:inline-flex text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors p-0.5"
+                title="Arraste horizontalmente"
+              >
+                <GripVertical className="h-3.5 w-3.5" />
               </span>
-            )}
-            <ChevronUp
-              className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${
-                open ? "rotate-180" : ""
-              }`}
-            />
-          </span>
-        </motion.button>
+              <span className="relative flex items-center justify-center">
+                <MessageCircle className="h-4 w-4 text-primary" />
+                {unread > 0 && (
+                  <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary animate-ping" />
+                )}
+              </span>
+              <span className="tracking-tight">Conversas</span>
+            </span>
+
+            <span className="flex items-center gap-1.5">
+              {unread > 0 && (
+                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-extrabold text-primary-foreground shadow-xs animate-in zoom-in-50">
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
+              <ChevronUp
+                className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${
+                  open ? "rotate-180" : ""
+                }`}
+              />
+            </span>
+          </motion.button>
+        )}
         </div>
       </DismissableLayerBranch>
 

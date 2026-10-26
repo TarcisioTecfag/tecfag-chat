@@ -699,9 +699,9 @@ export function CrmView() {
   }, [refreshConversations, setSelectedChatId, setActiveView, navigate]);
 
   return (
-    <div className="flex flex-col h-full w-full gap-4 overflow-hidden pt-1 pb-0 pl-1 pr-0">
+    <div className="flex flex-col h-full w-full gap-3 md:gap-4 overflow-hidden pt-1.5 md:pt-1 pb-0 px-2 md:pl-1 md:pr-0">
       {/* Barra de Ferramentas Superior */}
-      <div className="pr-5 shrink-0">
+      <div className="pr-0 md:pr-5 shrink-0">
         <CrmToolbar
           viewMode={viewMode}
           onViewModeChange={setViewMode}

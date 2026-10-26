@@ -127,7 +127,14 @@ function DealPage() {
   if (!authorized && !isAuthenticated) return <Login />;
 
   return (
-    <main className="crm-deal-route fixed inset-0 h-full w-full overflow-hidden bg-background" style={themeStyles}>
+    <main
+      className="crm-deal-route fixed inset-0 h-full w-full overflow-hidden bg-background"
+      style={{
+        ...themeStyles,
+        paddingTop: "var(--safe-top, env(safe-area-inset-top, 0px))",
+        paddingBottom: "var(--safe-bottom, env(safe-area-inset-bottom, 0px))",
+      }}
+    >
       <DealDetailModal
         isOpen
         dealId={dealId}

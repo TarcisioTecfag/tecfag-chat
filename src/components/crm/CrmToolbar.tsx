@@ -311,36 +311,37 @@ export function CrmToolbar({
 
   return (
     <div className="@container/crm-toolbar min-w-0 shrink-0 rounded-2xl border border-border bg-card shadow-xs">
-      <div className="flex flex-col gap-3 px-4 py-3 @[38rem]/crm-toolbar:flex-row @[38rem]/crm-toolbar:items-center @[38rem]/crm-toolbar:justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2">
-          <Select value={selectedPipelineId} onValueChange={onPipelineChange}>
-            <SelectTrigger
-              aria-label="Funil de negociações"
-              className="h-10 w-auto min-w-0 max-w-full gap-3 rounded-lg border-transparent bg-transparent px-1 text-base font-semibold shadow-none @[38rem]/crm-toolbar:max-w-80 cursor-pointer hover:bg-muted/30 transition-colors"
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <Layers className="h-4 w-4 shrink-0 text-primary" />
-                <span className="truncate">
-                  <SelectValue placeholder="Selecione um funil">
-                    {selectedPipeline?.name}
-                  </SelectValue>
-                </span>
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              {pipelines.length === 0 ? (
-                <SelectItem value="__none__" disabled>
-                  Nenhum funil
+      <div className="flex flex-wrap items-center justify-between gap-2.5 px-3 py-2.5 sm:px-4 sm:py-3">
+        <Select value={selectedPipelineId} onValueChange={onPipelineChange}>
+          <SelectTrigger
+            aria-label="Funil de negociações"
+            className="h-9 sm:h-10 w-full @[38rem]/crm-toolbar:w-auto min-w-0 max-w-full gap-2.5 sm:gap-3 rounded-lg border-transparent bg-transparent px-1 text-sm sm:text-base font-semibold shadow-none @[38rem]/crm-toolbar:max-w-80 cursor-pointer hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <Layers className="h-4 w-4 shrink-0 text-primary" />
+              <span className="truncate">
+                <SelectValue placeholder="Selecione um funil">
+                  {selectedPipeline?.name}
+                </SelectValue>
+              </span>
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            {pipelines.length === 0 ? (
+              <SelectItem value="__none__" disabled>
+                Nenhum funil
+              </SelectItem>
+            ) : (
+              pipelines.map((pipeline) => (
+                <SelectItem key={pipeline.id} value={pipeline.id}>
+                  {pipeline.name}
                 </SelectItem>
-              ) : (
-                pipelines.map((pipeline) => (
-                  <SelectItem key={pipeline.id} value={pipeline.id}>
-                    {pipeline.name}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+
+        <div className="flex w-full @[38rem]/crm-toolbar:w-auto items-center justify-between @[38rem]/crm-toolbar:justify-end gap-2">
           <div
             role="group"
             aria-label="Visualização das negociações"
@@ -354,54 +355,55 @@ export function CrmToolbar({
                   type="button"
                   aria-pressed={viewMode === mode}
                   onClick={() => onViewModeChange(mode)}
-                  className={`flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`flex h-8 items-center gap-1.5 sm:gap-2 rounded-md px-2.5 sm:px-3 text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   {mode === "kanban" ? "Quadro" : "Lista"}
                 </button>
               );
             })}
           </div>
-        </div>
-        <div className="flex shrink-0 self-start rounded-lg bg-primary text-primary-foreground shadow-xs">
-          <button
-            type="button"
-            onClick={onNewDealClick}
-            className="flex h-10 items-center gap-2 rounded-l-lg px-4 text-sm font-semibold hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <Plus className="h-4 w-4" />
-            Nova negociação
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Outras opções de criação"
-                className="flex h-10 w-10 items-center justify-center rounded-r-lg border-l border-primary-foreground/25 hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <ChevronDown className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Outras criações</DropdownMenuLabel>
-              <DropdownMenuItem onSelect={onCreateCompanyClick}>
-                <Building2 />
-                Criar empresa
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onCreateContactClick}>
-                <ContactRound />
-                Criar contato
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onCreateTaskClick}>
-                <ClipboardList />
-                Criar tarefa
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+
+          <div className="flex shrink-0 rounded-lg bg-primary text-primary-foreground shadow-xs">
+            <button
+              type="button"
+              onClick={onNewDealClick}
+              className="flex h-9 sm:h-10 items-center gap-1.5 sm:gap-2 rounded-l-lg px-3 sm:px-4 text-xs sm:text-sm font-semibold hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 whitespace-nowrap"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              Nova negociação
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Outras opções de criação"
+                  className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-r-lg border-l border-primary-foreground/25 hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Outras criações</DropdownMenuLabel>
+                <DropdownMenuItem onSelect={onCreateCompanyClick}>
+                  <Building2 />
+                  Criar empresa
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onCreateContactClick}>
+                  <ContactRound />
+                  Criar contato
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onCreateTaskClick}>
+                  <ClipboardList />
+                  Criar tarefa
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
+      <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2.5 sm:px-4 sm:py-3">
         <div ref={searchContainerRef} className="relative min-w-0 flex-1">
           <div
             onClick={() => {
@@ -452,11 +454,11 @@ export function CrmToolbar({
                   : "Buscar negociações neste funil"
               }
               placeholder={
-                selectedPipeline?.name
+                selectedPipeline?.name && selectedPipeline.name.length <= 22
                   ? `Buscar negociações em ${selectedPipeline.name}...`
                   : "Buscar negociações neste funil..."
               }
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              className="min-w-0 flex-1 bg-transparent text-xs sm:text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
             {searchQuery && (
               <button

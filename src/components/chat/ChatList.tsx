@@ -11,6 +11,7 @@ import { ProfilePopover } from "./ProfileModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { usePermissions } from "@/hooks/usePermissions";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
+import { getConversationPreviewMessage } from "@/components/crm/CrmChatWidget";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -236,30 +237,32 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
       <div className="my-2 xl:my-2.5 h-px bg-line" />
 
       {/* Vendedor Info */}
-      <div className="flex flex-col items-center relative">
-        <ProfilePopover side="right" align="start" sideOffset={14}>
-          <button
-            className="relative block cursor-pointer transition hover:scale-105"
-            aria-label="Editar Meu Perfil"
-          >
-            <img
-              src={operatorProfile.avatar}
-              alt="Atendente"
-              className="h-12 w-12 xl:h-14 xl:w-14 rounded-full object-cover ring-2 ring-primary/20"
-            />
-            <span className={`absolute bottom-0 right-0.5 h-3 w-3 rounded-full border-2 border-card ${
-              operatorProfile.status === "disponivel"
-                ? "bg-primary"
-                : operatorProfile.status === "pausa"
-                ? "bg-amber-500"
-                : "bg-gray-400"
-            }`} />
-          </button>
-        </ProfilePopover>
-        <h3 className="mt-1 xl:mt-1.5 text-[13px] xl:text-sm font-bold text-foreground">{operatorProfile.name}</h3>
+      <div className="flex flex-row md:flex-col items-center justify-between md:justify-center gap-2.5 md:gap-0 relative">
+        <div className="flex items-center md:flex-col gap-2.5 md:gap-0 min-w-0">
+          <ProfilePopover side="right" align="start" sideOffset={14}>
+            <button
+              className="relative block shrink-0 cursor-pointer transition hover:scale-105"
+              aria-label="Editar Meu Perfil"
+            >
+              <img
+                src={operatorProfile.avatar}
+                alt="Atendente"
+                className="h-9 w-9 md:h-12 md:w-12 xl:h-14 xl:w-14 rounded-full object-cover ring-2 ring-primary/20"
+              />
+              <span className={`absolute bottom-0 right-0.5 h-2.5 w-2.5 md:h-3 md:w-3 rounded-full border-2 border-card ${
+                operatorProfile.status === "disponivel"
+                  ? "bg-primary"
+                  : operatorProfile.status === "pausa"
+                  ? "bg-amber-500"
+                  : "bg-gray-400"
+              }`} />
+            </button>
+          </ProfilePopover>
+          <h3 className="md:mt-1 xl:mt-1.5 text-[13px] xl:text-sm font-bold text-foreground truncate">{operatorProfile.name}</h3>
+        </div>
         
         {/* Clickable Status Badge */}
-        <div className="relative mt-0.5">
+        <div className="relative md:mt-0.5 shrink-0">
           <button
             onClick={() => setShowStatusDropdown(!showStatusDropdown)}
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold transition hover:opacity-90 cursor-pointer capitalize ${
@@ -282,7 +285,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -5 }}
                   transition={{ type: "spring", damping: 20, stiffness: 350 }}
-                  className="absolute top-6 left-1/2 -translate-x-1/2 z-50 w-32 rounded-xl bg-card p-1 border border-border shadow-card text-[11px] font-bold origin-top"
+                  className="absolute top-6 right-0 md:right-auto md:left-1/2 md:-translate-x-1/2 z-50 w-32 rounded-xl bg-card p-1 border border-border shadow-card text-[11px] font-bold origin-top"
                 >
                   {(["disponivel", "pausa", "desconectado"] as const).map((st) => (
                     <button
@@ -535,7 +538,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           ) : filteredConvs.length > 0 ? (
             filteredConvs.map((c) => {
                 const isSelected = c.id === selectedChatId;
-                const lastMsg = c.messages[c.messages.length - 1];
+                const lastMsg = getConversationPreviewMessage(c.messages);
                 const { mediaType: msgMediaType, label: msgLabel } = formatLastMessage(lastMsg?.text || "");
                 return (
                   <motion.div

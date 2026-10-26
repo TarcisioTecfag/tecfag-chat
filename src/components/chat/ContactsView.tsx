@@ -632,7 +632,7 @@ export function ContactsView() {
   };
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-8 shadow-soft relative overflow-hidden select-none">
+    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel p-3.5 sm:p-5 md:p-8 shadow-soft relative overflow-hidden select-none">
 
       {pendingDealContactId && (
         <ContactDealResolutionDialog
@@ -648,41 +648,41 @@ export function ContactsView() {
         />
       )}
       {/* Header */}
-      <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-primary">Cadastro Geral</span>
-          <h2 className="text-2xl font-bold text-foreground mt-0.5">
+      <header className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 mb-3.5 sm:mb-6">
+        <div className="min-w-0">
+          <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-primary">Cadastro Geral</span>
+          <h2 className="text-lg sm:text-2xl font-bold text-foreground mt-0.5 leading-tight">
             {isCompaniesView
               ? `Empresas Cadastradas — ${tenant === "tecfag" ? "Tecfag" : "Valem"}`
               : `Base de Clientes — ${tenant === "tecfag" ? "Tecfag" : "Valem"}`}
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             {isCompaniesView
               ? "Consulte, edite ou cadastre empresas e contas vinculadas aos contatos e negociações."
               : "Veja, edite ou crie contatos para iniciar conversas ativas multicanais."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
           {/* Botao Conversas */}
           <button
             type="button"
             onClick={() => setShowSearchModal(true)}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 text-sm font-semibold text-foreground transition hover:bg-muted cursor-pointer shadow-soft"
+            className="inline-flex h-9 sm:h-10 flex-1 sm:flex-none items-center justify-center gap-1.5 sm:gap-2 rounded-xl border border-border bg-card px-2.5 sm:px-5 text-xs sm:text-sm font-semibold text-foreground transition hover:bg-muted cursor-pointer shadow-soft whitespace-nowrap"
           >
-            <MessagesSquare className="h-4 w-4 text-primary" />
+            <MessagesSquare className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
             Conversas
           </button>
           {/* Botao Empresas (entre Conversas e Novo Contato) */}
           <button
             type="button"
             onClick={() => setChannelFilter((prev) => (prev === "companies" ? "all" : "companies"))}
-            className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-5 text-sm font-semibold transition cursor-pointer shadow-soft ${
+            className={`inline-flex h-9 sm:h-10 flex-1 sm:flex-none items-center justify-center gap-1.5 sm:gap-2 rounded-xl border px-2.5 sm:px-5 text-xs sm:text-sm font-semibold transition cursor-pointer shadow-soft whitespace-nowrap ${
               isCompaniesView
                 ? "border-primary bg-primary/15 text-primary ring-1 ring-primary/30"
                 : "border-border bg-card text-foreground hover:bg-muted"
             }`}
           >
-            <Building2 className="h-4 w-4 text-primary" />
+            <Building2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
             Empresas
           </button>
           {/* Botao Novo Contato */}
@@ -699,9 +699,9 @@ export function ContactsView() {
                 setAddForm({ name: "", phone: "", email: "", channel: "whatsapp" });
                 setShowAddModal(true);
               }}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft"
+              className="inline-flex h-9 sm:h-10 flex-1 sm:flex-none items-center justify-center gap-1.5 sm:gap-2 rounded-xl bg-primary px-2.5 sm:px-5 text-xs sm:text-sm font-semibold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft whitespace-nowrap"
             >
-              <UserPlus className="h-4.5 w-4.5" />
+              <UserPlus className="h-3.5 w-3.5 sm:h-4.5 sm:w-4.5 shrink-0" />
               Novo Contato
             </button>
           )}
@@ -709,7 +709,7 @@ export function ContactsView() {
       </header>
 
       {/* Filters Row */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6 bg-card p-4 rounded-2xl border border-border shadow-soft">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-4 mb-3.5 sm:mb-6 bg-card p-3 sm:p-4 rounded-2xl border border-border shadow-soft">
         <div className="relative w-full sm:w-80">
           {(isCompaniesView ? loadingCompanies : loadingContacts) ? (
             <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-primary" />
