@@ -1,142 +1,200 @@
-import { useConversationDealRequirement, ConversationDealRequirement } from "@/components/crm/ConversationDealRequirement";
-import React, { lazy, Suspense, useState } from "react";
+import React, { Suspense, useEffect } from "react";
 import { useChat } from "@/hooks/useChatState";
-import { MobileHeader } from "./MobileHeader";
 import { MobileBottomNav } from "./MobileBottomNav";
-import { ValentinaFeed } from "./ValentinaFeed";
-import { MobileMessageInput } from "./MobileMessageInput";
 import { ChatList } from "@/components/chat/ChatList";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { SharedFiles } from "@/components/chat/SharedFiles";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2 } from "lucide-react";
-
+import { BriefcaseBusiness, Loader2 } from "lucide-react";
 import { lazyWithRetry } from "@/lib/lazy-retry";
 
+const SettingsView = lazyWithRetry(() => import("@/components/chat/SettingsView"), "SettingsView");
 const ContactsView = lazyWithRetry(() => import("@/components/chat/ContactsView"), "ContactsView");
 const WalletView = lazyWithRetry(() => import("@/components/chat/WalletView"), "WalletView");
+const GroupsView = lazyWithRetry(() => import("@/components/chat/GroupsView"), "GroupsView");
+const MonitorView = lazyWithRetry(() => import("@/components/chat/MonitorView"), "MonitorView");
+const AnalyticsView = lazyWithRetry(() => import("@/components/chat/AnalyticsView"), "AnalyticsView");
+const TasksView = lazyWithRetry(() => import("@/components/chat/TasksView"), "TasksView");
+const ValentinaView = lazyWithRetry(() => import("@/components/valentina/ValentinaView"), "ValentinaView");
+const LigacoesView = lazyWithRetry(() => import("@/components/voice/LigacoesView"), "LigacoesView");
+const CrmView = lazyWithRetry(() => import("@/components/crm/CrmView"), "CrmView");
 const CommercialHomeView = lazyWithRetry(() => import("@/components/commercial/CommercialHomeView"), "CommercialHomeView");
 const CommercialManagementView = lazyWithRetry(() => import("@/components/commercial/CommercialManagementView"), "CommercialManagementView");
 const CommercialBiView = lazyWithRetry(() => import("@/components/commercial/CommercialBiView"), "CommercialBiView");
 
 export const MobileLayout: React.FC = () => {
-  const { activeChat: dealChat } = useChat();
-  const dealRequirement = useConversationDealRequirement(dealChat?.id);
   const {
     tenant,
     activeView,
     selectedChatId,
-    setSelectedChatId,
-    sendMessage,
+    rightSidebarOpen,
+    setRightSidebarOpen,
+    isCommercialConsultant,
   } = useChat();
 
   const isInsideChat = activeView === "chat" && selectedChatId !== null;
-  const [searchOpen, setSearchOpen] = useState(false);
 
-  const handleSendMessage = (text: string, isInternalNote: boolean) => {
-    if (selectedChatId) {
-      return sendMessage(text, isInternalNote);
-    } else {
-      console.log("Enviando mensagem para Valentina:", text, isInternalNote);
-    }
-  };
+  // No mobile, o painel lateral de informações do cliente (SharedFiles) inicia recolhido ao trocar de conversa
+  useEffect(() => {
+    setRightSidebarOpen(false);
+  }, [selectedChatId, setRightSidebarOpen]);
 
   const viewKey = isInsideChat
     ? `chat-room-${selectedChatId}`
-    : `view-${activeView}`;
+    : `view-${activeView}-${tenant}`;
+
+  const renderMobileView = () => {
+    if (activeView === "commercialHome") {
+      if (tenant !== "tecfag" || !isCommercialConsultant) {
+        return (
+          <div className="flex h-full w-full flex-col items-center justify-center p-6 text-center bg-background">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3 text-primary">
+              <BriefcaseBusiness className="w-7 h-7" />
+            </div>
+            <h2 className="text-base font-bold font-mono text-foreground mb-1.5">
+              Acesso Restrito a Consultores Comerciais
+            </h2>
+            <p className="text-xs text-muted-foreground max-w-xs">
+              A tela de Início é exclusiva para consultores cadastrados e ativos no Gestão Comercial.
+            </p>
+          </div>
+        );
+      }
+      return <CommercialHomeView />;
+    }
+    if (activeView === "commercialManagement" && tenant === "tecfag") {
+      return <CommercialManagementView />;
+    }
+    if (activeView === "commercialBi" && tenant === "tecfag") {
+      return <CommercialBiView />;
+    }
+    if (activeView === "chat") {
+      if (selectedChatId) {
+        return (
+          <div className="relative flex flex-col h-full w-full min-h-0 overflow-hidden">
+            <ChatPanel />
+            <AnimatePresence>
+              {rightSidebarOpen && selectedChatId !== "valentina" && (
+                <motion.div
+                  key="mobile-shared-files-drawer"
+                  initial={{ x: "100%" }}
+                  animate={{ x: 0 }}
+                  exit={{ x: "100%" }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  className="fixed inset-0 z-[70] bg-background p-2 flex flex-col overflow-hidden"
+                >
+                  <SharedFiles />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      }
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <ChatList />
+        </div>
+      );
+    }
+    if (activeView === "crm") {
+      return (
+        <div className="h-full w-full overflow-hidden flex flex-col">
+          <CrmView />
+        </div>
+      );
+    }
+    if (activeView === "tasks") {
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <TasksView />
+        </div>
+      );
+    }
+    if (activeView === "contacts") {
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <ContactsView />
+        </div>
+      );
+    }
+    if (activeView === "wallet") {
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <WalletView />
+        </div>
+      );
+    }
+    if (activeView === "valentina") {
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <ValentinaView />
+        </div>
+      );
+    }
+    if (activeView === "ligacoes") {
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <LigacoesView />
+        </div>
+      );
+    }
+    if (activeView === "monitor") {
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <MonitorView />
+        </div>
+      );
+    }
+    if (activeView === "analytics") {
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <AnalyticsView />
+        </div>
+      );
+    }
+    if (activeView === "groups") {
+      return (
+        <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+          <GroupsView />
+        </div>
+      );
+    }
+    return (
+      <div className="h-full w-full p-2 overflow-hidden flex flex-col">
+        <SettingsView />
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full max-h-full w-full max-w-full bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-hidden touch-manipulation">
-      {/* O menu de cima (MobileHeader) SÓ APARECE no mobile quando estivermos DENTRO de um chat */}
-      <AnimatePresence mode="wait">
-        {isInsideChat && (
-          <motion.div
-            key="mobile-header"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.15 }}
-          >
-            <MobileHeader onSearchClick={() => setSearchOpen(!searchOpen)} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Conteúdo Dinâmico com base na View Ativa */}
       <main
-        className={`flex-1 min-h-0 overflow-y-auto w-full ${
-          isInsideChat ? "pt-14 pb-20" : "pb-16"
+        className={`flex-1 min-h-0 w-full overflow-hidden ${
+          isInsideChat ? "p-1.5" : "pb-16"
         }`}
       >
         <AnimatePresence mode="wait">
           <motion.div
             key={viewKey}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            className="h-full w-full"
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            className="h-full w-full overflow-hidden flex flex-col"
           >
-            <Suspense fallback={<div className="flex h-full items-center justify-center text-primary"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
-            {activeView === "commercialHome" && tenant === "tecfag" ? (
-              <CommercialHomeView />
-            ) : activeView === "commercialManagement" && tenant === "tecfag" ? (
-              <CommercialManagementView />
-            ) : activeView === "commercialBi" && tenant === "tecfag" ? (
-              <CommercialBiView />
-            ) : activeView === "valentina" ? (
-              <ValentinaFeed
-                onOpenChat={(id) => {
-                  setSelectedChatId(id);
-                }}
-              />
-            ) : activeView === "chat" ? (
-              selectedChatId ? (
-                /* Tela do Chat Selecionado em Tela Cheia no Mobile */
-                <div className="flex flex-col h-full w-full min-h-0 p-0 sm:p-1 overflow-hidden">
-                  <ChatPanel />
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center text-primary">
+                  <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
-              ) : (
-                /* Lista de Conversas do Atendimento 100% fluida */
-                <div className="p-2 w-full">
-                  <ChatList />
-                </div>
-              )
-            ) : activeView === "contacts" ? (
-              /* Aba Clientes (Mobile Native) */
-              <div className="p-2.5 w-full">
-                <ContactsView />
-              </div>
-            ) : activeView === "wallet" ? (
-              /* Aba Carteira (Mobile Native) */
-              <div className="p-2.5 w-full">
-                <WalletView />
-              </div>
-            ) : (
-              <div className="p-2 w-full">
-                <ChatList />
-              </div>
-            )}
+              }
+            >
+              {renderMobileView()}
             </Suspense>
           </motion.div>
         </AnimatePresence>
       </main>
-
-      {/* Input de Mensagem (Apenas quando estiver DENTRO de um Chat selecionado) */}
-      <AnimatePresence>
-        {activeView === "chat" && selectedChatId && (
-          <motion.div
-            key="mobile-input"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.15 }}
-          >
-            {dealRequirement.pending && dealChat ? <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background p-3">
-              <ConversationDealRequirement conversationId={dealChat.id} contactId={dealChat.contactId} customerName={dealChat.name} error={dealRequirement.error} selectionRequired={dealRequirement.currentRequired} />
-            </div> : <MobileMessageInput onSendMessage={handleSendMessage} />}
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Navegação Inferior Fixa */}
       <AnimatePresence>

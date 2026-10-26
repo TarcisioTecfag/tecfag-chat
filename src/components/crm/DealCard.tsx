@@ -436,13 +436,12 @@ export const DealCard = React.memo(function DealCard({
                 </button>
 
                 {allStages.length > 1 && onQuickMove && (
-                  <div className="border-t border-border/60 my-1 pt-1">
+                  <div className="border-t border-border/60 my-1 pt-1 max-h-40 overflow-y-auto">
                     <p className="px-2 py-0.5 text-[9px] font-bold text-muted-foreground uppercase">
                       Mover para etapa:
                     </p>
                     {allStages
                       .filter((s) => s.id !== deal.stageId)
-                      .slice(0, 4)
                       .map((s) => (
                         <button
                           key={s.id}

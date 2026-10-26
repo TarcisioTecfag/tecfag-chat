@@ -22,10 +22,11 @@ import { ProductCatalogPicker } from "../chat/ProductCatalogPicker";
 import { QuickResponsesPopover } from "../chat/QuickResponsesPopover";
 import { getAiPersona } from "@/lib/ai-persona";
 import { usePermissions } from "@/hooks/usePermissions";
+import { setRememberedTabForView } from "@/lib/app-routes";
 import { ConversationDealContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
 
 interface MobileMessageInputProps {
-  onSendMessage?: (text: string, isInternalNote: boolean) => void | Promise<boolean>;
+  onSendMessage?: (text: string, isInternalNote: boolean, attachments?: File[]) => void | Promise<boolean>;
 }
 
 const COMMON_EMOJIS = [
@@ -53,7 +54,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     operatorProfile,
     setActiveView,
   } = useChat();
-  const { canManageGlobalTemplates } = usePermissions();
+  const { canManageGlobalTemplates, canSendInternalNotes } = usePermissions();
   const aiPersona = getAiPersona(tenant || "valem");
 
   const [activeTab, setActiveTab] = useState<"message" | "internal_note">("message");
@@ -65,6 +66,11 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     draftContextVersion.current = undefined;
     setNoteScope("current");
   }, [selectedChatId]);
+  useEffect(() => {
+    if (activeTab === "internal_note" && !canSendInternalNotes) {
+      setActiveTab("message");
+    }
+  }, [activeTab, canSendInternalNotes]);
   useEffect(() => {
     const syncVersion = () => {
       draftContextVersion.current = undefined;
@@ -82,7 +88,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   const activeChat = conversations.find((c) => c.id === selectedChatId);
 
   const handleApplyValentinaText = (newText: string, asInternalNote: boolean = false) => {
-    if (asInternalNote) {
+    if (asInternalNote && canSendInternalNotes) {
       setActiveTab("internal_note");
       setText(newText);
     } else {
@@ -124,10 +130,12 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
   const handleSend = async () => {
     if (!text.trim() && attachments.length === 0) return;
 
-    const internal = activeTab === "internal_note";
+    const internal = activeTab === "internal_note" && canSendInternalNotes;
     const accepted = internal && selectedChatId && tenant
       ? await sendMessage(text, true, attachments, undefined, undefined, { id: crypto.randomUUID(), conversationId: selectedChatId, tenantId: tenant, expectedContextVersion: draftContextVersion.current, noteScope })
-      : onSendMessage ? await onSendMessage(text, internal) : await sendMessage(text, internal, attachments);
+      : onSendMessage
+        ? await onSendMessage(text, internal, attachments)
+        : await sendMessage(text, internal, attachments);
     if (accepted === false) return;
 
     setText("");
@@ -136,7 +144,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     setShowEmojiPicker(false);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -156,11 +164,25 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Gravação de Áudio Nativa
+  // Gravação de Áudio Nativa com detecção de MIME compatível (iOS Safari + Android/Desktop)
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const preferredMime =
+        typeof MediaRecorder !== "undefined" && typeof MediaRecorder.isTypeSupported === "function"
+          ? MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+            ? "audio/webm;codecs=opus"
+            : MediaRecorder.isTypeSupported("audio/webm")
+              ? "audio/webm"
+              : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
+                ? "audio/ogg;codecs=opus"
+                : MediaRecorder.isTypeSupported("audio/mp4")
+                  ? "audio/mp4"
+                  : ""
+          : "";
+      const mediaRecorder = preferredMime
+        ? new MediaRecorder(stream, { mimeType: preferredMime })
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -186,8 +208,10 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
     if (!mediaRecorderRef.current) return;
 
     mediaRecorderRef.current.onstop = async () => {
-      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-      const audioFile = new File([audioBlob], `audio_${Date.now()}.webm`, { type: "audio/webm" });
+      const actualMime = mediaRecorderRef.current?.mimeType || "audio/webm";
+      const ext = actualMime.includes("ogg") ? "ogg" : actualMime.includes("mp4") ? "m4a" : "webm";
+      const audioBlob = new Blob(audioChunksRef.current, { type: actualMime });
+      const audioFile = new File([audioBlob], `audio_${Date.now()}.${ext}`, { type: actualMime });
       
       await sendMessage("", false, [audioFile]);
 
@@ -218,7 +242,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,video/*,application/pdf,audio/*"
+        accept="*/*"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -267,7 +291,9 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
               onDeleteQuickResponse={deleteQuickResponse}
               onOpenFullManager={() => {
                 setShowQuickTemplates(false);
-                setActiveView("configuracoes");
+                const targetView = canManageGlobalTemplates ? "groups" : "wallet";
+                setRememberedTabForView(targetView, "templates");
+                setActiveView(targetView);
               }}
             />
           )}
@@ -401,27 +427,29 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                   <span>{aiPersona.name}</span>
                 </motion.button>
 
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => {
-                    setActiveTab("internal_note");
-                    setIsCatalogOpen(false);
-                  }}
-                  className={`relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs ${
-                    !isCatalogOpen && activeTab === "internal_note"
-                      ? "text-amber-600 dark:text-amber-400 font-extrabold"
-                      : "text-muted-foreground hover:text-foreground font-medium"
-                  }`}
-                >
-                  <Lock className="w-3 h-3 text-amber-500" />
-                  <span>Nota Interna</span>
-                  {!isCatalogOpen && activeTab === "internal_note" && (
-                    <motion.span
-                      layoutId="mobileInputActiveTab"
-                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
-                    />
-                  )}
-                </motion.button>
+                {canSendInternalNotes && (
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setActiveTab("internal_note");
+                      setIsCatalogOpen(false);
+                    }}
+                    className={`relative pb-1 transition-colors cursor-pointer flex items-center gap-1 text-xs ${
+                      !isCatalogOpen && activeTab === "internal_note"
+                        ? "text-amber-600 dark:text-amber-400 font-extrabold"
+                        : "text-muted-foreground hover:text-foreground font-medium"
+                    }`}
+                  >
+                    <Lock className="w-3 h-3 text-amber-500" />
+                    <span>Nota Interna</span>
+                    {!isCatalogOpen && activeTab === "internal_note" && (
+                      <motion.span
+                        layoutId="mobileInputActiveTab"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
+                      />
+                    )}
+                  </motion.button>
+                )}
 
                 <motion.button
                   whileTap={{ scale: 0.95 }}
@@ -458,14 +486,14 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
               />
             ) : (
               <div
-                className={`flex items-center gap-2 rounded-full px-3.5 py-1 shadow-2xs border transition-all ${
+                className={`flex items-end gap-2 rounded-2xl px-3.5 py-1.5 shadow-2xs border transition-all ${
                   activeTab === "internal_note"
                     ? "bg-amber-500/10 border-amber-400/50 focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200"
                     : "bg-muted/70 border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20"
                 }`}
               >
-              <input
-                type="text"
+              <textarea
+                rows={1}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -474,7 +502,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
                     ? "Escreva sua mensagem..."
                     : "Escreva uma nota interna (apenas sua equipe verá)..."
                 }
-                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none py-1.5 min-w-0"
+                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none py-1 min-w-0 resize-none max-h-28 overflow-y-auto"
               />
 
               <div className="flex items-center gap-1.5 text-muted-foreground shrink-0 pl-1">

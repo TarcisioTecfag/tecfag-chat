@@ -733,7 +733,7 @@ export function AnalyticsView() {
   return (
     <div className="flex flex-col h-full bg-card rounded-3xl border border-border shadow-soft overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+      <div className="flex items-center justify-between px-4 md:px-6 py-3.5 md:py-4 border-b border-line shrink-0">
         <div>
           <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
             <BarChart2 className="h-4.5 w-4.5 text-primary" />
@@ -744,7 +744,7 @@ export function AnalyticsView() {
         <button
           onClick={fetchData}
           title="Atualizar agora"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer shrink-0"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
           {lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
@@ -752,7 +752,7 @@ export function AnalyticsView() {
       </div>
 
       {/* Interna Tab Bar */}
-      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0">
+      <div className="flex items-center gap-1 px-3 md:px-5 py-2.5 border-b border-line bg-muted/30 shrink-0 overflow-x-auto scrollbar-none">
         {allowedTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -760,13 +760,13 @@ export function AnalyticsView() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`shrink-0 whitespace-nowrap relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-soft"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
-              <Icon className="h-3.5 w-3.5" />
+              <Icon className="h-3.5 w-3.5 shrink-0" />
               {tab.label}
             </button>
           );
@@ -777,7 +777,7 @@ export function AnalyticsView() {
       {activeTab === "reports" ? (
         <ReportsIATab tenant={tenant} />
       ) : (
-        <div className="flex-1 overflow-hidden px-5 py-4 flex flex-col">
+        <div className="flex-1 overflow-y-auto md:overflow-hidden px-3 md:px-5 py-4 flex flex-col">
           {activeTab === "overview" && (
             <>
               <OverviewTab

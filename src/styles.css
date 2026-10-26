@@ -219,7 +219,7 @@
   }
 
   /* Previne auto-zoom ao focar em campos de texto no iOS/Android Mobile */
-  @media screen and (max-width: 768px) {
+  @media screen and (max-width: 767px) {
     input, select, textarea {
       font-size: 16px !important;
       touch-action: manipulation;

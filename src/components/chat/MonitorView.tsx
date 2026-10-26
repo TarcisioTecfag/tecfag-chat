@@ -2533,10 +2533,10 @@ function GlobalTasksTab() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto justify-start md:justify-end">
           {/* Seletor de Operador */}
           <Select value={operatorFilter} onValueChange={setOperatorFilter}>
-            <SelectTrigger className="h-9 w-[180px] rounded-xl bg-card border border-border px-3 text-xs text-foreground focus:ring-1 focus:ring-primary">
+            <SelectTrigger className="h-9 w-[160px] sm:w-[180px] rounded-xl bg-card border border-border px-3 text-xs text-foreground focus:ring-1 focus:ring-primary">
               <SelectValue placeholder="Todos Operadores" />
             </SelectTrigger>
             <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
@@ -2578,9 +2578,9 @@ function GlobalTasksTab() {
       </div>
 
       {/* Content Grid */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col lg:flex-row flex-1 overflow-y-auto lg:overflow-hidden gap-4 lg:gap-0">
         {/* Calendar */}
-        <div className="flex-1 flex flex-col overflow-auto border-r border-border pr-4">
+        <div className="flex-1 flex flex-col overflow-visible lg:overflow-auto border-b lg:border-b-0 lg:border-r border-border pb-4 lg:pb-0 lg:pr-4">
           {/* Month Navigation */}
           <div className="flex items-center justify-between mb-4">
             <button onClick={prevMonth} className="rounded-xl p-1.5 hover:bg-muted transition-colors cursor-pointer border border-border bg-card">
@@ -2697,7 +2697,7 @@ function GlobalTasksTab() {
         </div>
 
         {/* Task Details Panel */}
-        <div className="w-[320px] flex flex-col overflow-hidden shrink-0 pl-4">
+        <div className="w-full lg:w-[320px] min-h-[260px] lg:min-h-0 flex flex-col overflow-visible lg:overflow-hidden shrink-0 lg:pl-4">
           <div className="pb-3 border-b border-border mb-3">
             <h4 className="text-xs font-bold text-foreground">
               {selectedDate.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
@@ -3660,7 +3660,7 @@ export function MonitorView() {
       </div>
 
       {/* Internal Tab Bar */}
-      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0">
+      <div className="flex items-center gap-1 px-3 md:px-5 py-2.5 border-b border-line bg-muted/30 shrink-0 overflow-x-auto scrollbar-none">
         {allowedTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -3668,7 +3668,7 @@ export function MonitorView() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`relative flex items-center gap-1.5 px-3 md:px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-soft"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"

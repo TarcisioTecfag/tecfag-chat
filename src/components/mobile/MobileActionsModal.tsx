@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { SharedFiles } from "@/components/chat/SharedFiles";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { ConversationDealTransferContext } from "@/components/crm/ConversationDealContext";
 
 interface MobileActionsModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     captureChat,
     finishChat,
     operators,
+    sectors,
     transferChat,
     setActiveView,
     tenant,
@@ -47,10 +49,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     activeChat.id === "valentina" ||
     activeChat.id === "fagner" ||
     activeChat.contactId === "valentina" ||
-    activeChat.contactId === "fagner" ||
-    activeChat.name.toLowerCase().includes(persona.name.toLowerCase()) ||
-    activeChat.name.toLowerCase().includes("valentina") ||
-    activeChat.name.toLowerCase().includes("fagner");
+    activeChat.contactId === "fagner";
 
   // Permissões RBAC e Estado do Chat
   const canCapture = canCaptureChat;
@@ -77,8 +76,8 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
     onClose();
   };
 
-  const handleTransfer = async (targetOpId: string) => {
-    if (await transferChat(activeChat.id, null, targetOpId)) {
+  const handleTransfer = async (targetOpId: string | null, sectorName: string | null = null) => {
+    if (await transferChat(activeChat.id, sectorName, targetOpId)) {
       setShowTransferSelect(false);
       onClose();
     }
@@ -239,7 +238,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                 </motion.button>
               </div>
             ) : (
-              /* Seleção de Operador para Transferência */
+              /* Seleção de Operador ou Setor para Transferência */
               <div className="flex flex-col gap-3 py-1">
                 <div className="flex items-center justify-between border-b border-border pb-2">
                   <span className="text-xs font-bold text-foreground">
@@ -253,12 +252,47 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                   </button>
                 </div>
 
-                <div className="max-h-56 overflow-y-auto flex flex-col gap-1.5 pr-1">
+                {activeChat.id !== "valentina" && (
+                  <ConversationDealTransferContext conversationId={activeChat.id} />
+                )}
+
+                <div className="max-h-60 overflow-y-auto flex flex-col gap-1.5 pr-1">
+                  {sectors.length > 0 && (
+                    <>
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground px-1 pt-0.5">
+                        Setores (Fila Geral)
+                      </div>
+                      {sectors.map((sec) => (
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          key={sec.id}
+                          onClick={() => handleTransfer(null, sec.name)}
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-muted/60 hover:bg-primary-soft text-left transition cursor-pointer"
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-foreground">
+                              {sec.name}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {sec.operatorIds.length} atendente(s)
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold text-primary">
+                            Fila do Setor
+                          </span>
+                        </motion.button>
+                      ))}
+                    </>
+                  )}
+
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground px-1 pt-1">
+                    Operadores Diretos
+                  </div>
                   {operators.filter((op) => op.id !== currentOperatorId).map((op) => (
                     <motion.button
                       whileTap={{ scale: 0.97 }}
                       key={op.id}
-                      onClick={() => handleTransfer(op.id)}
+                      onClick={() => handleTransfer(op.id, null)}
                       className="flex items-center justify-between p-2.5 rounded-xl bg-muted/60 hover:bg-primary-soft text-left transition cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5">

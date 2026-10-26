@@ -970,7 +970,7 @@ export function GroupsView() {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+      <div className="flex items-center justify-between px-4 md:px-6 py-3.5 md:py-4 border-b border-line shrink-0">
         <div>
           <h1 className="text-base font-extrabold text-foreground flex items-center gap-2">
             <Shield className="h-4 w-4 text-primary" />
@@ -981,7 +981,7 @@ export function GroupsView() {
       </div>
 
       {/* Pill Tab Bar */}
-      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0">
+      <div className="flex items-center gap-1 px-3 md:px-5 py-2.5 border-b border-line bg-muted/30 shrink-0 overflow-x-auto scrollbar-none">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -989,13 +989,13 @@ export function GroupsView() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-soft"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
-              <Icon className="h-3.5 w-3.5" />
+              <Icon className="h-3.5 w-3.5 shrink-0" />
               {tab.label}
             </button>
           );
@@ -1003,7 +1003,7 @@ export function GroupsView() {
       </div>
 
       {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-4 md:p-6">
 
       {/* Tab Contents */}
       {activeTab === "users" ? (

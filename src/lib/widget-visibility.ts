@@ -44,24 +44,18 @@ export function shouldShowMiniChatWidget({
   pathname = "/",
   isAuthenticated = true,
   isMobile = false,
+  allowMobile = true,
 }: {
   activeView?: string | null;
   pathname?: string;
   isAuthenticated?: boolean;
   isMobile?: boolean;
+  allowMobile?: boolean;
 }): boolean {
-  if (!isAuthenticated || isMobile) return false;
+  if (!isAuthenticated) return false;
+  if (isMobile && !allowMobile) return false;
 
   const currentPath = pathname || "/";
-
-  // Se estiver na rota de chat ou activeView for chat, nunca exibir (chat já tem a interface completa)
-  const isChatRoute =
-    currentPath === "/chat" ||
-    currentPath.startsWith("/chat/") ||
-    currentPath.startsWith("/chat");
-  if (activeView === "chat" || isChatRoute) {
-    return false;
-  }
 
   // Se estiver em rota de chamada, nunca exibir
   if (currentPath.startsWith("/call")) {
@@ -71,6 +65,15 @@ export function shouldShowMiniChatWidget({
   // Detalhe de negociação no CRM (/crm/deals/*)
   if (currentPath.startsWith("/crm/deals")) {
     return true;
+  }
+
+  // Se estiver na rota de chat ou activeView for chat, nunca exibir (chat já tem a interface completa)
+  const isChatRoute =
+    currentPath === "/chat" ||
+    currentPath.startsWith("/chat/") ||
+    currentPath.startsWith("/chat");
+  if (activeView === "chat" || isChatRoute) {
+    return false;
   }
 
   const parsed = parseAppRoute(currentPath);

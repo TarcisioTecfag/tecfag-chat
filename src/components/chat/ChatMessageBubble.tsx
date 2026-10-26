@@ -227,9 +227,9 @@ function ChatMessageBubbleComponent({
               <button
                 type="button"
                 onClick={() => onSetReactingMsgId(reactingMsgId === m.id ? null : m.id)}
-                className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
-                  reactingMsgId === m.id ? "!opacity-100 bg-muted text-foreground" : ""
-                }`}
+                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
+                  isExpanded ? "!opacity-100" : ""
+                } ${reactingMsgId === m.id ? "!opacity-100 bg-muted text-foreground" : ""}`}
               >
                 <Smile className="h-3.5 w-3.5" />
               </button>
@@ -245,7 +245,9 @@ function ChatMessageBubbleComponent({
                     time: m.time,
                   })
                 }
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
+                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
+                  isExpanded ? "!opacity-100" : ""
+                }`}
               >
                 <Bookmark className="h-3.5 w-3.5" />
               </button>
@@ -254,7 +256,9 @@ function ChatMessageBubbleComponent({
               <button
                 type="button"
                 onClick={() => onSetReplyingTo(m)}
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
+                  isExpanded ? "!opacity-100" : ""
+                }`}
               >
                 <CornerUpLeft className="h-3.5 w-3.5" />
               </button>
@@ -1069,7 +1073,9 @@ function ChatMessageBubbleComponent({
               <button
                 type="button"
                 onClick={() => onSetReplyingTo(m)}
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0"
+                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
+                  isExpanded ? "!opacity-100" : ""
+                }`}
               >
                 <CornerUpLeft className="h-3.5 w-3.5" />
               </button>
@@ -1078,9 +1084,9 @@ function ChatMessageBubbleComponent({
               <button
                 type="button"
                 onClick={() => onSetReactingMsgId(reactingMsgId === m.id ? null : m.id)}
-                className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
-                  reactingMsgId === m.id ? "!opacity-100 bg-muted text-foreground" : ""
-                }`}
+                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
+                  isExpanded ? "!opacity-100" : ""
+                } ${reactingMsgId === m.id ? "!opacity-100 bg-muted text-foreground" : ""}`}
               >
                 <Smile className="h-3.5 w-3.5" />
               </button>
@@ -1096,7 +1102,9 @@ function ChatMessageBubbleComponent({
                     time: m.time,
                   })
                 }
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0"
+                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
+                  isExpanded ? "!opacity-100" : ""
+                }`}
               >
                 <Bookmark className="h-3.5 w-3.5" />
               </button>

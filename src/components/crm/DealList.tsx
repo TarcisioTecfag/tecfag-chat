@@ -299,8 +299,194 @@ export function DealList({
             </div>
           </div>
         ) : (
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
+          <>
+            {/* VISÃO EM CARDS MOBILE (COM SELEÇÃO EM LOTE E TODAS AS INFORMAÇÕES) */}
+            <div className="md:hidden flex flex-col divide-y divide-border/60">
+              {deals.length > 0 && (
+                <div className="flex items-center justify-between px-4 py-2.5 bg-muted/40 border-b border-border sticky top-0 z-10 backdrop-blur-xs">
+                  <label className="flex items-center gap-2.5 text-xs font-bold text-foreground cursor-pointer select-none">
+                    <Checkbox
+                      checked={isAllFilterSelected || isAllCurrentSelected}
+                      onCheckedChange={handleToggleSelectAll}
+                      aria-label="Selecionar todas as negociações da página"
+                      className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+                    />
+                    <span>Selecionar página ({deals.length})</span>
+                  </label>
+                  {(isAllFilterSelected || selectedIds.size > 0) && (
+                    <span className="text-[11px] font-bold text-primary">
+                      {isAllFilterSelected ? total : selectedIds.size} selecionada(s)
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {deals.length === 0 ? (
+                <div className="py-14 px-4 text-center text-muted-foreground">
+                  <p className="font-semibold text-foreground text-sm">
+                    Nenhuma negociação encontrada
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Não existem negociações que correspondam aos filtros ou busca selecionados.
+                  </p>
+                  {onClearFilters && (
+                    <button
+                      type="button"
+                      onClick={onClearFilters}
+                      className="mt-2.5 text-xs font-bold text-primary hover:underline cursor-pointer"
+                    >
+                      Limpar todos os filtros
+                    </button>
+                  )}
+                </div>
+              ) : (
+                deals.map((deal) => {
+                  const isSelected = isAllFilterSelected || selectedIds.has(deal.id);
+                  const isNullValue = deal.value === null || deal.value === undefined;
+                  const rawValue = !isNullValue ? Number(deal.value) : null;
+                  const formattedValue =
+                    rawValue !== null && !isNaN(rawValue)
+                      ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(rawValue)
+                      : null;
+                  const stageName = stagesMap.get(deal.stageId) || "Etapa desconhecida";
+                  const sellerId = deal.operatorId || deal.ownerId;
+                  const operatorName = sellerId
+                    ? operatorsMap.get(sellerId) || "Não atribuído"
+                    : "Sem responsável";
+                  const operatorAvatar =
+                    (sellerId && operatorsAvatarLookup.byId.get(sellerId)) ||
+                    (operatorName !== "Não atribuído" && operatorName !== "Sem responsável"
+                      ? operatorsAvatarLookup.byName.get(normalizeOperatorNameKey(operatorName))
+                      : undefined) ||
+                    null;
+                  const statusMeta = getDealStatusMeta(deal.status);
+                  const StatusIcon = statusMeta.icon;
+                  const formattedCreatedAt = new Date(deal.createdAt).toLocaleDateString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                  });
+                  const nextTask = (deal as any).nextTask;
+
+                  return (
+                    <div
+                      key={deal.id}
+                      onClick={() => onDealClick(deal)}
+                      onPointerDown={() => prefetchDealDetail(deal.id, deal)}
+                      className={`p-3.5 transition-colors cursor-pointer ${
+                        isSelected ? "bg-primary/5 dark:bg-primary/10" : "hover:bg-muted/30"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div
+                          className="pt-0.5 shrink-0"
+                          onClick={(e) => handleToggleSelectRow(deal.id, e)}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => {}}
+                            aria-label={`Selecionar ${deal.title}`}
+                            className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+                          />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-bold text-xs text-foreground truncate">{deal.title}</p>
+                              {deal.account ? (
+                                <div className="flex items-center gap-1 text-[11px] text-muted-foreground truncate mt-0.5">
+                                  {deal.account.type === "company" ? (
+                                    <Building2 className="h-3 w-3 text-muted-foreground/70 shrink-0" />
+                                  ) : (
+                                    <User className="h-3 w-3 text-muted-foreground/70 shrink-0" />
+                                  )}
+                                  <span className="truncate">{deal.account.name || deal.account.tradeName}</span>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground/60 font-mono">
+                                  #{deal.id.slice(-6)}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {formattedValue ? (
+                                <span className="font-bold text-xs text-foreground">{formattedValue}</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDealClick(deal);
+                                  }}
+                                  className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                                >
+                                  + Valor
+                                </button>
+                              )}
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-foreground border border-border/60">
+                              {stageName}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground">
+                              <StatusIcon className={`h-3 w-3 ${statusMeta.iconColor}`} />
+                              {statusMeta.label}
+                            </span>
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-foreground">
+                              {deal.rating || 1}
+                              <Star className="h-2.5 w-2.5 fill-primary text-primary" />
+                            </span>
+                            {(deal.conversationsCount || 0) > 0 && (
+                              <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                                <MessageSquare className="h-2.5 w-2.5" />
+                                {deal.conversationsCount}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 mt-2.5 pt-2 border-t border-border/40 text-[11px]">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <ResponsibleAvatar name={operatorName} avatar={operatorAvatar} />
+                              <span className="font-medium text-foreground truncate max-w-[140px]">
+                                {operatorName}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">• {formattedCreatedAt}</span>
+                            </div>
+
+                            {nextTask ? (
+                              <div className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium border border-border/80 bg-muted/40 text-foreground max-w-[160px] truncate">
+                                <Clock className={`h-2.5 w-2.5 shrink-0 ${nextTask.isOverdue ? "text-red-500" : "text-muted-foreground"}`} />
+                                <span className="truncate">{nextTask.title}</span>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onCreateTaskClick ? onCreateTaskClick(deal) : onDealClick(deal);
+                                }}
+                                className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                              >
+                                + Tarefa
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* TABELA DESKTOP */}
+            <table className="hidden md:table w-full text-left text-xs border-collapse">
+              <thead>
               <tr className="border-b border-border bg-muted/40 text-muted-foreground font-bold uppercase text-[11px] tracking-wider sticky top-0 z-10 backdrop-blur-xs">
                 {/* Checkbox selecionar todos */}
                 <th className="py-3 px-3 w-10 text-center">
@@ -557,6 +743,7 @@ export function DealList({
               )}
             </tbody>
           </table>
+          </>
         )}
       </div>
 

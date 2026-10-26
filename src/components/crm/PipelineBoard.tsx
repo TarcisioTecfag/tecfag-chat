@@ -245,10 +245,50 @@ export const PipelineBoard = React.memo(function PipelineBoard({
     };
   }, []);
 
+  const [mobileStageFilter, setMobileStageFilter] = useState<string>("all");
+
   // ── INÍCIO DO ARRASTO DE CARD 120 FPS NATIVO (ZERO RE-RENDERS DO QUADRO E DAS COLUNAS) ──
   const handleStartCardDrag = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => {
       if (e.button !== 0) return; // apenas clique primário
+
+      // Em dispositivos touch, preserva o scroll vertical/horizontal nativo sem sequestrar o toque com drag de 5px.
+      // A mudança de etapa no touch é feita pelo menu de ações do card ("Mover para etapa") ou na ficha do negócio.
+      if (e.pointerType === "touch") {
+        const touchStartX = e.clientX;
+        const touchStartY = e.clientY;
+        let maxTouchMove = 0;
+
+        const onTouchPointerMove = (ev: PointerEvent) => {
+          const dist = Math.hypot(ev.clientX - touchStartX, ev.clientY - touchStartY);
+          if (dist > maxTouchMove) maxTouchMove = dist;
+        };
+
+        const onTouchPointerEnd = (ev: PointerEvent) => {
+          window.removeEventListener("pointermove", onTouchPointerMove);
+          window.removeEventListener("pointerup", onTouchPointerEnd);
+          window.removeEventListener("pointercancel", onTouchPointerCancel);
+          const dist = Math.max(
+            maxTouchMove,
+            Math.hypot(ev.clientX - touchStartX, ev.clientY - touchStartY)
+          );
+          if (dist < 10) {
+            onDealClick(deal);
+          }
+        };
+
+        const onTouchPointerCancel = () => {
+          window.removeEventListener("pointermove", onTouchPointerMove);
+          window.removeEventListener("pointerup", onTouchPointerEnd);
+          window.removeEventListener("pointercancel", onTouchPointerCancel);
+        };
+
+        window.addEventListener("pointermove", onTouchPointerMove, { passive: true });
+        window.addEventListener("pointerup", onTouchPointerEnd);
+        window.addEventListener("pointercancel", onTouchPointerCancel);
+        return;
+      }
+
       const cardEl = e.currentTarget;
       const container = boardContainerRef.current;
       if (!container) return;
@@ -510,6 +550,7 @@ export const PipelineBoard = React.memo(function PipelineBoard({
 
   // ── MOTOR DE PAN SCROLL HORIZONTAL 120FPS (ZERO RE-RENDERS + RAF COALESCENCE + BLOQUEIO DE HIT-TEST) ──
   const handleBoardPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch") return; // Em dispositivos touch, utiliza o scroll horizontal nativo fluido
     const isMiddleClick = e.button === 1;
     if (e.button !== 0 && !isMiddleClick) return;
     const target = e.target as HTMLElement;
@@ -626,14 +667,54 @@ export const PipelineBoard = React.memo(function PipelineBoard({
     return map;
   }, [sortedStages, onLoadMoreStage]);
 
+  const visibleStages = useMemo(() => {
+    if (mobileStageFilter === "all") return sortedStages;
+    const filtered = sortedStages.filter((s) => s.id === mobileStageFilter);
+    return filtered.length > 0 ? filtered : sortedStages;
+  }, [sortedStages, mobileStageFilter]);
+
   return (
-    <>
+    <div className="flex flex-col h-full w-full min-h-0 overflow-hidden">
+      {sortedStages.length > 1 && (
+        <div className="md:hidden flex items-center gap-1.5 px-2 pb-2 overflow-x-auto scrollbar-none shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileStageFilter("all")}
+            className={`px-2.5 py-1 rounded-xl text-[11px] font-bold whitespace-nowrap transition cursor-pointer shrink-0 border ${
+              mobileStageFilter === "all"
+                ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                : "bg-card text-muted-foreground border-border/70 hover:text-foreground"
+            }`}
+          >
+            Todas ({sortedStages.length})
+          </button>
+          {sortedStages.map((st) => {
+            const count = stagesSummaryMap?.get(st.id)?.dealsCount ?? (dealsByStage.get(st.id)?.length || 0);
+            const active = mobileStageFilter === st.id;
+            return (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => setMobileStageFilter(st.id)}
+                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold whitespace-nowrap transition cursor-pointer shrink-0 border ${
+                  active
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : "bg-card text-muted-foreground border-border/70 hover:text-foreground"
+                }`}
+              >
+                {st.name} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div
         ref={boardContainerRef}
         data-board-container="true"
         onPointerDown={handleBoardPointerDown}
         onWheel={handleBoardWheel}
-        className="flex h-full w-full gap-4 overflow-x-auto overflow-y-hidden pb-3 pt-1 pl-1 pr-5 select-none cursor-grab data-[panning=true]:cursor-grabbing data-[interacting=true]:[&_[data-deal-card]]:pointer-events-none data-[interacting=true]:[&_[data-column-card-list]]:pointer-events-none [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full"
+        className="flex flex-1 min-h-0 w-full gap-3 md:gap-4 overflow-x-auto overflow-y-hidden pb-3 pt-1 pl-1 pr-3 md:pr-5 select-none md:cursor-grab data-[panning=true]:cursor-grabbing data-[interacting=true]:[&_[data-deal-card]]:pointer-events-none data-[interacting=true]:[&_[data-column-card-list]]:pointer-events-none [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full"
       >
         {sortedStages.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border/80 p-8 text-center">
@@ -645,7 +726,7 @@ export const PipelineBoard = React.memo(function PipelineBoard({
             </div>
           </div>
         ) : (
-          sortedStages.map((stage) => (
+          visibleStages.map((stage) => (
             <PipelineColumn
               key={stage.id}
               stage={stage}
@@ -690,6 +771,6 @@ export const PipelineBoard = React.memo(function PipelineBoard({
           onCancel={() => setTerminalConfirm(null)}
         />
       )}
-    </>
+    </div>
   );
 });

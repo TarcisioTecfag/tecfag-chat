@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
-import { Bot, MessageCircle, UserPlus, Eye, ShoppingBag, Database, Shuffle, Power } from "lucide-react";
+import { Bot, MessageCircle, UserPlus, Eye, ShoppingBag, Database, Shuffle, Power, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ValentinaTab } from "./valentina-mock-data";
 import { ValentinaChatTab } from "./ValentinaChatTab";
@@ -21,6 +21,7 @@ import { SystemTooltip } from "@/components/ui/tooltip";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { ValentinaFeed } from "@/components/mobile/ValentinaFeed";
 import { Workflow } from "lucide-react";
 import { toast } from "sonner";
 
@@ -41,7 +42,7 @@ const allTabs: { id: ValentinaTab; label: string; icon: React.ElementType }[] = 
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
 export function ValentinaView() {
-  const { tenant } = useChat();
+  const { tenant, setActiveView, setSelectedChatId } = useChat();
   const persona = getAiPersona(tenant || "valem");
   const { canAccessValentinaTab } = usePermissions();
   const allowedTabs = allTabs.filter(tab => canAccessValentinaTab(tab.id));
@@ -49,6 +50,7 @@ export function ValentinaView() {
   const [activeTab, setActiveTab] = useState<ValentinaTab>(() =>
     getInitialTabFromUrl("valentina", allowedTabs[0]?.id || "chat", allowedTabIds),
   );
+  const [showMobileFeed, setShowMobileFeed] = useState(false);
 
   // Estado e Controle de SDR Triagem Automática (elevado ao Header para maximizar espaço de tela)
   const [sdrEnabled, setSdrEnabled] = useState(true);
@@ -65,6 +67,7 @@ export function ValentinaView() {
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   useEffect(() => {
+    if (!canAccessValentinaTab("sdr")) return;
     async function loadSdrConfig() {
       try {
         const res = await fetch(`${BACKEND_URL}/api/valentina/sdr?tenantId=${tenant || "valem"}`);
@@ -209,67 +212,95 @@ export function ValentinaView() {
       </div>
 
       {/* Internal Tab Bar */}
-      <div className="flex items-center gap-1 px-5 py-2.5 border-b border-line bg-muted/30 shrink-0">
+      <div className="flex items-center gap-1 px-3 md:px-5 py-2 md:py-2.5 border-b border-line bg-muted/30 shrink-0 overflow-x-auto scrollbar-none">
         {allowedTabs.map((tab) => {
           const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
+          const isActive = !showMobileFeed && activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              onClick={() => {
+                setShowMobileFeed(false);
+                setActiveTab(tab.id);
+              }}
+              className={`relative flex items-center gap-1.5 px-3 md:px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-soft"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
-              <Icon className="h-3.5 w-3.5" />
+              <Icon className="h-3.5 w-3.5 shrink-0" />
               {tab.label}
             </button>
           );
         })}
+        <button
+          type="button"
+          onClick={() => setShowMobileFeed((prev) => !prev)}
+          className={`md:hidden relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+            showMobileFeed
+              ? "bg-primary text-primary-foreground shadow-soft"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          Resumo Rápido
+        </button>
       </div>
 
       {/* Tab Content */}
-      <div className={`flex-1 overflow-hidden flex flex-col ${activeTab === "chat" ? "" : activeTab === "sdr" ? "px-4 py-2" : "px-5 py-4"}`}>
+      <div className={`flex-1 overflow-hidden flex flex-col ${showMobileFeed || activeTab === "chat" ? "" : activeTab === "sdr" ? "px-2 md:px-4 py-2" : "px-3 md:px-5 py-3 md:py-4"}`}>
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeTab}
+            key={showMobileFeed ? "mobile-feed" : activeTab}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             className="flex flex-col flex-1 overflow-hidden"
           >
-            {activeTab === "chat" && <ValentinaChatTab />}
-            {activeTab === "sdr" && (
-              <SdrTab
-                sdrEnabled={sdrEnabled}
-                onSdrConfigChange={setSdrEnabled}
-                filterState={sdrFilterState}
-                refreshKey={sdrRefreshKey}
-                onLoadingChange={setIsSdrLoading}
-                onSelectedConversationChange={setSdrSelectedConversationId}
-                targetConversation={sdrTargetConversation}
-                onTargetConversationHandled={() => setSdrTargetConversation(null)}
-              />
+            {showMobileFeed ? (
+              <div className="flex-1 overflow-y-auto">
+                <ValentinaFeed
+                  onOpenChat={(id) => {
+                    setSelectedChatId(id);
+                    setActiveView("chat");
+                  }}
+                />
+              </div>
+            ) : (
+              <>
+                {activeTab === "chat" && <ValentinaChatTab />}
+                {activeTab === "sdr" && (
+                  <SdrTab
+                    sdrEnabled={sdrEnabled}
+                    onSdrConfigChange={setSdrEnabled}
+                    filterState={sdrFilterState}
+                    refreshKey={sdrRefreshKey}
+                    onLoadingChange={setIsSdrLoading}
+                    onSelectedConversationChange={setSdrSelectedConversationId}
+                    targetConversation={sdrTargetConversation}
+                    onTargetConversationHandled={() => setSdrTargetConversation(null)}
+                  />
+                )}
+                {activeTab === "rodizio" && (
+                  <RodizioTab
+                    onOpenTriage={(conversationId, leadName) => {
+                      setSdrTargetConversation({
+                        conversationId,
+                        leadName,
+                        ts: Date.now(),
+                      });
+                      setActiveTab("sdr");
+                    }}
+                  />
+                )}
+                {activeTab === "fluxos" && <FluxosTab />}
+                {activeTab === "supervisor" && <SupervisorTab />}
+                {activeTab === "vendedor" && <VendedorTab />}
+                {activeTab === "knowledge" && <KnowledgeTab />}
+              </>
             )}
-            {activeTab === "rodizio" && (
-              <RodizioTab
-                onOpenTriage={(conversationId, leadName) => {
-                  setSdrTargetConversation({
-                    conversationId,
-                    leadName,
-                    ts: Date.now(),
-                  });
-                  setActiveTab("sdr");
-                }}
-              />
-            )}
-            {activeTab === "fluxos" && <FluxosTab />}
-            {activeTab === "supervisor" && <SupervisorTab />}
-            {activeTab === "vendedor" && <VendedorTab />}
-            {activeTab === "knowledge" && <KnowledgeTab />}
           </motion.div>
         </AnimatePresence>
       </div>

@@ -2212,11 +2212,11 @@ export function CrmChatWidget() {
 
       <DismissableLayerBranch asChild>
         <div
-          className={`fixed bottom-0 z-[10050] pointer-events-auto flex flex-col items-end ${
+          className={`fixed bottom-16 md:bottom-0 z-[10050] pointer-events-auto flex flex-col items-end ${
             isDragging ? "select-none" : ""
           }`}
           style={{
-            right: `${rightOffset}px`,
+            right: isMobile ? "12px" : `${rightOffset}px`,
             touchAction: "none",
           }}
           data-crm-chat-widget
@@ -2229,15 +2229,15 @@ export function CrmChatWidget() {
                 id="crm-chat-window"
                 tabIndex={-1}
                 aria-label="Conversas no CRM"
-                initial={{ opacity: 0, y: 20, scale: 0.97, x: popupShiftX }}
-                animate={{ opacity: 1, y: 0, scale: 1, x: popupShiftX }}
-                exit={{ opacity: 0, y: 20, scale: 0.97, x: popupShiftX }}
+                initial={{ opacity: 0, y: 20, scale: 0.97, x: isMobile ? 0 : popupShiftX }}
+                animate={{ opacity: 1, y: 0, scale: 1, x: isMobile ? 0 : popupShiftX }}
+                exit={{ opacity: 0, y: 20, scale: 0.97, x: isMobile ? 0 : popupShiftX }}
                 transition={{
                   duration: 0.22,
                   ease: [0.16, 1, 0.3, 1],
                   x: { duration: isDragging ? 0 : 0.15 },
                 }}
-                className="mb-2 flex h-[560px] max-h-[calc(100vh-5.5rem)] w-[400px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/98 shadow-2xl backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/5 outline-none"
+                className="mb-2 flex h-[520px] md:h-[560px] max-h-[calc(100dvh-7.5rem)] md:max-h-[calc(100vh-5.5rem)] w-[calc(100vw-1.5rem)] sm:w-[400px] max-w-[calc(100vw-1.5rem)] md:max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/98 shadow-2xl backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/5 outline-none"
               >
                 <AnimatePresence mode="wait" initial={false}>
                   {selected ? (

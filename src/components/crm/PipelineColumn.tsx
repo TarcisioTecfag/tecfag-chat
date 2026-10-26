@@ -129,7 +129,7 @@ export const PipelineColumn = React.memo(function PipelineColumn({
     <div
       data-stage-column={stage.id}
       style={COLUMN_CONTAIN_STYLE}
-      className="group/column flex flex-col h-full min-w-[330px] max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-colors duration-100 border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs data-[is-target=true]:border-primary data-[is-target=true]:ring-2 data-[is-target=true]:ring-primary/45 data-[is-target=true]:bg-primary/[0.04]"
+      className="group/column flex flex-col h-full min-w-[85vw] sm:min-w-[310px] md:min-w-[330px] max-w-[92vw] sm:max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-colors duration-100 border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs data-[is-target=true]:border-primary data-[is-target=true]:ring-2 data-[is-target=true]:ring-primary/45 data-[is-target=true]:bg-primary/[0.04]"
     >
       {/* Cabeçalho da Coluna com sólido aprimorado e cursor-grab para pan scroll do quadro */}
       <div className="shrink-0 px-3.5 py-3 border-b border-border/70 bg-muted/85 dark:bg-muted/45 rounded-t-2xl cursor-grab active:cursor-grabbing select-none">

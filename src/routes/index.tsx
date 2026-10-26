@@ -45,6 +45,7 @@ const getClientMounted = () => true;
 const getServerMounted = () => false;
 
 import { buildAppRoutePath, parseAppRoute } from "@/lib/app-routes";
+import { isModuleAuthorized, resolveAuthorizedActiveView } from "@/lib/module-catalog";
 
 export const Route = createFileRoute("/")({
   ssr: true,
@@ -52,7 +53,7 @@ export const Route = createFileRoute("/")({
 });
 
 export function Index() {
-  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, setSelectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations, isCommercialConsultant } = useChat();
+  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, setSelectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations, isCommercialConsultant, currentGroup } = useChat();
   const { canAccessView } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
@@ -67,6 +68,20 @@ export function Index() {
     canAccessView,
     enabled: isAuthenticated && !isMobile,
   });
+
+  // Guard compartilhado de permissão de módulo (atua em desktop e mobile, mesmo sem Sidebar montada)
+  useEffect(() => {
+    if (!isAuthenticated || isRestoringSession) return;
+    const resolved = resolveAuthorizedActiveView(activeView, {
+      tenant,
+      sessionRole,
+      isCommercialConsultant,
+      canAccessView,
+    });
+    if (resolved && resolved !== activeView) {
+      setActiveView(resolved);
+    }
+  }, [activeView, canAccessView, currentGroup, isAuthenticated, isCommercialConsultant, isRestoringSession, sessionRole, setActiveView, tenant]);
 
   const prevPathRef = React.useRef(location.pathname);
   const prevViewRef = React.useRef(activeView);
@@ -86,12 +101,30 @@ export function Index() {
     const parsed = parseAppRoute(location.pathname);
     if (!parsed.isAppShell) return;
 
+    const accessCtx = {
+      tenant,
+      sessionRole,
+      isCommercialConsultant,
+      canAccessView,
+    };
+
     // 1. Mudança externa da URL (botões Voltar/Avançar do navegador ou acesso via link direto)
     if (pathnameChanged && !viewChanged && parsed.viewId) {
       if (parsed.viewId !== activeView) {
-        if (canAccessView(parsed.viewId)) {
+        if (isModuleAuthorized(parsed.viewId, accessCtx)) {
           prevViewRef.current = parsed.viewId;
           setActiveView(parsed.viewId);
+          return;
+        }
+        const fallbackView = resolveAuthorizedActiveView(parsed.viewId, accessCtx);
+        if (fallbackView) {
+          const fallbackPath = buildAppRoutePath(fallbackView);
+          prevViewRef.current = fallbackView;
+          prevPathRef.current = fallbackPath;
+          setActiveView(fallbackView);
+          if (location.pathname !== fallbackPath) {
+            navigate({ to: fallbackPath as any, replace: true });
+          }
           return;
         }
       }
@@ -159,12 +192,15 @@ export function Index() {
     canAccessView,
     conversations,
     isAuthenticated,
+    isCommercialConsultant,
     isRestoringSession,
     location.pathname,
     navigate,
     selectedChatId,
+    sessionRole,
     setActiveView,
     setSelectedChatId,
+    tenant,
   ]);
 
   if (!isMounted || isRestoringSession) {

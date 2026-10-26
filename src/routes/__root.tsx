@@ -239,7 +239,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         {
           name: "viewport",
           content:
-            "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover",
+            "width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover",
         },
         { name: "google", content: "notranslate" },
         { name: "theme-color", content: themeColor },

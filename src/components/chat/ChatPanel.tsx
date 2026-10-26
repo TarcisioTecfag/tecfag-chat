@@ -33,6 +33,7 @@ import {
   Clock,
   ArrowRightLeft,
   ArrowRight,
+  ArrowLeft,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -83,6 +84,7 @@ import {
 import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
+import { setRememberedTabForView } from "@/lib/app-routes";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -935,6 +937,18 @@ export function QuotedMessagePreview({
   );
 }
 
+interface TransientChatPanelState {
+  text: string;
+  replyingTo: any;
+  attachments: File[];
+  msgMode: "client" | "internal";
+  noteScope: "current" | "general";
+  msgSearch: string;
+  showMsgSearch: boolean;
+}
+
+const transientChatPanelCache = new Map<string, TransientChatPanelState>();
+
 export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const {
     activeChat,
@@ -997,7 +1011,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const dealRequirement = useConversationDealRequirement(activeChat?.id);
   const dealContext = useConversationDealContext(activeChat?.id);
   const draftContextVersion = useRef<number | undefined>(undefined);
-  const [noteScope, setNoteScope] = useState<"current" | "general">("current");
+  const initialTransientState = activeChat?.id ? transientChatPanelCache.get(activeChat.id) : undefined;
+  const [noteScope, setNoteScope] = useState<"current" | "general">(initialTransientState?.noteScope ?? "current");
   const isOwner = !!activeChat && activeChat.operatorId === currentOperatorId;
   const canCapture = canCaptureChat;
   const canTransfer = canTransferChat;
@@ -1007,7 +1022,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     ? operators.find((o) => o.id === activeChat.operatorId)
     : null;
 
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialTransientState?.text ?? "");
   const metaWindowCacheRef = useRef<Map<string, { open: boolean; expiresAt: string | null }>>(
     new Map(),
   );
@@ -1021,7 +1036,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [showMetaTemplateModal, setShowMetaTemplateModal] = useState(false);
   const [show24hInfoModal, setShow24hInfoModal] = useState(false);
   const [metaTemplatesLoading, setMetaTemplatesLoading] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<any>(null);
+  const [replyingTo, setReplyingTo] = useState<any>(initialTransientState?.replyingTo ?? null);
   const [reactingMsgId, setReactingMsgId] = useState<string | null>(null);
 
   const lastInboundClientMsgId = useMemo(() => {
@@ -1115,13 +1130,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     return !!sent;
   };
 
-  useEffect(() => {
-    setReplyingTo(null);
-    setShowValentinaModal(false);
-    setIsCatalogOpen(false);
-  }, [activeChat?.id]);
-
-  const [msgMode, setMsgMode] = useState<"client" | "internal">("client");
+  const [msgMode, setMsgMode] = useState<"client" | "internal">(initialTransientState?.msgMode ?? "client");
   const noteConversationRef = useRef(activeChat?.id);
   noteConversationRef.current = activeChat?.id;
   const openingNote = useRef(false);
@@ -1146,10 +1155,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       return false;
     } finally { openingNote.current = false; }
   };
-  useEffect(() => {
-    draftContextVersion.current = undefined;
-    setNoteScope("current");
-  }, [activeChat?.id]);
   useEffect(() => {
     const syncVersion = () => {
       draftContextVersion.current = undefined;
@@ -1204,7 +1209,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [transferModalSearch, setTransferModalSearch] = useState("");
   const [transferModalSubmitting, setTransferModalSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<File[]>(initialTransientState?.attachments ?? []);
   const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState<string[]>([]);
 
   useEffect(() => {
@@ -1234,9 +1239,40 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const sendQueueRef = useRef<OutgoingQueueItem[]>([]);
   const isQueueProcessingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [msgSearch, setMsgSearch] = useState("");
-  const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [msgSearch, setMsgSearch] = useState(initialTransientState?.msgSearch ?? "");
+  const [showMsgSearch, setShowMsgSearch] = useState(initialTransientState?.showMsgSearch ?? false);
   const [searchMatchIndex, setSearchMatchIndex] = useState<number>(0);
+
+  const prevTransientChatIdRef = useRef<string | undefined>(activeChat?.id);
+  useEffect(() => {
+    if (prevTransientChatIdRef.current !== activeChat?.id) {
+      prevTransientChatIdRef.current = activeChat?.id;
+      const cached = activeChat?.id ? transientChatPanelCache.get(activeChat.id) : undefined;
+      setText(cached?.text ?? "");
+      setReplyingTo(cached?.replyingTo ?? null);
+      setAttachments(cached?.attachments ?? []);
+      setMsgMode(cached?.msgMode ?? "client");
+      setNoteScope(cached?.noteScope ?? "current");
+      setMsgSearch(cached?.msgSearch ?? "");
+      setShowMsgSearch(cached?.showMsgSearch ?? false);
+      draftContextVersion.current = undefined;
+      setShowValentinaModal(false);
+      setIsCatalogOpen(false);
+    }
+  }, [activeChat?.id]);
+
+  useEffect(() => {
+    if (!activeChat?.id) return;
+    transientChatPanelCache.set(activeChat.id, {
+      text,
+      replyingTo,
+      attachments,
+      msgMode,
+      noteScope,
+      msgSearch,
+      showMsgSearch,
+    });
+  }, [activeChat?.id, text, replyingTo, attachments, msgMode, noteScope, msgSearch, showMsgSearch]);
   const [showValWarnings, setShowValWarnings] = useState(true);
   const [showValResponses, setShowValResponses] = useState(true);
   const [history, setHistory] = useState<{ chatId: string; messages: Message[]; nextCursor: string | null } | null>(null);
@@ -2241,8 +2277,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative"
     >
       {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
-      <header className="hidden md:flex items-center justify-between gap-2 px-4 md:px-6 py-2.5 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[54px]">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <header className="flex items-center justify-between gap-2 px-3 md:px-6 py-2.5 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[54px]">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => setSelectedChatId(null)}
+            aria-label="Voltar para lista de conversas"
+            className="md:hidden grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground hover:bg-muted transition cursor-pointer"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+
           {/* Avatar & Channel Badge */}
           <div className="relative shrink-0">
             {activeChat.id === "valentina" ? (
@@ -2469,10 +2514,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <div className="relative">
                   <button
                     onClick={() => setShowTransferDropdown(!showTransferDropdown)}
-                    className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-4 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                    className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 md:px-4 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
                   >
                     <ArrowRightLeft className="h-3.5 w-3.5" />
-                    Transferir
+                    <span className="hidden sm:inline">Transferir</span>
                     <ChevronDown className="h-3.5 w-3.5" />
                   </button>
 
@@ -2613,10 +2658,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               {activeChat.id !== "valentina" && isOwner && canFinish && (
                 <button
                   onClick={() => setShowFinishConfirmModal(true)}
-                  className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
+                  className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-2.5 md:px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
                 >
                   <CheckCircle className="h-3.5 w-3.5" />
-                  Finalizar
+                  <span className="hidden sm:inline">Finalizar</span>
                 </button>
               )}
             </>
@@ -2627,10 +2672,11 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             canCapture && (
               <button
                 onClick={() => captureChat(activeChat.id)}
-                className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
+                className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-2.5 md:px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
               >
                 <UserPlus className="h-3.5 w-3.5" />
-                Capturar Atendimento
+                <span className="hidden sm:inline">Capturar Atendimento</span>
+                <span className="sm:hidden">Capturar</span>
               </button>
             )
           )}
@@ -3156,7 +3202,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       {activeChat.queue !== "finalizados" ? (
         <div
           ref={composerRef}
-          className="hidden md:block px-3 pb-3 md:px-5 md:pb-5 shrink-0"
+          className="block px-2.5 pb-2.5 md:px-5 md:pb-5 shrink-0"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -3668,7 +3714,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           onDeleteQuickResponse={deleteQuickResponse}
                           onOpenFullManager={() => {
                             setShowQuickMenu(false);
-                            setActiveView("configuracoes");
+                            const targetView = canManageGlobalTemplates ? "groups" : "wallet";
+                            setRememberedTabForView(targetView, "templates");
+                            setActiveView(targetView);
                           }}
                         />
                       )}

@@ -319,6 +319,55 @@ export function KnowledgeTab() {
     }
   };
 
+  const handleMoveFileToFolder = async (fileId: string, targetFolderId: string) => {
+    if (!targetFolderId) return;
+    setFiles((prev) =>
+      prev.map((file) => (file.id === fileId ? { ...file, folderId: targetFolderId } : file))
+    );
+    try {
+      await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: tenant || "valem",
+          action: "move_file",
+          id: fileId,
+          folderId: targetFolderId,
+        }),
+      });
+    } catch (err) {
+      console.error("[KnowledgeTab] Erro ao mover arquivo na API:", err);
+    }
+  };
+
+  const handleMoveFolderToParent = async (folderId: string, targetParentId: string | null) => {
+    if (folderId === targetParentId) return;
+    const folderToMove = folders.find((f) => f.id === folderId);
+    if (!folderToMove) return;
+
+    setFolders((prev) =>
+      prev.map((f) => (f.id === folderId ? { ...f, parentId: targetParentId } : f))
+    );
+    if (targetParentId) {
+      setExpandedFolderIds((prev) => new Set(prev).add(targetParentId));
+    }
+    try {
+      await fetch(`${BACKEND_URL}/api/valentina/knowledge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: tenant || "valem",
+          action: "update_folder",
+          id: folderId,
+          name: folderToMove.name || "Pasta",
+          parentId: targetParentId,
+        }),
+      });
+    } catch (err) {
+      console.error("[KnowledgeTab] Erro ao mover pasta na API:", err);
+    }
+  };
+
   // ── Upload de Pasta Completa (com hierarquia e deduplicação inteligente VTEX) ──
 
   const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -823,7 +872,7 @@ export function KnowledgeTab() {
             </div>
 
             {/* Ações de Pasta */}
-            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0 transition-opacity duration-150">
+            <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center gap-1 shrink-0 transition-opacity duration-150">
               {isEditing ? (
                 <>
                   <button
@@ -897,10 +946,10 @@ export function KnowledgeTab() {
   const currentFolderFiles = files.filter((file) => file.folderId === selectedFolderId);
 
   return (
-    <div className="flex flex-1 overflow-hidden gap-4 min-h-0">
+    <div className="flex flex-col lg:flex-row flex-1 overflow-y-auto lg:overflow-hidden gap-4 min-h-0">
       
       {/* ── PAINEL ESQUERDO: Árvore de Diretórios (Pastas) ───────────────── */}
-      <div className="w-[32%] bg-muted/20 border border-border/80 rounded-2xl flex flex-col p-4 min-h-0 select-none">
+      <div className="w-full lg:w-[32%] max-h-[260px] lg:max-h-none shrink-0 bg-muted/20 border border-border/80 rounded-2xl flex flex-col p-4 min-h-0 select-none">
         <div className="flex items-center justify-between mb-4 pb-2 border-b border-border/60">
           <span className="text-xs font-black uppercase text-muted-foreground select-none">Diretórios</span>
           <div className="flex items-center gap-1">
@@ -984,23 +1033,47 @@ export function KnowledgeTab() {
         
         <div className="mt-3 p-2 bg-muted/40 rounded-xl text-[10px] text-muted-foreground flex items-center justify-center gap-1.5 border border-border/50">
           <Lightbulb className="h-3.5 w-3.5 text-primary shrink-0" />
-          <span>Dica: Arraste pastas ou arquivos para alterar sua hierarquia.</span>
+          <span>Dica: Arraste ou use o seletor "Mover" para alterar pastas.</span>
         </div>
       </div>
 
       {/* ── PAINEL DIREITO: Exploração de Arquivos & Upload ─────────────── */}
-      <div className="flex-1 bg-card border border-border rounded-2xl flex flex-col p-5 min-h-0">
+      <div className="flex-1 bg-card border border-border rounded-2xl flex flex-col p-4 md:p-5 min-h-[360px] lg:min-h-0">
         
         {/* Cabeçalho da pasta ativa */}
-        <div className="flex items-center justify-between mb-4 shrink-0 pb-2 border-b border-border/60">
-          <div>
-            <h2 className="text-sm font-black text-foreground flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4 shrink-0 pb-2 border-b border-border/60">
+          <div className="min-w-0">
+            <h2 className="text-sm font-black text-foreground flex items-center gap-1.5 truncate">
               <Folder className="h-4.5 w-4.5 text-primary shrink-0" />
-              {currentFolder ? currentFolder.name : "Nenhuma pasta selecionada"}
+              <span className="truncate">{currentFolder ? currentFolder.name : "Nenhuma pasta selecionada"}</span>
             </h2>
-            <p className="text-[10px] text-muted-foreground mt-0.5">
-              {currentFolderFiles.length} {currentFolderFiles.length === 1 ? "arquivo" : "arquivos"} nesta pasta
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-0.5">
+              <p className="text-[10px] text-muted-foreground">
+                {currentFolderFiles.length} {currentFolderFiles.length === 1 ? "arquivo" : "arquivos"} nesta pasta
+              </p>
+              {currentFolder && folders.length > 1 && (
+                <select
+                  aria-label="Mover pasta atual para outro diretório"
+                  value={currentFolder.parentId || "__root__"}
+                  onChange={(e) =>
+                    handleMoveFolderToParent(
+                      currentFolder.id,
+                      e.target.value === "__root__" ? null : e.target.value
+                    )
+                  }
+                  className="text-[10px] bg-muted/70 border border-border rounded-lg px-2 py-0.5 text-foreground font-semibold outline-none focus:border-primary cursor-pointer"
+                >
+                  <option value="__root__">Pasta na Raiz</option>
+                  {folders
+                    .filter((f) => f.id !== currentFolder.id)
+                    .map((f) => (
+                      <option key={f.id} value={f.id}>
+                        Dentro de: {f.name}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </div>
           </div>
 
           {/* Formato de Upload selector com harmonia verde visual */}
@@ -1058,7 +1131,7 @@ export function KnowledgeTab() {
             />
             <UploadCloud className="h-8 w-8 text-muted-foreground/60 animate-bounce duration-1000" />
             <div>
-              <p className="text-xs font-bold text-foreground">Arraste e solte arquivos aqui</p>
+              <p className="text-xs font-bold text-foreground">Toque para selecionar ou arraste arquivos aqui</p>
               <p className="text-[10px] text-muted-foreground mt-0.5">Suporta múltiplos arquivos · PDF, Word, TXT, Markdown (MD), Planilhas e Imagens</p>
             </div>
 
@@ -1131,7 +1204,7 @@ export function KnowledgeTab() {
           {selectedFolderId ? (
             currentFolderFiles.length === 0 ? (
               <div className="text-center text-muted-foreground/60 text-xs py-16">
-                Pasta vazia. Suba arquivos acima ou arraste itens para cá!
+                Pasta vazia. Suba arquivos acima ou mova itens para cá!
               </div>
             ) : (
               <div className="space-y-2">
@@ -1140,9 +1213,9 @@ export function KnowledgeTab() {
                     draggable
                     onDragStart={(e) => handleFileDragStart(e, file.id)}
                     key={file.id}
-                    className="group flex items-center justify-between p-3 rounded-xl border border-border bg-card hover:bg-muted/30 transition shadow-soft"
+                    className="group flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-border bg-card hover:bg-muted/30 transition shadow-soft"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       {getFileIcon(file.type)}
                       <div className="min-w-0">
                         <p className="text-xs font-extrabold text-foreground truncate max-w-sm">{file.name}</p>
@@ -1152,7 +1225,24 @@ export function KnowledgeTab() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      {/* Seletor explícito para mover arquivo entre pastas sem exigir drag-and-drop */}
+                      {folders.length > 1 && (
+                        <select
+                          aria-label={`Mover ${file.name} para outra pasta`}
+                          value={file.folderId || ""}
+                          onChange={(e) => handleMoveFileToFolder(file.id, e.target.value)}
+                          className="text-[10px] bg-muted/60 border border-border rounded-lg px-2 py-1 text-foreground font-semibold outline-none focus:border-primary cursor-pointer max-w-[130px] truncate"
+                          title="Mover arquivo para outra pasta"
+                        >
+                          {folders.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              📁 {f.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
                       {/* Botão de Ver Conteúdo Extraído (RAG Inspector) — oculto para fotos em Formato Real */}
                       {!(file.format === "real" && file.type === "image") && (
                         <button
@@ -1203,7 +1293,7 @@ export function KnowledgeTab() {
 
                       <button
                         onClick={() => handleDeleteFile(file.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-muted hover:text-red-500 text-muted-foreground transition cursor-pointer"
+                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-lg hover:bg-muted hover:text-red-500 text-muted-foreground transition cursor-pointer"
                         title="Remover arquivo"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
