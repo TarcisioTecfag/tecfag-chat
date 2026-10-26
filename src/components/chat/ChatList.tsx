@@ -227,13 +227,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <>
-    <aside className="flex h-full w-full md:w-[260px] md:shrink-0 flex-col rounded-3xl bg-card px-3.5 md:px-4 py-3.5 md:py-5 shadow-soft select-none border border-border">
+    <aside className="flex h-full w-full md:w-[260px] md:shrink-0 flex-col rounded-3xl bg-card px-3.5 md:px-4 py-3 xl:py-4 shadow-soft select-none border border-border">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg md:text-xl font-bold text-foreground tracking-tight">Atendimentos</h2>
+        <h2 className="text-base xl:text-lg font-bold text-foreground tracking-tight">Atendimentos</h2>
       </div>
 
-      <div className="my-2 md:my-3.5 h-px bg-line" />
+      <div className="my-2 xl:my-2.5 h-px bg-line" />
 
       {/* Vendedor Info */}
       <div className="flex flex-col items-center relative">
@@ -245,9 +245,9 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             <img
               src={operatorProfile.avatar}
               alt="Atendente"
-              className="h-14 w-14 md:h-[68px] md:w-[68px] rounded-full object-cover ring-2 ring-primary/20"
+              className="h-12 w-12 xl:h-14 xl:w-14 rounded-full object-cover ring-2 ring-primary/20"
             />
-            <span className={`absolute bottom-0 right-1 h-3 w-3 md:h-3.5 md:w-3.5 rounded-full border-2 border-card ${
+            <span className={`absolute bottom-0 right-0.5 h-3 w-3 rounded-full border-2 border-card ${
               operatorProfile.status === "disponivel"
                 ? "bg-primary"
                 : operatorProfile.status === "pausa"
@@ -256,10 +256,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             }`} />
           </button>
         </ProfilePopover>
-        <h3 className="mt-1 md:mt-2 text-[13px] md:text-[15px] font-bold text-foreground">{operatorProfile.name}</h3>
+        <h3 className="mt-1 xl:mt-1.5 text-[13px] xl:text-sm font-bold text-foreground">{operatorProfile.name}</h3>
         
         {/* Clickable Status Badge */}
-        <div className="relative mt-1">
+        <div className="relative mt-0.5">
           <button
             onClick={() => setShowStatusDropdown(!showStatusDropdown)}
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold transition hover:opacity-90 cursor-pointer capitalize ${

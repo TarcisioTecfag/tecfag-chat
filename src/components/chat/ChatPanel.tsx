@@ -2241,10 +2241,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative"
     >
       {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
-      <header className="hidden md:flex items-center justify-between px-4 md:px-6 py-2.5 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[54px]">
-        <div className="flex items-center gap-3">
+      <header className="hidden md:flex items-center justify-between gap-2 px-4 md:px-6 py-2.5 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[54px]">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           {/* Avatar & Channel Badge */}
-          <div className="relative">
+          <div className="relative shrink-0">
             {activeChat.id === "valentina" ? (
               <AiAvatar
                 tenantId={tenant}
@@ -2278,68 +2278,73 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </span>
           </div>
 
-          <div>
-            <h2 className="text-sm font-bold text-foreground">{activeChat.name}</h2>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-bold text-foreground truncate">{activeChat.name}</h2>
             {activeChat.whatsappUsername && (
-              <span className="text-[11px] text-primary">@{activeChat.whatsappUsername}</span>
+              <span className="block text-[11px] text-primary truncate">@{activeChat.whatsappUsername}</span>
             )}
             {activeChat.id === "valentina" && isValentinaTyping ? (
-              <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
-                <Zap className="h-3 w-3 text-primary animate-bounce" />
-                <span>
+              <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5 truncate">
+                <Zap className="h-3 w-3 text-primary animate-bounce shrink-0" />
+                <span className="truncate">
                   {typeof valentinaThoughtTrace?.taskTitle === "string" && valentinaThoughtTrace.taskTitle.trim()
                     ? valentinaThoughtTrace.taskTitle
                     : `${aiPersona.name} executando ações...`}
                 </span>
               </span>
             ) : activeTyping ? (
-              <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5">
+              <span className="text-[11px] font-bold text-primary animate-pulse flex items-center gap-1 mt-0.5 truncate">
                 {activeTyping.status === "recording" ? (
                   <>
-                    <Mic className="h-3 w-3 text-red-500" />
-                    <span>gravando áudio...</span>
+                    <Mic className="h-3 w-3 text-red-500 shrink-0" />
+                    <span className="truncate">gravando áudio...</span>
                   </>
                 ) : (
                   <>
-                    <Zap className="h-3 w-3 text-primary" />
-                    <span>digitando...</span>
+                    <Zap className="h-3 w-3 text-primary shrink-0" />
+                    <span className="truncate">digitando...</span>
                   </>
                 )}
               </span>
             ) : activeOperatorTyping ? (
-              <span className="text-[11px] font-bold text-amber-500 animate-pulse flex items-center gap-1 mt-0.5">
-                <Zap className="h-3 w-3" />
-                <span>
+              <span className="text-[11px] font-bold text-amber-500 animate-pulse flex items-center gap-1 mt-0.5 truncate">
+                <Zap className="h-3 w-3 shrink-0" />
+                <span className="truncate">
                   {activeOperatorTyping.operatorName.split(" ")[0]} está digitando uma resposta...
                 </span>
               </span>
             ) : (
-              <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5">
+              <span className="text-[10px] text-muted-foreground font-semibold uppercase flex items-center gap-1.5 mt-0.5 truncate">
                 {activeChat.queue === "meus" &&
                   (isOwner ? (
-                    <span className="flex items-center gap-1 text-primary">
-                      <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Meus Atendimentos
+                    <span className="flex items-center gap-1 text-primary truncate">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />{" "}
+                      <span className="truncate">Meus Atendimentos</span>
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 text-amber-500">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Atendimento com{" "}
-                      {ownerOperator?.name ?? "outro operador"}
+                    <span className="flex items-center gap-1 text-amber-500 truncate">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />{" "}
+                      <span className="truncate">
+                        Atendimento com {ownerOperator?.name ?? "outro operador"}
+                      </span>
                     </span>
                   ))}
                 {activeChat.queue === "fila" && (
-                  <span className="flex items-center gap-1 text-amber-500">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Fila de Espera
+                  <span className="flex items-center gap-1 text-amber-500 truncate">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />{" "}
+                    <span className="truncate">Fila de Espera</span>
                   </span>
                 )}
                 {activeChat.queue === "automacao" && (
-                  <span className="flex items-center gap-1 text-primary font-bold animate-pulse">
-                    <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Com {aiPersona.name}{" "}
-                    (I.A)
+                  <span className="flex items-center gap-1 text-primary font-bold animate-pulse truncate">
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />{" "}
+                    <span className="truncate">Com {aiPersona.name} (I.A)</span>
                   </span>
                 )}
                 {activeChat.queue === "finalizados" && (
-                  <span className="flex items-center gap-1 text-gray-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-gray-400" /> Atendimento Finalizado
+                  <span className="flex items-center gap-1 text-gray-400 truncate">
+                    <span className="h-1.5 w-1.5 rounded-full bg-gray-400 shrink-0" />{" "}
+                    <span className="truncate">Atendimento Finalizado</span>
                   </span>
                 )}
               </span>

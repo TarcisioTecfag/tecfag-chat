@@ -2237,7 +2237,7 @@ export function CrmChatWidget() {
                   ease: [0.16, 1, 0.3, 1],
                   x: { duration: isDragging ? 0 : 0.15 },
                 }}
-                className="mb-2 flex h-[min(580px,calc(100dvh-5.5rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/98 shadow-2xl backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/5 outline-none"
+                className="mb-2 flex h-[560px] max-h-[calc(100vh-5.5rem)] w-[400px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/98 shadow-2xl backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/5 outline-none"
               >
                 <AnimatePresence mode="wait" initial={false}>
                   {selected ? (

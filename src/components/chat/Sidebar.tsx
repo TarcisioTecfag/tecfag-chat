@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { getAiPersona } from "@/lib/ai-persona";
 import { ProfilePopover } from "@/components/chat/ProfileModal";
+import { getDesktopSidebarModules, resolveAuthorizedActiveView } from "@/lib/module-catalog";
 
 export function Sidebar() {
   const { tenant, setTenant, availableTenants, activeView, setActiveView, operatorProfile, sessionRole, setIsProfileModalOpen, currentGroup, isCommercialConsultant } = useChat();
@@ -43,44 +44,22 @@ export function Sidebar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [showDropdown]);
 
-  const navItems = [
-    ...(tenant === "tecfag" && isCommercialConsultant ? [{ id: "commercialHome", icon: House, label: "Início" }] : []),
-    { id: "chat", icon: Users, label: "Chat" },
-    { id: "crm", icon: Columns3, label: "Negociações" },
-    { id: "tasks", icon: ClipboardCheck, label: "Tarefas" },
-    { id: "contacts", icon: Contact, label: "Base de Clientes" },
-    { id: "wallet", icon: Wallet, label: "Minha Carteira" },
-  ].filter((item) => canAccessView(item.id as any));
+  const moduleAccessCtx = {
+    tenant,
+    sessionRole,
+    isCommercialConsultant,
+    canAccessView,
+  };
 
-  const decorativeItems = [
-    ...(tenant === "tecfag" && sessionRole === "admin" ? [
-      { id: "commercialManagement", icon: BriefcaseBusiness, label: "Gestão Comercial", isAvailable: true },
-    ] : []),
-    { id: "valentina", icon: Bot,      label: persona.name,          isAvailable: true },
-    { id: "ligacoes",  icon: PhoneCall, label: "Ligações",           isAvailable: true },
-    { id: "monitor",   icon: Eye,       label: "Monitorar",          isAvailable: true },
-    { id: "analytics", icon: BarChart2, label: "Estatísticas",       isAvailable: true },
-    { id: "groups",    icon: Shield,    label: "Grupo de Acesso",    isAvailable: true },
-    { id: "settings",  icon: Settings,  label: "Ajustes",            isAvailable: true },
-  ].filter((item) => canAccessView(item.id as any));
+  const { navItems, decorativeItems } = getDesktopSidebarModules(moduleAccessCtx);
 
   // Redirecionamento automático caso a view atual não seja permitida
   useEffect(() => {
-    if (activeView === "commercialHome" && (tenant !== "tecfag" || !isCommercialConsultant)) {
-      setActiveView("chat");
-      return;
+    const resolved = resolveAuthorizedActiveView(activeView, moduleAccessCtx);
+    if (resolved && resolved !== activeView) {
+      setActiveView(resolved);
     }
-    if ((activeView === "commercialManagement" || activeView === "commercialBi") && tenant !== "tecfag") {
-      setActiveView("chat");
-      return;
-    }
-    if (!canAccessView(activeView)) {
-      const firstAllowed = [...navItems, ...decorativeItems][0]?.id;
-      if (firstAllowed) {
-        setActiveView(firstAllowed as any);
-      }
-    }
-  }, [activeView, currentGroup, isCommercialConsultant, tenant]);
+  }, [activeView, currentGroup, isCommercialConsultant, tenant, sessionRole]);
 
 
   return (
@@ -209,8 +188,8 @@ export function Sidebar() {
         </div>
 
         {/* Navigation Items */}
-        <div className="flex-1 min-h-0 w-full overflow-visible flex flex-col items-center py-1">
-          <nav className="flex flex-col items-center gap-1.5 md:gap-2.5 w-full">
+        <div className="flex-1 min-h-0 w-full overflow-visible flex flex-col items-center py-0.5">
+          <nav className="flex flex-col items-center gap-1 xl:gap-2 w-full">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeView === item.id;
@@ -221,7 +200,7 @@ export function Sidebar() {
                   whileTap={{ scale: 0.94 }}
                   onClick={() => setActiveView(item.id as any)}
                   aria-label={item.label}
-                  className={`relative grid h-9 w-9 md:h-11 md:w-11 place-items-center rounded-xl md:rounded-2xl cursor-pointer group transition-colors duration-150 shrink-0 ${
+                  className={`relative grid h-9 w-9 xl:h-10 xl:w-10 place-items-center rounded-xl md:rounded-2xl cursor-pointer group transition-colors duration-150 shrink-0 ${
                     isActive
                       ? "bg-primary-soft text-primary font-semibold"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -230,11 +209,11 @@ export function Sidebar() {
                   {isActive && (
                     <motion.span
                       layoutId="activeTabIndicator"
-                      className="absolute -left-2.5 md:-left-3.5 top-1/2 h-5 md:h-7 w-[3px] -translate-y-1/2 rounded-r bg-primary"
+                      className="absolute -left-2.5 md:-left-3.5 top-1/2 h-5 md:h-6 w-[3px] -translate-y-1/2 rounded-r bg-primary"
                       transition={{ type: "spring", stiffness: 350, damping: 25 }}
                     />
                   )}
-                  <Icon className="h-4 w-4 md:h-5 md:w-5" strokeWidth={isActive ? 2.25 : 1.75} />
+                  <Icon className="h-4 w-4 xl:h-[18px] xl:w-[18px]" strokeWidth={isActive ? 2.25 : 1.75} />
                   {/* Floating tooltip — mesmo padrão dos módulos inferiores */}
                   <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
                     {item.label}
@@ -243,7 +222,7 @@ export function Sidebar() {
               );
             })}
 
-            <div className="my-1 md:my-1.5 h-[1px] w-6 md:w-8 bg-line shrink-0" />
+            <div className="my-0.5 xl:my-1 h-[1px] w-6 md:w-8 bg-line shrink-0" />
 
             {/* Decorative / Future Navigation Items */}
             {decorativeItems.map((item, index) => {
@@ -259,7 +238,7 @@ export function Sidebar() {
                     whileTap={{ scale: 0.94 }}
                     onClick={() => setActiveView(item.id as any)}
                     aria-label={item.label}
-                    className={`relative grid h-9 w-9 md:h-11 md:w-11 place-items-center rounded-xl md:rounded-2xl cursor-pointer group transition-colors duration-150 shrink-0 ${
+                    className={`relative grid h-9 w-9 xl:h-10 xl:w-10 place-items-center rounded-xl md:rounded-2xl cursor-pointer group transition-colors duration-150 shrink-0 ${
                       isActive
                         ? "bg-primary-soft text-primary font-semibold"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -269,11 +248,11 @@ export function Sidebar() {
                     {isActive && (
                       <motion.span
                         layoutId="activeTabIndicator"
-                        className="absolute -left-2.5 md:-left-3.5 top-1/2 h-5 md:h-7 w-[3px] -translate-y-1/2 rounded-r bg-primary"
+                        className="absolute -left-2.5 md:-left-3.5 top-1/2 h-5 md:h-6 w-[3px] -translate-y-1/2 rounded-r bg-primary"
                         transition={{ type: "spring", stiffness: 350, damping: 25 }}
                       />
                     )}
-                    <Icon className="h-4 w-4 md:h-5 md:w-5" strokeWidth={isActive ? 2.25 : 1.75} />
+                    <Icon className="h-4 w-4 xl:h-[18px] xl:w-[18px]" strokeWidth={isActive ? 2.25 : 1.75} />
                     {/* Floating tooltip */}
                     <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
                       {item.label}
@@ -286,11 +265,11 @@ export function Sidebar() {
                 <motion.button
                   key={index}
                   whileHover={{ scale: 0.98 }}
-                  className="relative grid h-9 w-9 md:h-11 md:w-11 place-items-center rounded-xl md:rounded-2xl text-muted-foreground/50 hover:bg-muted/40 cursor-not-allowed group transition-colors duration-150 shrink-0"
+                  className="relative grid h-9 w-9 xl:h-10 xl:w-10 place-items-center rounded-xl md:rounded-2xl text-muted-foreground/50 hover:bg-muted/40 cursor-not-allowed group transition-colors duration-150 shrink-0"
                   title={`${item.label} (Brevemente)`}
                   disabled
                 >
-                  <Icon className="h-4 w-4 md:h-5 md:w-5" strokeWidth={1.75} />
+                  <Icon className="h-4 w-4 xl:h-[18px] xl:w-[18px]" strokeWidth={1.75} />
                   {/* Floating tooltip */}
                   <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded bg-foreground px-2 py-1 text-xs text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none">
                     {item.label}
@@ -303,7 +282,7 @@ export function Sidebar() {
       </div>
 
       {/* Bottom Profile / User Avatar */}
-      <div className="flex flex-col items-center gap-2 md:gap-3 shrink-0 pt-2 md:pt-3 border-t border-line/40 w-full">
+      <div className="flex flex-col items-center gap-1.5 xl:gap-2.5 shrink-0 pt-2 border-t border-line/40 w-full z-10">
         {/* Dica de Atalhos de Teclado */}
         <div
           className="relative grid h-7 w-7 md:h-8 md:w-8 place-items-center rounded-lg md:rounded-xl text-muted-foreground/60 hover:text-primary hover:bg-primary-soft/40 transition-colors group cursor-help shrink-0"

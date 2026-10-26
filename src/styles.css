@@ -176,31 +176,45 @@
   }
 
   /* ==========================================================================
-     ESCALA DE DENSIDADE DA TELA
-     Padrão nativo 100% (zoom: 1) em todos os notebooks e computadores para
-     evitar qualquer recorte de viewport; escalas 75% e 85% aplicam-se apenas
-     quando selecionadas manualmente pelo operador nas opções de Aparência.
+     ESCALA DE DENSIDADE DA TELA (AUTO-ADAPTATIVA PARA NOTEBOOKS)
+     Como html/body e containers raiz usam width/height: 100% + inset: 0 (sem
+     100dvw/100dvh), o zoom CSS preenche 100% da janela física sem qualquer
+     recorte e amplia a área útil automaticamente em telas de notebook.
      ========================================================================== */
 
   @media screen and (min-width: 768px) {
-    /* 1. Modo Padrão / Automático 100% (sem zoom CSS forçado) */
-    html:not([data-density]),
-    html[data-density="auto"],
-    html[data-density="100"],
-    html[data-density="standard"] {
-      zoom: 1 !important;
-    }
-
-    /* 2. Modo Compacto 75% (selecionado manualmente) */
+    /* 1. Forçar Compacto 75% (Manual) */
     html[data-density="75"],
     html[data-density="compact"] {
       zoom: 0.75 !important;
     }
 
-    /* 3. Modo Confortável 85% (selecionado manualmente) */
+    /* 2. Forçar Confortável 85% (Manual) */
     html[data-density="85"],
     html[data-density="comfortable"] {
       zoom: 0.85 !important;
+    }
+
+    /* 3. Forçar Padrão 100% (Manual) */
+    html[data-density="100"],
+    html[data-density="standard"] {
+      zoom: 1 !important;
+    }
+  }
+
+  /* 4. Modo Automático (Padrão): reduz escala automaticamente em notebooks (ex: 1080p @ 125% = 1536x864) */
+  @media screen and (min-width: 768px) and (max-width: 1600px),
+         screen and (min-width: 768px) and (max-height: 860px) {
+    html:not([data-density="100"]):not([data-density="standard"]):not([data-density="85"]):not([data-density="comfortable"]):not([data-density="75"]):not([data-density="compact"]) {
+      zoom: 0.8;
+    }
+  }
+
+  /* 5. Notebooks menores (1366x768 ou 1080p @ 150% = 1280x720): escala 75% automática */
+  @media screen and (min-width: 768px) and (max-width: 1400px),
+         screen and (min-width: 768px) and (max-height: 720px) {
+    html:not([data-density="100"]):not([data-density="standard"]):not([data-density="85"]):not([data-density="comfortable"]) {
+      zoom: 0.75;
     }
   }
 
