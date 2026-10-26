@@ -1,6 +1,6 @@
 # WhatsApp com múltiplas conexões simultâneas por tenant
 
-Data: 26/10/2026. Estado: arquitetura aprovada e implementação validada localmente. Migração preparada, sem execução em banco operacional. Nenhuma sessão real de WhatsApp, credencial operacional ou serviço de produção foi alterado. A seção 10 descreve o escopo entregue e a ativação controlada.
+Data: 26/10/2026. Estado: arquitetura aprovada e implementação em uso na Tecfag. As seções 10 a 12 registram o escopo entregue e a evolução do controle de acesso e do fluxo de captura.
 
 Contexto operacional atualizado pelo responsável em 26/10/2026: a Valem não está em operação; a Tecfag é o sistema real em https://tecfagchat.up.railway.app/negociacoes/quadro. Não foi informado um ambiente separado de homologação. O piloto real deve preservar os dados e a conexão principal da Tecfag, usar números operacionais escolhidos pelo responsável e evitar cadastros fictícios no banco real.
 
@@ -98,7 +98,7 @@ Para o WhatsApp, a chave de conversa passa a ser `(tenantId, whatsappConnectionI
 ## 4. Regras de operação e experiência
 
 1. O cliente escreve ao número oficial: entra na conversa oficial, com suas regras de fila e triagem.
-2. Escreve ao closer: entra na conversa daquele número. Proposta inicial: atribuir ao titular da conexão, sem alterar automaticamente a carteira comercial. Indisponibilidade e substituição seguem política explícita.
+2. Escreve ao número da equipe: entra na conversa daquele número. Novos atendimentos adicionais aguardam captura explícita; parear o aparelho ou receber mensagens não atribui automaticamente o atendimento ao titular e não altera a carteira comercial.
 3. A resposta usa a conexão fixa da conversa. A requisição interna identifica a conversa; o servidor resolve tenant, conexão e destinatário e verifica as permissões.
 4. Para iniciar contato por outro número, o operador escolhe uma conexão autorizada e abre/reutiliza a conversa correspondente. O histórico anterior preserva sua origem.
 5. Trocar o atendente não troca o número. Outro operador só assume/responde se tiver acesso àquela conexão. Se for preciso usar seu próprio número, abrir outro atendimento vinculado ao contato/negócio.
@@ -221,3 +221,17 @@ O histórico unificado, anexos e eventos usam a mesma condição de leitura no s
 Os testes embarcados executam as duas migrações em PostgreSQL de teste, validam grupos entre tenants, acesso por número, leitura sem envio, revogação, preservação de titular/admin, API administrativa e bloqueio de envio, reação e captura antes de efeitos operacionais. Nenhuma concessão a grupos reais é criada pela migração ou pelos testes.
 
 A alteração de localização preserva as concessões existentes e não precisa de nova migração. A rota interna `/api/groups/whatsapp-connections` valida tenant e permissões do administrador, detecta edição desatualizada e grava concessão e auditoria na mesma transação. A antiga ação de compartilhar no endpoint de conexões não realiza mais alterações e orienta a usar o Controle de Acesso. O painel de Ajustes não oferece mais controles de compartilhamento.
+
+## 12. Escolher número antes de capturar
+
+O seletor fica em um botão com ícone de celular no cabeçalho, ao lado da seta que abre as informações. Ele aparece para operadores com permissão de captura quando o atendimento está livre ou finalizado. Não fica mais dentro da rolagem do histórico nem depende do estado minimizado salvo pelo navegador.
+
+O operador abre o botão, escolhe um número conectado e autorizado, clica em **Salvar** e depois em **Capturar Atendimento**. Enquanto o seletor está aberto, os botões de captura ficam bloqueados para evitar aplicar uma escolha não salva. Cancelar descarta a escolha local.
+
+Salvar usa a ação `prepare`: o servidor obtém o contato pela conversa de origem, verifica a versão e recusa origens em atendimento humano. Ele abre ou reutiliza a conversa do contato naquele número, sem modificar o remetente de conversas existentes. Novas conversas ficam na fila sem operador; conversas finalizadas escolhidas são reabertas na fila, com incremento de versão. A seleção, a aprovação de contato no modo seletivo e a auditoria são transacionais. Salvar não envia mensagens nem captura o atendimento; a captura continua pela rota existente e conserva as exigências de negociação e permissões.
+
+Após capturar, o botão desaparece. Para trocar, é necessário finalizar e voltar ao fluxo de escolher, salvar e capturar. A regra também é validada no servidor: origem capturada e destino já em atendimento humano são recusados, inclusive em telas desatualizadas. A antiga ação `start`, que capturava imediatamente, deixa de realizar a operação.
+
+Nos números adicionais, mensagens de uma conta pareada não capturam o atendimento silenciosamente. Uma captura humana existente é preservada; uma nova mensagem de cliente pode reabrir um atendimento finalizado na fila, sem operador. Histórico importado e mensagens enviadas pelo dispositivo não reabrem automaticamente um atendimento finalizado. A conexão principal mantém as regras de roteamento existentes.
+
+Os testes executam o ciclo salvar → capturar → finalizar → escolher outro número, confirmam que o envio exige captura, preservam os históricos em suas conversas e rejeitam origem/destino em atendimento, versão desatualizada, número desconectado, outro tenant e falta de permissão. Falha na auditoria desfaz também a conversa em espera e a aprovação seletiva do contato.

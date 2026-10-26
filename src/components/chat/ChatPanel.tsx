@@ -12,7 +12,7 @@ import { MessageStatusTicks } from "./MessageStatusTicks";
 import { MessageReactionPicker } from "./MessageReactionPicker";
 import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr } from "@/hooks/useChatState";
 import { useWhatsappConnections, useContactWhatsappHistory } from "@/hooks/useWhatsappConnections";
-import { WhatsappConversationConnection } from "./WhatsappConnectionsPanel";
+import { WhatsappNumberPicker } from "./WhatsappNumberPicker";
 import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
@@ -994,7 +994,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const activeProvider = activeChat?.whatsappConnectionId ? "baileys" : tenantActiveProvider;
   const connectionsState = useWhatsappConnections(tenant);
-  const [showAllNumbers, setShowAllNumbers] = useState(true);
+  const [showAllNumbers] = useState(true);
+  const [choosingWhatsappNumber, setChoosingWhatsappNumber] = useState(false);
   const unifiedHistory = useContactWhatsappHistory(tenant, activeChat?.id, connectionsState.enabled && showAllNumbers && activeChat?.channel === "whatsapp" && activeChat.id !== "valentina");
   const openSourceConversation = async (id: string) => {
     await refreshConversations(id);
@@ -2531,6 +2532,24 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
         {/* Handover Operations Actions */}
         <div className="flex items-center gap-1 md:gap-2 relative shrink-0">
+          {activeChat.id !== "valentina" &&
+            activeChat.channel === "whatsapp" &&
+            activeChat.queue !== "meus" &&
+            (activeChat.queue === "finalizados" || !activeChat.operatorId) &&
+            canCapture && (
+              <WhatsappNumberPicker
+                key={activeChat.id}
+                conversationId={activeChat.id}
+                version={activeChat.version ?? 1}
+                connectionId={activeChat.whatsappConnectionId}
+                onPrepared={async (id, queueState) => {
+                  await refreshConversations(id);
+                  setActiveQueue(queueState === "automacao" ? "automacao" : "fila");
+                  setSelectedChatId(id);
+                }}
+                onChoosing={setChoosingWhatsappNumber}
+              />
+            )}
           {activeChat.id !== "valentina" && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -2803,6 +2822,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             !activeChat.operatorId &&
             canCapture && (
               <button
+                disabled={choosingWhatsappNumber}
                 onClick={() => captureChat(activeChat.id)}
                 className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-2.5 md:px-4 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer"
               >
@@ -3034,7 +3054,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           )}
-        {activeChat.channel === "whatsapp" && activeChat.id !== "valentina" && <WhatsappConversationConnection contactId={activeChat.contactId} connectionId={activeChat.whatsappConnectionId} showAll={showAllNumbers} onShowAll={setShowAllNumbers} onOpen={openSourceConversation} />}
         {connectionsState.enabled && showAllNumbers && unifiedHistory.error && <p role="alert" className="p-3 text-xs text-destructive">{unifiedHistory.error}</p>}
         {connectionsState.enabled && showAllNumbers && unifiedHistory.hasMore && <button className="m-3 rounded border px-3 py-2 text-xs" disabled={unifiedHistory.loading} onClick={() => void unifiedHistory.loadMore()}>Carregar histórico de todos os números</button>}
         {(() => {
@@ -3530,6 +3549,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     {canOverride && (
                       <button
                         type="button"
+                        disabled={choosingWhatsappNumber}
                         onClick={() => captureChat(activeChat.id)}
                         className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
                       >
@@ -3572,6 +3592,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     {canCapture && (
                       <button
                         type="button"
+                        disabled={choosingWhatsappNumber}
                         onClick={() => captureChat(activeChat.id)}
                         className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
                       >
@@ -3614,6 +3635,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                     {canCapture && (
                       <button
                         type="button"
+                        disabled={choosingWhatsappNumber}
                         onClick={() => captureChat(activeChat.id)}
                         className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
                       >
@@ -4221,6 +4243,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
+                    disabled={choosingWhatsappNumber}
                     onClick={() => captureChat(activeChat.id)}
                     className="inline-flex items-center gap-2 rounded-md border border-border/90 bg-background hover:bg-muted/70 hover:border-primary/50 px-4 py-2 text-xs font-semibold text-foreground shadow-xs transition-colors cursor-pointer"
                   >

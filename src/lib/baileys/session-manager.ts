@@ -17,7 +17,7 @@ import pino from "pino";
 import fs from "fs";
 import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
-import { multiConnectionEnabled, connectionScope, baileysEventId } from "../whatsapp/connection-policy";
+import { multiConnectionEnabled, connectionScope, baileysEventId, personalAttendanceState } from "../whatsapp/connection-policy";
 import { readBaileysConfig, updateBaileysConfig, acquireConnectionLease, renewConnectionLease, releaseConnectionLease, conversationConnectionCondition, storeConnectionQr } from "../whatsapp/connections";
 import { captureConnectionPeer, findConnectionContact, bindConnectionIdentity, syncConnectionContact } from "../whatsapp/connection-contacts";
 import { db } from "../../db";
@@ -1495,9 +1495,11 @@ export class SessionManager {
       }
 
       if (this.connectionId) {
-        const cfg = await readBaileysConfig(tenantId, this.connectionId);
-        targetOperatorId = conversation?.operatorId || (cfg && "ownerOperatorId" in cfg ? cfg.ownerOperatorId : null);
-        targetQueue = targetOperatorId ? "meus" : "fila";
+        // A paired phone does not capture an attendance. Keep active captures, but
+        // new/reopened messages wait for an explicit capture in the panel.
+        const personalState = personalAttendanceState(conversation, { historical: !!rawMsg.__historical, fromMe: isFromMe });
+        targetQueue = personalState.queueState;
+        targetOperatorId = personalState.operatorId;
       }
       if (!conversation) {
         // Criar conversa

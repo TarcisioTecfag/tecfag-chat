@@ -4,11 +4,8 @@ import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
   channelConfigs,
-  contacts,
-  conversations,
   operators,
   whatsappConnections,
-  whatsappConnectionContacts,
   whatsappConnectionGroupAccess,
   accessGroups,
 } from "../../../db/schema";
@@ -16,7 +13,6 @@ import { requireSession } from "../../../lib/auth-session";
 import { canManageWhatsappConnection } from "../../../lib/access-control/channel-permissions";
 import { conversationReadRules } from "../../../lib/access-control/conversation-policy";
 import {
-  requireConversationAccess,
   whatsappConnectionAccessCondition,
   hasWhatsappConnectionAccess,
 } from "../../../lib/access-control/conversation-access";
@@ -30,8 +26,10 @@ import {
   multiConnectionEnabled,
   ownsConnection,
 } from "../../../lib/whatsapp/connection-policy";
-import { conversationConnectionCondition } from "../../../lib/whatsapp/connections";
-import { lockContactDeals, syncConversationDeals } from "../../../lib/crm/deal-associations";
+import {
+  prepareWhatsappConversation,
+  WhatsappPreparationError,
+} from "../../../lib/whatsapp/prepare-conversation";
 
 const headers = { "Cache-Control": "no-store" };
 export const Route = createFileRoute("/api/whatsapp/connections")({
@@ -144,7 +142,10 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
                 provider: row.provider,
                 ownerOperatorId: row.ownerOperatorId,
                 phone: row.baileysPairedPhone,
-                status: row.baileysSessionStatus,
+                status:
+                  row.leaseUntil && row.leaseUntil.getTime() > Date.now()
+                    ? row.baileysSessionStatus
+                    : "disconnected",
                 enabled: row.enabled,
                 capturePolicy: row.capturePolicy,
                 error: row.lastError,
@@ -234,75 +235,57 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
           );
         }
         if (body.action === "start") {
-          if (!corporate && !(await hasWhatsappConnectionAccess(session, id, "send")))
+          return Response.json(
+            {
+              error: "Escolha o número antes da captura e salve. Depois capture o atendimento.",
+              code: "NUMBER_SELECTION_WORKFLOW_CHANGED",
+            },
+            { status: 409 },
+          );
+        }
+        if (body.action === "prepare") {
+          if (
+            typeof body.sourceConversationId !== "string" ||
+            !body.sourceConversationId ||
+            body.sourceConversationId.length > 200 ||
+            !Number.isInteger(body.expectedVersion) ||
+            body.expectedVersion < 1
+          )
             return Response.json(
-              {
-                error: "Sem permissão para enviar por este número.",
-                code: "CONNECTION_SEND_FORBIDDEN",
-              },
-              { status: 403 },
+              { error: "Informe o atendimento e sua versão atual." },
+              { status: 400 },
             );
-          if (session.permissions.chat.canCaptureChat !== true || !rules.queues.includes("meus"))
-            return Response.json(
-              { error: "Sem permissão para iniciar atendimento." },
-              { status: 403 },
-            );
-          if (connection && !connection.enabled)
-            return Response.json({ error: "Conexão desativada." }, { status: 409 });
-          const contactId = typeof body.contactId === "string" ? body.contactId : "";
-          const [contact] = await db
-            .select()
-            .from(contacts)
-            .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactId)))
-            .limit(1);
-          if (!contact) return Response.json({ error: "Contato não encontrado." }, { status: 404 });
-          if (corporate && contact.mainChannel !== "whatsapp")
-            return Response.json(
-              { error: "Abra o atendimento do canal original pela ficha do contato." },
-              { status: 409 },
-            );
-          const connectionId = corporate ? null : id;
-          const conversationId = await db.transaction(async (tx) => {
-            await lockContactDeals(tx, tenantId, contactId);
-            if (connectionId)
-              await tx
-                .insert(whatsappConnectionContacts)
-                .values({ id: randomUUID(), tenantId, connectionId, contactId })
-                .onConflictDoNothing();
-            const [existing] = await tx
-              .select({ id: conversations.id })
-              .from(conversations)
-              .where(
-                and(
-                  eq(conversations.tenantId, tenantId),
-                  eq(conversations.contactId, contactId),
-                  conversationConnectionCondition(connectionId),
-                ),
-              )
-              .limit(1);
-            if (existing) return existing.id;
-            const newId = randomUUID();
-            await tx.insert(conversations).values({
-              id: newId,
-              tenantId,
-              contactId,
-              whatsappConnectionId: connectionId,
-              operatorId: session.operator.id,
-              queueState: "meus",
+          try {
+            const prepared = await prepareWhatsappConversation(session, {
+              sourceConversationId: body.sourceConversationId,
+              expectedVersion: body.expectedVersion,
+              connectionId: corporate ? null : id,
             });
-            await syncConversationDeals(tx, tenantId, newId, contactId, session.operator.id);
-            return newId;
-          });
-          const denied = await requireConversationAccess(session, conversationId);
-          if (denied) return denied;
-          SessionManager.getInstance().notifyPublic(tenantId, {
-            type: "queue_update",
-            conversationId,
-            queueState: "meus",
-            operatorId: session.operator.id,
-            sectorId: null,
-          });
-          return Response.json({ conversationId });
+            try {
+              SessionManager.getInstance().notifyPublic(tenantId, {
+                type: "queue_update",
+                conversationId: prepared.conversationId,
+                queueState: prepared.queueState,
+                operatorId: prepared.operatorId,
+                sectorId: prepared.sectorId,
+                version: prepared.version,
+              });
+            } catch {
+              console.error("[WhatsApp] Número salvo; atualização do painel aguardando reconexão.");
+            }
+            return Response.json(prepared, { headers });
+          } catch (cause) {
+            if (cause instanceof WhatsappPreparationError)
+              return Response.json(
+                { error: cause.message, code: cause.code },
+                { status: cause.status },
+              );
+            console.error("[WhatsApp] Falha ao preparar número; nenhuma captura foi realizada.");
+            return Response.json(
+              { error: "Não foi possível salvar o número do atendimento." },
+              { status: 500 },
+            );
+          }
         }
         if (corporate || !connection)
           return Response.json(

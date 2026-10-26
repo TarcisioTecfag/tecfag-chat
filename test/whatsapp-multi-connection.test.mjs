@@ -17,7 +17,7 @@ const policy = loadAccessSource("src/lib/whatsapp/connection-policy.ts");
 const crypto = loadAccessSource("src/lib/whatsapp/connection-crypto.ts", {
   "./connection-policy": policy,
 });
-let client, db, connectionService, access, principal;
+let client, db, connectionService, access, principal, preparation;
 const originalFlag = process.env.WHATSAPP_MULTI_CONNECTION_TENANTS;
 const originalKey = process.env.WHATSAPP_CONNECTION_ENCRYPTION_KEY;
 const tenant = "connection-test-a";
@@ -180,6 +180,13 @@ before(async () => {
     "./connection-crypto": crypto,
   });
   access = loadAccessSource("src/lib/access-control/conversation-access.ts", overrides);
+  preparation = loadAccessSource("src/lib/whatsapp/prepare-conversation.ts", {
+    ...overrides,
+    "../access-control/conversation-access": access,
+    "../crm/deal-associations": { lockContactDeals: async () => {} },
+    "./connections": connectionService,
+    "./connection-policy": policy,
+  });
   principal = session();
 });
 after(async () => {
@@ -484,6 +491,7 @@ test("connection API scopes the QR, hides secrets and permits only admin creatio
     "../../../lib/whatsapp/connection-crypto": crypto,
     "../../../lib/whatsapp/connection-policy": policy,
     "../../../lib/whatsapp/connections": connectionService,
+    "../../../lib/whatsapp/prepare-conversation": preparation,
     "../../../lib/crm/deal-associations": {
       lockContactDeals: async () => {},
       syncConversationDeals: async () => true,
@@ -551,15 +559,8 @@ test("connection API scopes the QR, hides secrets and permits only admin creatio
       tenantId: otherTenant,
     }),
   });
-  assert.equal(started.status, 200);
-  const { conversationId } = await started.json();
-  const [created] = await db
-    .select()
-    .from(schema.conversations)
-    .where(orm.eq(schema.conversations.id, conversationId));
-  assert.equal(created.tenantId, tenant);
-  assert.equal(created.whatsappConnectionId, "number-3");
-  assert.equal(created.contactId, "customer");
+  assert.equal(started.status, 409);
+  assert.equal((await started.json()).code, "NUMBER_SELECTION_WORKFLOW_CHANGED");
 });
 
 test("unified history is chronological, labelled and excludes another seller and tenant", async () => {
@@ -1059,7 +1060,7 @@ test("admin can toggle group rights; a shared group cannot obtain QR, pair, mana
     ).status,
     403,
   );
-  for (const action of ["connect", "disconnect", "start"])
+  for (const action of ["connect", "disconnect"])
     assert.equal(
       (
         await route.POST({
@@ -1083,7 +1084,7 @@ test("admin can toggle group rights; a shared group cannot obtain QR, pair, mana
         request: apiRequest({ action: "start", connectionId: "number-4", contactId: "customer" }),
       })
     ).status,
-    200,
+    409,
   );
   who = adminSession();
   assert.equal((await change({ canRead: false, canSend: false })).status, 200);
@@ -1295,5 +1296,373 @@ test("failed access audit rolls back number permissions instead of leaving a par
   assert.deepEqual(
     await db.select().from(schema.whatsappConnectionGroupAccess).where(condition),
     before,
+  );
+});
+
+test("choose number, save, capture, finish and choose again preserve independent histories", async () => {
+  const who = session();
+  who.permissions.chat.canFinishChat = true;
+  await db
+    .insert(schema.contacts)
+    .values({
+      id: "workflow-customer",
+      tenantId: tenant,
+      name: "Workflow customer",
+      phone: "5511999995555",
+      mainChannel: "whatsapp",
+      responsibleName: "Unassigned",
+    });
+  await db
+    .insert(schema.conversations)
+    .values({
+      id: "workflow-company",
+      tenantId: tenant,
+      contactId: "workflow-customer",
+      queueState: "fila",
+      operatorId: null,
+      version: 1,
+    });
+  await db
+    .update(schema.channelConfigs)
+    .set({ connectionStatus: "connected" })
+    .where(orm.eq(schema.channelConfigs.tenantId, tenant));
+  await db
+    .update(schema.whatsappConnections)
+    .set({
+      baileysSessionStatus: "connected",
+      leaseToken: "workflow-lease",
+      leaseUntil: new Date(Date.now() + 60_000),
+    })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnections.tenantId, tenant),
+        orm.eq(schema.whatsappConnections.id, "number-6"),
+      ),
+    );
+  const events = [];
+  const common = {
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": { requireSession: async () => ({ session: who }) },
+    "../../../lib/access-control/conversation-access": access,
+    "../../../lib/baileys/session-manager": {
+      SessionManager: { getInstance: () => ({ notifyPublic: (_t, e) => events.push(e) }) },
+    },
+  };
+  const api = isolatedModule("src/routes/api/whatsapp/connections.ts", {
+    ...common,
+    "../../../lib/whatsapp/connection-policy": policy,
+    "../../../lib/access-control/conversation-policy": loadAccessSource(
+      "src/lib/access-control/conversation-policy.ts",
+    ),
+    "../../../lib/whatsapp/prepare-conversation": preparation,
+  }).Route.server.handlers;
+  const saveNumber = (sourceConversationId, expectedVersion, connectionId) =>
+    api.POST({
+      request: apiRequest({
+        action: "prepare",
+        sourceConversationId,
+        expectedVersion,
+        connectionId,
+        contactId: "customer-other",
+        tenantId: otherTenant,
+      }),
+    });
+  const saved = await saveNumber("workflow-company", 1, "number-6");
+  assert.equal(saved.status, 200);
+  const prepared = await saved.json();
+  assert.equal(prepared.queueState, "fila");
+  assert.equal(prepared.operatorId, null);
+  assert.equal(
+    (await access.requireConversationWriteAccess(who, prepared.conversationId)).status,
+    403,
+  );
+  const readThread = async (id) =>
+    (
+      await db
+        .select()
+        .from(schema.conversations)
+        .where(
+          orm.and(
+            orm.eq(schema.conversations.tenantId, tenant),
+            orm.eq(schema.conversations.id, id),
+          ),
+        )
+    )[0];
+  assert.equal((await readThread(prepared.conversationId)).contactId, "workflow-customer");
+  assert.equal((await readThread("workflow-company")).whatsappConnectionId, null);
+  const [beforeCapture] = await db
+    .select()
+    .from(schema.contacts)
+    .where(
+      orm.and(
+        orm.eq(schema.contacts.tenantId, tenant),
+        orm.eq(schema.contacts.id, "workflow-customer"),
+      ),
+    );
+  assert.equal(beforeCapture.responsibleName, "Unassigned");
+  const queue = isolatedModule("src/routes/api/chats/update-queue.ts", {
+    ...common,
+    "../../../lib/ai-persona": { getAiPersona: () => ({ name: "Agent", triagePolicy: "generic" }) },
+    "../../../lib/valentina/sdr-debouncer": {
+      SdrDebouncer: { getInstance: () => ({ clearSession() {} }) },
+    },
+    "../../../lib/crm/deal-associations": { syncConversationDeals: async () => true },
+    "../../../lib/attendance-events": { setAttendanceActor: async () => {} },
+    "../../../lib/commercial/tma": { recordCommercialTransfer: async () => {} },
+    "../../../lib/audit-service": { auditService: { enqueueAudit: async () => {} } },
+    "../../../lib/crm/conversation-deal-context": {
+      getDealContext: async (tx, tenantId, id) => ({
+        conversation: (
+          await tx
+            .select()
+            .from(schema.conversations)
+            .where(
+              orm.and(
+                orm.eq(schema.conversations.tenantId, tenantId),
+                orm.eq(schema.conversations.id, id),
+              ),
+            )
+        )[0],
+        context: { currentDealId: null, version: 0 },
+        deals: [],
+      }),
+      assertDealContextVersion() {},
+      recordConversationAction: async () => {},
+      endDealContext: async () => {},
+      DealContextError: class extends Error {},
+    },
+  }).Route.server.handlers;
+  const claim = await queue.POST({
+    request: apiRequest({
+      conversationId: prepared.conversationId,
+      queueState: "meus",
+      operatorId: who.operator.id,
+      expectedVersion: prepared.version,
+    }),
+  });
+  assert.equal(claim.status, 200, await claim.clone().text());
+  const captured = await claim.json();
+  assert.equal(await access.requireConversationWriteAccess(who, prepared.conversationId), null);
+  const locked = await saveNumber(prepared.conversationId, captured.version, "corporate");
+  assert.equal(locked.status, 409);
+  assert.equal((await locked.json()).code, "ATTENDANCE_NUMBER_LOCKED");
+  const occupied = await saveNumber("workflow-company", 1, "number-6");
+  assert.equal(occupied.status, 409);
+  assert.equal((await occupied.json()).code, "TARGET_ATTENDANCE_ACTIVE");
+  const finish = await queue.POST({
+    request: apiRequest({
+      conversationId: prepared.conversationId,
+      queueState: "finalizados",
+      expectedVersion: captured.version,
+      expectedContextVersion: 0,
+    }),
+  });
+  assert.equal(finish.status, 200, await finish.clone().text());
+  const closed = await finish.json();
+  const beforeMessages = await db
+    .select()
+    .from(schema.messages)
+    .where(
+      orm.and(
+        orm.eq(schema.messages.tenantId, tenant),
+        orm.eq(schema.messages.conversationId, prepared.conversationId),
+      ),
+    );
+  const next = await saveNumber(prepared.conversationId, closed.version, "corporate");
+  assert.equal(next.status, 200);
+  const nextPrepared = await next.json();
+  assert.equal(nextPrepared.conversationId, "workflow-company");
+  assert.equal(nextPrepared.queueState, "fila");
+  assert.equal(nextPrepared.operatorId, null);
+  assert.equal((await readThread(prepared.conversationId)).whatsappConnectionId, "number-6");
+  assert.deepEqual(
+    await db
+      .select()
+      .from(schema.messages)
+      .where(
+        orm.and(
+          orm.eq(schema.messages.tenantId, tenant),
+          orm.eq(schema.messages.conversationId, prepared.conversationId),
+        ),
+      ),
+    beforeMessages,
+  );
+  assert.ok(beforeMessages.every((message) => message.isInternalNote));
+  assert.ok(events.some((event) => event.queueState === "fila" && event.operatorId === null));
+});
+
+test("preparing a number rejects stale, offline, foreign and read-only choices without capturing", async () => {
+  const input = {
+    sourceConversationId: "workflow-company",
+    expectedVersion: 1,
+    connectionId: "number-6",
+  };
+  await assert.rejects(
+    preparation.prepareWhatsappConversation(session(), { ...input, expectedVersion: 9 }),
+    (error) => error.code === "CONCURRENCY_CONFLICT",
+  );
+  await assert.rejects(
+    preparation.prepareWhatsappConversation({ ...session(), tenantId: otherTenant }, input),
+    (error) => error.code === "NOT_FOUND",
+  );
+  const readOnly = {
+    ...session("seller-b"),
+    operator: { ...session("seller-b").operator, groupId: "support" },
+  };
+  await db
+    .insert(schema.whatsappConnectionGroupAccess)
+    .values({
+      id: "workflow-read-only",
+      tenantId: tenant,
+      connectionId: "number-6",
+      groupId: "support",
+      canRead: true,
+    });
+  await assert.rejects(
+    preparation.prepareWhatsappConversation(readOnly, input),
+    (error) => error.code === "CONNECTION_SEND_FORBIDDEN",
+  );
+  await db
+    .update(schema.whatsappConnections)
+    .set({ baileysSessionStatus: "disconnected" })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnections.tenantId, tenant),
+        orm.eq(schema.whatsappConnections.id, "number-6"),
+      ),
+    );
+  await assert.rejects(
+    preparation.prepareWhatsappConversation(session(), input),
+    (error) => error.code === "CONNECTION_UNAVAILABLE",
+  );
+  const current = (
+    await db
+      .select()
+      .from(schema.conversations)
+      .where(
+        orm.and(
+          orm.eq(schema.conversations.tenantId, tenant),
+          orm.eq(schema.conversations.id, "workflow-company"),
+        ),
+      )
+  )[0];
+  assert.equal(current.queueState, "fila");
+  assert.equal(current.operatorId, null);
+  await db
+    .delete(schema.whatsappConnectionGroupAccess)
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnectionGroupAccess.tenantId, tenant),
+        orm.eq(schema.whatsappConnectionGroupAccess.id, "workflow-read-only"),
+      ),
+    );
+});
+
+test("linked-device messages do not replace an explicit capture or silently reopen a finished attendance", () => {
+  assert.deepEqual(
+    policy.personalAttendanceState(undefined, { fromMe: false, historical: false }),
+    { queueState: "fila", operatorId: null },
+  );
+  assert.deepEqual(
+    policy.personalAttendanceState(
+      { queueState: "meus", operatorId: "seller-b" },
+      { fromMe: true, historical: false },
+    ),
+    { queueState: "meus", operatorId: "seller-b" },
+  );
+  assert.deepEqual(
+    policy.personalAttendanceState(
+      { queueState: "finalizados", operatorId: "seller-b" },
+      { fromMe: true, historical: false },
+    ),
+    { queueState: "finalizados", operatorId: "seller-b" },
+  );
+  assert.deepEqual(
+    policy.personalAttendanceState(
+      { queueState: "finalizados", operatorId: "seller-b" },
+      { fromMe: false, historical: true },
+    ),
+    { queueState: "finalizados", operatorId: "seller-b" },
+  );
+  assert.deepEqual(
+    policy.personalAttendanceState(
+      { queueState: "finalizados", operatorId: "seller-b" },
+      { fromMe: false, historical: false },
+    ),
+    { queueState: "fila", operatorId: null },
+  );
+});
+
+test("a failed number-selection audit rolls back the waiting thread and selective contact approval", async () => {
+  await db
+    .update(schema.whatsappConnections)
+    .set({
+      baileysSessionStatus: "connected",
+      leaseToken: "audit-workflow-lease",
+      leaseUntil: new Date(Date.now() + 60_000),
+    })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnections.tenantId, tenant),
+        orm.eq(schema.whatsappConnections.id, "number-5"),
+      ),
+    );
+  const failingDb = new Proxy(db, {
+    get(target, key) {
+      if (key === "transaction")
+        return (fn) =>
+          target.transaction((tx) =>
+            fn(
+              new Proxy(tx, {
+                get(inner, name) {
+                  if (name === "insert")
+                    return (table) => {
+                      if (table === schema.crmActionHistory) throw Error("Audit unavailable");
+                      return inner.insert(table);
+                    };
+                  const value = Reflect.get(inner, name);
+                  return typeof value === "function" ? value.bind(inner) : value;
+                },
+              }),
+            ),
+          );
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const helper = loadAccessSource("src/lib/whatsapp/prepare-conversation.ts", {
+    "../../db": { db: failingDb },
+    "../../db/schema": schema,
+    "drizzle-orm": orm,
+    "../access-control/conversation-access": access,
+    "../crm/deal-associations": { lockContactDeals: async () => {} },
+    "./connections": connectionService,
+    "./connection-policy": policy,
+  });
+  const threadCondition = orm.and(
+    orm.eq(schema.conversations.tenantId, tenant),
+    orm.eq(schema.conversations.contactId, "workflow-customer"),
+    orm.eq(schema.conversations.whatsappConnectionId, "number-5"),
+  );
+  const contactCondition = orm.and(
+    orm.eq(schema.whatsappConnectionContacts.tenantId, tenant),
+    orm.eq(schema.whatsappConnectionContacts.contactId, "workflow-customer"),
+    orm.eq(schema.whatsappConnectionContacts.connectionId, "number-5"),
+  );
+  await assert.rejects(
+    helper.prepareWhatsappConversation(session(), {
+      sourceConversationId: "workflow-company",
+      expectedVersion: 1,
+      connectionId: "number-5",
+    }),
+    /Audit unavailable/,
+  );
+  assert.deepEqual(await db.select().from(schema.conversations).where(threadCondition), []);
+  assert.deepEqual(
+    await db.select().from(schema.whatsappConnectionContacts).where(contactCondition),
+    [],
   );
 });

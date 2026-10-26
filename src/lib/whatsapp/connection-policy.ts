@@ -1,6 +1,19 @@
 /** A null ID is the existing corporate connection; never substitute another connection. */
 export const CORPORATE_CONNECTION = "corporate";
 
+/** Messages from a linked device do not claim an attendance on behalf of its owner. */
+export function personalAttendanceState(
+  previous: { queueState: string; operatorId: string | null } | undefined,
+  event: { historical: boolean; fromMe: boolean },
+) {
+  const keepClosed = previous?.queueState === "finalizados" && (event.historical || event.fromMe);
+  const keepCapture = previous?.queueState === "meus" && !!previous.operatorId;
+  return {
+    queueState: keepCapture ? "meus" : keepClosed ? "finalizados" : "fila",
+    operatorId: keepCapture || keepClosed ? (previous?.operatorId ?? null) : null,
+  };
+}
+
 export function baileysStanzaId(externalId: string): string {
   return externalId.startsWith("baileys:")
     ? externalId.slice(externalId.lastIndexOf(":") + 1)
