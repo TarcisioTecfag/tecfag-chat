@@ -370,6 +370,7 @@ export interface OperatorContextResult {
   finishedTitle: string;
   isCasual: boolean;
   isThirdPartyBlocked: boolean;
+  isPureKbQuery?: boolean;
 }
 
 async function getOperatorContext(
@@ -408,10 +409,12 @@ async function getOperatorContext(
       finishedTitle: "Resposta direta enviada",
       isCasual: true,
       isThirdPartyBlocked: false,
+      isPureKbQuery: false,
     };
   }
 
   const q = normalizeForMatch(cleanUserQuery);
+  const normRecentAiForIntent = normalizeForMatch(recentAiContextText || "");
   const primaryTerms = extractSearchCandidateTerms(cleanUserQuery);
   const isFollowUpRequest =
     /\b(?:puxe|puxar|detalhe|detalhes|link|botao|abrir|abre|ela|elas|essa|essas|esse|esses|dela|delas|dele|deles|dessa|dessas|desse|desses|nela|nelas|nele|neles|nessa|nessas|nesse|nesses|recomende|especifico|fechar\s+hoje|ligar|outra|outras|outro|outros|lista\s+completa|todas|todos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|informacao|informacoes|dado|dados|ficha|historico|nota|notas|atividade|atividades|produto|produtos|questionario|arquivo|arquivos|email|comprador|sdr|volume|criado|criada|atualizado|atualizada|fechamento|previsao)\b/i.test(
@@ -425,10 +428,27 @@ async function getOperatorContext(
     );
   const isCallOrPhone =
     /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
-  const isDealOrCrm =
-    /\b(?:negociac|card|proposta|orcamento|funil|parada|esfriando|aberta|perdida|ganha|pausada|valor|cliente|empresa|fechar|venda|outra|outras|outro|outros|lista|listar|liste|todas|todos|mensur|carteira|quantas|quantos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|informacao|informacoes|ficha|comprador|sdr|volume|produto|produtos|questionario|arquivo|arquivos|email|cnpj|cpf)\b/.test(
+  const hasExplicitCrmKeyword =
+    /\b(?:negociac|card|cards|crm|proposta|orcamento|funil|parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|valor|cliente|clientes|empresa|empresas|fechar|venda|vendas|outra|outras|outro|outros|lista|listar|liste|todas|todos|mensur|carteira|quantas|quantos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|comprador|sdr|questionario|email|cnpj|cpf)\b/.test(
       q
     );
+  const hasExplicitMachineOrManualKeyword =
+    Boolean(hasAttachedImage) ||
+    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|envasadora|rotuladora|datador|empacotadora|dosadora|valvula|frasco|pote|tampa|alicate|arqueadora|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|encapsuladora|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre)\b/.test(
+      q
+    ) ||
+    /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(cleanUserQuery || userQuery || "");
+
+  const isRecentMachineManualTurn =
+    /\b(?:puxei\s+as\s+informacoes\s+do\s+manual|segundo\s+o\s+catalogo|faixa\s+de\s+dosagem|ciclos\s+por\s+minuto|componentes\s+pneumaticos|manual\s+tecnico)\b/.test(
+      normRecentAiForIntent
+    );
+
+  const isDealOrCrm =
+    hasExplicitCrmKeyword ||
+    (!hasExplicitMachineOrManualKeyword &&
+      !isRecentMachineManualTurn &&
+      /\b(?:informacao|informacoes|ficha|volume|produto|produtos|arquivo|arquivos)\b/.test(q));
   const isGoalOrMeta = /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
   const isTaskOrAgenda = /\b(?:tarefa|tarefas|agenda|compromisso|reuniao|reunioes|pendente|atrasad|follow)\b/.test(q);
   const isWaitingChat =
@@ -437,11 +457,16 @@ async function getOperatorContext(
     );
   const isMetricsQuery = /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
   const isKbQuery =
-    Boolean(hasAttachedImage) ||
-    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|envasadora|rotuladora|datador|empacotadora|dosadora|valvula|frasco|pote|tampa|alicate|arqueadora|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|encapsuladora|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre)\b/.test(
-      q
-    ) ||
-    /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(cleanUserQuery || userQuery || "");
+    hasExplicitMachineOrManualKeyword ||
+    (isFollowUpRequest && isRecentMachineManualTurn && !hasExplicitCrmKeyword);
+  const isPureKbQuery =
+    isKbQuery &&
+    !isDealOrCrm &&
+    !isWaitingChat &&
+    !isGoalOrMeta &&
+    !isCallOrPhone &&
+    !isTaskOrAgenda &&
+    !isOverviewOrGeneral;
 
   let taskTitle = "Consultando dados da sua operação";
   let finishedTitle = "Consulta comercial concluída";
@@ -449,7 +474,7 @@ async function getOperatorContext(
   if (hasAttachedImage && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta) {
     taskTitle = "Inspecionando visualmente a foto enviada e consultando catálogo técnico";
     finishedTitle = "Inspeção visual e consulta técnica concluídas";
-  } else if (isKbQuery && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta && !isCallOrPhone) {
+  } else if (isPureKbQuery) {
     taskTitle = "Consultando manuais técnicos e catálogo na Base de Conhecimento (RAG)";
     finishedTitle = "Consulta aos manuais técnicos e catálogo concluída";
   } else if (isCallOrPhone) {
@@ -471,14 +496,17 @@ async function getOperatorContext(
 
   const shouldRunGoals =
     !hasAttachedImage &&
+    !isPureKbQuery &&
     (isOverviewOrGeneral || isGoalOrMeta || (!isCallOrPhone && !isWaitingChat && !isTaskOrAgenda && primaryTerms.length === 0));
   const shouldRunDeals =
-    isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || (!hasAttachedImage && (primaryTerms.length > 0 || !isWaitingChat));
+    !isPureKbQuery &&
+    (isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || (!hasAttachedImage && (primaryTerms.length > 0 || !isWaitingChat)));
   const shouldRunTasks =
-    isOverviewOrGeneral || isTaskOrAgenda || isCallOrPhone;
+    !isPureKbQuery && (isOverviewOrGeneral || isTaskOrAgenda || isCallOrPhone);
   const shouldRunChats =
-    isOverviewOrGeneral || isWaitingChat || isCallOrPhone || (!hasAttachedImage && primaryTerms.length > 0) || isFollowUpRequest;
-  const shouldRunMetrics = isOverviewOrGeneral || isMetricsQuery;
+    !isPureKbQuery &&
+    (isOverviewOrGeneral || isWaitingChat || isCallOrPhone || (!hasAttachedImage && primaryTerms.length > 0) || isFollowUpRequest);
+  const shouldRunMetrics = !isPureKbQuery && (isOverviewOrGeneral || isMetricsQuery);
   const shouldRunKb = isKbQuery || Boolean(hasAttachedImage);
 
   const pushRealStep = (step: AgenticThoughtStep) => {
@@ -492,10 +520,14 @@ async function getOperatorContext(
     actionVerb: "Pensou por 1s",
     targetLabel: hasAttachedImage
       ? "Preparando análise visual multimodal da foto e busca no catálogo técnico"
+      : isPureKbQuery
+      ? "Localizando manual técnico e especificações do equipamento na Base de Conhecimento"
       : "Selecionando consultas necessárias para responder à sua pergunta",
     durationSeconds: 1,
     detailText: hasAttachedImage
       ? `Iniciando leitura óptica da imagem${imageFileName ? ` ("${imageFileName}")` : ""} e verificação na Base de Conhecimento.`
+      : isPureKbQuery
+      ? `Analisando "${(cleanUserQuery || userQuery || "").slice(0, 80)}" nos manuais técnicos (PDF) e no Catálogo Oficial de Máquinas.`
       : `Analisando "${(cleanUserQuery || userQuery || "").slice(0, 80)}" para consultar e mensurar todas as tabelas relevantes da sua carteira.`,
   });
 
@@ -1626,7 +1658,7 @@ async function getOperatorContext(
     const searchTerms = Array.from(new Set([...primaryTerms, ...fallbackAiTerms])).slice(0, 8);
     const hasRecentHistoryDeals = Array.isArray(recentDealIdsFromHistory) && recentDealIdsFromHistory.length > 0;
 
-    if (searchTerms.length > 0 || knownDealMap.size > 0 || hasRecentHistoryDeals) {
+    if (!isPureKbQuery && (searchTerms.length > 0 || knownDealMap.size > 0 || hasRecentHistoryDeals)) {
       const tDeep0 = Date.now();
       try {
         const normCombinedContext = normalizeForMatch(
@@ -2219,6 +2251,9 @@ async function getOperatorContext(
         const kbQuery = [
           cleanUserQuery,
           imageFileName ? imageFileName.replace(/\.[a-z0-9]{2,5}$/i, "") : "",
+          isFollowUpRequest && isRecentMachineManualTurn && recentAiContextText
+            ? recentAiContextText.slice(0, 300)
+            : "",
         ]
           .filter(Boolean)
           .join(" ")
@@ -2252,6 +2287,7 @@ async function getOperatorContext(
       finishedTitle,
       isCasual: false,
       isThirdPartyBlocked,
+      isPureKbQuery,
     };
   } catch (err: any) {
     console.error("[getOperatorContext] Erro:", err);
@@ -2267,6 +2303,7 @@ async function getOperatorContext(
       finishedTitle,
       isCasual: false,
       isThirdPartyBlocked,
+      isPureKbQuery,
     };
   }
 }
@@ -2649,8 +2686,43 @@ function splitIntoNaturalFragments(
   return finalBubbles;
 }
 
+const GENERIC_NON_SPECIFIC_DEAL_NAMES = new Set([
+  "envasadora", "envasadoras", "seladora", "seladoras", "rotuladora", "rotuladoras",
+  "datador", "datadores", "empacotadora", "empacotadoras", "dosadora", "dosadoras",
+  "encapsuladora", "encapsuladoras", "arqueadora", "arqueadoras", "fechadora", "fechadoras",
+  "enfardadeira", "enfardadeiras", "cartonadora", "cartonadoras", "blister", "tunel",
+  "esteira", "esteiras", "maquina", "maquinas", "equipamento", "equipamentos",
+  "personnalite", "valvula", "valvulas", "frasco", "frascos", "pote", "potes",
+  "tampa", "tampas", "peca", "pecas", "manual", "catalogo", "cliente", "empresa",
+  "comercio", "industria", "ltda", "eireli", "dora", "automatica", "automatico",
+  "semiautomatica", "semiautomatico", "bancada", "pedal", "continua", "vacuo",
+  "liquido", "liquidos", "pastoso", "pastosos", "bico", "bicos",
+]);
+
+function containsWholeNormalizedPhrase(haystackNorm: string, phraseNorm: string): boolean {
+  const clean = phraseNorm.trim();
+  if (!clean) return false;
+  const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`, "i");
+  return re.test(haystackNorm);
+}
+
+function isSpecificEnoughDealPhrase(phraseNorm: string): boolean {
+  const clean = phraseNorm.trim();
+  if (clean.length < 4) return false;
+  if (GENERIC_NON_SPECIFIC_DEAL_NAMES.has(clean)) return false;
+  const tokens = clean.split(/\s+/).filter(Boolean);
+  if (tokens.length === 1) {
+    // Palavra única sem código numérico precisa ter pelo menos 6 caracteres e não ser termo genérico
+    if (clean.length < 6 || GENERIC_NON_SPECIFIC_DEAL_NAMES.has(clean)) return false;
+  } else if (tokens.every((t) => GENERIC_NON_SPECIFIC_DEAL_NAMES.has(t) || t.length <= 2)) {
+    return false;
+  }
+  return true;
+}
+
 function isSecrecyOrEmptyRefusalReply(fullReplyText: string, ctx: OperatorContextResult | null): boolean {
-  if (ctx?.isCasual || ctx?.isThirdPartyBlocked) return true;
+  if (ctx?.isCasual || ctx?.isThirdPartyBlocked || ctx?.isPureKbQuery) return true;
   return /sigilo\s+comercial|carteira\s+de\s+outro\s+consultor|outro\s+vendedor|exclusiv[oa]\s+de\s+outro\s+consultor/i.test(
     fullReplyText || ""
   );
@@ -2677,6 +2749,7 @@ function resolveRelatedDeals(
   }
 
   // 2. Negociações citadas nominalmente ou por código numérico no texto da resposta da IA
+  // Usa fronteira de palavra inteira (\b) e bloqueia termos genéricos de máquinas (como "Envasadora" ou sufixo "dora" dentro de "envasadora")
   const normReply = normalizeForMatch(fullReplyText);
   for (const deal of ctx.knownDeals) {
     if (selectedMap.size >= 50) break;
@@ -2685,9 +2758,12 @@ function resolveRelatedDeals(
     const codeMatch = (deal.title || "").match(/\b(\d{4,})\b/);
     const codeToken = codeMatch ? codeMatch[1] : "";
 
-    const matchedByCode = codeToken.length >= 4 && normReply.includes(codeToken);
-    const matchedByTitle = titleNorm.length >= 4 && normReply.includes(titleNorm);
-    const matchedByCompany = companyNorm.length >= 4 && normReply.includes(companyNorm);
+    const matchedByCode =
+      codeToken.length >= 4 && containsWholeNormalizedPhrase(normReply, codeToken);
+    const matchedByTitle =
+      isSpecificEnoughDealPhrase(titleNorm) && containsWholeNormalizedPhrase(normReply, titleNorm);
+    const matchedByCompany =
+      isSpecificEnoughDealPhrase(companyNorm) && containsWholeNormalizedPhrase(normReply, companyNorm);
 
     if (matchedByCode || matchedByTitle || matchedByCompany) {
       selectedMap.set(deal.dealId, deal);
