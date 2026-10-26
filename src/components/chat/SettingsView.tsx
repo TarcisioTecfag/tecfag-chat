@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { WhatsappConnectionsPanel } from "./WhatsappConnectionsPanel";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { 
   Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save, Mail, 
@@ -545,6 +546,7 @@ export function SettingsView() {
         {/* ABA 1: WHATSAPP MULTI-TENANT (META OU BAILEYS) */}
         {activeTab === "whatsapp" && (
           <div className="space-y-6 w-full">
+            <WhatsappConnectionsPanel />
             {/* 1. SELETOR DE PROVEDOR ATIVO */}
             <div className="rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

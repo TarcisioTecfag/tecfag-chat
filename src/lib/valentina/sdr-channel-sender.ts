@@ -8,7 +8,7 @@
 
 import { db } from "../../db";
 import { channelConfigs, conversations, contacts, messages, mediaFiles } from "../../db/schema";
-import { eq, and } from "drizzle-orm";
+import { isNull, eq, and } from "drizzle-orm";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { metaAdapter } from "../whatsapp/adapters/meta";
 import { sendMetaConversationPresence, resetMetaTypingThrottle } from "../whatsapp/meta-presence";
@@ -114,7 +114,7 @@ export async function sendSdrChannelText(params: {
       operatorId: conversations.operatorId,
     })
     .from(conversations)
-    .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+    .where(and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.id, conversationId)))
     .limit(1);
 
   if (
@@ -253,6 +253,8 @@ export async function sendBotCatalogImage(params: {
   caption?: string;
 }): Promise<{ sent: boolean; messageId?: string }> {
   const { tenantId, conversationId, phone, imgBuffer, mimeType, fileName, caption = "" } = params;
+  const [scope] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId), isNull(conversations.whatsappConnectionId))).limit(1);
+  if (!scope) return { sent: false };
   const persona = getAiPersona(tenantId);
   const provider =
     persona.triagePolicy === "industrial"

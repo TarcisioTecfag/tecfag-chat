@@ -11,6 +11,9 @@ import { eq, and } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../audio-convert";
+import { resolveConversationConnection } from "../connections";
+import { connectionPeerJid } from "../connection-contacts";
+import { baileysEventId, baileysStanzaId } from "../connection-policy";
 
 export class BaileysAdapter implements WhatsAppAdapter {
   readonly provider = "baileys" as const;
@@ -26,7 +29,10 @@ export class BaileysAdapter implements WhatsAppAdapter {
   }> {
     let requestStarted = false;
     try {
-      const sessionManager = SessionManager.getInstance();
+      const target = await resolveConversationConnection(tenantId, message.conversationId);
+      if (target.provider !== "baileys") return { externalId: "", status: "failed", error: "A conversa pertence a outra conexão." };
+      const sessionManager = SessionManager.forConnection(tenantId, target.connectionId);
+      if (!await sessionManager.ensureConnectionOwnership(tenantId)) return { externalId: "", status: "failed", retryable: true, error: "Conexão em uso por outra instância." };
       const sock = sessionManager.getSession(tenantId);
 
       if (!sock || sessionManager.getStatus(tenantId) !== "connected") {
@@ -54,7 +60,8 @@ export class BaileysAdapter implements WhatsAppAdapter {
             .from(contacts)
             .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
 
-          if (contact?.whatsappJid) {
+          if (target.connectionId) jid = await connectionPeerJid(tenantId, target.connectionId, conv.contactId) || null;
+          if (!target.connectionId && contact?.whatsappJid) {
             jid = contact.whatsappJid;
           }
         }
@@ -73,7 +80,7 @@ export class BaileysAdapter implements WhatsAppAdapter {
       if (message.quotedMessageId) {
         const { messages } = await import("../../../db/schema");
         const [quoted] = await db
-          .select({ externalId: messages.externalId })
+          .select({ externalId: messages.externalId, direction: messages.direction })
           .from(messages)
           .where(
             and(
@@ -82,13 +89,13 @@ export class BaileysAdapter implements WhatsAppAdapter {
               eq(messages.conversationId, message.conversationId),
             ),
           );
-        const quotedId =
-          quoted?.externalId?.replace(`baileys:${tenantId}:`, "") || message.quotedMessageId;
+        if (!quoted?.externalId) return { externalId: "", status: "failed", error: "Mensagem citada indisponível nesta conversa." };
+        const quotedId = baileysStanzaId(quoted.externalId);
         options.quoted = {
           key: {
             id: quotedId,
             remoteJid: jid,
-            fromMe: false,
+            fromMe: quoted.direction === "outbound",
           },
           message: {
             conversation: "Mensagem anterior",
@@ -214,7 +221,7 @@ export class BaileysAdapter implements WhatsAppAdapter {
       const externalId = sentMsg?.key?.id;
       if (!externalId) return { externalId: "", status: "unknown", error: "WhatsApp não retornou confirmação. Verifique antes de reenviar." };
       return {
-        externalId,
+        externalId: target.connectionId ? baileysEventId(tenantId, target.connectionId, { id: externalId, remoteJid: jid, fromMe: true }) : externalId,
         status: "accepted",
       };
     } catch (err: any) {
@@ -273,15 +280,17 @@ export class BaileysAdapter implements WhatsAppAdapter {
     targetExternalId: string,
     isFromMe: boolean,
     emoji: string,
+    connectionId: string | null = null,
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      const sessionManager = SessionManager.getInstance();
+      const sessionManager = SessionManager.forConnection(tenantId, connectionId);
+      if (!await sessionManager.ensureConnectionOwnership(tenantId)) return { success: false, error: "Conexão em uso por outra instância." };
       const sock = sessionManager.getSession(tenantId);
       if (!sock || sessionManager.getStatus(tenantId) !== "connected") {
         return { success: false, error: "WhatsApp Baileys não conectado" };
       }
 
-      const cleanExternalId = targetExternalId.replace(/^meta:[^:]+:/, "").trim();
+      const cleanExternalId = baileysStanzaId(targetExternalId).trim();
 
       const key = {
         remoteJid: jid,

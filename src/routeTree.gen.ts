@@ -30,6 +30,8 @@ import { Route as ApiTasksRouteImport } from './routes/api/tasks'
 import { Route as ApiSectorsRouteImport } from './routes/api/sectors'
 import { Route as ApiQuickResponsesRouteImport } from './routes/api/quick-responses'
 import { Route as ApiPushRouteImport } from './routes/api/push'
+import { Route as ApiProxyMetaRouteImport } from './routes/api/proxy-meta'
+import { Route as ApiProxyImageRouteImport } from './routes/api/proxy-image'
 import { Route as ApiOperatorsRouteImport } from './routes/api/operators'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
@@ -39,6 +41,7 @@ import { Route as ApiElevenlabsConversationsRouteImport } from './routes/api/ele
 import { Route as ApiElevenlabsAudioRouteImport } from './routes/api/elevenlabs-audio'
 import { Route as ApiContactsRouteImport } from './routes/api/contacts'
 import { Route as ApiChatsRouteImport } from './routes/api/chats'
+import { Route as ApiChatUploadRouteImport } from './routes/api/chat-upload'
 import { Route as ApiCallsRouteImport } from './routes/api/calls'
 import { Route as CrmDealsDealIdRouteImport } from './routes/crm/deals/$dealId'
 import { Route as ApiWhatsappSendRouteImport } from './routes/api/whatsapp/send'
@@ -46,6 +49,8 @@ import { Route as ApiWhatsappReactRouteImport } from './routes/api/whatsapp/reac
 import { Route as ApiWhatsappPresenceRouteImport } from './routes/api/whatsapp/presence'
 import { Route as ApiWhatsappMetaTemplatesRouteImport } from './routes/api/whatsapp/meta-templates'
 import { Route as ApiWhatsappMetaStateRouteImport } from './routes/api/whatsapp/meta-state'
+import { Route as ApiWhatsappContactHistoryRouteImport } from './routes/api/whatsapp/contact-history'
+import { Route as ApiWhatsappConnectionsRouteImport } from './routes/api/whatsapp/connections'
 import { Route as ApiWebhooksMetaRouteImport } from './routes/api/webhooks/meta'
 import { Route as ApiValentinaTriageReviewRouteImport } from './routes/api/valentina/triage-review'
 import { Route as ApiValentinaTriageHistoryRouteImport } from './routes/api/valentina/triage-history'
@@ -287,6 +292,16 @@ const ApiPushRoute = ApiPushRouteImport.update({
   path: '/api/push',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiProxyMetaRoute = ApiProxyMetaRouteImport.update({
+  id: '/api/proxy-meta',
+  path: '/api/proxy-meta',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProxyImageRoute = ApiProxyImageRouteImport.update({
+  id: '/api/proxy-image',
+  path: '/api/proxy-image',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiOperatorsRoute = ApiOperatorsRouteImport.update({
   id: '/api/operators',
   path: '/api/operators',
@@ -333,6 +348,11 @@ const ApiChatsRoute = ApiChatsRouteImport.update({
   path: '/api/chats',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiChatUploadRoute = ApiChatUploadRouteImport.update({
+  id: '/api/chat-upload',
+  path: '/api/chat-upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCallsRoute = ApiCallsRouteImport.update({
   id: '/api/calls',
   path: '/api/calls',
@@ -367,6 +387,17 @@ const ApiWhatsappMetaTemplatesRoute =
 const ApiWhatsappMetaStateRoute = ApiWhatsappMetaStateRouteImport.update({
   id: '/api/whatsapp/meta-state',
   path: '/api/whatsapp/meta-state',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWhatsappContactHistoryRoute =
+  ApiWhatsappContactHistoryRouteImport.update({
+    id: '/api/whatsapp/contact-history',
+    path: '/api/whatsapp/contact-history',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiWhatsappConnectionsRoute = ApiWhatsappConnectionsRouteImport.update({
+  id: '/api/whatsapp/connections',
+  path: '/api/whatsapp/connections',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWebhooksMetaRoute = ApiWebhooksMetaRouteImport.update({
@@ -1098,6 +1129,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/api/calls': typeof ApiCallsRoute
+  '/api/chat-upload': typeof ApiChatUploadRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
@@ -1107,6 +1139,8 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
+  '/api/proxy-image': typeof ApiProxyImageRoute
+  '/api/proxy-meta': typeof ApiProxyMetaRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
@@ -1211,6 +1245,8 @@ export interface FileRoutesByFullPath {
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/connections': typeof ApiWhatsappConnectionsRoute
+  '/api/whatsapp/contact-history': typeof ApiWhatsappContactHistoryRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
@@ -1272,6 +1308,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/api/calls': typeof ApiCallsRoute
+  '/api/chat-upload': typeof ApiChatUploadRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
@@ -1281,6 +1318,8 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
+  '/api/proxy-image': typeof ApiProxyImageRoute
+  '/api/proxy-meta': typeof ApiProxyMetaRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
@@ -1385,6 +1424,8 @@ export interface FileRoutesByTo {
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/connections': typeof ApiWhatsappConnectionsRoute
+  '/api/whatsapp/contact-history': typeof ApiWhatsappContactHistoryRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
@@ -1447,6 +1488,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/api/calls': typeof ApiCallsRoute
+  '/api/chat-upload': typeof ApiChatUploadRoute
   '/api/chats': typeof ApiChatsRouteWithChildren
   '/api/contacts': typeof ApiContactsRouteWithChildren
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
@@ -1456,6 +1498,8 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
+  '/api/proxy-image': typeof ApiProxyImageRoute
+  '/api/proxy-meta': typeof ApiProxyMetaRoute
   '/api/push': typeof ApiPushRoute
   '/api/quick-responses': typeof ApiQuickResponsesRoute
   '/api/sectors': typeof ApiSectorsRoute
@@ -1560,6 +1604,8 @@ export interface FileRoutesById {
   '/api/valentina/triage-history': typeof ApiValentinaTriageHistoryRoute
   '/api/valentina/triage-review': typeof ApiValentinaTriageReviewRoute
   '/api/webhooks/meta': typeof ApiWebhooksMetaRoute
+  '/api/whatsapp/connections': typeof ApiWhatsappConnectionsRoute
+  '/api/whatsapp/contact-history': typeof ApiWhatsappContactHistoryRoute
   '/api/whatsapp/meta-state': typeof ApiWhatsappMetaStateRoute
   '/api/whatsapp/meta-templates': typeof ApiWhatsappMetaTemplatesRoute
   '/api/whatsapp/presence': typeof ApiWhatsappPresenceRoute
@@ -1623,6 +1669,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/api/calls'
+    | '/api/chat-upload'
     | '/api/chats'
     | '/api/contacts'
     | '/api/elevenlabs-audio'
@@ -1632,6 +1679,8 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp'
     | '/api/operators'
+    | '/api/proxy-image'
+    | '/api/proxy-meta'
     | '/api/push'
     | '/api/quick-responses'
     | '/api/sectors'
@@ -1736,6 +1785,8 @@ export interface FileRouteTypes {
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
+    | '/api/whatsapp/connections'
+    | '/api/whatsapp/contact-history'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/meta-templates'
     | '/api/whatsapp/presence'
@@ -1797,6 +1848,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/api/calls'
+    | '/api/chat-upload'
     | '/api/chats'
     | '/api/contacts'
     | '/api/elevenlabs-audio'
@@ -1806,6 +1858,8 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp'
     | '/api/operators'
+    | '/api/proxy-image'
+    | '/api/proxy-meta'
     | '/api/push'
     | '/api/quick-responses'
     | '/api/sectors'
@@ -1910,6 +1964,8 @@ export interface FileRouteTypes {
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
+    | '/api/whatsapp/connections'
+    | '/api/whatsapp/contact-history'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/meta-templates'
     | '/api/whatsapp/presence'
@@ -1971,6 +2027,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/api/calls'
+    | '/api/chat-upload'
     | '/api/chats'
     | '/api/contacts'
     | '/api/elevenlabs-audio'
@@ -1980,6 +2037,8 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp'
     | '/api/operators'
+    | '/api/proxy-image'
+    | '/api/proxy-meta'
     | '/api/push'
     | '/api/quick-responses'
     | '/api/sectors'
@@ -2084,6 +2143,8 @@ export interface FileRouteTypes {
     | '/api/valentina/triage-history'
     | '/api/valentina/triage-review'
     | '/api/webhooks/meta'
+    | '/api/whatsapp/connections'
+    | '/api/whatsapp/contact-history'
     | '/api/whatsapp/meta-state'
     | '/api/whatsapp/meta-templates'
     | '/api/whatsapp/presence'
@@ -2146,6 +2207,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SplatRoute: typeof SplatRoute
   ApiCallsRoute: typeof ApiCallsRoute
+  ApiChatUploadRoute: typeof ApiChatUploadRoute
   ApiChatsRoute: typeof ApiChatsRouteWithChildren
   ApiContactsRoute: typeof ApiContactsRouteWithChildren
   ApiElevenlabsAudioRoute: typeof ApiElevenlabsAudioRoute
@@ -2155,6 +2217,8 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpRoute: typeof ApiMcpRoute
   ApiOperatorsRoute: typeof ApiOperatorsRouteWithChildren
+  ApiProxyImageRoute: typeof ApiProxyImageRoute
+  ApiProxyMetaRoute: typeof ApiProxyMetaRoute
   ApiPushRoute: typeof ApiPushRoute
   ApiQuickResponsesRoute: typeof ApiQuickResponsesRoute
   ApiSectorsRoute: typeof ApiSectorsRoute
@@ -2250,6 +2314,8 @@ export interface RootRouteChildren {
   ApiValentinaTriageHistoryRoute: typeof ApiValentinaTriageHistoryRoute
   ApiValentinaTriageReviewRoute: typeof ApiValentinaTriageReviewRoute
   ApiWebhooksMetaRoute: typeof ApiWebhooksMetaRoute
+  ApiWhatsappConnectionsRoute: typeof ApiWhatsappConnectionsRoute
+  ApiWhatsappContactHistoryRoute: typeof ApiWhatsappContactHistoryRoute
   ApiWhatsappMetaStateRoute: typeof ApiWhatsappMetaStateRoute
   ApiWhatsappMetaTemplatesRoute: typeof ApiWhatsappMetaTemplatesRoute
   ApiWhatsappPresenceRoute: typeof ApiWhatsappPresenceRoute
@@ -2413,6 +2479,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPushRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/proxy-meta': {
+      id: '/api/proxy-meta'
+      path: '/api/proxy-meta'
+      fullPath: '/api/proxy-meta'
+      preLoaderRoute: typeof ApiProxyMetaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/proxy-image': {
+      id: '/api/proxy-image'
+      path: '/api/proxy-image'
+      fullPath: '/api/proxy-image'
+      preLoaderRoute: typeof ApiProxyImageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/operators': {
       id: '/api/operators'
       path: '/api/operators'
@@ -2476,6 +2556,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/chat-upload': {
+      id: '/api/chat-upload'
+      path: '/api/chat-upload'
+      fullPath: '/api/chat-upload'
+      preLoaderRoute: typeof ApiChatUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/calls': {
       id: '/api/calls'
       path: '/api/calls'
@@ -2523,6 +2610,20 @@ declare module '@tanstack/react-router' {
       path: '/api/whatsapp/meta-state'
       fullPath: '/api/whatsapp/meta-state'
       preLoaderRoute: typeof ApiWhatsappMetaStateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/whatsapp/contact-history': {
+      id: '/api/whatsapp/contact-history'
+      path: '/api/whatsapp/contact-history'
+      fullPath: '/api/whatsapp/contact-history'
+      preLoaderRoute: typeof ApiWhatsappContactHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/whatsapp/connections': {
+      id: '/api/whatsapp/connections'
+      path: '/api/whatsapp/connections'
+      fullPath: '/api/whatsapp/connections'
+      preLoaderRoute: typeof ApiWhatsappConnectionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/webhooks/meta': {
@@ -3812,6 +3913,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SplatRoute: SplatRoute,
   ApiCallsRoute: ApiCallsRoute,
+  ApiChatUploadRoute: ApiChatUploadRoute,
   ApiChatsRoute: ApiChatsRouteWithChildren,
   ApiContactsRoute: ApiContactsRouteWithChildren,
   ApiElevenlabsAudioRoute: ApiElevenlabsAudioRoute,
@@ -3821,6 +3923,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   ApiMcpRoute: ApiMcpRoute,
   ApiOperatorsRoute: ApiOperatorsRouteWithChildren,
+  ApiProxyImageRoute: ApiProxyImageRoute,
+  ApiProxyMetaRoute: ApiProxyMetaRoute,
   ApiPushRoute: ApiPushRoute,
   ApiQuickResponsesRoute: ApiQuickResponsesRoute,
   ApiSectorsRoute: ApiSectorsRoute,
@@ -3916,6 +4020,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiValentinaTriageHistoryRoute: ApiValentinaTriageHistoryRoute,
   ApiValentinaTriageReviewRoute: ApiValentinaTriageReviewRoute,
   ApiWebhooksMetaRoute: ApiWebhooksMetaRoute,
+  ApiWhatsappConnectionsRoute: ApiWhatsappConnectionsRoute,
+  ApiWhatsappContactHistoryRoute: ApiWhatsappContactHistoryRoute,
   ApiWhatsappMetaStateRoute: ApiWhatsappMetaStateRoute,
   ApiWhatsappMetaTemplatesRoute: ApiWhatsappMetaTemplatesRoute,
   ApiWhatsappPresenceRoute: ApiWhatsappPresenceRoute,

@@ -50,6 +50,11 @@ export async function filterConversationEvent(session: AuthSessionContext, event
     return visible ? event : null;
   }
   if (event.type === "presence_update" && typeof event.id === "string") {
+    if (typeof event.conversationId === "string") {
+      if (await requireConversationAccess(session, event.conversationId)) return null;
+      const state = event.presences?.[event.id];
+      return state ? { type: "presence_update", id: event.id, conversationId: event.conversationId, presences: { [event.id]: state } } : null;
+    }
     const [visible] = await db.select({ id: conversations.id }).from(conversations).innerJoin(contacts, and(
       eq(contacts.id, conversations.contactId), eq(contacts.tenantId, session.tenantId),
     )).where(and(eq(conversations.tenantId, session.tenantId), eq(contacts.whatsappJid, event.id), conversationReadCondition(session))).limit(1);

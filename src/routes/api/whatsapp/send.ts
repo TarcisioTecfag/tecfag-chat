@@ -12,9 +12,11 @@ import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/wh
 import { SITE_CHANNEL } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
-import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
+import { requireConversationWriteAccess, requireConversationAccess } from "../../../lib/access-control/conversation-access";
 import fs from "fs";
 import path from "path";
+import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
+import { connectionPeerJid } from "../../../lib/whatsapp/connection-contacts";
 
 export const Route = createFileRoute("/api/whatsapp/send")({
   server: {
@@ -111,10 +113,8 @@ export const Route = createFileRoute("/api/whatsapp/send")({
 
           // Verificar se o canal está em transição ('switching') de provedor
           if (!isInternalNote) {
-            const [channelConfig] = await db
-              .select({ connectionStatus: channelConfigs.connectionStatus, activeProvider: channelConfigs.activeProvider })
-              .from(channelConfigs)
-              .where(eq(channelConfigs.tenantId, session.tenantId));
+            const routeTarget = await resolveConversationConnection(session.tenantId, conversationId);
+            const channelConfig = { activeProvider: routeTarget.provider, connectionStatus: routeTarget.status };
 
             if (channelConfig?.connectionStatus === "switching") {
               return new Response(
@@ -135,6 +135,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             .select({
               id: conversations.id,
               contactId: conversations.contactId,
+              whatsappConnectionId: conversations.whatsappConnectionId,
               tenantId: conversations.tenantId,
               operatorId: conversations.operatorId,
               queueState: conversations.queueState,
@@ -166,6 +167,17 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             return Response.json({ error: "Sem permissão para enviar notas internas.", code: "FORBIDDEN" }, { status: 403 });
           }
 
+          // Reusing a stored attachment also requires access to its source conversation.
+          const reusedMediaId = !pendingFile && mediaUrl ? mediaUrl.match(/[?&]messageId=([^&]+)/)?.[1] : null;
+          if (reusedMediaId) {
+            const mediaId = decodeURIComponent(reusedMediaId);
+            const [source] = await db.select({ conversationId: mediaFiles.conversationId }).from(mediaFiles).where(and(eq(mediaFiles.tenantId, session.tenantId), eq(mediaFiles.id, mediaId))).limit(1);
+            const [legacy] = source && !source.conversationId ? await db.select({ conversationId: messages.conversationId }).from(messages).where(and(eq(messages.tenantId, session.tenantId), eq(messages.id, mediaId))).limit(1) : [];
+            const sourceConversationId = source?.conversationId || legacy?.conversationId;
+            if (!sourceConversationId) return Response.json({ error: "Anexo não encontrado." }, { status: 404 });
+            const mediaDenied = await requireConversationAccess(session, sourceConversationId);
+            if (mediaDenied) return mediaDenied;
+          }
           const hasDeal = await db.transaction((tx) => syncConversationDeals(tx, session.tenantId, conv.id, conv.contactId, session.operator.id));
           if (!hasDeal) return Response.json({ error: DEAL_REQUIRED_MESSAGE, code: "DEAL_REQUIRED", conversationId: conv.id }, { status: 409 });
 
@@ -186,7 +198,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               .select({ mainChannel: contacts.mainChannel })
               .from(contacts)
               .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, session.tenantId)));
-            if (targetContact?.mainChannel === SITE_CHANNEL) {
+            if (!conv.whatsappConnectionId && targetContact?.mainChannel === SITE_CHANNEL) {
               if (templateName || pendingFile || mediaUrl) {
                 return Response.json(
                   { error: "No chat do site, envie apenas mensagens de texto por enquanto.", code: "SITE_TEXT_ONLY" },
@@ -280,10 +292,11 @@ export const Route = createFileRoute("/api/whatsapp/send")({
                 )
               );
 
-            const [activeChannel] = await db.select({ activeProvider: channelConfigs.activeProvider })
-              .from(channelConfigs).where(eq(channelConfigs.tenantId, session.tenantId)).limit(1);
+            const target = await resolveConversationConnection(session.tenantId, conversationId);
+            const activeChannel = { activeProvider: target.provider };
             recipientUserId = activeChannel?.activeProvider === "meta" ? contact?.whatsappUserId || undefined : undefined;
-            if (!contact?.phone && !recipientUserId) {
+            const peer = conv.whatsappConnectionId ? await connectionPeerJid(session.tenantId, conv.whatsappConnectionId, conv.contactId) : null;
+            if (!contact?.phone && !recipientUserId && !peer) {
               return new Response(
                 JSON.stringify({ error: "Contato sem identificador WhatsApp disponível para envio." }),
                 { status: 400, headers: { "Content-Type": "application/json" } }

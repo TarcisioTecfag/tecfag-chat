@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../../db";
 import { channelConfigs, conversations } from "../../../db/schema";
@@ -29,8 +30,8 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
           eq(conversations.tenantId, tenantId)
         ));
         if (!conversation) return Response.json({ error: "Conversa não encontrada" }, { status: 404 });
-        const [config] = await db.select({ activeProvider: channelConfigs.activeProvider }).from(channelConfigs)
-          .where(eq(channelConfigs.tenantId, tenantId));
+        const target = await resolveConversationConnection(tenantId, conversationId);
+        const config = { activeProvider: target.provider };
         if (config?.activeProvider !== "meta") {
           return Response.json({ activeProvider: config?.activeProvider || "baileys" });
         }

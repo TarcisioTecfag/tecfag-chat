@@ -11,6 +11,8 @@ import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
 import { MessageReactionPicker } from "./MessageReactionPicker";
 import { useChat } from "@/hooks/useChatState";
+import { useWhatsappConnections, useContactWhatsappHistory } from "@/hooks/useWhatsappConnections";
+import { WhatsappConversationConnection } from "./WhatsappConnectionsPanel";
 import type { Message } from "@/lib/mockData";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
@@ -955,7 +957,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     conversations,
     activeQueue,
     setActiveQueue,
-    activeProvider,
+    activeProvider: tenantActiveProvider,
     sendMessage,
     captureChat,
     transferChat,
@@ -988,6 +990,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     valentinaThoughtTrace,
     toggleReaction,
   } = useChat();
+
+  const activeProvider = activeChat?.whatsappConnectionId ? "baileys" : tenantActiveProvider;
+  const connectionsState = useWhatsappConnections(tenant);
+  const [showAllNumbers, setShowAllNumbers] = useState(true);
+  const unifiedHistory = useContactWhatsappHistory(tenant, activeChat?.id, connectionsState.enabled && showAllNumbers && activeChat?.channel === "whatsapp" && activeChat.id !== "valentina");
+  const openSourceConversation = async (id: string) => {
+    await refreshConversations(id);
+    setActiveQueue("todos");
+    setSelectedChatId(id);
+  };
 
   const aiPersona = getAiPersona(tenant || "valem");
 
@@ -1322,19 +1334,20 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     if (!activeChat) return [];
     if (history?.chatId !== activeChat.id) return activeChat.messages;
     const map = new Map<string, Message>();
+    for (const message of unifiedHistory.messages) map.set(message.id, message);
     for (const message of history.messages) {
-      map.set(message.id, message);
+      map.set(message.id, { ...map.get(message.id), ...message, conversationId: activeChat.id });
     }
     for (const message of activeChat.messages) {
       const prev = map.get(message.id);
-      map.set(message.id, prev ? { ...prev, ...message, reactions: message.reactions ?? prev.reactions } : message);
+      map.set(message.id, { ...prev, ...message, conversationId: activeChat.id, reactions: message.reactions ?? prev?.reactions });
     }
     return Array.from(map.values()).sort((a, b) => {
       if (!a.sentAtISO) return 1;
       if (!b.sentAtISO) return -1;
       return a.sentAtISO.localeCompare(b.sentAtISO);
     });
-  }, [activeChat?.id, activeChat?.messages, history]);
+  }, [activeChat?.id, activeChat?.messages, history, unifiedHistory.messages]);
 
   // Mapa O(1) de mensagens para busca instantânea de citações (elimina busca quadrática O(N²))
   const messageMap = useMemo(() => {
@@ -2849,6 +2862,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           )}
+        {activeChat.channel === "whatsapp" && activeChat.id !== "valentina" && <WhatsappConversationConnection contactId={activeChat.contactId} connectionId={activeChat.whatsappConnectionId} showAll={showAllNumbers} onShowAll={setShowAllNumbers} onOpen={openSourceConversation} />}
+        {connectionsState.enabled && showAllNumbers && unifiedHistory.error && <p role="alert" className="p-3 text-xs text-destructive">{unifiedHistory.error}</p>}
+        {connectionsState.enabled && showAllNumbers && unifiedHistory.hasMore && <button className="m-3 rounded border px-3 py-2 text-xs" disabled={unifiedHistory.loading} onClick={() => void unifiedHistory.loadMore()}>Carregar histórico de todos os números</button>}
         {(() => {
           let displayed = allMessages;
 
@@ -3003,7 +3019,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const effectiveStatus = liveStatus?.status || m.status;
             const effectiveError = liveStatus?.error ?? m.errorMessage;
 
+            const foreignConversation = Boolean(m.conversationId && m.conversationId !== activeChat.id);
             return (
+              <div key={m.clientMessageId || m.id}>
+              {connectionsState.enabled && m.connectionName && <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><span>{m.connectionName}{m.connectionPhone ? ` · ${m.connectionPhone}` : ""} · {m.provider === "meta" ? "Meta" : m.provider === "baileys" ? "Baileys" : "Interno"}</span>{foreignConversation && <button className="underline" onClick={() => void openSourceConversation(m.conversationId!).catch(() => toast.error("Conversa indisponível."))}>Abrir conversa deste número</button>}</div>}
               <ChatMessageBubble
                 key={m.clientMessageId || m.id}
                 m={m}
@@ -3027,6 +3046,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 effectiveStatus={effectiveStatus}
                 effectiveError={effectiveError}
                 onReconcile={async (id, action, uncertain) => {
+                  if (foreignConversation) { toast.info("Abra a conversa deste número para revisar o envio."); return; }
                   if (
                     uncertain &&
                     !window.confirm(
@@ -3068,15 +3088,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 }}
                 onBubbleClick={handleBubbleClick}
                 onScrollToQuoted={handleScrollToQuoted}
-                onSetReactingMsgId={setReactingMsgId}
-                onSetMarkingEvidenceMsg={setMarkingEvidenceMsg}
-                onSetReplyingTo={setReplyingTo}
-                onToggleReaction={handleToggleReactionCallback}
+                onSetReactingMsgId={(id) => { if (foreignConversation) { toast.info("Abra a conversa deste número para reagir."); return; } setReactingMsgId(id); }}
+                onSetMarkingEvidenceMsg={(message) => { if (foreignConversation) { toast.info("Abra a conversa de origem para marcar a evidência."); return; } setMarkingEvidenceMsg(message); }}
+                onSetReplyingTo={(message) => { if (foreignConversation) { toast.info("Abra a conversa deste número para citar a mensagem."); return; } setReplyingTo(message); }}
+                onToggleReaction={(chatId, msgId, emoji) => { if (!foreignConversation) handleToggleReactionCallback(chatId, msgId, emoji); }}
                 onMediaClick={handleMediaClick}
                 onSaveSticker={handleSaveSticker}
                 onOpenWarningChat={handleOpenWarningChat}
                 onSendWelcomeSuggestion={handleSendWelcomeSuggestion}
               />
+              </div>
             );
           });
         })()}
@@ -3207,6 +3228,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          {connectionsState.enabled && activeChat.channel === "whatsapp" && activeChat.id !== "valentina" && <p className="mb-2 text-xs font-semibold text-primary">Respondendo por: {connectionsState.connections.find((c) => c.id === (activeChat.whatsappConnectionId || "corporate"))?.name || "Conexão deste atendimento"}{connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId)?.phone ? ` · ${connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId)?.phone}` : ""}</p>}
           {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
           {dealRequirement.pending ? (
             <ConversationDealRequirement conversationId={activeChat.id} contactId={activeChat.contactId} customerName={activeChat.name} error={dealRequirement.error} selectionRequired={dealRequirement.currentRequired} />

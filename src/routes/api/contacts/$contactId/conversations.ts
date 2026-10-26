@@ -1,7 +1,7 @@
 import { syncConversationDeals, DealRequiredError } from "../../../../lib/crm/deal-associations";
 import { contactDealPermission, registerContactDeal } from "../../../../lib/crm/contact-registration";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { isNull, and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "../../../../db";
 import {
   channelConfigs,
@@ -75,7 +75,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               operatorId: conversations.operatorId,
               queueState: conversations.queueState,
             }).from(conversations)
-              .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)))
+              .where(and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.contactId, contactId)))
               .orderBy(
                 sql`CASE WHEN ${conversations.queueState} != 'finalizados' THEN 0 ELSE 1 END`,
                 desc(conversations.lastMessageTime)
@@ -103,7 +103,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                   .from(conversations)
                   .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
                   .where(and(
-                    eq(conversations.tenantId, tenantId),
+                    eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId),
                     ne(contacts.id, contactId),
                     phoneCondition,
                   ))
@@ -121,7 +121,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
 
             if (targetConv) {
               const [visible] = await tx.select({ id: conversations.id }).from(conversations).where(and(
-                eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId), conversationReadCondition(session),
+                eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), conversationReadCondition(session),
               )).limit(1);
               if (!visible) return { forbidden: true } as const;
             }
@@ -149,7 +149,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 if (targetConv.queueState === "finalizados") {
                   await tx.update(conversations)
                     .set({ operatorId: null, queueState: "fila", updatedAt: now })
-                    .where(and(eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId)));
+                    .where(and(eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId)));
                 }
                 await syncConversationWithDeals(targetConv.id, targetConv.contactId);
                 return {
@@ -170,7 +170,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                   lastMessageTime: now,
                   updatedAt: now,
                 })
-                .where(and(eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId)));
+                .where(and(eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId)));
 
               await tx.update(contacts)
                 .set({

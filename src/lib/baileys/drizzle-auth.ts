@@ -1,7 +1,9 @@
 import { AuthenticationState, initAuthCreds, BufferJSON } from "@whiskeysockets/baileys";
 import { db } from "../../db";
-import { channelConfigs } from "../../db/schema";
-import { eq } from "drizzle-orm";
+import { channelConfigs, whatsappConnections } from "../../db/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { readBaileysConfig } from "../whatsapp/connections";
+import { decryptConnectionAuth, encryptConnectionAuth } from "../whatsapp/connection-crypto";
 
 /**
  * Estado de autenticação Baileys persistido no PostgreSQL (campo baileysAuthKeys).
@@ -13,11 +15,11 @@ import { eq } from "drizzle-orm";
  *   (sock.user é null durante a transição QR→autenticado — isso é normal)
  */
 export async function useDrizzleAuthState(
-  tenantId: string
+  tenantId: string,
+  connectionId: string | null = null,
+  leaseToken: string | null = null,
 ): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
-  const config = await db.query.channelConfigs.findFirst({
-    where: eq(channelConfigs.tenantId, tenantId),
-  });
+  const config = await readBaileysConfig(tenantId, connectionId);
 
   if (!config) {
     throw new Error(
@@ -32,9 +34,11 @@ export async function useDrizzleAuthState(
   };
 
   // Carregar do banco se existir
-  if (config.baileysAuthKeys) {
+  const storedAuth = connectionId && "authEncrypted" in config && config.authEncrypted
+    ? JSON.parse(decryptConnectionAuth(tenantId, connectionId, config.authEncrypted)) : config.baileysAuthKeys;
+  if (storedAuth) {
     try {
-      const raw = JSON.stringify(config.baileysAuthKeys);
+      const raw = JSON.stringify(storedAuth);
       const parsed = JSON.parse(raw, BufferJSON.reviver);
       if (parsed?.creds) {
         authData.creds = parsed.creds;
@@ -63,6 +67,14 @@ export async function useDrizzleAuthState(
   const performSave = async () => {
     try {
       const jsonb = JSON.parse(JSON.stringify(authData, BufferJSON.replacer));
+      if (connectionId) {
+        const [saved] = await db.update(whatsappConnections).set({ authEncrypted: encryptConnectionAuth(tenantId, connectionId, JSON.stringify(jsonb)), updatedAt: new Date() }).where(and(
+          eq(whatsappConnections.tenantId, tenantId), eq(whatsappConnections.id, connectionId),
+          leaseToken ? eq(whatsappConnections.leaseToken, leaseToken) : sql`false`, sql`${whatsappConnections.leaseUntil} > now()`,
+        )).returning({ id: whatsappConnections.id });
+        if (!saved) throw new Error("A sessão perdeu a posse das credenciais.");
+        return;
+      }
       await db
         .update(channelConfigs)
         .set({ baileysAuthKeys: jsonb, updatedAt: new Date() })

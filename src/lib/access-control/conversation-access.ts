@@ -1,6 +1,6 @@
-import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "../../db";
-import { contacts, conversations } from "../../db/schema";
+import { contacts, conversations, whatsappConnections } from "../../db/schema";
 import { conversationReadRules } from "./conversation-policy";
 import type { ConversationPrincipal } from "./conversation-policy";
 
@@ -10,11 +10,18 @@ export function conversationReadCondition(session: ConversationPrincipal) {
   if (!rules.enabled || !rules.channels.length || !rules.queues.length) return sql`false`;
   return and(
     eq(conversations.tenantId, session.tenantId), inArray(conversations.queueState, rules.queues),
+    or(isNull(conversations.whatsappConnectionId), exists(db.select({ id: whatsappConnections.id }).from(whatsappConnections).where(and(
+      eq(whatsappConnections.tenantId, session.tenantId), eq(whatsappConnections.id, conversations.whatsappConnectionId),
+      session.operator.role === "admin" ? undefined : eq(whatsappConnections.ownerOperatorId, session.operator.id),
+    )))),
     rules.ownOnly ? eq(conversations.operatorId, session.operator.id) : !rules.others ?
       or(eq(conversations.operatorId, session.operator.id), isNull(conversations.operatorId)) : undefined,
     exists(db.select({ id: contacts.id }).from(contacts).where(and(
       eq(contacts.tenantId, session.tenantId), eq(contacts.id, conversations.contactId),
-      inArray(sql<string>`coalesce(${contacts.mainChannel}, 'whatsapp')`, rules.channels),
+      or(
+        rules.channels.includes("whatsapp") ? isNotNull(conversations.whatsappConnectionId) : undefined,
+        and(isNull(conversations.whatsappConnectionId), inArray(sql<string>`coalesce(${contacts.mainChannel}, 'whatsapp')`, rules.channels)),
+      ),
     ))),
   )!;
 }

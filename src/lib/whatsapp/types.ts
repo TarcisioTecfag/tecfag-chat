@@ -6,6 +6,7 @@ export type DeliveryStatus =
 export type MessageDirection = "in" | "out";
 
 export interface UniversalOutboundMessage {
+  whatsappConnectionId?: string | null; // resolved from the server conversation
   idempotencyKey?: string; // clientMessageId para evitar duplicidade de envio
   tenantId: string;
   conversationId: string;
@@ -45,6 +46,7 @@ export interface UniversalInboundMedia {
 }
 
 export interface UniversalInboundMessage {
+  whatsappConnectionId?: string | null;
   externalEventId: string; // provider:tenantId:externalId para deduplicação em pending_inbounds
   tenantId: string;
   provider: WhatsAppProviderType;

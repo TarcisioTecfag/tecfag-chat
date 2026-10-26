@@ -22,6 +22,7 @@
     "db:push": "tsx src/db/cleanup.ts && drizzle-kit push",
     "lint": "eslint .",
     "test:access": "node --test test/access-settings-preservation.test.mjs test/access-groups-api.test.mjs test/access-urgent-routes.test.mjs test/access-crm-routes.test.mjs test/access-tasks-and-ui.test.mjs test/access-policy.test.mjs test/access-migration-preview.test.mjs test/access-delegation.test.mjs test/access-conversations.test.mjs test/access-conversation-delivery.test.mjs",
+    "test:whatsapp-connections": "node --test test/whatsapp-multi-connection.test.mjs",
     "test:triage": "node --experimental-strip-types --test test/industrial-triage.test.mjs test/industrial-catalog.test.mjs test/industrial-site-channel.test.mjs test/industrial-silence-resilience.test.mjs test/industrial-monitor.test.mjs test/industrial-handoff-issues.test.mjs test/industrial-triage-history.test.mjs test/industrial-review.test.mjs test/industrial-site-context.test.mjs test/vtex-store.test.mjs",
     "test:triage:postgres": "bun --no-env-file test/industrial-handoff-postgres.test.ts",
     "mcp:start": "node scripts/mcp-server.mjs",
@@ -111,6 +112,7 @@
     "ffmpeg-static"
   ],
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11",
     "@eslint/js": "^9.32.0",
     "@lovable.dev/vite-tanstack-config": "2.6.4",
     "@types/node": "^22.16.5",

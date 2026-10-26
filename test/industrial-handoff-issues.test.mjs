@@ -206,7 +206,11 @@ function senderHarness({
     notifyPublic() {},
   };
   const dependencies = {
-    "drizzle-orm": { eq: (column, value) => ({ column, value }), and: (...values) => values },
+    "drizzle-orm": {
+      eq: (column, value) => ({ column, value }),
+      isNull: (column) => ({ column, value: null }),
+      and: (...values) => values,
+    },
     "../../db/schema": tables,
     "../../db": {
       db: {

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
 import { contacts, conversations, agentFlowStates, operators } from "../../../db/schema";
-import { and, eq } from "drizzle-orm";
+import { isNull, and, eq } from "drizzle-orm";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
@@ -73,7 +73,7 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
             const clientConvs = await db
               .select()
               .from(conversations)
-              .where(and(eq(conversations.contactId, contactId), eq(conversations.tenantId, session.tenantId)));
+              .where(and(eq(conversations.contactId, contactId), eq(conversations.tenantId, session.tenantId), isNull(conversations.whatsappConnectionId)));
 
             const aiPersona = getAiPersona(session.tenantId);
             const aiName = `${aiPersona.name} IA`;
@@ -96,7 +96,7 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
                   lastMessageTime: new Date(),
                   updatedAt: new Date(),
                 })
-                .where(and(eq(conversations.id, conv.id), eq(conversations.tenantId, session.tenantId)));
+                .where(and(eq(conversations.id, conv.id), eq(conversations.tenantId, session.tenantId), isNull(conversations.whatsappConnectionId)));
 
               // Reseta o estado do fluxo SDR para que a IA realize novo atendimento quando o cliente falar
               await db

@@ -10,6 +10,8 @@ import { resetMetaTypingThrottle } from "./meta-presence";
 import { recordCommercialFirstResponse } from "../commercial/tma";
 import { SessionManager } from "../baileys/session-manager";
 import type { UniversalOutboundResult } from "./types";
+import { resolveConversationConnection } from "./connections";
+import { baileysStanzaId } from "./connection-policy";
 
 export function storedResult(msg: typeof messages.$inferSelect): UniversalOutboundResult {
   return {
@@ -69,6 +71,7 @@ export async function dispatchStored(
         status,
         errorMessage,
         ...(externalId ? { externalId } : {}),
+        ...(externalId && msg.whatsappConnectionId && msg.provider === "baileys" ? { metaDetails: { ...msg.metaDetails, wireStanzaId: baileysStanzaId(externalId) } } : {}),
         retryCount: sql`${messages.retryCount} + 1`,
         nextRetryAt: retryable
           ? new Date(Date.now() + Math.min(30_000 * 2 ** Math.min(msg.retryCount, 6), 30 * 60_000))
@@ -91,10 +94,7 @@ export async function dispatchStored(
   };
   let dispatched = false;
   try {
-    const [cfg] = await db
-      .select()
-      .from(channelConfigs)
-      .where(eq(channelConfigs.tenantId, tenantId));
+    const target = await resolveConversationConnection(tenantId, msg.conversationId);
     const [conv] = await db
       .select()
       .from(conversations)
@@ -103,7 +103,7 @@ export async function dispatchStored(
       return finish("failed", "Conversa finalizada ou indisponível; revise a mensagem.");
     if (msg.metaDetails.operatorId && conv.operatorId !== msg.metaDetails.operatorId)
       return finish("failed", "Responsável pelo atendimento mudou; revise o envio pendente.");
-    if (!cfg || cfg.activeProvider !== msg.provider)
+    if (target.provider !== msg.provider || target.connectionId !== msg.whatsappConnectionId)
       return finish("failed", "Canal alterado; envio original preservado para revisão.");
     const approvedAt = msg.metaDetails.approvedReplayAt
       ? new Date(String(msg.metaDetails.approvedReplayAt)).getTime()
@@ -113,16 +113,20 @@ export async function dispatchStored(
         "failed",
         "Envio pendente há mais de 24 horas; revise o contexto antes de reenviar.",
       );
-    if (cfg.connectionStatus === "switching")
+    if (target.status === "switching")
       return finish("pending", "Canal em transição; aguardando.", true);
     const [contact] = await db
       .select()
       .from(contacts)
       .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)));
     if (!contact) return finish("failed", "Contato indisponível.");
+    if (msg.whatsappConnectionId && typeof msg.metaDetails.recipientPhone === "string" && msg.metaDetails.recipientPhone && msg.metaDetails.recipientPhone.replace(/\D/g, "") !== (contact.phone || "").replace(/\D/g, "")) {
+      return finish("failed", "O telefone do contato mudou. Confira o destinatário e crie um novo envio.");
+    }
     let payload;
     try {
       payload = restoreOutbound(msg, contact.phone || "", contact.whatsappUserId || undefined);
+      payload.whatsappConnectionId = target.connectionId;
     } catch {
       return finish(
         "failed",

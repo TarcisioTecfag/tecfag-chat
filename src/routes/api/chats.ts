@@ -477,6 +477,7 @@ export const Route = createFileRoute("/api/chats")({
             return {
               id: row.conversation.id,
               contactId: row.contact.id,
+              whatsappConnectionId: row.conversation.whatsappConnectionId,
               name: row.contact.name,
               avatar: row.contact.avatar || "",
               initials: initials || "C",
@@ -488,7 +489,7 @@ export const Route = createFileRoute("/api/chats")({
               cpf: row.contact.cpf || "",
               cnpjDetails: (row.contact as any).cnpjDetails || {},
               tags: row.contact.tags || [],
-              channel: row.contact.mainChannel || "whatsapp",
+              channel: row.conversation.whatsappConnectionId ? "whatsapp" : row.contact.mainChannel || "whatsapp",
               queue: row.conversation.queueState || "fila",
               operatorId: row.conversation.operatorId || null,
               walletOperatorId: row.contact.walletOperatorId || null,

@@ -6,6 +6,7 @@ import { requireSession } from "../../../lib/auth-session";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import { sendMetaConversationPresence, type MetaPresenceAction } from "../../../lib/whatsapp/meta-presence";
 import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
+import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
 
 /**
  * Presença do atendimento em tempo real.
@@ -71,10 +72,8 @@ export const Route = createFileRoute("/api/whatsapp/presence")({
             }
           }
 
-          const [channel] = await db
-            .select({ activeProvider: channelConfigs.activeProvider, connectionStatus: channelConfigs.connectionStatus })
-            .from(channelConfigs)
-            .where(eq(channelConfigs.tenantId, tenantId));
+          const target = await resolveConversationConnection(tenantId, conversationId);
+          const channel = { activeProvider: target.provider, connectionStatus: target.status };
 
           if (channel?.activeProvider !== "meta" || channel.connectionStatus === "switching") {
             return json({ ok: true, meta: false });

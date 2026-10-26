@@ -7,6 +7,8 @@ import { applyOperatorReaction } from "../../../lib/whatsapp/meta-reactions";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { baileysAdapter } from "../../../lib/whatsapp/adapters/baileys";
 import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
+import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
+import { connectionPeerJid } from "../../../lib/whatsapp/connection-contacts";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -40,6 +42,7 @@ export const Route = createFileRoute("/api/whatsapp/react")({
             .select({
               id: conversations.id,
               contactId: conversations.contactId,
+              whatsappConnectionId: conversations.whatsappConnectionId,
               operatorId: conversations.operatorId,
               queueState: conversations.queueState,
             })
@@ -84,12 +87,10 @@ export const Route = createFileRoute("/api/whatsapp/react")({
             .from(contacts)
             .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
 
-          const isWhatsApp = !contact?.mainChannel || contact.mainChannel === "whatsapp";
+          const isWhatsApp = !!conv.whatsappConnectionId || !contact?.mainChannel || contact.mainChannel === "whatsapp";
           if (isWhatsApp && targetMsg.externalId) {
-            const [channel] = await db
-              .select({ activeProvider: channelConfigs.activeProvider })
-              .from(channelConfigs)
-              .where(eq(channelConfigs.tenantId, tenantId));
+            const target = await resolveConversationConnection(tenantId, conversationId);
+            const channel = { activeProvider: target.provider };
 
             if (channel?.activeProvider === "meta") {
               const phone = contact?.phone || "";
@@ -100,10 +101,10 @@ export const Route = createFileRoute("/api/whatsapp/react")({
               }
             } else {
               // Baileys
-              const jid = contact?.whatsappJid || (contact?.phone ? `${contact.phone.replace(/\D/g, "")}@s.whatsapp.net` : null);
+              const jid = conv.whatsappConnectionId ? await connectionPeerJid(tenantId, conv.whatsappConnectionId, conv.contactId) || (contact?.phone ? `${contact.phone.replace(/\D/g, "")}@s.whatsapp.net` : null) : contact?.whatsappJid || (contact?.phone ? `${contact.phone.replace(/\D/g, "")}@s.whatsapp.net` : null);
               if (jid) {
                 const isFromMe = targetMsg.direction === "outbound" || targetMsg.senderType === "operator" || targetMsg.senderType === "system";
-                void baileysAdapter.sendReaction(tenantId, jid, targetMsg.externalId, isFromMe, emoji).catch((err) => {
+                void baileysAdapter.sendReaction(tenantId, jid, targetMsg.externalId, isFromMe, emoji, conv.whatsappConnectionId).catch((err) => {
                   console.warn(`[Reaction] Erro ao enviar reação no Baileys (tenant ${tenantId}):`, err);
                 });
               }

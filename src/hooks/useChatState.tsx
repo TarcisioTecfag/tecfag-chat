@@ -2398,7 +2398,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     sentAtISO: nowIso,
                     side: "out" as const,
                     status: "sending",
-                    provider: activeProvider,
+                    provider: currentChat.whatsappConnectionId ? "baileys" : activeProvider,
                     quotedMessageId: quotedMessage?.id || null,
                     quotedMessageSender: quotedMessage?.sender || null,
                     quotedMessageContent: quotedMessage?.content || null,
@@ -3489,6 +3489,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setClientTypingStatus((prev) => {
           const cleanPresence = presenceId.replace(/\D/g, "");
           const targetConv = conversationsRef.current.find((c) => {
+            if (data.conversationId) return c.id === data.conversationId;
+            if (c.whatsappConnectionId) return false;
             if (!c.phone) return false;
             const cleanPhone = c.phone.replace(/\D/g, "");
             if (!cleanPresence || !cleanPhone) return false;
@@ -3708,6 +3710,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const isClientMsg = message.senderType === "client";
             const incomingMsg: Message = {
             id: message.id,
+            conversationId: message.conversationId,
+            provider: message.provider,
             clientMessageId: message.clientMessageId || undefined,
             author: message.senderName,
             text: message.content ?? "",
@@ -3806,6 +3810,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
               const newConv: Conversation = {
               id: message.conversationId,
+              contactId: message.contactId,
+              whatsappConnectionId: message.whatsappConnectionId || null,
               name: message.senderName || message.phone || "Contato",
               avatar: message.avatar || "",
               initials,

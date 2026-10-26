@@ -3,7 +3,7 @@ import { isSdrTenant } from "../ai-persona";
 import { tenants } from "../../db/schema";
 import { db } from "../../db";
 import { conversations, contacts, messages, internalMessages, operators } from "../../db/schema";
-import { eq, ne, desc, and, inArray, gte, sql } from "drizzle-orm";
+import { isNull, eq, ne, desc, and, inArray, gte, sql } from "drizzle-orm";
 import crypto from "crypto";
 
 /**
@@ -101,7 +101,7 @@ export class SupervisorEngine {
       .where(
         and(
           eq(conversations.queueState, "meus"),
-          eq(conversations.tenantId, tenantId),
+          eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId),
           // Bug fix (AGENTS.md): Excluir contatos do Live Chat do site se houver.
           // O Supervisor monitora apenas conversas WhatsApp — o Live Chat
           // tem seu próprio mecanismo de follow-up (livechatWs.ts).

@@ -122,7 +122,7 @@ export class WhatsAppRecoveryService {
             }
             if (raw.kind === "baileys_message") {
               const { SessionManager } = await import("../baileys/session-manager");
-              await SessionManager.getInstance().recoverInbound(
+              await SessionManager.forConnection(tenantId, event.whatsappConnectionId).recoverInbound(
                 tenantId,
                 raw.message,
                 raw.historical,

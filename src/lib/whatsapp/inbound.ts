@@ -11,7 +11,7 @@ import {
   agentFlowStates,
   agentConfigs,
 } from "../../db/schema";
-import { eq, and, desc, sql, or, like } from "drizzle-orm";
+import { isNull, eq, and, desc, sql, or, like } from "drizzle-orm";
 import { UniversalInboundMessage } from "./types";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { SessionManager } from "../baileys/session-manager";
@@ -105,7 +105,7 @@ export class InboundProcessor {
           .select()
           .from(conversations)
           .where(
-            and(eq(conversations.tenantId, tenantId), eq(conversations.id, result.conversationId)),
+            and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.id, result.conversationId)),
           );
         SessionManager.getInstance().notifyPublic(tenantId, {
           type: "message",
@@ -207,7 +207,7 @@ export class InboundProcessor {
           lastMessageTime: new Date(),
           updatedAt: new Date(),
         })
-        .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
+        .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId)));
 
       await db.insert(agentFlowStates).values({
         id: `fs-sdr-${Date.now()}`,
@@ -558,7 +558,7 @@ export class InboundProcessor {
       let [activeConv] = await db
         .select()
         .from(conversations)
-        .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contact.id)))
+        .where(and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.contactId, contact.id)))
         .orderBy(desc(conversations.lastMessageTime))
         .limit(1);
 
@@ -566,7 +566,7 @@ export class InboundProcessor {
         const [locked] = await db
           .select()
           .from(conversations)
-          .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, activeConv.id)))
+          .where(and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.id, activeConv.id)))
           .for("update");
         activeConv = locked;
       }
@@ -627,7 +627,7 @@ export class InboundProcessor {
               )
               .where(
                 and(
-                  eq(conversations.tenantId, tenantId),
+                  eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId),
                   or(
                     ...convPhoneTerms.map(
                       (term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,
@@ -643,7 +643,7 @@ export class InboundProcessor {
             .select()
             .from(conversations)
             .where(
-              and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)),
+              and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.contactId, contactId)),
             )
             .orderBy(desc(conversations.lastMessageTime))
             .limit(1);
@@ -736,7 +736,7 @@ export class InboundProcessor {
             updatedAt: new Date(),
             version: (activeConv.version || 1) + 1,
           })
-          .where(and(eq(conversations.id, activeConv.id), eq(conversations.tenantId, tenantId)))
+          .where(and(eq(conversations.id, activeConv.id), eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId)))
           .returning();
 
         activeConv = reopenedConv || {
@@ -759,7 +759,7 @@ export class InboundProcessor {
               activeConv.lastMessageTime > timestamp ? activeConv.lastMessageTime : timestamp,
             updatedAt: new Date(),
           })
-          .where(and(eq(conversations.id, activeConv.id), eq(conversations.tenantId, tenantId)));
+          .where(and(eq(conversations.id, activeConv.id), eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId)));
       }
 
       // 4. Persistir bytes da mídia recebida antes de confirmar o webhook.

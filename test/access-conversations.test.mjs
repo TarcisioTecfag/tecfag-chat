@@ -9,7 +9,7 @@ const { normalizeGroupPermissions } = loadAccessSource("src/lib/rbac.ts");
 const { canManageWhatsappConnection, canMonitorAllSiteVisitors } = loadAccessSource("src/lib/access-control/channel-permissions.ts");
 const principal = (chat = {}, patch = {}) => ({ tenantId: "tenant-a", operator: { id: "agent-a", role: "agent" },
   permissions: { views: { chat: true }, chat: { canViewAllChats: false, ...chat } }, accessGroup: { allowedChannels: ["whatsapp", "livechat"] }, ...patch });
-const record = (patch = {}) => ({ id: "conv-a", tenantId: "tenant-a", operatorId: "agent-a", queueState: "meus", mainChannel: "whatsapp", ...patch });
+const record = (patch = {}) => ({ id: "conv-a", tenantId: "tenant-a", operatorId: "agent-a", queueState: "meus", mainChannel: "whatsapp", whatsappConnectionId: null, ...patch });
 
 test("legacy queue settings remain visible until explicitly configured", () => {
   const p = normalizeGroupPermissions({ permissions: { views: { chat: true }, chat: { canViewAllChats: false } } });
@@ -50,13 +50,15 @@ test("legacy global site monitoring requires full site visibility and its own mo
 // Execute the real SQL builder over semantic predicates. No DB/network imports are allowed.
 function databaseHarness(rows) {
   const table = (name, keys) => Object.fromEntries(keys.map((key) => [key, { table: name, column: key }]));
-  const conversations = table("conversations", ["id", "tenantId", "operatorId", "queueState", "contactId"]);
+  const conversations = table("conversations", ["id", "tenantId", "operatorId", "queueState", "contactId", "whatsappConnectionId"]);
+  const whatsappConnections = table("whatsappConnections", ["id", "tenantId", "ownerOperatorId"]);
   const contacts = table("contacts", ["id", "tenantId", "mainChannel"]);
-  const data = { conversations: rows.map(({ mainChannel, ...row }) => ({ ...row, contactId: `contact-${row.id}` })),
+  const data = { whatsappConnections: rows.filter((r) => r.whatsappConnectionId).map((r) => ({ id: r.whatsappConnectionId, tenantId: r.tenantId, ownerOperatorId: r.connectionOwnerOperatorId })), conversations: rows.map(({ mainChannel, ...row }) => ({ ...row, contactId: `contact-${row.id}` })),
     contacts: rows.map((row) => ({ id: `contact-${row.id}`, tenantId: row.tenantId, mainChannel: row.mainChannel })) };
   const expr = (op) => (...args) => ({ op, args });
   const dsl = { and: (...args) => ({ op: "and", args: args.filter(Boolean) }), or: (...args) => ({ op: "or", args: args.filter(Boolean) }),
     eq: expr("eq"), inArray: expr("in"), isNull: expr("null"), exists: expr("exists"),
+    isNotNull: expr("notNull"),
     sql: (strings, ...args) => { const text = strings.join("?");
       if (text === "false") return { op: "false", args: [] };
       if (text.startsWith("coalesce(")) return { op: "coalesce", args };
@@ -70,6 +72,7 @@ function databaseHarness(rows) {
       case "eq": return value(a, ctx) === value(b, ctx);
       case "in": return b.includes(value(a, ctx));
       case "null": return value(a, ctx) === null;
+      case "notNull": return value(a, ctx) != null;
       case "and": return x.args.every((item) => value(item, ctx));
       case "or": return x.args.some((item) => value(item, ctx));
       case "coalesce": return value(a, ctx) ?? "whatsapp";
@@ -87,7 +90,7 @@ function databaseHarness(rows) {
       then: (resolve) => { queries.push({ source, condition }); return Promise.resolve(query.evaluate()).then(resolve); } };
     return query;
   } };
-  const source = loadAccessSource("src/lib/access-control/conversation-access.ts", { "../../db": { db }, "../../db/schema": { conversations, contacts }, "drizzle-orm": dsl });
+  const source = loadAccessSource("src/lib/access-control/conversation-access.ts", { "../../db": { db }, "../../db/schema": { conversations, contacts, whatsappConnections }, "drizzle-orm": dsl });
   return { ...source, db, conversations, contacts, dsl, queries };
 }
 test("SQL predicate and record evaluator agree across tenant, owner, channel and every queue", async () => {

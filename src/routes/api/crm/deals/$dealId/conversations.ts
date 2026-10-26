@@ -8,7 +8,7 @@ import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { db } from "../../../../../db";
 import { crmDeals, crmConversationDeals, crmDealContacts, crmAccounts, conversations, contacts, operators } from "../../../../../db/schema";
-import { eq, and, desc, asc, or, ilike, sql } from "drizzle-orm";
+import { isNull, eq, and, desc, asc, or, ilike, sql } from "drizzle-orm";
 import { buildPhoneSearchTerms } from "../../../../../lib/utils";
 
 const corsHeaders = {
@@ -323,7 +323,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   .where(
                     and(
                       eq(conversations.tenantId, tenantId),
-                      eq(conversations.contactId, targetContactId)
+                      eq(conversations.contactId, targetContactId), isNull(conversations.whatsappConnectionId)
                     )
                   )
                   .orderBy(desc(conversations.lastMessageTime), desc(conversations.createdAt))

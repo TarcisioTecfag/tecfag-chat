@@ -192,6 +192,10 @@ const migrations = [
     name: "0046_attendance_events",
     url: new URL("../src/db/migrations/0046_attendance_events.sql", import.meta.url),
   },
+  {
+    name: "0047_whatsapp_multi_connection",
+    url: new URL("../src/db/migrations/0047_whatsapp_multi_connection.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

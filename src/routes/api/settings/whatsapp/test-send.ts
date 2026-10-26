@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { isNull, and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../../../db";
 import { contacts, conversations } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
@@ -40,7 +40,7 @@ export const Route = createFileRoute("/api/settings/whatsapp/test-send")({
           .select({ id: conversations.id })
           .from(conversations)
           .where(and(
-            eq(conversations.tenantId, session.tenantId),
+            eq(conversations.tenantId, session.tenantId), isNull(conversations.whatsappConnectionId),
             eq(conversations.contactId, contact.id)
           ))
           .orderBy(desc(conversations.lastMessageTime))

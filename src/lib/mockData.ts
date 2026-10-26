@@ -48,6 +48,10 @@ export type RelatedCallActionItem = {
 };
 
 export type Message = {
+  conversationId?: string;
+  whatsappConnectionId?: string | null;
+  connectionName?: string;
+  connectionPhone?: string | null;
   id: string;
   clientMessageId?: string;
   author: string;
@@ -90,6 +94,7 @@ export type Message = {
 };
 
 export type Conversation = {
+  whatsappConnectionId?: string | null;
   id: string;
   contactId?: string;
   name: string;

@@ -1,5 +1,6 @@
 import { syncConversationDeals, lockContactDeals } from "../crm/deal-associations";
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { runtimeSingleton } from "../runtime-singleton";
 import makeWASocket, { 
   DisconnectReason, 
@@ -16,9 +17,13 @@ import pino from "pino";
 import fs from "fs";
 import path from "path";
 import { useDrizzleAuthState } from "./drizzle-auth";
+import { multiConnectionEnabled, connectionScope, baileysEventId } from "../whatsapp/connection-policy";
+import { readBaileysConfig, updateBaileysConfig, acquireConnectionLease, renewConnectionLease, releaseConnectionLease, conversationConnectionCondition, storeConnectionQr } from "../whatsapp/connections";
+import { captureConnectionPeer, findConnectionContact, bindConnectionIdentity, syncConnectionContact } from "../whatsapp/connection-contacts";
 import { db } from "../../db";
 import {
   channelConfigs,
+  whatsappConnections,
   contacts,
   conversations,
   messages,
@@ -61,7 +66,7 @@ export type SessionEvent =
   | { type: "message_reaction"; conversationId: string; messageId: string; reactions: Array<{ emoji: string; from: string; at: string }> }
   | { type: "message_status"; conversationId: string; messageId: string; status: string; error?: string | null }
   | { type: "operator_typing"; conversationId: string; operatorId: string; operatorName: string }
-  | { type: "presence_update"; id: string; presences: Record<string, any> };
+  | { type: "presence_update"; id: string; conversationId?: string; presences: Record<string, any> };
 
 export type SessionListener = (event: SessionEvent) => void;
 
@@ -95,17 +100,50 @@ export class SessionManager {
   // Contadores de retry por tenant — usados para backoff exponencial
   private reconnectAttempts = new Map<string, number>();
 
-  private constructor() {}
+  private leaseToken: string | null = null;
+  private notifications = new AsyncLocalStorage<{ tenantId: string; events: SessionEvent[]; active: boolean }>();
+  private leaseTimer: ReturnType<typeof setInterval> | null = null;
+  private static extraManagers = runtimeSingleton("WhatsappExtraSessionManagers", () => new Map<string, SessionManager>());
+  private constructor(private readonly connectionId: string | null = null) {}
+
+  public static forConnection(tenantId: string, connectionId?: string | null): SessionManager {
+    if (!connectionId) return SessionManager.getInstance();
+    const key = connectionScope(tenantId, connectionId);
+    let manager = this.extraManagers.get(key);
+    if (!manager) { manager = new SessionManager(connectionId); this.extraManagers.set(key, manager); }
+    return manager;
+  }
+
+  private updateConfig(tenantId: string, values: Partial<typeof channelConfigs.$inferInsert>) {
+    return updateBaileysConfig(tenantId, this.connectionId, values, this.leaseToken);
+  }
+
+  public async ensureConnectionOwnership(tenantId: string): Promise<boolean> {
+    return !this.connectionId || (!!this.leaseToken && await renewConnectionLease(tenantId, this.connectionId, this.leaseToken));
+  }
+
+  private async stopLease(tenantId: string, revokeAuth = false) {
+    if (this.leaseTimer) clearInterval(this.leaseTimer);
+    this.leaseTimer = null;
+    const token = this.leaseToken;
+    this.leaseToken = null;
+    if (this.connectionId && token) {
+      try { await releaseConnectionLease(tenantId, this.connectionId, token, revokeAuth); }
+      catch { console.error("[WhatsApp] Lease aguardando expiração após indisponibilidade do banco."); }
+    }
+  }
 
   public async shutdown(): Promise<void> {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
+    if (!this.connectionId) await Promise.allSettled([...SessionManager.extraManagers.values()].map((m) => m.shutdown()));
     console.log("[SessionManager] Recebido sinal de encerramento do processo (SIGTERM/SIGINT). Fechando sockets Baileys com segurança...");
 
     for (const [tenantId, sock] of this.sessions.entries()) {
       try {
         console.log(`[SessionManager] Encerrando socket para tenant ${tenantId}...`);
         sock.end(undefined);
+        if (this.connectionId) await this.stopLease(tenantId);
       } catch (err) {
         console.warn(`[SessionManager] Erro ao fechar socket tenant ${tenantId}:`, err);
       }
@@ -125,6 +163,19 @@ export class SessionManager {
     return SessionManager.instance;
   }
 
+  /** Retry takeover after the previous server releases/expires its lease during deployment. */
+  private bootAdditionalConnection(tenantId: string, connectionId: string) {
+    if (this.isShuttingDown || !multiConnectionEnabled(tenantId)) return;
+    void readBaileysConfig(tenantId, connectionId).then(async (config) => {
+      if (!config || !("authEncrypted" in config) || !config.authEncrypted) return;
+      await SessionManager.forConnection(tenantId, connectionId).initSession(tenantId);
+    }).catch(() => {
+      if (this.isShuttingDown) return;
+      const timer = setTimeout(() => this.bootAdditionalConnection(tenantId, connectionId), 30_000);
+      timer.unref();
+    });
+  }
+
   /**
    * Ao iniciar o servidor, busca todos os tenants que possuem
    * credenciais Baileys salvas no banco e tenta reconectar automaticamente.
@@ -140,6 +191,13 @@ export class SessionManager {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const configs = await db.query.channelConfigs.findMany();
+      for (const config of configs) {
+        if (!multiConnectionEnabled(config.tenantId)) continue;
+        const extras = await db.select().from(whatsappConnections).where(and(eq(whatsappConnections.tenantId, config.tenantId), eq(whatsappConnections.enabled, true)));
+        for (const extra of extras) {
+          if (extra.authEncrypted) this.bootAdditionalConnection(config.tenantId, extra.id);
+        }
+      }
       const tenantsWithKeys = configs.filter(
         (c) =>
           c.activeProvider === "baileys" &&
@@ -199,6 +257,9 @@ export class SessionManager {
   }
 
   private notify(tenantId: string, event: SessionEvent) {
+    const buffered = this.notifications.getStore();
+    if (buffered?.active && buffered.tenantId === tenantId) { buffered.events.push(event); return; }
+    if (this.connectionId && !["qr", "status"].includes(event.type)) SessionManager.getInstance().notifyPublic(tenantId, event);
     const tenantListeners = this.listeners.get(tenantId);
     if (tenantListeners) {
       for (const listener of tenantListeners) {
@@ -297,10 +358,7 @@ export class SessionManager {
 
     // Limpar chaves do banco — sessão completamente nova
     try {
-      await db
-        .update(channelConfigs)
-        .set({ baileysSessionStatus: "disconnected", baileysPairedPhone: null, baileysAuthKeys: null, updatedAt: new Date() })
-        .where(eq(channelConfigs.tenantId, tenantId));
+      await this.updateConfig(tenantId, { baileysSessionStatus: "disconnected", baileysPairedPhone: null, baileysAuthKeys: null, updatedAt: new Date() });
       console.log(`[SessionManager] Chaves do banco limpas para tenant ${tenantId}`);
     } catch (e) {
       console.error(`[SessionManager] Erro ao limpar chaves no DB:`, e);
@@ -328,7 +386,10 @@ export class SessionManager {
       return existingMutex;
     }
 
-    const initPromise = this._doInitSession(tenantId);
+    const initPromise = this._doInitSession(tenantId).catch(async (error) => {
+      if (this.connectionId) { await this.pauseSession(tenantId); await this.stopLease(tenantId); }
+      throw error;
+    });
     this.initMutex.set(tenantId, initPromise);
     const clearInitMutex = () => {
       if (this.initMutex.get(tenantId) === initPromise) this.initMutex.delete(tenantId);
@@ -351,7 +412,21 @@ export class SessionManager {
     const logger = pino({ level: "silent" });
 
     // Carregar estado de autenticação do banco
-    const { state, saveCreds } = await useDrizzleAuthState(tenantId);
+    if (this.connectionId) {
+      await readBaileysConfig(tenantId, this.connectionId);
+      if (this.leaseToken && !await renewConnectionLease(tenantId, this.connectionId, this.leaseToken)) this.leaseToken = null;
+      if (!this.leaseToken) this.leaseToken = await acquireConnectionLease(tenantId, this.connectionId);
+      if (!this.leaseTimer) {
+        this.leaseTimer = setInterval(() => {
+          if (!this.leaseToken) return;
+          void renewConnectionLease(tenantId, this.connectionId!, this.leaseToken).then(async (owned) => {
+            if (!owned) { await this.pauseSession(tenantId); await this.stopLease(tenantId); }
+          }).catch(async () => { await this.pauseSession(tenantId); await this.stopLease(tenantId); });
+        }, 25_000);
+        this.leaseTimer.unref();
+      }
+    }
+    const { state, saveCreds } = await useDrizzleAuthState(tenantId, this.connectionId, this.leaseToken);
     console.log(`[SessionManager] Logout explícito detectado para tenant ${tenantId} — não reconectando.`);
 
     // ── Versão do protocolo WhatsApp Web ────────────────────────────────────────
@@ -415,7 +490,7 @@ export class SessionManager {
       getMessage: async (key: proto.IMessageKey) => {
         try {
           const stored = await db.query.messages.findFirst({
-            where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.id, key.id ?? ""), dEq(t.tenantId, tenantId)),
+            where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), this.connectionId ? dEq(t.whatsappConnectionId, this.connectionId) : isNull(t.whatsappConnectionId), or(dEq(t.id, key.id ?? ""), dEq(t.externalId, baileysEventId(tenantId, this.connectionId, { id: key.id || "", remoteJid: key.remoteJid || "", fromMe: key.fromMe })))),
           });
           if (stored?.content) return { conversation: stored.content } as proto.IMessage;
         } catch (_) {}
@@ -444,14 +519,24 @@ export class SessionManager {
         this.notify(tenantId, { type: "status", status: "qr_ready" });
         this.notify(tenantId, { type: "qr", qr });
         try {
-          await db.update(channelConfigs)
-            .set({ baileysSessionStatus: "qr_ready", updatedAt: new Date() })
-            .where(eq(channelConfigs.tenantId, tenantId));
+          await this.updateConfig(tenantId, { baileysSessionStatus: "qr_ready", updatedAt: new Date() });
+          if (this.connectionId && this.leaseToken) await storeConnectionQr(tenantId, this.connectionId, this.leaseToken, qr);
         } catch (e) { console.error("Erro ao salvar status qr_ready:", e); }
       }
 
       if (connection === "open") {
         const phone = sock.user?.id?.split(":")[0];
+        if (this.connectionId) {
+          try {
+            if (!phone) throw new Error("O WhatsApp não confirmou o número pareado.");
+            await this.updateConfig(tenantId, { baileysPairedPhone: phone, lastError: null });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Número indisponível para esta conexão.";
+            await this.disconnectSession(tenantId);
+            await db.update(whatsappConnections).set({ lastError: message }).where(and(eq(whatsappConnections.tenantId, tenantId), eq(whatsappConnections.id, this.connectionId)));
+            return;
+          }
+        }
         console.log(`[SessionManager] ✅ Conexão estabelecida para tenant ${tenantId} — telefone: ${phone}`);
         this.sessionStatuses.set(tenantId, "connected");
         this.sessionQrs.delete(tenantId);
@@ -459,15 +544,13 @@ export class SessionManager {
         this.reconnectAttempts.delete(tenantId);
         this.notify(tenantId, { type: "status", status: "connected", phone });
         try {
-          await db.update(channelConfigs)
-            .set({ baileysSessionStatus: "connected", baileysPairedPhone: phone, updatedAt: new Date() })
-            .where(eq(channelConfigs.tenantId, tenantId));
+          await this.updateConfig(tenantId, { baileysSessionStatus: "connected", baileysPairedPhone: phone, updatedAt: new Date() });
         } catch (e) { console.error("Erro ao salvar status connected:", e); }
 
         // ── Recovery de conversas interrompidas por deploy ──────────────────────────
         // Aguarda 5s para o socket estabilizar antes de reiniciar processamentos pendentes.
         // Janela: apenas conversas interrompidas nos últimos 30 minutos serão reativadas.
-        setTimeout(() => {
+        if (!this.connectionId) setTimeout(() => {
           import("../valentina/sdr-recovery").then(({ recoverInterruptedConversations }) => {
             recoverInterruptedConversations(tenantId).catch((err: any) => {
               console.error(`[SessionManager] Erro no SDR Recovery para tenant ${tenantId}:`, err?.message);
@@ -513,8 +596,7 @@ export class SessionManager {
         this.notify(tenantId, { type: "status", status: "disconnected" });
 
         try {
-          await db.update(channelConfigs)
-            .set({
+          await this.updateConfig(tenantId, {
               baileysSessionStatus: "disconnected",
               // NUNCA apagar baileysAuthKeys nem baileysPairedPhone em eventos de socket close!
               // Durante deploys no Railway ou trocas de rede, o container antigo ou quedas temporárias
@@ -522,18 +604,14 @@ export class SessionManager {
               // A limpeza das chaves é reservada exclusivamente para ações intencionais de admin
               // via disconnectSession() ou resetAndInitSession().
               updatedAt: new Date(),
-            })
-            .where(eq(channelConfigs.tenantId, tenantId));
+            });
         } catch (e) { console.error("Erro ao salvar status disconnected:", e); }
 
         if (shouldReconnect) {
           // Checar se o provedor ativo do tenant ainda é Baileys antes de reconectar!
           // Se o tenant foi alternado para Meta, NÃO deve restabelecer socket do Baileys.
           try {
-            const [cfg] = await db
-              .select({ activeProvider: channelConfigs.activeProvider })
-              .from(channelConfigs)
-              .where(eq(channelConfigs.tenantId, tenantId));
+            const cfg = await readBaileysConfig(tenantId, this.connectionId);
             if (cfg?.activeProvider === "meta") {
               console.log(`[SessionManager] Tenant '${tenantId}' configurado para Meta API — auto-reconexão Baileys cancelada.`);
             } else {
@@ -560,6 +638,7 @@ export class SessionManager {
 
     // Tratar eventos de mensagens recebidas
     sock.ev.on("messages.upsert", async (event: any) => {
+      if (this.sessions.get(tenantId) !== sock) return;
       for (const msg of event.messages) {
         if (msg.message)
           await this.captureInbound(tenantId, msg, event.type !== "notify").catch(() =>
@@ -568,6 +647,7 @@ export class SessionManager {
       }
     });
     sock.ev.on("messaging-history.set", async (event: any) => {
+      if (this.sessions.get(tenantId) !== sock) return;
       for (const msg of event.messages || []) {
         if (msg.message)
           await this.captureInbound(tenantId, msg, true).catch(() =>
@@ -579,6 +659,15 @@ export class SessionManager {
     // Tratar eventos de atualização de presença (cliente digitando / gravando áudio)
     sock.ev.on("presence.update", (data: any) => {
       if (data && data.id) {
+        if (this.connectionId) {
+          const connectionId = this.connectionId;
+          void findConnectionContact(db, tenantId, connectionId, data.id).then(async (contact) => {
+            if (!contact) return;
+            const [conversation] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contact.id), eq(conversations.whatsappConnectionId, connectionId))).limit(1);
+            if (conversation) this.notify(tenantId, { type: "presence_update", conversationId: conversation.id, id: data.id, presences: data.presences || {} });
+          }).catch(() => {});
+          return;
+        }
         console.log(`[Baileys Presence Event] id: ${data.id}, presences:`, JSON.stringify(data.presences));
         this.notify(tenantId, {
           type: "presence_update",
@@ -592,6 +681,13 @@ export class SessionManager {
     const handleContactsSync = async (contactsList: any[]) => {
       console.log(`[Baileys Contacts] Sincronizando/Atualizando ${contactsList.length} contatos para o tenant ${tenantId}`);
       for (const rawContact of contactsList) {
+        if (this.connectionId) {
+          if (!rawContact.id || shouldIgnoreJid(rawContact.id)) continue;
+          let phoneJid = rawContact.id.endsWith("@s.whatsapp.net") ? rawContact.id : rawContact.phoneNumber;
+          if (!phoneJid?.endsWith("@s.whatsapp.net") && rawContact.id.endsWith("@lid")) phoneJid = await sock.signalRepository.lidMapping.getPNForLID(rawContact.id);
+          await syncConnectionContact(tenantId, this.connectionId, rawContact.id, phoneJid, rawContact.name || rawContact.notify).catch(() => console.error("[WhatsApp] Contato da conexão adicional aguardando sincronização."));
+          continue;
+        }
         const jid = rawContact.id;
         if (!jid) continue;
 
@@ -672,7 +768,7 @@ export class SessionManager {
             }
 
             // Atualiza telefone se o anterior era LID e agora resolvemos o número real
-            if (contact.phone !== phone && isResolved) {
+            if (!this.connectionId && contact.phone !== phone && isResolved) {
               updates.phone = phone;
             }
 
@@ -714,13 +810,10 @@ export class SessionManager {
     this.notify(tenantId, { type: "status", status: "disconnected" });
 
     try {
-      await db
-        .update(channelConfigs)
-        .set({ 
+      await this.updateConfig(tenantId, {
           baileysSessionStatus: "disconnected", 
           updatedAt: new Date() 
-        })
-        .where(eq(channelConfigs.tenantId, tenantId));
+        });
     } catch (e) {
       console.error(`[SessionManager] Erro ao atualizar status para disconnected no DB (pausa) no tenant '${tenantId}':`, e);
     }
@@ -748,29 +841,34 @@ export class SessionManager {
 
     // Atualizar no banco e deletar chaves
     try {
-      await db
-        .update(channelConfigs)
-        .set({ 
+      await this.updateConfig(tenantId, {
           baileysSessionStatus: "disconnected", 
           baileysPairedPhone: null,
           baileysAuthKeys: null,
           updatedAt: new Date() 
-        })
-        .where(eq(channelConfigs.tenantId, tenantId));
+        });
     } catch (e) {
       console.error("Erro ao limpar dados de sessão no DB:", e);
     }
+    if (this.connectionId) await this.stopLease(tenantId, true);
   }
 
   private async captureInbound(tenantId: string, rawMsg: any, historical = false) {
     if (!rawMsg.key?.id || !rawMsg.key?.remoteJid || shouldIgnoreJid(rawMsg.key.remoteJid)) return;
+    if (this.connectionId) {
+      if (!await this.ensureConnectionOwnership(tenantId)) return;
+      let phoneJid = rawMsg.key.remoteJid.endsWith("@s.whatsapp.net") ? rawMsg.key.remoteJid : rawMsg.key.remoteJidAlt;
+      if (!phoneJid?.endsWith("@s.whatsapp.net")) phoneJid = await this.getSession(tenantId)?.signalRepository.lidMapping.getPNForLID(rawMsg.key.remoteJid);
+      const phone = phoneJid?.endsWith("@s.whatsapp.net") ? phoneJid.split("@")[0].split(":")[0] : undefined;
+      if (!await captureConnectionPeer(tenantId, this.connectionId, rawMsg.key.remoteJid, phone)) return;
+    }
     const wire = proto.WebMessageInfo.toObject(proto.WebMessageInfo.fromObject(rawMsg), {
       bytes: String,
       longs: String,
     });
     const timestamp = Number(wire.messageTimestamp || Date.now() / 1000);
     historical ||= Date.now() - timestamp * 1000 > 5 * 60_000;
-    const externalEventId = "baileys:" + tenantId + ":" + rawMsg.key.id;
+    const externalEventId = baileysEventId(tenantId, this.connectionId, rawMsg.key);
     const id = "inb_b_" + createHash("sha256").update(externalEventId).digest("hex");
     await db
       .insert(pendingInbounds)
@@ -778,19 +876,20 @@ export class SessionManager {
         id,
         tenantId,
         provider: "baileys",
+        whatsappConnectionId: this.connectionId,
         externalEventId,
         status: "pending",
         attempts: 0,
         nextRetryAt: new Date(),
-        payload: { kind: "baileys_message", message: wire, historical },
+        payload: { kind: "baileys_message", connectionId: this.connectionId, message: wire, historical },
       })
       .onConflictDoNothing();
     return this.recoverInbound(tenantId, wire, historical);
   }
 
   public async recoverInbound(tenantId: string, wire: any, historical?: boolean) {
-    const externalEventId = "baileys:" + tenantId + ":" + wire.key.id;
-    await db.transaction(async (tx) => {
+    const externalEventId = baileysEventId(tenantId, this.connectionId, wire.key);
+    const processEvent = () => db.transaction(async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}),hashtext(${externalEventId}))`,
       );
@@ -810,7 +909,8 @@ export class SessionManager {
         .where(
           and(
             eq(messages.tenantId, tenantId),
-            or(eq(messages.externalId, externalEventId), eq(messages.externalId, wire.key.id), eq(messages.id, wire.key.id)),
+            this.connectionId ? eq(messages.whatsappConnectionId, this.connectionId) : isNull(messages.whatsappConnectionId),
+            this.connectionId ? eq(messages.externalId, externalEventId) : or(eq(messages.externalId, externalEventId), eq(messages.externalId, wire.key.id), eq(messages.id, wire.key.id)),
           ),
         )
         .limit(1);
@@ -822,7 +922,7 @@ export class SessionManager {
           "msg_b_" + createHash("sha256").update(externalEventId).digest("hex");
         // Serializa efeitos de mensagens do mesmo contato, inclusive histórico e notificações.
         await tx.execute(
-          sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}),hashtext(${wire.key.remoteJid}))`,
+          sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}),hashtext(${connectionScope(tenantId, this.connectionId) + wire.key.remoteJid}))`,
         );
         await this.handleIncomingMessage(tenantId, raw, tx);
       }
@@ -831,6 +931,11 @@ export class SessionManager {
         .set({ status: "processed", processedAt: new Date(), errorMessage: null })
         .where(and(eq(pendingInbounds.tenantId, tenantId), eq(pendingInbounds.id, event.id)));
     });
+    if (!this.connectionId) { await processEvent(); return; }
+    const buffered = { tenantId, events: [] as SessionEvent[], active: true };
+    try { await this.notifications.run(buffered, processEvent); }
+    finally { buffered.active = false; }
+    for (const event of buffered.events) this.notify(tenantId, event);
   }
 
   private async handleIncomingMessage(tenantId: string, rawMsg: any, db: SessionTransaction) {
@@ -945,12 +1050,12 @@ export class SessionManager {
 
       // 1. Tentar buscar a mensagem no banco pelo ID para descobrir o autor real
       let foundQuotedMsg = null;
-      if (quotedMessageId) {
+      if (quotedMessageId && !this.connectionId) {
         try {
           foundQuotedMsg = await db.query.messages.findFirst({
             where: (t, { eq: dEq, and: dAnd, or: dOr }) =>
               dAnd(
-                dEq(t.tenantId, tenantId),
+                dEq(t.tenantId, tenantId), isNull(t.whatsappConnectionId),
                 dOr(
                   dEq(t.id, quotedMessageId as string),
                   dEq(t.externalId, quotedMessageId as string)
@@ -1078,14 +1183,15 @@ export class SessionManager {
       }
     }
 
-    console.log(`Mensagem recebida do tenant ${tenantId} de ${name}: ${text}`);
+    console.log(`[Baileys] Mensagem recebida no tenant ${tenantId}`);
 
     try {
       // 1. Garantir que o contato existe no banco
       // Com PN resolvido, prioriza o contato da conversa já aberta. O mesmo número
       // pode estar salvo com ou sem DDI; buscar primeiro pelo LID criaria outra conversa.
       let contact: typeof contacts.$inferSelect | undefined;
-      if (!jid.endsWith("@lid")) {
+      if (this.connectionId) contact = await findConnectionContact(db, tenantId, this.connectionId, jid, resolvedPhoneJid.endsWith("@s.whatsapp.net") ? phone : undefined);
+      if (!this.connectionId && !jid.endsWith("@lid")) {
         contact = await db.query.contacts.findFirst({
           where: (table, { eq: dEq, and: dAnd }) =>
             dAnd(dEq(table.tenantId, tenantId), dEq(table.whatsappJid, jid))
@@ -1094,7 +1200,7 @@ export class SessionManager {
       const phoneVariants = resolvedPhoneJid.endsWith("@s.whatsapp.net")
         ? phoneIdentityVariants(phone)
         : [];
-      if (!contact && phoneVariants.length > 0) {
+      if (!this.connectionId && !contact && phoneVariants.length > 0) {
         const matchingContacts = await db.select().from(contacts)
           .where(and(
             eq(contacts.tenantId, tenantId),
@@ -1107,7 +1213,7 @@ export class SessionManager {
             .from(conversations)
             .where(and(
               eq(conversations.tenantId, tenantId),
-              inArray(conversations.contactId, matchingContacts.map((item) => item.id))
+              isNull(conversations.whatsappConnectionId), inArray(conversations.contactId, matchingContacts.map((item) => item.id))
             ))
             .orderBy(desc(conversations.lastMessageTime))
             .limit(1);
@@ -1117,7 +1223,7 @@ export class SessionManager {
         }
       }
 
-      if (!contact) {
+      if (!this.connectionId && !contact) {
         contact = await db.query.contacts.findFirst({
           where: (table, { eq: dEq, and: dAnd }) =>
             dAnd(dEq(table.tenantId, tenantId), dEq(table.whatsappJid, jid))
@@ -1134,8 +1240,8 @@ export class SessionManager {
           id: contactId,
           tenantId,
           name,
-          phone,
-          whatsappJid: jid, // Salva o JID real para envio confiável
+          phone: resolvedPhoneJid.endsWith("@s.whatsapp.net") ? phone : null,
+          whatsappJid: this.connectionId ? null : jid, // Scoped identities for personal transports
           mainChannel: "whatsapp",
           avatar: null,
           tags: [],
@@ -1160,8 +1266,10 @@ export class SessionManager {
         }
       }
 
+      if (this.connectionId) await bindConnectionIdentity(db, tenantId, this.connectionId, contactId, jid, name);
+
       // Buscar foto de perfil em background (sem await para não atrasar o processamento de mensagens!)
-      if (jid && (!contact || !contact.avatar)) {
+      if (!this.connectionId && jid && (!contact || !contact.avatar)) {
         const sock = this.sessions.get(tenantId);
         if (sock) {
           // Monta lista de JIDs a tentar em ordem de preferência
@@ -1229,18 +1337,18 @@ export class SessionManager {
       await lockContactDeals(db, tenantId, contactId);
       let conversation = await db.query.conversations.findFirst({
         where: (convsTable, { eq: dEq, and: dAnd }) => 
-          dAnd(dEq(convsTable.tenantId, tenantId), dEq(convsTable.contactId, contactId))
+          dAnd(dEq(convsTable.tenantId, tenantId), dEq(convsTable.contactId, contactId), conversationConnectionCondition(this.connectionId))
       });
 
       // IMPORTANTE: convId DEVE ser determinístico quando a conversa ainda não existe.
       // Se usarmos conv-${Date.now()}, duas mensagens rápidas do mesmo contato geram
       // IDs diferentes → duas sessões no debouncer → saudação duplicada.
-      const convId = conversation?.id || `conv-${tenantId}-${contactId}`;
+      const convId = conversation?.id || (this.connectionId ? `conv-${createHash("sha256").update(connectionScope(tenantId, this.connectionId) + ":" + contactId).digest("hex")}` : `conv-${tenantId}-${contactId}`);
       console.log(`[Baileys Inbound] tenant=${tenantId} messageId=${messageId} conversationId=${convId} existingConversation=${!!conversation}`);
       const isFromMe = !!rawMsg.key.fromMe;
 
       // ── Comando !reset: Reinicia a triagem da IA SEM apagar o histórico de mensagens ──
-      if (!rawMsg.__historical && !rawMsg.key.fromMe && text.trim().toLowerCase() === "!reset") {
+      if (!this.connectionId && !rawMsg.__historical && !rawMsg.key.fromMe && text.trim().toLowerCase() === "!reset") {
         console.log(`[Baileys/Reset] Comando !reset acionado para a conversa ${convId} (${phone}) — reiniciando fluxo de triagem sem apagar mensagens.`);
 
         // 1. Limpar sessão de debounce ativa
@@ -1385,14 +1493,20 @@ export class SessionManager {
         }
       }
 
+      if (this.connectionId) {
+        const cfg = await readBaileysConfig(tenantId, this.connectionId);
+        targetOperatorId = conversation?.operatorId || (cfg && "ownerOperatorId" in cfg ? cfg.ownerOperatorId : null);
+        targetQueue = targetOperatorId ? "meus" : "fila";
+      }
       if (!conversation) {
         // Criar conversa
         await db.insert(conversations).values({
           id: convId,
           tenantId,
           contactId,
-          queueState: isFromMe ? "meus" : contact?.walletOperatorId ? "meus" : "fila",
-          operatorId: !isFromMe && contact?.walletOperatorId ? contact.walletOperatorId : null,
+          whatsappConnectionId: this.connectionId,
+          queueState: this.connectionId ? targetQueue : isFromMe ? "meus" : contact?.walletOperatorId ? "meus" : "fila",
+          operatorId: this.connectionId ? targetOperatorId : !isFromMe && contact?.walletOperatorId ? contact.walletOperatorId : null,
           unreadCount,
           lastMessageText: text,
           lastMessageTime: eventTime,
@@ -1418,7 +1532,7 @@ export class SessionManager {
           .where(and(eq(conversations.id, convId), eq(conversations.tenantId, tenantId)));
       }
 
-      if (!rawMsg.__historical && !isFromMe && conversation?.queueState === "finalizados" && targetQueue === "fila" && getAiPersona(tenantId).triagePolicy === "industrial") {
+      if (!this.connectionId && !rawMsg.__historical && !isFromMe && conversation?.queueState === "finalizados" && targetQueue === "fila" && getAiPersona(tenantId).triagePolicy === "industrial") {
         const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reopened", sourceKey: messageId, receivedAt: eventTime });
         if (restarted) {
           targetQueue = restarted.conversation.queueState;
@@ -1428,8 +1542,15 @@ export class SessionManager {
 
       await syncConversationDeals(db, tenantId, convId, contactId);
 
+      if (this.connectionId && quotedMessageId) {
+        const [quoted] = await db.select({ id: messages.id, senderName: messages.senderName, content: messages.content }).from(messages).where(and(
+          eq(messages.tenantId, tenantId), eq(messages.conversationId, convId),
+          or(eq(messages.id, quotedMessageId), sql`${messages.metaDetails}->>'wireStanzaId' = ${quotedMessageId}`),
+        )).limit(1);
+        if (quoted) { quotedMessageId = quoted.id; quotedMessageSender = quoted.senderName; quotedMessageContent = quoted.content; }
+      }
       const finalSenderType = isFromMe ? "agent" : "client";
-      const finalSenderName = isFromMe ? "Operador" : name;
+      const finalSenderName = isFromMe ? (this.connectionId ? "Dispositivo vinculado" : "Operador") : name;
 
       // 3. Salvar a mensagem (onConflictDoNothing evita erro de chave duplicada
       // quando o WA entrega a mesma mensagem mais de uma vez)
@@ -1440,6 +1561,8 @@ export class SessionManager {
           tenantId,
           conversationId: convId,
           provider: "baileys",
+          whatsappConnectionId: this.connectionId,
+          metaDetails: this.connectionId ? { wireStanzaId: rawMsg.key.id, ...(isFromMe ? { origin: "linked_device", authenticatedOperatorId: null } : {}) } : {},
           direction: isFromMe ? "outbound" : "inbound",
           externalId: rawMsg.__externalEventId,
           senderType: finalSenderType,
@@ -1519,7 +1642,7 @@ export class SessionManager {
               )
               .limit(1);
 
-            if (convRow[0]?.operatorId) {
+            if (!this.connectionId && convRow[0]?.operatorId) {
               SlaEngine.getInstance().updateResponseMetrics(
                 tenantId, convRow[0].operatorId, deltaSeconds
               ).catch((e: any) => console.warn("[SlaEngine/Baileys] Erro ao atualizar métricas:", e?.message));
@@ -1533,7 +1656,7 @@ export class SessionManager {
       // ── Fim SLA Engine ──────────────────────────────────────────────────────
 
       // ── Sentiment Analyzer: análise de sentimento em mensagens de clientes ──
-      if (!rawMsg.__historical && finalSenderType === "client" && text && text.trim().length > 5) {
+      if (!this.connectionId && !rawMsg.__historical && finalSenderType === "client" && text && text.trim().length > 5) {
         try {
           const { analyzeSentiment } = await import("../valentina/sentiment-analyzer");
           analyzeSentiment(text, convId, tenantId, { contactName: finalSenderName })
@@ -1551,6 +1674,9 @@ export class SessionManager {
           id: messageId,
           conversationId: convId,
           senderType: finalSenderType,
+          whatsappConnectionId: this.connectionId,
+          provider: "baileys",
+          contactId,
           senderName: finalSenderName,
           content: text,
           phone: phone, // Enviar o telefone real extraído do JID para o frontend
@@ -1559,14 +1685,14 @@ export class SessionManager {
           quotedMessageId,
           quotedMessageSender,
           quotedMessageContent,
-          queue: !conversation
+          queue: this.connectionId ? targetQueue : !conversation
             ? isFromMe
               ? "meus"
               : contact?.walletOperatorId
                 ? "meus"
                 : "fila"
             : targetQueue,
-          operatorId: !conversation
+          operatorId: this.connectionId ? targetOperatorId : !conversation
             ? !isFromMe && contact?.walletOperatorId
               ? contact.walletOperatorId
               : null
@@ -1575,6 +1701,8 @@ export class SessionManager {
             contact?.walletOperatorId || (conversation as any)?.walletOperatorId || null,
         },
       });
+
+      if (this.connectionId) return; // Personal connections initially have no autonomous replies or AI.
 
       // ── Auto-resposta quando operador atribuído estiver em pausa ou desconectado ──
       if (!rawMsg.__historical && finalSenderType === "client") {
@@ -1692,7 +1820,7 @@ export class SessionManager {
  * e previne erros de rate-overlimit.
  * TTL: 24 horas (86.400.000 ms).
  */
-const jidCache = new Map<string, { jid: string; expiresAt: number }>();
+const socketJidCaches = new WeakMap<WASocket, Map<string, { jid: string; expiresAt: number }>>();
 const JID_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 /**
@@ -1705,6 +1833,8 @@ export async function resolveRealJid(sock: any, phone: string, fallbackJid?: str
   if (!cleanPhone) return fallbackJid || `${phone}@s.whatsapp.net`;
 
   // Verificar cache antes de qualquer chamada de rede
+  let jidCache = socketJidCaches.get(sock);
+  if (!jidCache) { jidCache = new Map(); socketJidCaches.set(sock, jidCache); }
   const cached = jidCache.get(cleanPhone);
   if (cached && cached.expiresAt > Date.now()) {
     console.log(`[JID Resolver] Cache hit para ${cleanPhone}: ${cached.jid}`);

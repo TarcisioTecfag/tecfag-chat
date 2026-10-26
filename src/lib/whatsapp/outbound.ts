@@ -6,6 +6,7 @@ import { eq, and, or } from "drizzle-orm";
 import { UniversalOutboundMessage, UniversalOutboundResult, WhatsAppProviderType } from "./types";
 
 import { getMetaServiceWindow } from "./meta-policy";
+import { resolveConversationConnection } from "./connections";
 
 export class OutboundQueue {
   private static instance: OutboundQueue;
@@ -100,14 +101,10 @@ export class OutboundQueue {
       };
     }
 
-    // 3. Determinar o provedor ativo configurado no tenant
-    const [channelConfig] = await db
-      .select()
-      .from(channelConfigs)
-      .where(eq(channelConfigs.tenantId, tenantId));
-
-    const activeProvider: WhatsAppProviderType =
-      (channelConfig?.activeProvider as WhatsAppProviderType) || "baileys";
+    // Pin the connection from the server conversation; never trust an outgoing selector.
+    const target = await resolveConversationConnection(tenantId, conversationId);
+    const activeProvider: WhatsAppProviderType = target.provider;
+    payload = { ...payload, whatsappConnectionId: target.connectionId };
 
     if (activeProvider === "meta" && !payload.templateName) {
       const window = await getMetaServiceWindow(tenantId, conversationId);
@@ -148,6 +145,7 @@ export class OutboundQueue {
           .where(
             and(
               eq(messages.tenantId, tenantId),
+              eq(messages.conversationId, conversationId),
               or(
                 eq(messages.id, payload.quotedMessageId),
                 eq(messages.externalId, payload.quotedMessageId)
@@ -159,9 +157,12 @@ export class OutboundQueue {
           quotedMessageSender =
             quotedRow.senderName || (quotedRow.senderType === "agent" ? "Operador" : "Cliente");
           quotedMessageContent = quotedRow.content || null;
+        } else {
+          return { success: false, messageId: "", status: "failed", code: "INVALID_QUOTE", error: "A mensagem citada não pertence a este atendimento." };
         }
       } catch (qErr) {
         console.warn("[OutboundQueue] Falha ao buscar metadados da mensagem citada:", qErr);
+        return { success: false, messageId: "", status: "failed", code: "INVALID_QUOTE", error: "Não foi possível validar a mensagem citada. Tente novamente." };
       }
     }
 
@@ -180,6 +181,7 @@ export class OutboundQueue {
         isInternalNote: false,
         direction: "outbound",
         provider: activeProvider,
+        whatsappConnectionId: target.connectionId,
         status: "pending",
         idempotencyKey: idempotencyKey || null,
         retryCount: 0,

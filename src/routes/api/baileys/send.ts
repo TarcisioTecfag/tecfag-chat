@@ -1,3 +1,4 @@
+import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
 import { outboundQueue } from "../../../lib/whatsapp/outbound";
@@ -36,6 +37,8 @@ export const Route = createFileRoute("/api/baileys/send")({
           const tenantId = session.tenantId;
           const denied = await requireConversationWriteAccess(session, conversationId);
           if (denied) return denied;
+          const selectedConnection = await resolveConversationConnection(session.tenantId, conversationId);
+          if (selectedConnection.connectionId) return Response.json({ error: "Use o envio universal para este número.", code: "USE_UNIVERSAL_SEND" }, { status: 409 });
           const [config] = await db.select({ activeProvider: channelConfigs.activeProvider, connectionStatus: channelConfigs.connectionStatus })
             .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
           if (config?.connectionStatus === "switching") return Response.json({ error: "Canal em transição." }, { status: 409 });

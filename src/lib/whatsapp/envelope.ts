@@ -3,6 +3,7 @@ import type { UniversalOutboundMessage } from "./types";
 export function outboundEnvelope(payload: UniversalOutboundMessage) {
   return {
     version: 1,
+    whatsappConnectionId: payload.whatsappConnectionId || null,
     text: payload.text || "",
     mediaUrl: payload.mediaUrl || null,
     mediaType: payload.mediaType || null,
@@ -41,6 +42,7 @@ export function restoreOutbound(
   return {
     tenantId: message.tenantId,
     conversationId: message.conversationId,
+    whatsappConnectionId: typeof saved.whatsappConnectionId === "string" ? saved.whatsappConnectionId : null,
     recipientPhone,
     recipientUserId,
     text: saved.version ? saved.text : media ? media[4] || "" : message.content,

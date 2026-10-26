@@ -28,11 +28,13 @@ export function conversationReadRules(session: ConversationPrincipal) {
 }
 export function canReadConversation(session: ConversationPrincipal, resource: {
   tenantId: string; operatorId?: string | null; queueState: string; mainChannel?: string | null;
+  whatsappConnectionId?: string | null; connectionOwnerOperatorId?: string | null;
 }): boolean {
   const rules = conversationReadRules(session);
   if (!rules.enabled || resource.tenantId !== session.tenantId ||
       !rules.queues.includes(resource.queueState as typeof CONVERSATION_QUEUES[number]) ||
-      !rules.channels.includes((resource.mainChannel ?? "whatsapp") as typeof CONVERSATION_CHANNELS[number])) return false;
+      !rules.channels.includes((resource.whatsappConnectionId ? "whatsapp" : resource.mainChannel ?? "whatsapp") as typeof CONVERSATION_CHANNELS[number])) return false;
+  if (resource.whatsappConnectionId && session.operator.role !== "admin" && resource.connectionOwnerOperatorId !== session.operator.id) return false;
   if (rules.ownOnly) return resource.operatorId === session.operator.id;
   return rules.others || resource.operatorId === session.operator.id || resource.operatorId === null;
 }

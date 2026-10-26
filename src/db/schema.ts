@@ -391,12 +391,54 @@ export const contacts = pgTable("contacts", {
   tenantAccountIdx: index("idx_contacts_tenant_account").on(table.tenantId, table.accountId),
 }));
 
+// Additional individual WhatsApp sessions. Corporate credentials remain in channelConfigs.
+export const whatsappConnections = pgTable("whatsapp_connections", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  provider: text("provider").default("baileys").notNull(),
+  ownerOperatorId: text("owner_operator_id").references(() => operators.id, { onDelete: "set null" }),
+  enabled: boolean("enabled").default(true).notNull(),
+  capturePolicy: text("capture_policy").default("selected").notNull(),
+  baileysSessionStatus: text("connection_status").default("disconnected").notNull(),
+  baileysPairedPhone: text("paired_phone"),
+  // Auth is encrypted with tenant/connection as authenticated context.
+  authEncrypted: text("auth_encrypted"),
+  qrEncrypted: text("qr_encrypted"),
+  qrExpiresAt: timestamp("qr_expires_at"),
+  leaseToken: text("lease_token"),
+  leaseUntil: timestamp("lease_until"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({ tenantIdUnique: uniqueIndex("idx_whatsapp_connections_tenant_id").on(t.tenantId, t.id) }));
+
+export const whatsappConnectionContacts = pgTable("whatsapp_connection_contacts", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  connectionId: text("connection_id").references(() => whatsappConnections.id).notNull(),
+  contactId: text("contact_id").references(() => contacts.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({ selectedUnique: uniqueIndex("idx_whatsapp_selected_contact").on(t.tenantId, t.connectionId, t.contactId) }));
+
+export const contactChannelIdentities = pgTable("contact_channel_identities", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  connectionId: text("connection_id").references(() => whatsappConnections.id).notNull(),
+  contactId: text("contact_id").references(() => contacts.id).notNull(),
+  externalId: text("external_id").notNull(),
+  alias: text("alias"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({ identityUnique: uniqueIndex("idx_contact_connection_identity").on(t.tenantId, t.connectionId, t.externalId) }));
+
 // ─── 5. CONVERSAS (Atendimentos / Filas) ─────────────────────────────────────
 export const conversations = pgTable("conversations", {
   rdMarketingCycle: integer("rd_marketing_cycle").default(0).notNull(),
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   contactId: text("contact_id").references(() => contacts.id, { onDelete: "cascade" }).notNull(),
+  // NULL preserves the existing corporate connection and its historical provenance.
+  whatsappConnectionId: text("whatsapp_connection_id"),
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }), // Null indica que está na fila ou bot
   sectorId: text("sector_id").references(() => sectors.id, { onDelete: "set null" }), // Novo campo para vincular diretamente o setor à conversa
   
@@ -411,7 +453,8 @@ export const conversations = pgTable("conversations", {
   lastMessageTime: timestamp("last_message_time").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  tenantContactUniqIdx: uniqueIndex("idx_conversations_tenant_contact_uniq").on(table.tenantId, table.contactId),
+  tenantContactUniqIdx: uniqueIndex("idx_conversations_tenant_contact_uniq").on(table.tenantId, table.contactId).where(sql`whatsapp_connection_id IS NULL`),
+  tenantConnectionContactUniqIdx: uniqueIndex("idx_conversations_connection_contact_uniq").on(table.tenantId, table.whatsappConnectionId, table.contactId).where(sql`whatsapp_connection_id IS NOT NULL`),
   tenantOpQueueTimeIdx: index("idx_conversations_tenant_op_queue_msg_time").on(table.tenantId, table.operatorId, table.queueState, table.lastMessageTime),
 }));
 
@@ -443,6 +486,7 @@ export const messages = pgTable(
     // ── Transporte Universal & Fila Confiável de Mensagens (Entregas A & B) ───────
     externalId: text("external_id"), // ID externo retornado pelo WhatsApp (Baileys stanzaId / Meta wamid)
     provider: text("provider").default("baileys"), // 'baileys' | 'meta' | 'system' | 'internal'
+    whatsappConnectionId: text("whatsapp_connection_id"),
     direction: text("direction").default("inbound"), // 'inbound' | 'outbound'
     status: text("status").default("accepted").notNull(), // 'pending' | 'sending' | 'accepted' | 'delivered' | 'read' | 'failed' | 'unknown'
     idempotencyKey: text("idempotency_key"), // clientMessageId enviado pelo frontend para evitar envios duplicados
@@ -533,6 +577,7 @@ export const pendingInbounds = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" })
       .notNull(),
     provider: text("provider").notNull(), // 'baileys' | 'meta'
+    whatsappConnectionId: text("whatsapp_connection_id"),
     externalEventId: text("external_event_id"), // ID do evento do provedor para deduplicação
     payload: jsonb("payload").notNull(),
     status: text("status").default("pending").notNull(), // 'pending' | 'processing' | 'processed' | 'failed'
