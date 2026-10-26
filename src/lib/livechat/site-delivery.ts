@@ -22,7 +22,51 @@ async function resolveSiteVisitor(tenantId: string, conversationId: string) {
 
 export async function pushSiteTyping(tenantId: string, conversationId: string, isTyping: boolean) {
   const visitorId = visitorIdFromSiteConversation(conversationId);
-  if (visitorId) siteGateway.push(tenantId, visitorId, { type: "typing", isTyping });
+  if (visitorId) {
+    siteGateway.push(tenantId, visitorId, { type: "typing", isTyping });
+    siteGateway.push(tenantId, visitorId, { type: isTyping ? "TYPING_START" : "TYPING_STOP" });
+  }
+}
+
+export function pushSiteAgentJoined(
+  tenantId: string,
+  conversationId: string,
+  operatorName: string,
+  message?: string,
+) {
+  const visitorId = visitorIdFromSiteConversation(conversationId);
+  if (!visitorId) return false;
+  const text = message || `${operatorName} entrou no atendimento.`;
+  const d1 = siteGateway.push(tenantId, visitorId, {
+    type: "operator_joined",
+    operatorName,
+    message: text,
+  });
+  const d2 = siteGateway.push(tenantId, visitorId, {
+    type: "AGENT_JOINED",
+    operatorName,
+    message: text,
+  });
+  return d1 || d2;
+}
+
+export function pushSiteChatClosed(
+  tenantId: string,
+  conversationId: string,
+  message?: string,
+) {
+  const visitorId = visitorIdFromSiteConversation(conversationId);
+  if (!visitorId) return false;
+  const text = message || "Atendimento encerrado pelo operador. Obrigado!";
+  const d1 = siteGateway.push(tenantId, visitorId, {
+    type: "chat_closed",
+    message: text,
+  });
+  const d2 = siteGateway.push(tenantId, visitorId, {
+    type: "CHAT_CLOSED",
+    message: text,
+  });
+  return d1 || d2;
 }
 
 /**
@@ -41,7 +85,8 @@ export async function deliverSiteText(params: {
   const chat = await getOrCreateActiveChat(params.tenantId, visitor.id);
   const saved = await saveMessage(params.tenantId, chat.id, params.sender, params.text,
     params.idempotencyMessageId ? { id: `${params.idempotencyMessageId}-widget` } : {});
-  const delivered = siteGateway.push(params.tenantId, visitor.id, {
+  const nowIso = new Date().toISOString();
+  const deliveredV2 = siteGateway.push(params.tenantId, visitor.id, {
     type: "message",
     chatId: chat.id,
     messageId: saved.id,
@@ -49,6 +94,16 @@ export async function deliverSiteText(params: {
     senderName: params.senderName,
     content: params.text,
   });
+  const deliveredLegacy = siteGateway.push(params.tenantId, visitor.id, {
+    type: "CHAT_REPLY",
+    chatId: chat.id,
+    messageId: saved.id,
+    sender: params.sender === "operator" ? "agent" : "ai",
+    senderName: params.senderName,
+    content: params.text,
+    timestamp: nowIso,
+  });
+  const delivered = deliveredV2 || deliveredLegacy;
   return { delivered, siteMessageId: saved.id };
 }
 
@@ -130,13 +185,22 @@ export async function deliverSiteCatalogImage(params: {
     mediaType: mimeType,
     fileName,
   });
-  const delivered = siteGateway.push(tenantId, visitor.id, {
+  const deliveredV2 = siteGateway.push(tenantId, visitor.id, {
     type: "send_image",
     chatId: chat.id,
     messageId: saved.id,
     imageUrl: publicUrl,
     sender: "ai",
   });
+  const deliveredLegacy = siteGateway.push(tenantId, visitor.id, {
+    type: "CHAT_REPLY",
+    chatId: chat.id,
+    messageId: saved.id,
+    sender: "ai",
+    content: `[Anexo_Cliente: ${publicUrl}]`,
+    timestamp: new Date().toISOString(),
+  });
+  const delivered = deliveredV2 || deliveredLegacy;
   const mediaFileId = `med_site_${crypto.randomUUID()}`;
   const now = new Date();
   await db

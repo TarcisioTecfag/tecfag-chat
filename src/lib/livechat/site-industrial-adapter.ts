@@ -102,6 +102,28 @@ async function reopenSiteConversation(tenantId: string, conversationId: string, 
   });
 }
 
+/** Encerra o ciclo atual em automação quando o visitante reinicia o chat pelo widget, sem afetar atendimento humano ativo. */
+export async function restartIndustrialSiteConversation(tenantId: string, visitorId: string) {
+  const { conversationId } = siteIdentityIds(visitorId);
+  SdrDebouncer.getInstance().clearSession(conversationId);
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)))
+    .limit(1);
+  if (!conv || conv.operatorId || conv.queueState === "finalizados") return false;
+  const now = new Date();
+  await db
+    .update(conversations)
+    .set({
+      queueState: "finalizados",
+      updatedAt: now,
+      version: sql`${conversations.version} + 1`,
+    })
+    .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)));
+  return true;
+}
+
 /** Atualiza o contato com o pré-chat. Não cria conversa nem vincula telefone (posse não verificada). */
 export async function applySiteIdentity(tenantId: string, visitorId: string, name: unknown, doc: unknown) {
   const { contactId } = siteIdentityIds(visitorId);

@@ -39,6 +39,7 @@ import {
   applySiteIdentity,
   handleIndustrialSiteMessage,
   loadSiteChannelSettings,
+  restartIndustrialSiteConversation,
   usesIndustrialSiteCore,
 } from "./site-industrial-adapter";
 
@@ -310,29 +311,95 @@ async function handleVisitorMessage(
   tenantId: string,
 ) {
   let { type, content } = payload;
-  const { url, title } = payload;
+  const url = payload.url || payload.currentPage;
+  const title = payload.title || payload.pageTitle;
   let capturedSiteContext: SiteContext | null = null;
   if (conn.industrial) {
     const inquiry = type === "product_inquiry" || type === "PRODUCT_INQUIRY";
     const captured = captureSiteContext(payload.siteContext || {
-      page: { url: url || visitor.currentUrl, title: title || visitor.currentTitle },
+      page: { url: url || visitor.currentUrl, title: title || visitor.currentTitle, referrer: payload.referrer },
       product: { url: payload.productUrl, name: payload.productName || payload.productSlug },
     }, conn.siteOrigin, new Date(), inquiry);
     capturedSiteContext = captured;
     conn.siteContext = mergeSiteContexts(conn.siteContext, captured);
     if (inquiry) {
       const requestText = siteProductInquiryText(captured);
-      if (!requestText || typeof payload.messageId !== "string" || !payload.messageId || payload.messageId.length > 200) {
+      const inquiryMsgId =
+        typeof payload.messageId === "string" && payload.messageId && payload.messageId.length <= 200
+          ? payload.messageId
+          : type === "PRODUCT_INQUIRY"
+            ? `inq_${Date.now()}`
+            : "";
+      if (!requestText || !inquiryMsgId) {
         send(conn.ws, { type: "product_inquiry_rejected", messageId: payload.messageId,
           message: "Não foi possível identificar o produto. Envie sua dúvida pelo chat." });
         return;
       }
+      payload.messageId = inquiryMsgId;
       type = "visitor_message";
       content = requestText;
     }
   }
 
-  if (type === "visitor_identify" && conn.industrial) {
+  if (type === "VISITOR_CONNECT") {
+    if (conn.industrial && conn.siteContext) {
+      await updateVisitorData(tenantId, visitor.id, {
+        currentUrl: conn.siteContext.page.url,
+        currentTitle: conn.siteContext.page.title,
+      });
+      visitor.currentUrl = conn.siteContext.page.url;
+      visitor.currentTitle = conn.siteContext.page.title;
+    } else if (url) {
+      await updateVisitorData(tenantId, visitor.id, {
+        currentUrl: url,
+        currentTitle: title,
+      });
+      visitor.currentUrl = url;
+      visitor.currentTitle = title;
+    }
+    send(conn.ws, { type: "CONNECTED", visitorId: visitor.id, chatId: chat.id });
+    try {
+      const recent = await getVisitorAllMessages(tenantId, visitor.id, 40);
+      for (const msg of recent) {
+        if (msg.sender === "ai" || msg.sender === "operator") {
+          const msgContent =
+            msg.contentType === "image" && msg.mediaUrl
+              ? `[Anexo_Cliente: ${msg.mediaUrl}]`
+              : msg.content || "";
+          if (!msgContent || /^\[[A-Z0-9_]+[:\]]/.test(msgContent.trim())) continue;
+          send(conn.ws, {
+            type: "CHAT_REPLY",
+            chatId: msg.chatId || chat.id,
+            messageId: msg.id,
+            sender: msg.sender === "operator" ? "agent" : "ai",
+            content: msgContent,
+            timestamp: msg.sentAt ? new Date(msg.sentAt).toISOString() : new Date().toISOString(),
+            fromHistory: true,
+          });
+        }
+      }
+    } catch {}
+    return;
+  }
+
+  if (type === "HEARTBEAT") {
+    await updateVisitorData(tenantId, visitor.id, {});
+    return;
+  }
+
+  if (type === "RESTART_CHAT") {
+    LiveChatDebouncer.getInstance().clearSession(visitor.id);
+    await updateChatStatus(tenantId, chat.id, "closed", { outcome: "abandoned" });
+    const nextChat = await getOrCreateActiveChat(tenantId, visitor.id);
+    conn.chatId = nextChat.id;
+    Object.assign(chat, nextChat);
+    if (conn.industrial && typeof restartIndustrialSiteConversation === "function") {
+      await restartIndustrialSiteConversation(tenantId, visitor.id);
+    }
+    return;
+  }
+
+  if ((type === "visitor_identify" || type === "SET_VISITOR_NAME") && conn.industrial) {
     const identity = await applySiteIdentity(tenantId, visitor.id, payload.name, payload.doc);
     const fields: Record<string, unknown> = {};
     if (identity.name) fields.name = identity.name;
@@ -371,7 +438,7 @@ async function handleVisitorMessage(
   }
 
   // Identificação do visitante (Onboarding Pré-Chat com Nome + CPF/CNPJ)
-  if (type === "visitor_identify") {
+  if (type === "visitor_identify" || type === "SET_VISITOR_NAME") {
     const { name, doc } = payload;
     const cleanDoc = (doc || "").replace(/\D/g, "");
     const isCpf = cleanDoc.length === 11;
@@ -400,7 +467,7 @@ async function handleVisitorMessage(
   }
 
   // Pageview update
-  if (type === "pageview") {
+  if (type === "pageview" || type === "PAGE_UPDATE") {
     if (conn.industrial) {
       const current = capturedSiteContext?.page;
       if (current) {
@@ -444,7 +511,7 @@ async function handleVisitorMessage(
 
   // ── Mensagem de texto (com Debounce, Stop & Restart e Fragmentação) ──
   const userText = conn.industrial ? clampSiteText(content || payload.text) : content || payload.text;
-  if ((type === "message" || type === "visitor_message") && userText) {
+  if ((type === "message" || type === "visitor_message" || type === "CHAT_MESSAGE") && userText) {
     // Salva imediatamente no banco para o histórico
     const savedMsg = await saveMessage(
       tenantId,
@@ -453,8 +520,31 @@ async function handleVisitorMessage(
       userText,
       stableId ? { id: stableId } : {},
     );
+    let industrialText = userText;
+    let attachmentItem: Partial<Parameters<typeof handleIndustrialSiteMessage>[2]> | null = null;
+    if (conn.industrial && userText.includes("[Anexo_Cliente:")) {
+      try {
+        const { extractLegacyAttachmentFromText } = await import("./chat-upload-store");
+        const extracted = extractLegacyAttachmentFromText(userText);
+        if (extracted.attachment) {
+          industrialText = extracted.cleanText || `[Arquivo: ${extracted.attachment.fileName}]`;
+          attachmentItem = {
+            mediaType: extracted.attachment.mediaType,
+            mimeType: extracted.attachment.mimeType,
+            mediaBase64: extracted.attachment.base64,
+            aiMedia: true,
+            fileName: extracted.attachment.fileName,
+          };
+        }
+      } catch {}
+    }
     if (conn.industrial) {
-      await handleIndustrialSiteMessage(tenantId, visitor, { siteMessageId: savedMsg.id, text: userText, siteContext: conn.siteContext });
+      await handleIndustrialSiteMessage(tenantId, visitor, {
+        siteMessageId: savedMsg.id,
+        text: industrialText,
+        ...(attachmentItem || {}),
+        siteContext: conn.siteContext,
+      });
       acknowledge(savedMsg);
       return;
     }

@@ -311,6 +311,31 @@ describe("WebSocket real com sessão de visitante e dependências isoladas", () 
     assert.equal(ws.inbound[0][2].siteContext.product, null);
     assert.equal(ws.inbound[0][2].text, "Oi");
   });
+  it("aceita o protocolo legado do chat-widget-pro (VISITOR_CONNECT, CHAT_MESSAGE, PRODUCT_INQUIRY)", async () => {
+    const ws = wsHarness();
+    await ws.connect();
+    await ws.message({
+      type: "VISITOR_CONNECT",
+      cookieId: "cookie",
+      currentPage: `${origin}/seladora/p?utm_campaign=envase`,
+      pageTitle: "Seladora S100",
+    });
+    assert.equal(ws.sent.some((event) => event.type === "CONNECTED"), true);
+    await ws.message({
+      type: "CHAT_MESSAGE",
+      messageId: "legacy-msg-1",
+      content: "Preciso de orçamento de seladora",
+    });
+    assert.equal(ws.inbound.length, 1);
+    assert.equal(ws.inbound[0][2].text, "Preciso de orçamento de seladora");
+    await ws.message({
+      type: "PRODUCT_INQUIRY",
+      productSlug: "Seladora S100",
+      productUrl: `${origin}/seladora/p`,
+    });
+    assert.equal(ws.inbound.length, 2);
+    assert.equal(ws.inbound[1][2].text, "Gostaria de informações sobre Seladora S100.");
+  });
 });
 
 describe("componente de origem do site", () => {

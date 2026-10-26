@@ -344,6 +344,18 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             version: updatedConv.version,
           });
 
+          if (typeof conversationId === "string" && conversationId.startsWith("conv-lc-")) {
+            import("../../../lib/livechat/site-delivery")
+              .then(({ pushSiteAgentJoined, pushSiteChatClosed }) => {
+                if (queueState === "meus") {
+                  pushSiteAgentJoined(session.tenantId, conversationId, respName, systemMessageText);
+                } else if (queueState === "finalizados") {
+                  pushSiteChatClosed(session.tenantId, conversationId, systemMessageText);
+                }
+              })
+              .catch(() => {});
+          }
+
           // 7b. Se foi uma transferência para outro operador em "Meus Atendimentos", avisa no chat do Fagner/Valentina do operador!
           if (
             queueState === "meus" &&

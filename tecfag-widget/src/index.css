@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+@layer base {
+  #tecfag-chat-root {
+    --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Custom Scrollbar for Chat */
+#tecfag-chat-root .custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+#tecfag-chat-root .custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#tecfag-chat-root .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.3);
+  border-radius: 20px;
+}
+
+#tecfag-chat-root .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.5);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes floatSubtle {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes statusPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes buttonGlow {
+  0%, 100% {
+    box-shadow: 0 8px 30px rgba(229, 9, 20, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  50% {
+    box-shadow: 0 8px 35px rgba(229, 9, 20, 0.55), 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+}
+
+#tecfag-chat-root .message-enter {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#tecfag-chat-root .chat-window-enter {
+  animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Tecfag Brand Styles */
+#tecfag-chat-root .tecfag-header-gradient {
+  background: linear-gradient(135deg, #0d0d0d 0%, #1a1a1a 50%, #E50914 100%);
+}
+
+#tecfag-chat-root .tecfag-fab-button {
+  animation: floatSubtle 3s ease-in-out infinite, buttonGlow 3s ease-in-out infinite;
+}
+
+#tecfag-chat-root .tecfag-fab-button:hover {
+  animation: none;
+  transform: scale(1.06);
+  box-shadow: 0 10px 40px rgba(229, 9, 20, 0.5), 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+#tecfag-chat-root .tecfag-online-badge {
+  animation: statusPulse 2s ease-in-out infinite;
+}
