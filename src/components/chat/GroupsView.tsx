@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { useChat, Operator, AccessGroup } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CrmGroupPermissions } from "./CrmGroupPermissions";
+import { WhatsappGroupPermissions } from "./WhatsappGroupPermissions";
 import { OWN_CONVERSATIONS_PRESET } from "@/lib/access-control/conversation-policy";
 import { MultiTenantAccessPanel } from "./MultiTenantAccessPanel";
 import { MetaTemplatesManager } from "./MetaTemplatesManager";
@@ -1750,6 +1751,8 @@ export function GroupsView() {
                       </div>
                     )}
                   </div>
+
+                  <WhatsappGroupPermissions key={`${tenant}:${selectedGroupObj.id}`} groupId={selectedGroupObj.id} search={permissionSearch} />
 
                   <CrmGroupPermissions
                     permissions={perms.crm}

@@ -225,64 +225,13 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
         if (!corporate && (!connection || !(await hasWhatsappConnectionAccess(session, id))))
           return Response.json({ error: "Conexão não encontrada." }, { status: 404 });
         if (body.action === "set-group-access") {
-          if (session.operator.role !== "admin" || !canManageWhatsappConnection(session))
-            return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
-          if (corporate || !connection)
-            return Response.json(
-              { error: "A conexão principal segue as permissões gerais do atendimento." },
-              { status: 400 },
-            );
-          if (
-            typeof body.groupId !== "string" ||
-            typeof body.canRead !== "boolean" ||
-            typeof body.canSend !== "boolean" ||
-            (body.canSend && !body.canRead)
-          )
-            return Response.json(
-              { error: "Informe grupo, visualização e envio. Enviar exige visualizar." },
-              { status: 400 },
-            );
-          const [group] = await db
-            .select({ id: accessGroups.id })
-            .from(accessGroups)
-            .where(and(eq(accessGroups.tenantId, tenantId), eq(accessGroups.id, body.groupId)))
-            .limit(1);
-          if (!group) return Response.json({ error: "Grupo não encontrado." }, { status: 404 });
-          if (!body.canRead && !body.canSend) {
-            await db
-              .delete(whatsappConnectionGroupAccess)
-              .where(
-                and(
-                  eq(whatsappConnectionGroupAccess.tenantId, tenantId),
-                  eq(whatsappConnectionGroupAccess.connectionId, id),
-                  eq(whatsappConnectionGroupAccess.groupId, group.id),
-                ),
-              );
-          } else {
-            await db
-              .insert(whatsappConnectionGroupAccess)
-              .values({
-                id: randomUUID(),
-                tenantId,
-                connectionId: id,
-                groupId: group.id,
-                canRead: body.canRead,
-                canSend: body.canSend,
-              })
-              .onConflictDoUpdate({
-                target: [
-                  whatsappConnectionGroupAccess.tenantId,
-                  whatsappConnectionGroupAccess.connectionId,
-                  whatsappConnectionGroupAccess.groupId,
-                ],
-                set: { canRead: body.canRead, canSend: body.canSend, updatedAt: new Date() },
-              });
-          }
-          SessionManager.getInstance().notifyPublic(tenantId, {
-            type: "connection_access_changed",
-            groupId: group.id,
-          });
-          return Response.json({ ok: true }, { headers });
+          return Response.json(
+            {
+              error: "Configure as permissões no Controle de Acesso, dentro do grupo.",
+              code: "GROUP_ACCESS_SETTINGS_MOVED",
+            },
+            { status: 409 },
+          );
         }
         if (body.action === "start") {
           if (!corporate && !(await hasWhatsappConnectionAccess(session, id, "send")))

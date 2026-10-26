@@ -48,6 +48,7 @@ before(async () => {
     schema.mediaFiles,
     schema.pendingInbounds,
     schema.channelConfigs,
+    schema.crmActionHistory,
   ]) {
     const config = pg.getTableConfig(table);
     const columns = config.columns
@@ -844,27 +845,23 @@ test("group access separates read/send, remains per number and is revoked immedi
     ...session("seller-b"),
     operator: { ...session("seller-b").operator, groupId: "post-sales" },
   };
-  await db
-    .insert(schema.conversations)
-    .values({
-      id: "group-thread",
-      tenantId: tenant,
-      contactId: "customer",
-      whatsappConnectionId: "number-4",
-      operatorId: "seller-b",
-      queueState: "meus",
-    });
+  await db.insert(schema.conversations).values({
+    id: "group-thread",
+    tenantId: tenant,
+    contactId: "customer",
+    whatsappConnectionId: "number-4",
+    operatorId: "seller-b",
+    queueState: "meus",
+  });
   assert.equal((await access.requireConversationAccess(member, "group-thread")).status, 404);
-  await db
-    .insert(schema.whatsappConnectionGroupAccess)
-    .values({
-      id: "group-test-access",
-      tenantId: tenant,
-      connectionId: "number-4",
-      groupId: "post-sales",
-      canRead: true,
-      canSend: false,
-    });
+  await db.insert(schema.whatsappConnectionGroupAccess).values({
+    id: "group-test-access",
+    tenantId: tenant,
+    connectionId: "number-4",
+    groupId: "post-sales",
+    canRead: true,
+    canSend: false,
+  });
   assert.equal(await access.requireConversationAccess(member, "group-thread"), null);
   assert.equal((await access.requireConversationWriteAccess(member, "group-thread")).status, 403);
   assert.equal(await access.hasWhatsappConnectionAccess(member, "number-4", "send"), false);
@@ -930,43 +927,48 @@ test("group access separates read/send, remains per number and is revoked immedi
 
 test("group grant database constraints reject another tenant and send without read", async () => {
   await assert.rejects(
-    db
-      .insert(schema.whatsappConnectionGroupAccess)
-      .values({
-        id: "bad-foreign-group",
-        tenantId: tenant,
-        connectionId: "number-4",
-        groupId: "foreign-group",
-        canRead: true,
-      }),
+    db.insert(schema.whatsappConnectionGroupAccess).values({
+      id: "bad-foreign-group",
+      tenantId: tenant,
+      connectionId: "number-4",
+      groupId: "foreign-group",
+      canRead: true,
+    }),
   );
   await assert.rejects(
-    db
-      .insert(schema.whatsappConnectionGroupAccess)
-      .values({
-        id: "bad-foreign-connection",
-        tenantId: otherTenant,
-        connectionId: "number-4",
-        groupId: "foreign-group",
-        canRead: true,
-      }),
+    db.insert(schema.whatsappConnectionGroupAccess).values({
+      id: "bad-foreign-connection",
+      tenantId: otherTenant,
+      connectionId: "number-4",
+      groupId: "foreign-group",
+      canRead: true,
+    }),
   );
   await assert.rejects(
-    db
-      .insert(schema.whatsappConnectionGroupAccess)
-      .values({
-        id: "bad-send-only",
-        tenantId: tenant,
-        connectionId: "number-4",
-        groupId: "post-sales",
-        canRead: false,
-        canSend: true,
-      }),
+    db.insert(schema.whatsappConnectionGroupAccess).values({
+      id: "bad-send-only",
+      tenantId: tenant,
+      connectionId: "number-4",
+      groupId: "post-sales",
+      canRead: false,
+      canSend: true,
+    }),
   );
 });
 
 test("admin can toggle group rights; a shared group cannot obtain QR, pair, manage or start with read-only access", async () => {
-  let who = session("admin-a", "admin");
+  const adminSession = () => {
+    const value = session("admin-a", "admin");
+    return {
+      ...value,
+      permissions: {
+        ...value.permissions,
+        views: { ...value.permissions.views, groups: true },
+        security: { canManageAccessGroups: true },
+      },
+    };
+  };
+  let who = adminSession();
   const events = [];
   const route = isolatedModule("src/routes/api/whatsapp/connections.ts", {
     "node:crypto": await import("node:crypto"),
@@ -998,17 +1000,41 @@ test("admin can toggle group rights; a shared group cannot obtain QR, pair, mana
       syncConversationDeals: async () => true,
     },
   }).Route.server.handlers;
-  const change = (patch = {}) =>
-    route.POST({
+  const groupRoute = isolatedModule("src/routes/api/groups/whatsapp-connections.ts", {
+    "node:crypto": await import("node:crypto"),
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": { requireSession: async () => ({ session: who }) },
+    "../../../lib/whatsapp/connection-policy": policy,
+    "../../../lib/access-control/group-revision": loadAccessSource(
+      "src/lib/access-control/group-revision.ts",
+    ),
+    "../../../lib/baileys/session-manager": {
+      SessionManager: { getInstance: () => ({ notifyPublic: (t, e) => events.push({ t, e }) }) },
+    },
+  }).Route.server.handlers;
+  const groupList = await (
+    await groupRoute.GET({
+      request: apiRequest(undefined, "GET", "http://test.local/api?groupId=post-sales"),
+    })
+  ).json();
+  let revision = groupList.connections.find((c) => c.id === "number-4").revision;
+  const change = async (patch = {}) => {
+    const response = await groupRoute.POST({
       request: apiRequest({
-        action: "set-group-access",
         connectionId: "number-4",
         groupId: "post-sales",
         canRead: true,
         canSend: false,
+        expectedRevision: revision,
         ...patch,
       }),
     });
+    if (response.ok) revision = (await response.clone().json()).access.revision;
+    return response;
+  };
   assert.equal((await change({ groupId: "foreign-group", tenantId: otherTenant })).status, 404);
   assert.equal((await change({ canRead: false, canSend: true })).status, 400);
   assert.equal((await change()).status, 200);
@@ -1045,7 +1071,7 @@ test("admin can toggle group rights; a shared group cannot obtain QR, pair, mana
   assert.equal((await change()).status, 403);
   who = session(); // Owning the number also does not grant permission to share it.
   assert.equal((await change()).status, 403);
-  who = session("admin-a", "admin");
+  who = adminSession();
   assert.equal((await change({ canSend: true })).status, 200);
   who = {
     ...session("seller-b"),
@@ -1059,7 +1085,7 @@ test("admin can toggle group rights; a shared group cannot obtain QR, pair, mana
     ).status,
     200,
   );
-  who = session("admin-a", "admin");
+  who = adminSession();
   assert.equal((await change({ canRead: false, canSend: false })).status, 200);
   assert.ok(
     events.some((x) => x.e.type === "connection_access_changed" && x.e.groupId === "post-sales"),
@@ -1078,15 +1104,13 @@ test("read-only connection users cannot send, react or capture before any operat
     ...session("seller-b"),
     operator: { ...session("seller-b").operator, groupId: "post-sales" },
   };
-  await db
-    .insert(schema.whatsappConnectionGroupAccess)
-    .values({
-      id: "read-only-effects",
-      tenantId: tenant,
-      connectionId: "number-4",
-      groupId: "post-sales",
-      canRead: true,
-    });
+  await db.insert(schema.whatsappConnectionGroupAccess).values({
+    id: "read-only-effects",
+    tenantId: tenant,
+    connectionId: "number-4",
+    groupId: "post-sales",
+    canRead: true,
+  });
   const common = {
     "@tanstack/react-router": routeStub,
     "drizzle-orm": orm,
@@ -1124,4 +1148,152 @@ test("read-only connection users cannot send, react or capture before any operat
         orm.eq(schema.whatsappConnectionGroupAccess.id, "read-only-effects"),
       ),
     );
+});
+
+test("number permissions belong to access control, without requiring WhatsApp settings or chat access", async () => {
+  let who = {
+    ...session("admin-a", "admin"),
+    permissions: { views: { groups: true }, security: { canManageAccessGroups: true } },
+  };
+  const route = isolatedModule("src/routes/api/groups/whatsapp-connections.ts", {
+    "node:crypto": await import("node:crypto"),
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": {
+      requireSession: async () =>
+        who ? { session: who } : { response: new Response(null, { status: 401 }) },
+    },
+    "../../../lib/access-control/group-revision": loadAccessSource(
+      "src/lib/access-control/group-revision.ts",
+    ),
+    "../../../lib/whatsapp/connection-policy": policy,
+    "../../../lib/baileys/session-manager": {
+      SessionManager: { getInstance: () => ({ notifyPublic() {} }) },
+    },
+  }).Route.server.handlers;
+  const read = (groupId = "post-sales") =>
+    route.GET({
+      request: apiRequest(
+        undefined,
+        "GET",
+        `http://test.local/api?groupId=${groupId}&tenantId=${otherTenant}`,
+      ),
+    });
+  assert.equal((await read("foreign-group")).status, 404);
+  const listed = await (await read()).json();
+  assert.equal(listed.connections.length, 6);
+  assert.ok(!JSON.stringify(listed).match(/authEncrypted|qrEncrypted|leaseToken|number-other/));
+  const number = listed.connections.find((c) => c.id === "number-4");
+  const submit = (patch) =>
+    route.POST({
+      request: apiRequest({
+        groupId: "post-sales",
+        connectionId: number.id,
+        canRead: true,
+        canSend: false,
+        expectedRevision: number.revision,
+        tenantId: otherTenant,
+        ...patch,
+      }),
+    });
+  const granted = await submit({});
+  assert.equal(granted.status, 200);
+  assert.equal((await submit({ canSend: true })).status, 409);
+  const latest = (await (await read()).json()).connections.find((c) => c.id === number.id);
+  assert.equal(latest.canSend, false);
+  assert.equal(latest.canRead, true);
+  const [audit] = await db
+    .select()
+    .from(schema.crmActionHistory)
+    .where(
+      orm.and(
+        orm.eq(schema.crmActionHistory.tenantId, tenant),
+        orm.eq(schema.crmActionHistory.action, "update_whatsapp_group_access"),
+      ),
+    )
+    .orderBy(orm.desc(schema.crmActionHistory.createdAt))
+    .limit(1);
+  assert.ok(audit);
+  assert.equal((await submit({ connectionId: "number-other" })).status, 404);
+  assert.equal((await submit({ canRead: false, canSend: true })).status, 400);
+  assert.equal(
+    (await submit({ canRead: false, canSend: false, expectedRevision: latest.revision })).status,
+    200,
+  );
+  who = {
+    ...who,
+    permissions: { views: { groups: true }, security: { canManageAccessGroups: false } },
+  };
+  assert.equal((await read()).status, 403);
+  assert.equal((await submit({})).status, 403);
+  who = null;
+  assert.equal((await read()).status, 401);
+  assert.equal((await submit({})).status, 401);
+});
+
+test("failed access audit rolls back number permissions instead of leaving a partial change", async () => {
+  const who = {
+    ...session("admin-a", "admin"),
+    permissions: { views: { groups: true }, security: { canManageAccessGroups: true } },
+  };
+  const failingDb = {
+    transaction: (fn) =>
+      db.transaction((tx) =>
+        fn(
+          new Proxy(tx, {
+            get(target, key) {
+              if (key === "insert")
+                return (table) => {
+                  if (table === schema.crmActionHistory) throw Error("Audit unavailable");
+                  return target.insert(table);
+                };
+              const value = Reflect.get(target, key);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+        ),
+      ),
+  };
+  const route = isolatedModule("src/routes/api/groups/whatsapp-connections.ts", {
+    "node:crypto": await import("node:crypto"),
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db: failingDb },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": { requireSession: async () => ({ session: who }) },
+    "../../../lib/access-control/group-revision": loadAccessSource(
+      "src/lib/access-control/group-revision.ts",
+    ),
+    "../../../lib/whatsapp/connection-policy": policy,
+    "../../../lib/baileys/session-manager": {
+      SessionManager: {
+        getInstance: () => {
+          throw Error("Must not notify a rolled-back grant");
+        },
+      },
+    },
+  }).Route.server.handlers;
+  const condition = orm.and(
+    orm.eq(schema.whatsappConnectionGroupAccess.tenantId, tenant),
+    orm.eq(schema.whatsappConnectionGroupAccess.connectionId, "number-6"),
+    orm.eq(schema.whatsappConnectionGroupAccess.groupId, "support"),
+  );
+  const before = await db.select().from(schema.whatsappConnectionGroupAccess).where(condition);
+  const { groupRevision } = loadAccessSource("src/lib/access-control/group-revision.ts");
+  const response = await route.POST({
+    request: apiRequest({
+      groupId: "support",
+      connectionId: "number-6",
+      canRead: true,
+      canSend: true,
+      expectedRevision: groupRevision({ canRead: false, canSend: false }),
+    }),
+  });
+  assert.equal(response.status, 500);
+  assert.deepEqual(
+    await db.select().from(schema.whatsappConnectionGroupAccess).where(condition),
+    before,
+  );
 });

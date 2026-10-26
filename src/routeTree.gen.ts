@@ -76,6 +76,7 @@ import { Route as ApiLivechatVtexConfigRouteImport } from './routes/api/livechat
 import { Route as ApiLivechatVisitorsRouteImport } from './routes/api/livechat/visitors'
 import { Route as ApiLivechatTrayConfigRouteImport } from './routes/api/livechat/tray-config'
 import { Route as ApiLivechatMetricsRouteImport } from './routes/api/livechat/metrics'
+import { Route as ApiGroupsWhatsappConnectionsRouteImport } from './routes/api/groups/whatsapp-connections'
 import { Route as ApiGestaoTasksRouteImport } from './routes/api/gestao/tasks'
 import { Route as ApiGestaoSlaRouteImport } from './routes/api/gestao/sla'
 import { Route as ApiGestaoReportsV2RouteImport } from './routes/api/gestao/reports-v2'
@@ -529,6 +530,12 @@ const ApiLivechatMetricsRoute = ApiLivechatMetricsRouteImport.update({
   path: '/api/livechat/metrics',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGroupsWhatsappConnectionsRoute =
+  ApiGroupsWhatsappConnectionsRouteImport.update({
+    id: '/whatsapp-connections',
+    path: '/whatsapp-connections',
+    getParentRoute: () => ApiGroupsRoute,
+  } as any)
 const ApiGestaoTasksRoute = ApiGestaoTasksRouteImport.update({
   id: '/api/gestao/tasks',
   path: '/api/gestao/tasks',
@@ -1135,7 +1142,7 @@ export interface FileRoutesByFullPath {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
   '/api/events': typeof ApiEventsRoute
-  '/api/groups': typeof ApiGroupsRoute
+  '/api/groups': typeof ApiGroupsRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
@@ -1220,6 +1227,7 @@ export interface FileRoutesByFullPath {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
@@ -1314,7 +1322,7 @@ export interface FileRoutesByTo {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
   '/api/events': typeof ApiEventsRoute
-  '/api/groups': typeof ApiGroupsRoute
+  '/api/groups': typeof ApiGroupsRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
@@ -1399,6 +1407,7 @@ export interface FileRoutesByTo {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
@@ -1494,7 +1503,7 @@ export interface FileRoutesById {
   '/api/elevenlabs-audio': typeof ApiElevenlabsAudioRoute
   '/api/elevenlabs-conversations': typeof ApiElevenlabsConversationsRoute
   '/api/events': typeof ApiEventsRoute
-  '/api/groups': typeof ApiGroupsRoute
+  '/api/groups': typeof ApiGroupsRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/operators': typeof ApiOperatorsRouteWithChildren
@@ -1579,6 +1588,7 @@ export interface FileRoutesById {
   '/api/gestao/reports-v2': typeof ApiGestaoReportsV2Route
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
+  '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
@@ -1760,6 +1770,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/groups/whatsapp-connections'
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
@@ -1939,6 +1950,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/groups/whatsapp-connections'
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
@@ -2118,6 +2130,7 @@ export interface FileRouteTypes {
     | '/api/gestao/reports-v2'
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
+    | '/api/groups/whatsapp-connections'
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
@@ -2213,7 +2226,7 @@ export interface RootRouteChildren {
   ApiElevenlabsAudioRoute: typeof ApiElevenlabsAudioRoute
   ApiElevenlabsConversationsRoute: typeof ApiElevenlabsConversationsRoute
   ApiEventsRoute: typeof ApiEventsRoute
-  ApiGroupsRoute: typeof ApiGroupsRoute
+  ApiGroupsRoute: typeof ApiGroupsRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpRoute: typeof ApiMcpRoute
   ApiOperatorsRoute: typeof ApiOperatorsRouteWithChildren
@@ -2800,6 +2813,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/livechat/metrics'
       preLoaderRoute: typeof ApiLivechatMetricsRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/groups/whatsapp-connections': {
+      id: '/api/groups/whatsapp-connections'
+      path: '/whatsapp-connections'
+      fullPath: '/api/groups/whatsapp-connections'
+      preLoaderRoute: typeof ApiGroupsWhatsappConnectionsRouteImport
+      parentRoute: typeof ApiGroupsRoute
     }
     '/api/gestao/tasks': {
       id: '/api/gestao/tasks'
@@ -3636,6 +3656,18 @@ const ApiContactsRouteWithChildren = ApiContactsRoute._addFileChildren(
   ApiContactsRouteChildren,
 )
 
+interface ApiGroupsRouteChildren {
+  ApiGroupsWhatsappConnectionsRoute: typeof ApiGroupsWhatsappConnectionsRoute
+}
+
+const ApiGroupsRouteChildren: ApiGroupsRouteChildren = {
+  ApiGroupsWhatsappConnectionsRoute: ApiGroupsWhatsappConnectionsRoute,
+}
+
+const ApiGroupsRouteWithChildren = ApiGroupsRoute._addFileChildren(
+  ApiGroupsRouteChildren,
+)
+
 interface ApiOperatorsRouteChildren {
   ApiOperatorsProfileRoute: typeof ApiOperatorsProfileRoute
 }
@@ -3919,7 +3951,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiElevenlabsAudioRoute: ApiElevenlabsAudioRoute,
   ApiElevenlabsConversationsRoute: ApiElevenlabsConversationsRoute,
   ApiEventsRoute: ApiEventsRoute,
-  ApiGroupsRoute: ApiGroupsRoute,
+  ApiGroupsRoute: ApiGroupsRouteWithChildren,
   ApiHealthRoute: ApiHealthRoute,
   ApiMcpRoute: ApiMcpRoute,
   ApiOperatorsRoute: ApiOperatorsRouteWithChildren,

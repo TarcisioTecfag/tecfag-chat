@@ -3,7 +3,6 @@ import QRCode from "qrcode";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { useWhatsappConnections, whatsappConnectionAction } from "@/hooks/useWhatsappConnections";
-import type { WhatsappConnection } from "@/hooks/useWhatsappConnections";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import {
@@ -48,87 +47,9 @@ const CAPTURE_POLICY_OPTIONS = [
   },
 ] as const;
 
-function ConnectionGroupPermissions({
-  connection,
-  groups,
-  busy,
-  onSave,
-}: {
-  connection: WhatsappConnection;
-  groups: Array<{ id: string; name: string }>;
-  busy: boolean;
-  onSave: (body: Record<string, unknown>) => Promise<boolean>;
-}) {
-  return (
-    <details className="mt-3 rounded-xl border border-border bg-card p-3">
-      <summary className="cursor-pointer text-xs font-bold">Acesso por grupos</summary>
-      <p className="my-2 text-[11px] text-muted-foreground">
-        O titular e os administradores autorizados mantêm acesso. Os grupos seguem também as
-        permissões gerais de filas e atendimento. Enviar exige visualizar; esse acesso não permite
-        parear nem desconectar o aparelho.
-      </p>
-      {groups.length ? (
-        <div className="space-y-2">
-          {groups.map((group) => {
-            const grant = connection.groupAccess?.find((g) => g.groupId === group.id);
-            return (
-              <div
-                key={group.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-2"
-              >
-                <span className="text-xs font-semibold">{group.name}</span>
-                <div className="flex flex-wrap gap-3 text-xs">
-                  <label className="flex items-center gap-1.5">
-                    <input
-                      type="checkbox"
-                      aria-label={`Visualizar histórico: ${group.name}`}
-                      checked={grant?.canRead === true}
-                      disabled={busy}
-                      onChange={(e) =>
-                        void onSave({
-                          action: "set-group-access",
-                          connectionId: connection.id,
-                          groupId: group.id,
-                          canRead: e.target.checked,
-                          canSend: e.target.checked && grant?.canSend === true,
-                        })
-                      }
-                    />
-                    Visualizar histórico
-                  </label>
-                  <label className="flex items-center gap-1.5">
-                    <input
-                      type="checkbox"
-                      aria-label={`Enviar mensagens: ${group.name}`}
-                      checked={grant?.canSend === true}
-                      disabled={busy}
-                      onChange={(e) =>
-                        void onSave({
-                          action: "set-group-access",
-                          connectionId: connection.id,
-                          groupId: group.id,
-                          canRead: e.target.checked || grant?.canRead === true,
-                          canSend: e.target.checked,
-                        })
-                      }
-                    />
-                    Enviar mensagens
-                  </label>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">Nenhum grupo de acesso cadastrado.</p>
-      )}
-    </details>
-  );
-}
-
 export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolean }) {
   const { tenant, operators, currentOperatorId } = useChat();
-  const { enabled, canManage, encryptionReady, connections, accessGroups, refresh } =
+  const { enabled, canManage, encryptionReady, connections, refresh } =
     useWhatsappConnections(tenant);
 
   const [name, setName] = useState("");
@@ -392,14 +313,6 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
                         <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                         <span>{c.error}</span>
                       </p>
-                    )}
-                    {canManage && (
-                      <ConnectionGroupPermissions
-                        connection={c}
-                        groups={accessGroups}
-                        busy={busy}
-                        onSave={action}
-                      />
                     )}
                   </div>
                 </div>
