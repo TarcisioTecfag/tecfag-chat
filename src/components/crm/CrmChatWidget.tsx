@@ -34,6 +34,7 @@ import {
   PhoneCall,
   Pin,
   Play,
+  RotateCcw,
   Search,
   Send,
   Square,
@@ -60,7 +61,7 @@ import {
   ensureMiniChatBodyEventGuard,
 } from "@/components/ui/dialog";
 import { SystemTooltip } from "@/components/ui/tooltip";
-import { useChat } from "@/hooks/useChatState";
+import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr } from "@/hooks/useChatState";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -1040,8 +1041,25 @@ export function CrmChatWidget() {
     transferChat,
     isValentinaTyping,
     valentinaThoughtTrace,
+    reloadValentinaHistory,
   } = useChat();
   const { canAccessView, canViewCrm } = usePermissions();
+
+  const [currentBrtDateStr, setCurrentBrtDateStr] = useState<string>(() => getBrtTodayDateStr());
+  const [showOlderValentinaDays, setShowOlderValentinaDays] = useState(false);
+  const [showValOlderPrompt, setShowValOlderPrompt] = useState(false);
+  const [loadingOlderValentina, setLoadingOlderValentina] = useState(false);
+
+  useEffect(() => {
+    const handleDayChanged = (e: Event) => {
+      const custom = e as CustomEvent<{ date?: string }>;
+      setCurrentBrtDateStr(custom.detail?.date || getBrtTodayDateStr());
+      setShowOlderValentinaDays(false);
+      setShowValOlderPrompt(false);
+    };
+    window.addEventListener("valentina:day-changed", handleDayChanged);
+    return () => window.removeEventListener("valentina:day-changed", handleDayChanged);
+  }, []);
 
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
@@ -1400,8 +1418,16 @@ export function CrmChatWidget() {
   // Mescla mensagens carregadas do histórico com as mensagens em tempo real de `selected.messages`
   const threadMessages = useMemo<Message[]>(() => {
     if (!selected) return [];
+    if (selected.id === "valentina") {
+      const base = selected.messages || [];
+      if (showOlderValentinaDays) return base;
+      return base.filter((m) => {
+        if (m.id === "val_welcome") return true;
+        const mDate = extractBrtMessageDateStr(m);
+        return !mDate || mDate === currentBrtDateStr;
+      });
+    }
     if (
-      selected.id === "valentina" ||
       selected.id === "__resolving__" ||
       !history ||
       history.chatId !== selected.id
@@ -1421,7 +1447,7 @@ export function CrmChatWidget() {
       if (!b.sentAtISO) return -1;
       return a.sentAtISO.localeCompare(b.sentAtISO);
     });
-  }, [selected, history]);
+  }, [selected, history, showOlderValentinaDays, currentBrtDateStr]);
 
   // Identifica a última mensagem recebida do cliente (side === 'in')
   const lastInboundMessage = useMemo<Message | null>(() => {
@@ -1443,6 +1469,9 @@ export function CrmChatWidget() {
   // Limpar gravação e modal de template ao trocar de conversa ou fechar
   useEffect(() => {
     setShowMetaTemplateModal(false);
+    setShowValOlderPrompt(false);
+    setShowOlderValentinaDays(false);
+    setCurrentBrtDateStr(getBrtTodayDateStr());
     discardRecording();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, open, view]);
@@ -1853,16 +1882,67 @@ export function CrmChatWidget() {
     endRef.current?.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "end" });
   }, []);
 
-  const handleThreadScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    shouldStickThreadToBottomRef.current = distanceFromBottom <= 140;
-  }, []);
+  const lastThreadScrollTopRef = useRef<number>(0);
+  const isLoadingOlderValRef = useRef<boolean>(false);
+
+  const handleThreadScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      shouldStickThreadToBottomRef.current = distanceFromBottom <= 140;
+
+      const prevTop = lastThreadScrollTopRef.current;
+      lastThreadScrollTopRef.current = el.scrollTop;
+
+      if (selected?.id === "valentina" && !showOlderValentinaDays) {
+        if (el.scrollTop < prevTop && el.scrollTop <= 80) {
+          setShowValOlderPrompt(true);
+        } else if (el.scrollTop > prevTop && el.scrollTop > 140) {
+          setShowValOlderPrompt(false);
+        }
+      }
+    },
+    [selected?.id, showOlderValentinaDays]
+  );
+
+  const handleThreadWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      if (selected?.id !== "valentina" || showOlderValentinaDays) return;
+      const el = e.currentTarget;
+      if (e.deltaY < 0 && el.scrollTop <= 100) {
+        setShowValOlderPrompt(true);
+      } else if (e.deltaY > 20 && el.scrollTop > 100) {
+        setShowValOlderPrompt(false);
+      }
+    },
+    [selected?.id, showOlderValentinaDays]
+  );
+
+  const handleLoadOlderValentina = useCallback(async () => {
+    if (loadingOlderValentina) return;
+    isLoadingOlderValRef.current = true;
+    setLoadingOlderValentina(true);
+    try {
+      await reloadValentinaHistory(250);
+      setShowOlderValentinaDays(true);
+      setShowValOlderPrompt(false);
+    } finally {
+      setLoadingOlderValentina(false);
+      requestAnimationFrame(() => {
+        const el = threadScrollContainerRef.current;
+        if (el) {
+          el.scrollTop = 0;
+        }
+        isLoadingOlderValRef.current = false;
+      });
+    }
+  }, [loadingOlderValentina, reloadValentinaHistory]);
 
   const handleThreadMediaLoad = useCallback(
     (e: React.SyntheticEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement | null;
       if (!target || (target.tagName !== "IMG" && target.tagName !== "VIDEO")) return;
+      if (isLoadingOlderValRef.current) return;
       if (Date.now() - threadOpenedAtRef.current < 3000 || shouldStickThreadToBottomRef.current) {
         scrollThreadToBottom(true);
         requestAnimationFrame(() => scrollThreadToBottom(true));
@@ -1892,6 +1972,8 @@ export function CrmChatWidget() {
       prevThreadHistoryChatIdRef.current = currentChatId;
     }
     prevThreadLastMsgIdRef.current = lastMsgId;
+
+    if (isLoadingOlderValRef.current) return;
 
     if (isNewChat || historyLoadedForCurrent) {
       threadOpenedAtRef.current = Date.now();
@@ -2432,9 +2514,60 @@ export function CrmChatWidget() {
                       <div
                         ref={threadScrollContainerRef}
                         onScroll={handleThreadScroll}
+                        onWheel={handleThreadWheel}
                         onLoadCapture={handleThreadMediaLoad}
                         className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background/85 px-3 py-3.5 text-xs scrollbar-thin"
                       >
+                        <AnimatePresence>
+                          {selected.id === "valentina" &&
+                            !showOlderValentinaDays &&
+                            (showValOlderPrompt || loadingOlderValentina) && (
+                              <motion.div
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.16 }}
+                                className="mb-2 flex justify-center sticky top-1 z-20"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={handleLoadOlderValentina}
+                                  disabled={loadingOlderValentina}
+                                  className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-card/95 backdrop-blur-md px-3.5 py-1 text-[11px] font-semibold text-primary shadow-card hover:bg-primary hover:text-primary-foreground transition cursor-pointer disabled:opacity-60"
+                                >
+                                  {loadingOlderValentina ? (
+                                    <>
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      <span>Carregando anteriores...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <RotateCcw className="h-3 w-3" />
+                                      <span>Ver anteriores</span>
+                                    </>
+                                  )}
+                                </button>
+                              </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                        {selected.id === "valentina" && showOlderValentinaDays && (
+                          <div className="mb-2 flex justify-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowOlderValentinaDays(false);
+                                setShowValOlderPrompt(false);
+                                requestAnimationFrame(() => scrollThreadToBottom(true));
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/60 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                            >
+                              <Clock className="h-2.5 w-2.5" />
+                              <span>Ocultar anteriores</span>
+                            </button>
+                          </div>
+                        )}
+
                         {selected.id === "__resolving__" ? (
                           <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
                             <Loader2 className="h-6 w-6 animate-spin text-primary mb-2" />
@@ -3132,6 +3265,29 @@ export function CrmChatWidget() {
                                       </>
                                     );
                                   })()}
+
+                                  {message.id === "val_welcome" && (
+                                    <div
+                                      className="mt-2.5 flex flex-wrap gap-1.5"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {[
+                                        "Quais minhas prioridades agora?",
+                                        "Quais tarefas e ligações tenho hoje?",
+                                        "Tenho clientes esperando resposta?",
+                                        "Como estão minhas metas do mês?",
+                                      ].map((suggestion) => (
+                                        <button
+                                          key={suggestion}
+                                          type="button"
+                                          onClick={() => void sendMessage(suggestion)}
+                                          className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-[10.5px] font-semibold transition cursor-pointer"
+                                        >
+                                          {suggestion}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
 
                                   <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-muted-foreground font-medium select-none">
                                     <span>{message.time}</span>

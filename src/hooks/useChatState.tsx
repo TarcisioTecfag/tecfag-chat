@@ -264,6 +264,7 @@ type ChatContextType = {
   >;
   isValentinaTyping: boolean;
   valentinaThoughtTrace: AgenticThoughtTraceData | null;
+  reloadValentinaHistory: (limit?: number) => Promise<void>;
   disconnectBaileys: () => void;
   connectBaileys: (forceNew?: boolean) => void;
 
@@ -281,6 +282,99 @@ type ChatContextType = {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+export function getBrtTodayDateStr(dateObj: Date = new Date()): string {
+  return dateObj.toLocaleDateString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+  });
+}
+
+export function extractBrtMessageDateStr(msg: Message | null | undefined): string | null {
+  if (!msg) return null;
+  if (msg.date && /^\d{2}\/\d{2}\/\d{4}$/.test(msg.date)) return msg.date;
+  if (msg.sentAtISO) {
+    try {
+      const d = new Date(msg.sentAtISO);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return msg.date || null;
+}
+
+function buildValentinaWelcomeMessage(
+  tenant: string | null | undefined,
+  operatorName: string | undefined,
+  nowDateObj: Date = new Date(),
+  firstTodayMsg?: Message
+): Message {
+  const aiPersona = getAiPersona(tenant || undefined);
+  const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    hour: "numeric",
+    hour12: false,
+  }).format(nowDateObj);
+  const hour = parseInt(brtHourStr, 10);
+  const greeting =
+    hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
+  const cleanName =
+    operatorName && operatorName.trim() && operatorName.trim() !== "Operador"
+      ? operatorName.trim()
+      : "consultor";
+  const todayDateStr = getBrtTodayDateStr(nowDateObj);
+  const welcomeTimeStr =
+    firstTodayMsg?.time ||
+    nowDateObj.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Sao_Paulo",
+    });
+  const welcomeIsoStr = firstTodayMsg?.sentAtISO || nowDateObj.toISOString();
+
+  return {
+    id: "val_welcome",
+    author: aiPersona.name,
+    text: `Olá! ${greeting} ${cleanName}, sou seu copiloto comercial. Acompanho suas metas, tarefas, ligações agendadas, negociações paradas e te aviso sempre que um cliente for transferido ou passar do SLA. Como posso te ajudar agora?`,
+    time: welcomeTimeStr,
+    date: todayDateStr,
+    sentAtISO: welcomeIsoStr,
+    side: "in",
+    isInternalNote: false,
+  };
+}
+
+function composeValentinaMessagesWithTodayWelcome(
+  realMessages: Message[],
+  tenant: string | null | undefined,
+  operatorName: string | undefined,
+  nowDateObj: Date = new Date()
+): Message[] {
+  const cleanReal = realMessages.filter((m) => m.id !== "val_welcome");
+  const todayDateStr = getBrtTodayDateStr(nowDateObj);
+  const olderMessages: Message[] = [];
+  const todayMessages: Message[] = [];
+
+  for (const msg of cleanReal) {
+    const mDate = extractBrtMessageDateStr(msg);
+    if (mDate === todayDateStr) {
+      todayMessages.push(msg);
+    } else {
+      olderMessages.push(msg);
+    }
+  }
+
+  const welcomeMsg = buildValentinaWelcomeMessage(
+    tenant,
+    operatorName,
+    nowDateObj,
+    todayMessages[0]
+  );
+
+  return [...olderMessages, welcomeMsg, ...todayMessages];
+}
 
 function mergeRecentMessages(current: Message[], incoming: Message[]): Message[] {
   if (!incoming.length) return current;
@@ -1455,44 +1549,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           const aiPersona = getAiPersona(tenant);
           const existingValHistory = valentinaHistoryRef.current.filter((m) => m.id !== "val_welcome");
-          const firstHistMsg = existingValHistory[0];
           const nowDateObj = new Date();
-          const welcomeTimeStr =
-            firstHistMsg?.time ||
-            nowDateObj.toLocaleTimeString("pt-BR", {
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZone: "America/Sao_Paulo",
-            });
-          const welcomeDateStr =
-            firstHistMsg?.date ||
-            nowDateObj.toLocaleDateString("pt-BR", {
-              timeZone: "America/Sao_Paulo",
-            });
-          const welcomeIsoStr = firstHistMsg?.sentAtISO || nowDateObj.toISOString();
-
-          const welcomeMsg: Message = {
-            id: "val_welcome",
-            author: aiPersona.name,
-            text: (() => {
-              const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
-                timeZone: "America/Sao_Paulo",
-                hour: "numeric",
-                hour12: false,
-              }).format(new Date());
-              const hour = parseInt(brtHourStr, 10);
-              const greeting = hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
-              const name = operatorProfile?.name || "consultor";
-              return `Olá! ${greeting} ${name}, sou seu copiloto comercial. Acompanho suas metas, tarefas, ligações agendadas, negociações paradas e te aviso sempre que um cliente for transferido ou passar do SLA. Como posso te ajudar agora?`;
-            })(),
-            time: welcomeTimeStr,
-            date: welcomeDateStr,
-            sentAtISO: welcomeIsoStr,
-            side: "in",
-            isInternalNote: false,
-          };
-
-          const initialValMessages = [welcomeMsg, ...existingValHistory];
+          const initialValMessages = composeValentinaMessagesWithTodayWelcome(
+            existingValHistory,
+            tenant,
+            operatorProfile?.name,
+            nowDateObj
+          );
           const lastValMsg = initialValMessages[initialValMessages.length - 1];
 
           const valentinaDefault: Conversation = {
@@ -1547,6 +1610,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [tenant, currentOperatorId, isAuthenticated]);
 
   const valentinaHistoryRef = useRef<Message[]>([]);
+  const operatorNameRef = useRef<string | undefined>(operatorProfile?.name);
+  useEffect(() => {
+    operatorNameRef.current = operatorProfile?.name;
+  }, [operatorProfile?.name]);
 
   const mapInternalRowToMessage = useCallback(
     (r: any): Message => {
@@ -1692,12 +1759,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [tenant]
   );
 
-  // Carrega histórico do chat individual do operador com Valentina/Fagner (scope=operator + alertas proativos)
-  useEffect(() => {
-    if (!currentOperatorId) return;
-    (async () => {
+  const rawConversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
+  const conversations = useMemo(() => rawConversations.filter((c) =>
+    currentGroup.allowedChannels.includes(c.channel)
+  ), [rawConversations, currentGroup.allowedChannels]);
+  const setConversations = tenant === "tecfag" ? setTecfagConvs : setValemConvs;
+
+  const reloadValentinaHistory = useCallback(
+    async (limit = 100) => {
+      if (!currentOperatorId || !tenant) return;
       try {
-        const res = await fetch(`/api/valentina/messages?tenantId=${tenant}&operatorId=${currentOperatorId}&scope=operator`);
+        const res = await fetch(
+          `/api/valentina/messages?tenantId=${tenant}&operatorId=${currentOperatorId}&scope=operator&limit=${limit}`,
+          { credentials: "include", cache: "no-store" }
+        );
         if (!res.ok) return;
         const rows: any[] = await res.json();
         if (Array.isArray(rows) && rows.length > 0) {
@@ -1727,18 +1802,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setConversations((prev) =>
             prev.map((c) => {
               if (c.id !== "valentina") return c;
-              const welcome = c.messages.find((m) => m.id === "val_welcome");
-              const realMessages = mappedMessages.filter((m) => m.id !== "val_welcome");
-              const firstReal = realMessages[0];
-              const syncedWelcome = welcome
-                ? {
-                    ...welcome,
-                    time: firstReal?.time || welcome.time,
-                    date: firstReal?.date || welcome.date,
-                    sentAtISO: firstReal?.sentAtISO || welcome.sentAtISO,
-                  }
-                : null;
-              const merged = syncedWelcome ? [syncedWelcome, ...realMessages] : realMessages;
+              const merged = composeValentinaMessagesWithTodayWelcome(
+                mappedMessages,
+                tenant,
+                operatorNameRef.current
+              );
               const lastMsg = merged[merged.length - 1];
               return {
                 ...c,
@@ -1749,18 +1817,95 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         } else {
           valentinaHistoryRef.current = [];
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== "valentina") return c;
+              const merged = composeValentinaMessagesWithTodayWelcome(
+                [],
+                tenant,
+                operatorNameRef.current
+              );
+              const lastMsg = merged[merged.length - 1];
+              return {
+                ...c,
+                messages: merged,
+                lastMessageTime: lastMsg?.time || c.lastMessageTime,
+              };
+            })
+          );
         }
       } catch (e) {
         console.error("Erro ao carregar histórico do chat do operador:", e);
       }
-    })();
-  }, [tenant, currentOperatorId, mapInternalRowToMessage]);
+    },
+    [tenant, currentOperatorId, mapInternalRowToMessage, setConversations]
+  );
 
-  const rawConversations = tenant === "tecfag" ? tecfagConvs : valemConvs;
-  const conversations = useMemo(() => rawConversations.filter((c) =>
-    currentGroup.allowedChannels.includes(c.channel)
-  ), [rawConversations, currentGroup.allowedChannels]);
-  const setConversations = tenant === "tecfag" ? setTecfagConvs : setValemConvs;
+  // Carrega histórico do chat individual do operador com Valentina/Fagner (scope=operator + alertas proativos)
+  useEffect(() => {
+    if (!currentOperatorId || !tenant) return;
+    void reloadValentinaHistory(150);
+  }, [tenant, currentOperatorId, reloadValentinaHistory]);
+
+  // Atualiza a mensagem de boas-vindas do dia quando o nome do operador for carregado/alterado
+  useEffect(() => {
+    if (!tenant) return;
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== "valentina") return c;
+        const merged = composeValentinaMessagesWithTodayWelcome(
+          c.messages,
+          tenant,
+          operatorProfile?.name
+        );
+        return {
+          ...c,
+          messages: merged,
+        };
+      })
+    );
+  }, [operatorProfile?.name, tenant, setConversations]);
+
+  // Monitora virada de dia no fuso America/Sao_Paulo: reposiciona val_welcome no novo dia e notifica a UI para ocultar dias anteriores
+  const currentBrtDateRef = useRef<string>(getBrtTodayDateStr());
+  useEffect(() => {
+    const checkDayRollover = () => {
+      const nowDateStr = getBrtTodayDateStr();
+      if (nowDateStr !== currentBrtDateRef.current) {
+        currentBrtDateRef.current = nowDateStr;
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== "valentina") return c;
+            const merged = composeValentinaMessagesWithTodayWelcome(
+              c.messages,
+              tenant,
+              operatorNameRef.current
+            );
+            const lastMsg = merged[merged.length - 1];
+            return {
+              ...c,
+              messages: merged,
+              lastMessageTime: lastMsg?.time || c.lastMessageTime,
+            };
+          })
+        );
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("valentina:day-changed", { detail: { date: nowDateStr } })
+          );
+        }
+      }
+    };
+
+    const intervalId = window.setInterval(checkDayRollover, 20000);
+    window.addEventListener("focus", checkDayRollover);
+    document.addEventListener("visibilitychange", checkDayRollover);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", checkDayRollover);
+      document.removeEventListener("visibilitychange", checkDayRollover);
+    };
+  }, [tenant, setConversations]);
 
   // Ref to track latest conversations and avoid stale closures in event listeners
   useEffect(() => {
@@ -4580,6 +4725,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         operatorTypingStatus,
         isValentinaTyping,
         valentinaThoughtTrace,
+        reloadValentinaHistory,
         disconnectBaileys,
         connectBaileys,
 

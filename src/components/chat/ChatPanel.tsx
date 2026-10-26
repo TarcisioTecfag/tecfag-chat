@@ -10,7 +10,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
 import { MessageReactionPicker } from "./MessageReactionPicker";
-import { useChat } from "@/hooks/useChatState";
+import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr } from "@/hooks/useChatState";
 import { useWhatsappConnections, useContactWhatsappHistory } from "@/hooks/useWhatsappConnections";
 import { WhatsappConversationConnection } from "./WhatsappConnectionsPanel";
 import type { Message } from "@/lib/mockData";
@@ -988,6 +988,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     operatorTypingStatus,
     isValentinaTyping,
     valentinaThoughtTrace,
+    reloadValentinaHistory,
     toggleReaction,
   } = useChat();
 
@@ -1287,8 +1288,44 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   }, [activeChat?.id, text, replyingTo, attachments, msgMode, noteScope, msgSearch, showMsgSearch]);
   const [showValWarnings, setShowValWarnings] = useState(true);
   const [showValResponses, setShowValResponses] = useState(true);
+  const [currentBrtDateStr, setCurrentBrtDateStr] = useState<string>(() => getBrtTodayDateStr());
+  const [showOlderValentinaDays, setShowOlderValentinaDays] = useState(false);
+  const [showValOlderPrompt, setShowValOlderPrompt] = useState(false);
+  const [loadingOlderValentina, setLoadingOlderValentina] = useState(false);
   const [history, setHistory] = useState<{ chatId: string; messages: Message[]; nextCursor: string | null } | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Sempre que o dia virar (meia-noite BRT), oculta automaticamente o chat do dia anterior e reinicia a visão do dia
+  useEffect(() => {
+    const handleDayChanged = (e: Event) => {
+      const custom = e as CustomEvent<{ date?: string }>;
+      setCurrentBrtDateStr(custom.detail?.date || getBrtTodayDateStr());
+      setShowOlderValentinaDays(false);
+      setShowValOlderPrompt(false);
+    };
+    const syncDate = () => {
+      const today = getBrtTodayDateStr();
+      setCurrentBrtDateStr((prev) => {
+        if (prev !== today) {
+          setShowOlderValentinaDays(false);
+          setShowValOlderPrompt(false);
+        }
+        return today;
+      });
+    };
+    window.addEventListener("valentina:day-changed", handleDayChanged);
+    window.addEventListener("focus", syncDate);
+    return () => {
+      window.removeEventListener("valentina:day-changed", handleDayChanged);
+      window.removeEventListener("focus", syncDate);
+    };
+  }, []);
+
+  useEffect(() => {
+    setShowValOlderPrompt(false);
+    setShowOlderValentinaDays(false);
+    setCurrentBrtDateStr(getBrtTodayDateStr());
+  }, [activeChat?.id]);
 
   useEffect(() => {
     if (!activeChat || activeChat.id === "valentina") {
@@ -1508,6 +1545,37 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       });
     }
   };
+
+  const hasOlderValentinaMessages = useMemo(() => {
+    if (activeChat?.id !== "valentina") return false;
+    return allMessages.some((m) => {
+      if (m.id === "val_welcome") return false;
+      if (m.isWarning && !showValWarnings) return false;
+      if (!m.isWarning && !showValResponses) return false;
+      const mDate = extractBrtMessageDateStr(m);
+      return Boolean(mDate && mDate !== currentBrtDateStr);
+    });
+  }, [activeChat?.id, allMessages, currentBrtDateStr, showValWarnings, showValResponses]);
+
+  const handleLoadOlderValentina = useCallback(async () => {
+    if (loadingOlderValentina) return;
+    isLoadingOlderRef.current = true;
+    setLoadingOlderValentina(true);
+    try {
+      await reloadValentinaHistory(250);
+      setShowOlderValentinaDays(true);
+      setShowValOlderPrompt(false);
+    } finally {
+      setLoadingOlderValentina(false);
+      requestAnimationFrame(() => {
+        const el = messagesContainerRef.current;
+        if (el) {
+          el.scrollTop = 0;
+        }
+        isLoadingOlderRef.current = false;
+      });
+    }
+  }, [loadingOlderValentina, reloadValentinaHistory]);
 
   const matches = useMemo(() => {
     if (!msgSearch.trim() || !activeChat) return [];
@@ -1986,11 +2054,62 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "end" });
   }, []);
 
-  const handleMessagesContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    shouldStickToBottomRef.current = distanceFromBottom <= 180;
-  }, []);
+  const lastScrollTopRef = useRef<number>(0);
+  const touchStartYRef = useRef<number | null>(null);
+
+  const handleMessagesContainerScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      shouldStickToBottomRef.current = distanceFromBottom <= 180;
+
+      const prevTop = lastScrollTopRef.current;
+      lastScrollTopRef.current = el.scrollTop;
+
+      if (activeChat?.id === "valentina" && !showOlderValentinaDays) {
+        if (el.scrollTop < prevTop && el.scrollTop <= 100) {
+          setShowValOlderPrompt(true);
+        } else if (el.scrollTop > prevTop && el.scrollTop > 180) {
+          setShowValOlderPrompt(false);
+        }
+      }
+    },
+    [activeChat?.id, showOlderValentinaDays]
+  );
+
+  const handleMessagesWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      if (activeChat?.id !== "valentina" || showOlderValentinaDays) return;
+      const el = e.currentTarget;
+      if (e.deltaY < 0 && el.scrollTop <= 140) {
+        setShowValOlderPrompt(true);
+      } else if (e.deltaY > 20 && el.scrollTop > 140) {
+        setShowValOlderPrompt(false);
+      }
+    },
+    [activeChat?.id, showOlderValentinaDays]
+  );
+
+  const handleMessagesTouchStart = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      if (activeChat?.id !== "valentina" || showOlderValentinaDays) return;
+      touchStartYRef.current = e.touches[0]?.clientY ?? null;
+    },
+    [activeChat?.id, showOlderValentinaDays]
+  );
+
+  const handleMessagesTouchMove = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      if (activeChat?.id !== "valentina" || showOlderValentinaDays) return;
+      if (touchStartYRef.current === null) return;
+      const currentY = e.touches[0]?.clientY ?? touchStartYRef.current;
+      const deltaY = currentY - touchStartYRef.current;
+      if (deltaY > 24 && e.currentTarget.scrollTop <= 40) {
+        setShowValOlderPrompt(true);
+      }
+    },
+    [activeChat?.id, showOlderValentinaDays]
+  );
 
   const handleMediaLoadScroll = useCallback(
     (e: React.SyntheticEvent<HTMLDivElement>) => {
@@ -2845,9 +2964,62 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       <div
         ref={messagesContainerRef}
         onScroll={handleMessagesContainerScroll}
+        onWheel={handleMessagesWheel}
+        onTouchStart={handleMessagesTouchStart}
+        onTouchMove={handleMessagesTouchMove}
         onLoadCapture={handleMediaLoadScroll}
         className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin"
       >
+        <AnimatePresence>
+          {activeChat.id === "valentina" &&
+            !showOlderValentinaDays &&
+            (showValOlderPrompt || loadingOlderValentina) && (
+              <motion.div
+                initial={{ opacity: 0, y: -12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.18 }}
+                className="mb-3 flex justify-center sticky top-1 z-20"
+              >
+                <button
+                  type="button"
+                  onClick={handleLoadOlderValentina}
+                  disabled={loadingOlderValentina}
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-card/95 backdrop-blur-md px-4 py-1.5 text-xs font-semibold text-primary shadow-card hover:bg-primary hover:text-primary-foreground transition cursor-pointer disabled:opacity-60"
+                >
+                  {loadingOlderValentina ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Carregando anteriores...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Ver anteriores</span>
+                    </>
+                  )}
+                </button>
+              </motion.div>
+            )}
+        </AnimatePresence>
+
+        {activeChat.id === "valentina" && showOlderValentinaDays && hasOlderValentinaMessages && (
+          <div className="mb-3 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setShowOlderValentinaDays(false);
+                setShowValOlderPrompt(false);
+                requestAnimationFrame(() => scrollToBottom(true));
+              }}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/60 px-3 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+            >
+              <Clock className="h-3 w-3" />
+              <span>Exibindo conversas de dias anteriores · Ocultar anteriores</span>
+            </button>
+          </div>
+        )}
+
         {activeChat.id !== "valentina" &&
           history?.chatId === activeChat.id &&
           history.nextCursor && (
@@ -2871,10 +3043,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           if (activeChat.id === "valentina") {
             displayed = displayed.filter((m) => {
               if (m.isWarning) {
-                return showValWarnings;
+                if (!showValWarnings) return false;
               } else {
-                return showValResponses;
+                if (!showValResponses) return false;
               }
+              if (!showOlderValentinaDays && !msgSearch.trim()) {
+                if (m.id === "val_welcome") return true;
+                const mDate = extractBrtMessageDateStr(m);
+                return !mDate || mDate === currentBrtDateStr;
+              }
+              return true;
             });
           }
 
@@ -2920,20 +3098,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             return msg.date || null;
           };
 
-          const firstRealMsgDateStr = (() => {
-            for (const item of displayed) {
-              if (item.id === "val_welcome") continue;
-              const dStr = extractRawMessageDateStr(item);
-              if (dStr) return dStr;
-            }
-            return null;
-          })();
-
           const getMessageDateStr = (msg: (typeof displayed)[0] | null | undefined): string | null => {
             if (!msg) return null;
-            if (msg.id === "val_welcome" && firstRealMsgDateStr) {
-              return firstRealMsgDateStr;
-            }
             return extractRawMessageDateStr(msg);
           };
 

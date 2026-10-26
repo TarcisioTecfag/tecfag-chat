@@ -3041,6 +3041,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
         const url = new URL(request.url);
         const reqOperatorId = url.searchParams.get("operatorId");
         const scope = url.searchParams.get("scope") || "operator";
+        const rawLimit = Number(url.searchParams.get("limit"));
+        const limitVal = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.max(rawLimit, 20), 500) : 100;
 
         // Operador comum só visualiza as próprias mensagens
         let operatorId = session.operator.id;
@@ -3075,7 +3077,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               )
             )
             .orderBy(desc(internalMessages.createdAt))
-            .limit(100);
+            .limit(limitVal);
 
           // Se for o escopo do operador, deduplica spam de notificações (operator_overload e sla_alert repetidos)
           // e enriquece o card de sobrecarga com a lista interativa de conversas + botão de abrir
