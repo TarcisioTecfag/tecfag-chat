@@ -189,7 +189,7 @@ Implementado:
 - Histórico unificado paginado e cronológico, com origem identificada, respeitando as permissões de cada conversa. Abrir outro número reutiliza/cria a conversa correspondente no mesmo contato e permite reaproveitar os vínculos comerciais existentes.
 - Controles nas configurações e no chat, inclusive na interface que reutiliza `ChatPanel`: conexão/QR, número de saída junto ao compositor, visão de todos os números ou só do atendimento atual e abertura por outra conexão.
 
-No primeiro escopo, os números adicionais ficam acessíveis ao titular e a administradores que já tenham as permissões do módulo e do atendimento. Parear conexões de terceiros exige também a permissão administrativa de WhatsApp. A tabela de concessões individuais a outros colegas descrita na seção 3 permanece uma extensão futura; não há compartilhamento implícito com toda a equipe. Novas conexões não recebem SDR, supervisor ou respostas automáticas.
+O titular e os administradores mantêm o acesso, sujeito às permissões gerais de atendimento. A ampliação descrita na seção 11 permite compartilhar cada número adicional com grupos de acesso, separando leitura e envio. Parear conexões de terceiros exige a permissão administrativa de WhatsApp; compartilhar leitura/envio não concede pareamento. Novas conexões não recebem SDR, supervisor ou respostas automáticas.
 
 Ativação no ambiente disponível:
 
@@ -207,3 +207,15 @@ Validação reproduzível: `npm run test:whatsapp-connections` usa PostgreSQL em
 Verificação local de 26/10/2026: build concluído, 16 testes de múltiplas conexões, 187 testes de acesso e 340 testes de triagem aprovados; ESLint dos oito novos arquivos TypeScript/TSX aprovado. O typecheck global ainda acusa erros existentes no projeto e não foi considerado aprovado. Esses testes não homologam sessões reais nem garantem capacidade de produção para seis sockets.
 
 A consulta pública ao health check da Tecfag respondeu HTTP 200. O responsável renovou o login da CLI do Railway. Projeto confirmado: `TecfagChat`, ambiente `production`, serviço `ValemChat`, domínio `tecfagchat.up.railway.app`. A atualização mobile anterior já está publicada e deve ser preservada. Antes desta migração foi criado um backup manual do volume PostgreSQL, confirmado na listagem do Railway em 26/10/2026 às 13:05 UTC (ID `ea9264fe-3ca6-4087-806f-2b4133989d3d`). A verificação direta do banco e o SSH não responderam nesta rede; conferir o resultado da migração pelos logs de inicialização e a disponibilidade pela aplicação. Nenhum cadastro fictício ou sessão real de WhatsApp foi criado para essa validação.
+
+## 11. Permissões de grupos por conexão
+
+Em Ajustes > WhatsApp, cada WhatsApp da equipe oferece a seção **Acesso por grupos**, administrada por quem tem papel de administrador e permissão de gerenciar WhatsApp. Cada grupo do mesmo tenant tem dois controles: **Visualizar histórico** e **Enviar mensagens**. Ao liberar envio, a interface libera também leitura; ao retirar leitura, retira também envio. Todas as concessões começam desabilitadas e não alteram o titular ou as permissões dos administradores. A conexão principal continua seguindo o RBAC geral já existente.
+
+A migração aditiva `0048_whatsapp_connection_group_access` guarda as concessões por tenant, conexão e grupo. Chaves estrangeiras, trigger de tenant e constraint de envio/leitura protegem os vínculos também no banco. O servidor deriva a associação ao grupo da sessão autenticada; IDs ou permissões fornecidos pelo cliente não concedem autoridade.
+
+Essas concessões se somam às regras de módulo, canal, fila e responsável do grupo. Não ultrapassam uma restrição a atendimentos próprios. Para responder, o operador continua precisando assumir o atendimento e ter as permissões normais de captura ou tomada de controle. Grupos com somente leitura não podem enviar, reagir, iniciar atendimento por aquele número ou assumir/transferir seu atendimento. Transferências verificam também o acesso do destinatário ao número.
+
+O histórico unificado, anexos e eventos usam a mesma condição de leitura no servidor. Revogar a concessão bloqueia novas requisições imediatamente e sinaliza aos membros do grupo conectado que atualizem o contexto de acesso; eventos seguintes são novamente filtrados no banco. Compartilhar leitura/envio nunca concede o QR, logout, criação de números ou administração das permissões.
+
+Os testes embarcados executam as duas migrações em PostgreSQL de teste, validam grupos entre tenants, acesso por número, leitura sem envio, revogação, preservação de titular/admin, API administrativa e bloqueio de envio, reação e captura antes de efeitos operacionais. Nenhuma concessão a grupos reais é criada pela migração ou pelos testes.

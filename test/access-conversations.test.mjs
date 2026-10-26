@@ -129,6 +129,15 @@ function eventHarness() {
   });
   return { ...sources, setVisible: (v) => { visible = v; }, queries: () => queries };
 }
+test("connection group changes refresh only the affected group and never expose pairing data", async () => {
+  const h = eventHarness();
+  const member = principal({}, { operator: { id: "member", role: "agent", groupId: "post-sales" } });
+  const event = { type: "connection_access_changed", groupId: "post-sales" };
+  assert.deepEqual(await h.filterConversationEvent(member, event), { type: "access_changed" });
+  assert.equal(await h.filterConversationEvent(member, { ...event, groupId: "support" }), null);
+  assert.equal(await h.filterConversationEvent({ ...member, operator: { ...member.operator, role: "admin" } }, event), null);
+  assert.equal(await h.filterConversationEvent(member, { ...event, tenantId: "tenant-b" }), null);
+});
 test("events authorize server resource, never forged queue or operator values", async () => {
   const h = eventHarness(), p = principal(OWN_CONVERSATIONS_PRESET);
   const forbidden = { type: "message", message: { conversationId: "other", operatorId: "agent-a", queue: "meus", content: "secret" } };

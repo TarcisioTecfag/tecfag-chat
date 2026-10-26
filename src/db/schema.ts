@@ -413,6 +413,16 @@ export const whatsappConnections = pgTable("whatsapp_connections", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({ tenantIdUnique: uniqueIndex("idx_whatsapp_connections_tenant_id").on(t.tenantId, t.id) }));
 
+export const whatsappConnectionGroupAccess = pgTable("whatsapp_connection_group_access", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  connectionId: text("connection_id").references(() => whatsappConnections.id, { onDelete: "cascade" }).notNull(),
+  groupId: text("group_id").references(() => accessGroups.id, { onDelete: "cascade" }).notNull(),
+  canRead: boolean("can_read").default(false).notNull(),
+  canSend: boolean("can_send").default(false).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({ groupUnique: uniqueIndex("idx_whatsapp_connection_group_access").on(t.tenantId, t.connectionId, t.groupId) }));
+
 export const whatsappConnectionContacts = pgTable("whatsapp_connection_contacts", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").notNull(),

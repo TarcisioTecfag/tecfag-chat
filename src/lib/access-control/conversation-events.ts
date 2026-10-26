@@ -32,6 +32,7 @@ export async function filterConversationEvent(session: AuthSessionContext, event
     return event;
   }
   if (permissions?.views?.chat !== true) return null;
+  if (event.type === "connection_access_changed") return session.operator.role !== "admin" && event.groupId === session.operator.groupId ? { type: "access_changed" } : null;
   const byConversation: Record<string, unknown> = {
     message: event.message?.conversationId, chat_updated: event.chat?.id,
     queue_update: event.conversationId, sdr_flow_updated: event.conversationId,

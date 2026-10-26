@@ -40,6 +40,7 @@ before(async () => {
   db = drizzle(client, { schema });
   for (const table of [
     schema.tenants,
+    schema.accessGroups,
     schema.operators,
     schema.contacts,
     schema.conversations,
@@ -69,33 +70,39 @@ before(async () => {
   await client.exec(
     fs.readFileSync("src/db/migrations/0047_whatsapp_multi_connection.sql", "utf8"),
   );
+  await client.exec(
+    fs.readFileSync("src/db/migrations/0048_whatsapp_connection_group_access.sql", "utf8"),
+  );
   await db.insert(schema.tenants).values([
     { id: tenant, name: "Test A", slug: "test-a", connectionType: "meta" },
     { id: otherTenant, name: "Test B", slug: "test-b", connectionType: "baileys" },
   ]);
-  await db
-    .insert(schema.operators)
-    .values(
-      ["seller-a", "seller-b", "admin-a"]
-        .map((id) => ({
-          id,
-          tenantId: tenant,
-          name: id,
-          email: `${id}@example.invalid`,
+  await db.insert(schema.accessGroups).values([
+    { id: "post-sales", tenantId: tenant, name: "Post-sales" },
+    { id: "support", tenantId: tenant, name: "Support" },
+    { id: "foreign-group", tenantId: otherTenant, name: "Other tenant" },
+  ]);
+  await db.insert(schema.operators).values(
+    ["seller-a", "seller-b", "admin-a"]
+      .map((id) => ({
+        id,
+        tenantId: tenant,
+        name: id,
+        email: `${id}@example.invalid`,
+        passwordHash: "test",
+        role: id.startsWith("admin") ? "admin" : "agent",
+      }))
+      .concat([
+        {
+          id: "seller-other",
+          tenantId: otherTenant,
+          name: "Other",
+          email: "other@example.invalid",
           passwordHash: "test",
-          role: id.startsWith("admin") ? "admin" : "agent",
-        }))
-        .concat([
-          {
-            id: "seller-other",
-            tenantId: otherTenant,
-            name: "Other",
-            email: "other@example.invalid",
-            passwordHash: "test",
-            role: "agent",
-          },
-        ]),
-    );
+          role: "agent",
+        },
+      ]),
+  );
   await db.insert(schema.contacts).values([
     {
       id: "customer",
@@ -112,32 +119,26 @@ before(async () => {
       mainChannel: "whatsapp",
     },
   ]);
-  await db
-    .insert(schema.channelConfigs)
-    .values({
-      id: "corporate-config",
+  await db.insert(schema.channelConfigs).values({
+    id: "corporate-config",
+    tenantId: tenant,
+    activeProvider: "meta",
+    connectionStatus: "connected",
+  });
+  await db.insert(schema.whatsappConnections).values(
+    Array.from({ length: 6 }, (_, i) => ({
+      id: `number-${i + 1}`,
       tenantId: tenant,
-      activeProvider: "meta",
-      connectionStatus: "connected",
-    });
-  await db
-    .insert(schema.whatsappConnections)
-    .values(
-      Array.from({ length: 6 }, (_, i) => ({
-        id: `number-${i + 1}`,
-        tenantId: tenant,
-        name: `Number ${i + 1}`,
-        ownerOperatorId: i === 1 ? "seller-b" : "seller-a",
-      })),
-    );
-  await db
-    .insert(schema.whatsappConnections)
-    .values({
-      id: "number-other",
-      tenantId: otherTenant,
-      name: "Other number",
-      ownerOperatorId: "seller-other",
-    });
+      name: `Number ${i + 1}`,
+      ownerOperatorId: i === 1 ? "seller-b" : "seller-a",
+    })),
+  );
+  await db.insert(schema.whatsappConnections).values({
+    id: "number-other",
+    tenantId: otherTenant,
+    name: "Other number",
+    ownerOperatorId: "seller-other",
+  });
   await db.insert(schema.conversations).values([
     {
       id: "official",
@@ -210,14 +211,12 @@ test("one tenant supports six Baileys numbers plus its existing official Meta co
 
 test("one contact has independent corporate and personal threads; duplicate same-number thread is rejected", async () => {
   await assert.rejects(
-    db
-      .insert(schema.conversations)
-      .values({
-        id: "duplicate",
-        tenantId: tenant,
-        contactId: "customer",
-        whatsappConnectionId: "number-1",
-      }),
+    db.insert(schema.conversations).values({
+      id: "duplicate",
+      tenantId: tenant,
+      contactId: "customer",
+      whatsappConnectionId: "number-1",
+    }),
   );
   const rows = await db
     .select()
@@ -228,46 +227,38 @@ test("one contact has independent corporate and personal threads; duplicate same
 
 test("database rejects foreign tenant connection, contact, owner and message connection", async () => {
   await assert.rejects(
-    db
-      .insert(schema.conversations)
-      .values({
-        id: "wrong-tenant",
-        tenantId: otherTenant,
-        contactId: "customer-other",
-        whatsappConnectionId: "number-1",
-      }),
+    db.insert(schema.conversations).values({
+      id: "wrong-tenant",
+      tenantId: otherTenant,
+      contactId: "customer-other",
+      whatsappConnectionId: "number-1",
+    }),
   );
   await assert.rejects(
-    db
-      .insert(schema.conversations)
-      .values({
-        id: "wrong-contact",
-        tenantId: tenant,
-        contactId: "customer-other",
-        whatsappConnectionId: "number-3",
-      }),
+    db.insert(schema.conversations).values({
+      id: "wrong-contact",
+      tenantId: tenant,
+      contactId: "customer-other",
+      whatsappConnectionId: "number-3",
+    }),
   );
   await assert.rejects(
-    db
-      .insert(schema.whatsappConnections)
-      .values({
-        id: "wrong-owner",
-        tenantId: tenant,
-        name: "Wrong",
-        ownerOperatorId: "seller-other",
-      }),
+    db.insert(schema.whatsappConnections).values({
+      id: "wrong-owner",
+      tenantId: tenant,
+      name: "Wrong",
+      ownerOperatorId: "seller-other",
+    }),
   );
   await assert.rejects(
-    db
-      .insert(schema.messages)
-      .values({
-        id: "wrong-message",
-        tenantId: tenant,
-        conversationId: "personal-a",
-        content: "wrong",
-        senderType: "agent",
-        whatsappConnectionId: "number-2",
-      }),
+    db.insert(schema.messages).values({
+      id: "wrong-message",
+      tenantId: tenant,
+      conversationId: "personal-a",
+      content: "wrong",
+      senderType: "agent",
+      whatsappConnectionId: "number-2",
+    }),
   );
 });
 
@@ -426,26 +417,24 @@ test("outbound dispatch preserves its selected connection if the corporate provi
       SessionManager: { getInstance: () => ({ notifyPublic() {} }) },
     },
   });
-  await db
-    .insert(schema.messages)
-    .values({
-      id: "queued-personal",
-      tenantId: tenant,
-      conversationId: "personal-a",
+  await db.insert(schema.messages).values({
+    id: "queued-personal",
+    tenantId: tenant,
+    conversationId: "personal-a",
+    whatsappConnectionId: "number-1",
+    content: "Proposta",
+    senderType: "agent",
+    direction: "outbound",
+    provider: "baileys",
+    status: "pending",
+    sentAt: new Date(),
+    metaDetails: {
+      version: 1,
+      text: "Proposta",
+      operatorId: "seller-a",
       whatsappConnectionId: "number-1",
-      content: "Proposta",
-      senderType: "agent",
-      direction: "outbound",
-      provider: "baileys",
-      status: "pending",
-      sentAt: new Date(),
-      metaDetails: {
-        version: 1,
-        text: "Proposta",
-        operatorId: "seller-a",
-        whatsappConnectionId: "number-1",
-      },
-    });
+    },
+  });
   const result = await dispatch.dispatchStored(tenant, "queued-personal");
   assert.equal(result.status, "accepted");
   assert.equal(sent.length, 1);
@@ -453,26 +442,24 @@ test("outbound dispatch preserves its selected connection if the corporate provi
   assert.equal(sent[0].recipientPhone, "5511999990000");
   assert.equal(await dispatch.dispatchStored(tenant, "queued-personal"), null);
   assert.equal(sent.length, 1);
-  await db
-    .insert(schema.messages)
-    .values({
-      id: "queued-changed-destination",
-      tenantId: tenant,
-      conversationId: "personal-a",
-      whatsappConnectionId: "number-1",
-      content: "Must not redirect",
-      senderType: "agent",
-      direction: "outbound",
-      provider: "baileys",
-      status: "pending",
-      sentAt: new Date(),
-      metaDetails: {
-        version: 1,
-        text: "Must not redirect",
-        operatorId: "seller-a",
-        recipientPhone: "5521888880000",
-      },
-    });
+  await db.insert(schema.messages).values({
+    id: "queued-changed-destination",
+    tenantId: tenant,
+    conversationId: "personal-a",
+    whatsappConnectionId: "number-1",
+    content: "Must not redirect",
+    senderType: "agent",
+    direction: "outbound",
+    provider: "baileys",
+    status: "pending",
+    sentAt: new Date(),
+    metaDetails: {
+      version: 1,
+      text: "Must not redirect",
+      operatorId: "seller-a",
+      recipientPhone: "5521888880000",
+    },
+  });
   assert.equal(
     (await dispatch.dispatchStored(tenant, "queued-changed-destination")).status,
     "failed",
@@ -587,17 +574,15 @@ test("unified history is chronological, labelled and excludes another seller and
     "../../../lib/whatsapp/meta-reactions": { readReactions: () => [] },
   }).Route.server.handlers;
   for (const [i, id] of ["official", "personal-a", "personal-b", "foreign"].entries())
-    await db
-      .insert(schema.messages)
-      .values({
-        id: `history-${i}`,
-        tenantId: id === "foreign" ? otherTenant : tenant,
-        conversationId: id,
-        content: id,
-        senderType: "client",
-        provider: id === "official" ? "meta" : "baileys",
-        sentAt: new Date(`2026-10-26T10:0${i}:00Z`),
-      });
+    await db.insert(schema.messages).values({
+      id: `history-${i}`,
+      tenantId: id === "foreign" ? otherTenant : tenant,
+      conversationId: id,
+      content: id,
+      senderType: "client",
+      provider: id === "official" ? "meta" : "baileys",
+      sentAt: new Date(`2026-10-26T10:0${i}:00Z`),
+    });
   const read = () =>
     route.GET({
       request: apiRequest(undefined, "GET", "http://test.local/api?conversationId=official"),
@@ -695,18 +680,16 @@ test("different tenants/numbers have separate sockets and QR listeners; replayed
 
   const key = { id: "same-native-id", remoteJid: "customer@lid", fromMe: true };
   const externalA = policy.baileysEventId(tenant, "number-1", key);
-  await db
-    .insert(schema.messages)
-    .values({
-      id: "echo-original",
-      tenantId: tenant,
-      conversationId: "personal-a",
-      whatsappConnectionId: "number-1",
-      content: "Sent once",
-      direction: "outbound",
-      senderType: "agent",
-      externalId: externalA,
-    });
+  await db.insert(schema.messages).values({
+    id: "echo-original",
+    tenantId: tenant,
+    conversationId: "personal-a",
+    whatsappConnectionId: "number-1",
+    content: "Sent once",
+    direction: "outbound",
+    senderType: "agent",
+    externalId: externalA,
+  });
   await db.insert(schema.pendingInbounds).values([
     {
       id: "echo-inbound-a",
@@ -818,15 +801,13 @@ test("auth keys persist encrypted per connection and revoked sessions cannot sav
 });
 
 test("sending a saved attachment requires visibility of its original number's conversation", async () => {
-  await db
-    .insert(schema.mediaFiles)
-    .values({
-      id: "private-attachment",
-      tenantId: tenant,
-      conversationId: "personal-b",
-      mimeType: "image/png",
-      base64Data: "test-only",
-    });
+  await db.insert(schema.mediaFiles).values({
+    id: "private-attachment",
+    tenantId: tenant,
+    conversationId: "personal-b",
+    mimeType: "image/png",
+    base64Data: "test-only",
+  });
   let sends = 0;
   const route = isolatedModule("src/routes/api/whatsapp/send.ts", {
     "@tanstack/react-router": routeStub,
@@ -856,4 +837,291 @@ test("sending a saved attachment requires visibility of its original number's co
   });
   assert.equal(response.status, 404);
   assert.equal(sends, 0);
+});
+
+test("group access separates read/send, remains per number and is revoked immediately", async () => {
+  const member = {
+    ...session("seller-b"),
+    operator: { ...session("seller-b").operator, groupId: "post-sales" },
+  };
+  await db
+    .insert(schema.conversations)
+    .values({
+      id: "group-thread",
+      tenantId: tenant,
+      contactId: "customer",
+      whatsappConnectionId: "number-4",
+      operatorId: "seller-b",
+      queueState: "meus",
+    });
+  assert.equal((await access.requireConversationAccess(member, "group-thread")).status, 404);
+  await db
+    .insert(schema.whatsappConnectionGroupAccess)
+    .values({
+      id: "group-test-access",
+      tenantId: tenant,
+      connectionId: "number-4",
+      groupId: "post-sales",
+      canRead: true,
+      canSend: false,
+    });
+  assert.equal(await access.requireConversationAccess(member, "group-thread"), null);
+  assert.equal((await access.requireConversationWriteAccess(member, "group-thread")).status, 403);
+  assert.equal(await access.hasWhatsappConnectionAccess(member, "number-4", "send"), false);
+  assert.equal(await access.hasWhatsappConnectionAccess(member, "number-6"), false);
+  assert.equal((await access.requireConversationAccess(member, "personal-a")).status, 404);
+  assert.equal(
+    (
+      await access.requireConversationAccess(
+        { ...member, operator: { ...member.operator, groupId: "support" } },
+        "group-thread",
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await access.requireConversationAccess(
+        { ...member, accessGroup: { allowedChannels: [] } },
+        "group-thread",
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (await access.requireConversationAccess({ ...member, tenantId: otherTenant }, "group-thread"))
+      .status,
+    404,
+  );
+  await db
+    .update(schema.whatsappConnectionGroupAccess)
+    .set({ canSend: true })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnectionGroupAccess.tenantId, tenant),
+        orm.eq(schema.whatsappConnectionGroupAccess.id, "group-test-access"),
+      ),
+    );
+  assert.equal(await access.requireConversationWriteAccess(member, "group-thread"), null);
+  assert.equal(
+    await access
+      .requireConversationWriteAccess(
+        { ...member, operator: { ...member.operator, groupId: "support" } },
+        "group-thread",
+      )
+      .then((r) => r.status),
+    404,
+  );
+  await db
+    .delete(schema.whatsappConnectionGroupAccess)
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnectionGroupAccess.tenantId, tenant),
+        orm.eq(schema.whatsappConnectionGroupAccess.id, "group-test-access"),
+      ),
+    );
+  assert.equal((await access.requireConversationWriteAccess(member, "group-thread")).status, 404);
+  assert.equal(await access.requireConversationAccess(session(), "group-thread"), null);
+  assert.equal(
+    await access.requireConversationAccess(session("admin-a", "admin"), "group-thread"),
+    null,
+  );
+});
+
+test("group grant database constraints reject another tenant and send without read", async () => {
+  await assert.rejects(
+    db
+      .insert(schema.whatsappConnectionGroupAccess)
+      .values({
+        id: "bad-foreign-group",
+        tenantId: tenant,
+        connectionId: "number-4",
+        groupId: "foreign-group",
+        canRead: true,
+      }),
+  );
+  await assert.rejects(
+    db
+      .insert(schema.whatsappConnectionGroupAccess)
+      .values({
+        id: "bad-foreign-connection",
+        tenantId: otherTenant,
+        connectionId: "number-4",
+        groupId: "foreign-group",
+        canRead: true,
+      }),
+  );
+  await assert.rejects(
+    db
+      .insert(schema.whatsappConnectionGroupAccess)
+      .values({
+        id: "bad-send-only",
+        tenantId: tenant,
+        connectionId: "number-4",
+        groupId: "post-sales",
+        canRead: false,
+        canSend: true,
+      }),
+  );
+});
+
+test("admin can toggle group rights; a shared group cannot obtain QR, pair, manage or start with read-only access", async () => {
+  let who = session("admin-a", "admin");
+  const events = [];
+  const route = isolatedModule("src/routes/api/whatsapp/connections.ts", {
+    "node:crypto": await import("node:crypto"),
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": { requireSession: async () => ({ session: who }) },
+    "../../../lib/baileys/session-manager": {
+      SessionManager: {
+        getInstance: () => ({ notifyPublic: (t, e) => events.push({ t, e }) }),
+        forConnection: () => {
+          throw Error("Group access must never initialize pairing");
+        },
+      },
+    },
+    "../../../lib/whatsapp/connection-crypto": crypto,
+    "../../../lib/whatsapp/connection-policy": policy,
+    "../../../lib/whatsapp/connections": connectionService,
+    "../../../lib/access-control/conversation-access": access,
+    "../../../lib/access-control/conversation-policy": loadAccessSource(
+      "src/lib/access-control/conversation-policy.ts",
+    ),
+    "../../../lib/access-control/channel-permissions": loadAccessSource(
+      "src/lib/access-control/channel-permissions.ts",
+    ),
+    "../../../lib/crm/deal-associations": {
+      lockContactDeals: async () => {},
+      syncConversationDeals: async () => true,
+    },
+  }).Route.server.handlers;
+  const change = (patch = {}) =>
+    route.POST({
+      request: apiRequest({
+        action: "set-group-access",
+        connectionId: "number-4",
+        groupId: "post-sales",
+        canRead: true,
+        canSend: false,
+        ...patch,
+      }),
+    });
+  assert.equal((await change({ groupId: "foreign-group", tenantId: otherTenant })).status, 404);
+  assert.equal((await change({ canRead: false, canSend: true })).status, 400);
+  assert.equal((await change()).status, 200);
+  const adminList = await (await route.GET({ request: apiRequest(undefined, "GET") })).json();
+  assert.ok(adminList.accessGroups.some((g) => g.id === "post-sales"));
+  assert.ok(!adminList.accessGroups.some((g) => g.id === "foreign-group"));
+  who = {
+    ...session("seller-b"),
+    operator: { ...session("seller-b").operator, groupId: "post-sales" },
+  };
+  const memberList = await (await route.GET({ request: apiRequest(undefined, "GET") })).json();
+  const shared = memberList.connections.find((c) => c.id === "number-4");
+  assert.equal(shared.canSend, false);
+  assert.equal(shared.canPair, false);
+  assert.equal(shared.groupAccess, undefined);
+  assert.deepEqual(memberList.accessGroups, []);
+  assert.equal(
+    (
+      await route.GET({
+        request: apiRequest(undefined, "GET", "http://test.local/api?id=number-4"),
+      })
+    ).status,
+    403,
+  );
+  for (const action of ["connect", "disconnect", "start"])
+    assert.equal(
+      (
+        await route.POST({
+          request: apiRequest({ action, connectionId: "number-4", contactId: "customer" }),
+        })
+      ).status,
+      403,
+    );
+  assert.equal((await change()).status, 403);
+  who = session(); // Owning the number also does not grant permission to share it.
+  assert.equal((await change()).status, 403);
+  who = session("admin-a", "admin");
+  assert.equal((await change({ canSend: true })).status, 200);
+  who = {
+    ...session("seller-b"),
+    operator: { ...session("seller-b").operator, groupId: "post-sales" },
+  };
+  assert.equal(
+    (
+      await route.POST({
+        request: apiRequest({ action: "start", connectionId: "number-4", contactId: "customer" }),
+      })
+    ).status,
+    200,
+  );
+  who = session("admin-a", "admin");
+  assert.equal((await change({ canRead: false, canSend: false })).status, 200);
+  assert.ok(
+    events.some((x) => x.e.type === "connection_access_changed" && x.e.groupId === "post-sales"),
+  );
+  who = {
+    ...session("seller-b"),
+    operator: { ...session("seller-b").operator, groupId: "post-sales" },
+  };
+  const revoked = await (await route.GET({ request: apiRequest(undefined, "GET") })).json();
+  assert.ok(!revoked.connections.some((c) => c.id === "number-4"));
+  assert.equal((await access.requireConversationAccess(who, "group-thread")).status, 404);
+});
+
+test("read-only connection users cannot send, react or capture before any operational side effects", async () => {
+  const member = {
+    ...session("seller-b"),
+    operator: { ...session("seller-b").operator, groupId: "post-sales" },
+  };
+  await db
+    .insert(schema.whatsappConnectionGroupAccess)
+    .values({
+      id: "read-only-effects",
+      tenantId: tenant,
+      connectionId: "number-4",
+      groupId: "post-sales",
+      canRead: true,
+    });
+  const common = {
+    "@tanstack/react-router": routeStub,
+    "drizzle-orm": orm,
+    "../../../db": { db },
+    "../../../db/schema": schema,
+    "../../../lib/auth-session": { requireSession: async () => ({ session: member }) },
+    "../../../lib/access-control/conversation-access": access,
+    "../../../lib/whatsapp/connections": {
+      resolveConversationConnection: () => {
+        throw Error("Transport must not be resolved for a read-only user");
+      },
+    },
+  };
+  for (const [file, body] of [
+    ["whatsapp/send", { conversationId: "group-thread", text: "denied" }],
+    ["whatsapp/react", { conversationId: "group-thread", messageId: "history-1", emoji: "👍" }],
+    [
+      "chats/update-queue",
+      {
+        conversationId: "group-thread",
+        queueState: "meus",
+        operatorId: "seller-b",
+        expectedVersion: 1,
+      },
+    ],
+  ]) {
+    const route = isolatedModule(`src/routes/api/${file}.ts`, common).Route.server.handlers;
+    assert.equal((await route.POST({ request: apiRequest(body) })).status, 403, file);
+  }
+  await db
+    .delete(schema.whatsappConnectionGroupAccess)
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnectionGroupAccess.tenantId, tenant),
+        orm.eq(schema.whatsappConnectionGroupAccess.id, "read-only-effects"),
+      ),
+    );
 });

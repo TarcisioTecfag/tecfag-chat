@@ -9,7 +9,8 @@ import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
 import { recordCommercialTransfer } from "../../../lib/commercial/tma";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
-import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
+import { requireConversationAccess, requireConversationSendAccess, hasWhatsappConnectionAccess } from "../../../lib/access-control/conversation-access";
+import { loadOperatorAccess } from "../../../lib/access-control/operator-context";
 import { getDealContext, recordConversationAction, endDealContext, selectDealContext, assertDealContextVersion, DealContextError } from "../../../lib/crm/conversation-deal-context";
 import { requireCrmDealAccess } from "../../../lib/access-control/crm-record-access";
 import { setAttendanceActor } from "../../../lib/attendance-events";
@@ -88,6 +89,15 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           }
 
           const permissions = session.permissions.chat;
+          if (conv.whatsappConnectionId) {
+            const deniedSend = await requireConversationSendAccess(session, conversationId);
+            if (deniedSend) return deniedSend;
+            if (queueState === "meus" && operatorId !== session.operator.id) {
+              const targetAccess = await loadOperatorAccess(session.tenantId, operatorId);
+              if (!targetAccess || !await hasWhatsappConnectionAccess(targetAccess, conv.whatsappConnectionId, "send"))
+                return Response.json({ error: "O responsável de destino não tem permissão para enviar por este número." }, { status: 403 });
+            }
+          }
           const isOwner = conv.operatorId === session.operator.id;
           const isOverride = permissions.canOverrideChat === true;
           const can = (permission: boolean) => permission === true;

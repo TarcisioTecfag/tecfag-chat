@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { useWhatsappConnections, whatsappConnectionAction } from "@/hooks/useWhatsappConnections";
+import type { WhatsappConnection } from "@/hooks/useWhatsappConnections";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import {
@@ -42,14 +43,92 @@ const CAPTURE_POLICY_OPTIONS = [
     label: "Integrar todas as conversas individuais da conta",
     shortLabel: "Conta integralmente integrada",
     description:
-      "Todas as conversas individuais e o histórico disponibilizado pelo WhatsApp poderão ser armazenados e consultados por administradores autorizados.",
+      "Todas as conversas individuais e o histórico disponibilizado pelo WhatsApp poderão ser armazenados e consultados pelas pessoas autorizadas.",
     Icon: Layers,
   },
 ] as const;
 
+function ConnectionGroupPermissions({
+  connection,
+  groups,
+  busy,
+  onSave,
+}: {
+  connection: WhatsappConnection;
+  groups: Array<{ id: string; name: string }>;
+  busy: boolean;
+  onSave: (body: Record<string, unknown>) => Promise<boolean>;
+}) {
+  return (
+    <details className="mt-3 rounded-xl border border-border bg-card p-3">
+      <summary className="cursor-pointer text-xs font-bold">Acesso por grupos</summary>
+      <p className="my-2 text-[11px] text-muted-foreground">
+        O titular e os administradores autorizados mantêm acesso. Os grupos seguem também as
+        permissões gerais de filas e atendimento. Enviar exige visualizar; esse acesso não permite
+        parear nem desconectar o aparelho.
+      </p>
+      {groups.length ? (
+        <div className="space-y-2">
+          {groups.map((group) => {
+            const grant = connection.groupAccess?.find((g) => g.groupId === group.id);
+            return (
+              <div
+                key={group.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-2"
+              >
+                <span className="text-xs font-semibold">{group.name}</span>
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      aria-label={`Visualizar histórico: ${group.name}`}
+                      checked={grant?.canRead === true}
+                      disabled={busy}
+                      onChange={(e) =>
+                        void onSave({
+                          action: "set-group-access",
+                          connectionId: connection.id,
+                          groupId: group.id,
+                          canRead: e.target.checked,
+                          canSend: e.target.checked && grant?.canSend === true,
+                        })
+                      }
+                    />
+                    Visualizar histórico
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      aria-label={`Enviar mensagens: ${group.name}`}
+                      checked={grant?.canSend === true}
+                      disabled={busy}
+                      onChange={(e) =>
+                        void onSave({
+                          action: "set-group-access",
+                          connectionId: connection.id,
+                          groupId: group.id,
+                          canRead: e.target.checked || grant?.canRead === true,
+                          canSend: e.target.checked,
+                        })
+                      }
+                    />
+                    Enviar mensagens
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Nenhum grupo de acesso cadastrado.</p>
+      )}
+    </details>
+  );
+}
+
 export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolean }) {
   const { tenant, operators, currentOperatorId } = useChat();
-  const { enabled, canManage, encryptionReady, connections, refresh } =
+  const { enabled, canManage, encryptionReady, connections, accessGroups, refresh } =
     useWhatsappConnections(tenant);
 
   const [name, setName] = useState("");
@@ -127,10 +206,7 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
     }
   };
 
-  const sellerConnections = useMemo(
-    () => connections.filter((c) => !c.corporate),
-    [connections],
-  );
+  const sellerConnections = useMemo(() => connections.filter((c) => !c.corporate), [connections]);
 
   const connectedCount = useMemo(
     () => sellerConnections.filter((c) => c.status === "connected").length,
@@ -147,9 +223,7 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
     const q = ownerSearch.trim().toLowerCase();
     if (!q) return operators;
     return operators.filter(
-      (o) =>
-        o.name.toLowerCase().includes(q) ||
-        (o.email && o.email.toLowerCase().includes(q)),
+      (o) => o.name.toLowerCase().includes(q) || (o.email && o.email.toLowerCase().includes(q)),
     );
   }, [operators, ownerSearch]);
 
@@ -175,7 +249,7 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm md:text-base font-extrabold text-foreground">
-                WhatsApps dos vendedores
+                WhatsApps da equipe
               </h3>
               <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-[10px] font-bold text-primary">
                 {connectedCount}/{sellerConnections.length} conectado(s)
@@ -189,14 +263,16 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
         </div>
 
         <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-          <SystemTooltip content="Atualizar status das conexões dos vendedores">
+          <SystemTooltip content="Atualizar status das conexões da equipe">
             <button
               type="button"
               onClick={() => void refresh()}
               disabled={busy}
               className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin text-primary" : "text-muted-foreground"}`} />
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${busy ? "animate-spin text-primary" : "text-muted-foreground"}`}
+              />
               <span>Atualizar</span>
             </button>
           </SystemTooltip>
@@ -210,11 +286,11 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
             <Smartphone className="h-4 w-4" />
           </div>
           <div className="space-y-0.5">
-            <p className="font-bold text-foreground">Nenhum WhatsApp de vendedor cadastrado ainda</p>
+            <p className="font-bold text-foreground">Nenhum WhatsApp da equipe cadastrado ainda</p>
             <p className="text-[11px] text-muted-foreground">
               {canManage
-                ? "Preencha os campos abaixo e clique em \"Adicionar conexão\". Em seguida, o botão \"Conectar / QR\" aparecerá aqui para leitura no celular."
-                : "Solicite ao administrador para vincular o seu número de vendedor. Assim que liberado, o botão \"Conectar / QR\" aparecerá aqui."}
+                ? 'Preencha os campos abaixo e clique em "Adicionar conexão". Em seguida, o botão "Conectar / QR" aparecerá aqui para leitura no celular.'
+                : 'Solicite ao administrador para vincular o seu número. Assim que liberado, o botão "Conectar / QR" aparecerá aqui.'}
             </p>
           </div>
         </div>
@@ -317,48 +393,58 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
                         <span>{c.error}</span>
                       </p>
                     )}
+                    {canManage && (
+                      <ConnectionGroupPermissions
+                        connection={c}
+                        groups={accessGroups}
+                        busy={busy}
+                        onSave={action}
+                      />
+                    )}
                   </div>
                 </div>
 
                 {/* Botões de Ação */}
-                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                  <SystemTooltip content="Gerar e exibir o QR Code para conectar o WhatsApp pelo celular">
-                    <button
-                      type="button"
-                      className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs ${
-                        isConnected
-                          ? "border border-border bg-card text-foreground hover:bg-muted"
-                          : "bg-primary text-primary-foreground hover:opacity-90 shadow-soft"
-                      }`}
-                      disabled={busy || !c.enabled}
-                      onClick={async () => {
-                        if (await action({ action: "connect", connectionId: c.id })) {
-                          setPairing(c.id);
-                        }
-                      }}
-                    >
-                      <QrCode className="h-3.5 w-3.5 shrink-0" />
-                      <span>Conectar / QR</span>
-                    </button>
-                  </SystemTooltip>
+                {c.canPair && (
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <SystemTooltip content="Gerar e exibir o QR Code para conectar o WhatsApp pelo celular">
+                      <button
+                        type="button"
+                        className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-xs font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs ${
+                          isConnected
+                            ? "border border-border bg-card text-foreground hover:bg-muted"
+                            : "bg-primary text-primary-foreground hover:opacity-90 shadow-soft"
+                        }`}
+                        disabled={busy || !c.enabled}
+                        onClick={async () => {
+                          if (await action({ action: "connect", connectionId: c.id })) {
+                            setPairing(c.id);
+                          }
+                        }}
+                      >
+                        <QrCode className="h-3.5 w-3.5 shrink-0" />
+                        <span>Conectar / QR</span>
+                      </button>
+                    </SystemTooltip>
 
-                  <SystemTooltip content="Desconectar sessão e remover o pareamento atual deste número">
-                    <button
-                      type="button"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-500/25 bg-red-500/10 px-3.5 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={busy}
-                      onClick={async () => {
-                        if (await action({ action: "disconnect", connectionId: c.id })) {
-                          setPairing(null);
-                          setQr("");
-                        }
-                      }}
-                    >
-                      <PowerOff className="h-3.5 w-3.5 shrink-0" />
-                      <span>Desconectar</span>
-                    </button>
-                  </SystemTooltip>
-                </div>
+                    <SystemTooltip content="Desconectar sessão e remover o pareamento atual deste número">
+                      <button
+                        type="button"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-500/25 bg-red-500/10 px-3.5 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={busy}
+                        onClick={async () => {
+                          if (await action({ action: "disconnect", connectionId: c.id })) {
+                            setPairing(null);
+                            setQr("");
+                          }
+                        }}
+                      >
+                        <PowerOff className="h-3.5 w-3.5 shrink-0" />
+                        <span>Desconectar</span>
+                      </button>
+                    </SystemTooltip>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -417,15 +503,15 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
 
             <div className="space-y-3 text-xs">
               <h4 className="text-sm font-extrabold text-foreground">
-                Como conectar o celular do vendedor:
+                Como conectar o celular do titular:
               </h4>
               <ol className="list-decimal list-inside space-y-2 text-muted-foreground leading-relaxed">
                 <li>
                   No celular, abra o <strong className="text-foreground">WhatsApp</strong>.
                 </li>
                 <li>
-                  Toque em <strong className="text-foreground">Aparelhos conectados</strong> e depois
-                  em <strong className="text-foreground">Conectar um aparelho</strong>.
+                  Toque em <strong className="text-foreground">Aparelhos conectados</strong> e
+                  depois em <strong className="text-foreground">Conectar um aparelho</strong>.
                 </li>
                 <li>Aponte a câmera do celular para ler este QR Code.</li>
               </ol>
@@ -471,7 +557,7 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
                 <Plus className="h-3.5 w-3.5" />
               </div>
               <p className="text-xs font-extrabold uppercase tracking-wider text-foreground">
-                Adicionar número de vendedor
+                Adicionar número da equipe
               </p>
             </div>
             <span className="text-[11px] text-muted-foreground hidden sm:inline">
@@ -507,7 +593,7 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
                 Funcionário / Vendedor Titular
               </label>
               <Popover open={ownerPopoverOpen} onOpenChange={setOwnerPopoverOpen}>
-                <SystemTooltip content="Selecione o vendedor titular que irá conectar o QR Code deste WhatsApp">
+                <SystemTooltip content="Selecione o titular que irá conectar o QR Code deste WhatsApp">
                   <PopoverTrigger asChild>
                     <button
                       type="button"
@@ -517,7 +603,7 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
                       <div className="flex items-center gap-2 min-w-0">
                         <User className="h-3.5 w-3.5 text-primary shrink-0" />
                         <span className="truncate">
-                          {selectedOwnerObj?.name || "Selecionar vendedor"}
+                          {selectedOwnerObj?.name || "Selecionar titular"}
                         </span>
                       </div>
                       <ChevronDown
@@ -659,7 +745,9 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
                         <div className="min-w-0 flex-1 space-y-0.5">
                           <div
                             className={`text-xs ${
-                              isSelected ? "font-bold text-primary" : "font-semibold text-foreground"
+                              isSelected
+                                ? "font-bold text-primary"
+                                : "font-semibold text-foreground"
                             }`}
                           >
                             {opt.label}
@@ -706,11 +794,7 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
                 disabled={busy || !encryptionReady}
                 className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-extrabold text-primary-foreground shadow-soft transition hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {busy ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                 <span>Adicionar conexão</span>
               </button>
             </SystemTooltip>
@@ -742,7 +826,10 @@ export function WhatsappConversationConnection({
   const [showConnectPanel, setShowConnectPanel] = useState(false);
 
   const current = connections.find((c) => c.id === (connectionId || "corporate"));
-  const enabledConnections = useMemo(() => connections.filter((c) => c.enabled), [connections]);
+  const enabledConnections = useMemo(
+    () => connections.filter((c) => c.enabled && c.canSend === true),
+    [connections],
+  );
   const selectedConnectionObj = useMemo(
     () => enabledConnections.find((c) => c.id === selected) || current || enabledConnections[0],
     [enabledConnections, selected, current],
@@ -763,9 +850,7 @@ export function WhatsappConversationConnection({
               Respondendo por: {current?.name || "Conexão deste atendimento"}
             </strong>
             {current?.phone && (
-              <span className="font-mono text-[10px] text-muted-foreground">
-                · {current.phone}
-              </span>
+              <span className="font-mono text-[10px] text-muted-foreground">· {current.phone}</span>
             )}
           </span>
         </div>
@@ -888,7 +973,7 @@ export function WhatsappConversationConnection({
           <SystemTooltip content="Abrir ou iniciar a conversa com este cliente usando o número selecionado ao lado">
             <button
               type="button"
-              disabled={busy || !contactId || !selected}
+              disabled={busy || !contactId || !enabledConnections.some((c) => c.id === selected)}
               className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-bold text-primary-foreground shadow-2xs hover:opacity-90 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={async () => {
                 setBusy(true);

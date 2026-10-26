@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
   channelConfigs,
@@ -9,11 +9,17 @@ import {
   operators,
   whatsappConnections,
   whatsappConnectionContacts,
+  whatsappConnectionGroupAccess,
+  accessGroups,
 } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { canManageWhatsappConnection } from "../../../lib/access-control/channel-permissions";
 import { conversationReadRules } from "../../../lib/access-control/conversation-policy";
-import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
+import {
+  requireConversationAccess,
+  whatsappConnectionAccessCondition,
+  hasWhatsappConnectionAccess,
+} from "../../../lib/access-control/conversation-access";
 import { SessionManager } from "../../../lib/baileys/session-manager";
 import {
   connectionEncryptionReady,
@@ -47,9 +53,7 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
           .where(
             and(
               eq(whatsappConnections.tenantId, session.tenantId),
-              session.operator.role === "admin"
-                ? undefined
-                : eq(whatsappConnections.ownerOperatorId, session.operator.id),
+              whatsappConnectionAccessCondition(session),
             ),
           );
         if (requestedId) {
@@ -80,6 +84,34 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
             { headers },
           );
         }
+        const canManage = session.operator.role === "admin" && canManageWhatsappConnection(session);
+        const [groups, grants] = await Promise.all([
+          canManage
+            ? db
+                .select({ id: accessGroups.id, name: accessGroups.name })
+                .from(accessGroups)
+                .where(eq(accessGroups.tenantId, session.tenantId))
+            : Promise.resolve([]),
+          rows.length
+            ? db
+                .select()
+                .from(whatsappConnectionGroupAccess)
+                .where(
+                  and(
+                    eq(whatsappConnectionGroupAccess.tenantId, session.tenantId),
+                    inArray(
+                      whatsappConnectionGroupAccess.connectionId,
+                      rows.map((r) => r.id),
+                    ),
+                    canManage
+                      ? undefined
+                      : session.operator.groupId
+                        ? eq(whatsappConnectionGroupAccess.groupId, session.operator.groupId)
+                        : sql`false`,
+                  ),
+                )
+            : Promise.resolve([]),
+        ]);
         const [corporate] = await db
           .select({
             activeProvider: channelConfigs.activeProvider,
@@ -91,7 +123,8 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
         return Response.json(
           {
             enabled: true,
-            canManage: canManageWhatsappConnection(session),
+            canManage,
+            accessGroups: groups,
             encryptionReady: connectionEncryptionReady(),
             connections: [
               {
@@ -102,6 +135,8 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
                 status: corporate?.status || "disconnected",
                 corporate: true,
                 enabled: true,
+                canSend: true,
+                canPair: false,
               },
               ...rows.map((row) => ({
                 id: row.id,
@@ -114,6 +149,21 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
                 capturePolicy: row.capturePolicy,
                 error: row.lastError,
                 corporate: false,
+                canSend:
+                  ownsConnection(session, row) ||
+                  grants.some(
+                    (g) =>
+                      g.connectionId === row.id &&
+                      g.groupId === session.operator.groupId &&
+                      g.canRead &&
+                      g.canSend,
+                  ),
+                canPair: row.ownerOperatorId === session.operator.id || canManage,
+                groupAccess: canManage
+                  ? grants
+                      .filter((g) => g.connectionId === row.id)
+                      .map((g) => ({ groupId: g.groupId, canRead: g.canRead, canSend: g.canSend }))
+                  : undefined,
               })),
             ],
           },
@@ -172,9 +222,77 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
               .where(
                 and(eq(whatsappConnections.tenantId, tenantId), eq(whatsappConnections.id, id)),
               );
-        if (!corporate && (!connection || !ownsConnection(session, connection)))
+        if (!corporate && (!connection || !(await hasWhatsappConnectionAccess(session, id))))
           return Response.json({ error: "Conexão não encontrada." }, { status: 404 });
+        if (body.action === "set-group-access") {
+          if (session.operator.role !== "admin" || !canManageWhatsappConnection(session))
+            return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+          if (corporate || !connection)
+            return Response.json(
+              { error: "A conexão principal segue as permissões gerais do atendimento." },
+              { status: 400 },
+            );
+          if (
+            typeof body.groupId !== "string" ||
+            typeof body.canRead !== "boolean" ||
+            typeof body.canSend !== "boolean" ||
+            (body.canSend && !body.canRead)
+          )
+            return Response.json(
+              { error: "Informe grupo, visualização e envio. Enviar exige visualizar." },
+              { status: 400 },
+            );
+          const [group] = await db
+            .select({ id: accessGroups.id })
+            .from(accessGroups)
+            .where(and(eq(accessGroups.tenantId, tenantId), eq(accessGroups.id, body.groupId)))
+            .limit(1);
+          if (!group) return Response.json({ error: "Grupo não encontrado." }, { status: 404 });
+          if (!body.canRead && !body.canSend) {
+            await db
+              .delete(whatsappConnectionGroupAccess)
+              .where(
+                and(
+                  eq(whatsappConnectionGroupAccess.tenantId, tenantId),
+                  eq(whatsappConnectionGroupAccess.connectionId, id),
+                  eq(whatsappConnectionGroupAccess.groupId, group.id),
+                ),
+              );
+          } else {
+            await db
+              .insert(whatsappConnectionGroupAccess)
+              .values({
+                id: randomUUID(),
+                tenantId,
+                connectionId: id,
+                groupId: group.id,
+                canRead: body.canRead,
+                canSend: body.canSend,
+              })
+              .onConflictDoUpdate({
+                target: [
+                  whatsappConnectionGroupAccess.tenantId,
+                  whatsappConnectionGroupAccess.connectionId,
+                  whatsappConnectionGroupAccess.groupId,
+                ],
+                set: { canRead: body.canRead, canSend: body.canSend, updatedAt: new Date() },
+              });
+          }
+          SessionManager.getInstance().notifyPublic(tenantId, {
+            type: "connection_access_changed",
+            groupId: group.id,
+          });
+          return Response.json({ ok: true }, { headers });
+        }
         if (body.action === "start") {
+          if (!corporate && !(await hasWhatsappConnectionAccess(session, id, "send")))
+            return Response.json(
+              {
+                error: "Sem permissão para enviar por este número.",
+                code: "CONNECTION_SEND_FORBIDDEN",
+              },
+              { status: 403 },
+            );
           if (session.permissions.chat.canCaptureChat !== true || !rules.queues.includes("meus"))
             return Response.json(
               { error: "Sem permissão para iniciar atendimento." },
@@ -241,6 +359,11 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
           return Response.json(
             { error: "Gerencie a conexão principal nas configurações existentes." },
             { status: 400 },
+          );
+        if (!ownsConnection(session, connection))
+          return Response.json(
+            { error: "Somente o titular ou administrador autorizado pode gerenciar o pareamento." },
+            { status: 403 },
           );
         const manager = SessionManager.forConnection(tenantId, id);
         if (

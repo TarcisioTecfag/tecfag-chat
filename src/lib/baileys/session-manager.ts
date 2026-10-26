@@ -47,6 +47,7 @@ type SessionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type SessionStatus = "disconnected" | "qr_ready" | "connecting" | "connected" | "switching";
 
 export type SessionEvent =
+  | { type: "connection_access_changed"; groupId: string }
   | { type: "qr"; qr: string }
   | { type: "status"; status: SessionStatus; phone?: string }
   | { type: "message"; message: any }

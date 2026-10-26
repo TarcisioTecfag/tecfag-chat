@@ -13,18 +13,23 @@ export type WhatsappConnection = {
   enabled: boolean;
   capturePolicy?: "selected" | "all";
   error?: string | null;
+  canSend?: boolean;
+  canPair?: boolean;
+  groupAccess?: Array<{ groupId: string; canRead: boolean; canSend: boolean }>;
 };
 type ConnectionState = {
   enabled: boolean;
   canManage: boolean;
   encryptionReady: boolean;
   connections: WhatsappConnection[];
+  accessGroups: Array<{ id: string; name: string }>;
 };
 const empty: ConnectionState = {
   enabled: false,
   canManage: false,
   encryptionReady: false,
   connections: [],
+  accessGroups: [],
 };
 
 export function useWhatsappConnections(tenantId: string) {

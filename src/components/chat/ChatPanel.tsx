@@ -3230,7 +3230,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         >
           {connectionsState.enabled && activeChat.channel === "whatsapp" && activeChat.id !== "valentina" && <p className="mb-2 text-xs font-semibold text-primary">Respondendo por: {connectionsState.connections.find((c) => c.id === (activeChat.whatsappConnectionId || "corporate"))?.name || "Conexão deste atendimento"}{connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId)?.phone ? ` · ${connectionsState.connections.find((c) => c.id === activeChat.whatsappConnectionId)?.phone}` : ""}</p>}
           {/* ── BLOQUEIO: outro operador — oculta TUDO, mostra só o banner ── */}
-          {dealRequirement.pending ? (
+          {activeChat.whatsappConnectionId && connectionsState.connections.find(c => c.id === activeChat.whatsappConnectionId)?.canSend !== true ? (
+            <div role="status" className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">Este número está disponível somente para visualização. Seu grupo não tem permissão para enviar mensagens por ele.</div>
+          ) : dealRequirement.pending ? (
             <ConversationDealRequirement conversationId={activeChat.id} contactId={activeChat.contactId} customerName={activeChat.name} error={dealRequirement.error} selectionRequired={dealRequirement.currentRequired} />
           ) : !isOwner && activeChat.operatorId ? (
             <div className="mx-auto max-w-2xl rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-5 shadow-xs">
