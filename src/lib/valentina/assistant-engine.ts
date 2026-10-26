@@ -548,8 +548,8 @@ export async function buildBestResponsePrompt(params: {
       tenantId,
       richContext.knowledgeQueryHint || currentDraftText,
     );
-    // Limita tamanho para manter baixa latência
-    knowledgeSnippet = rawKb ? rawKb.slice(0, 3500) : "";
+    // Limita tamanho para manter baixa latência mas comportar manual técnico ranqueado
+    knowledgeSnippet = rawKb ? rawKb.slice(0, 12000) : "";
   } catch {
     knowledgeSnippet = "";
   }

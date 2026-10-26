@@ -5,9 +5,13 @@ import { knowledgeFiles, knowledgeFolders } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { requireSession } from "../../../lib/auth-session";
-import { invalidateKnowledgeCache } from "../../../lib/valentina/knowledge-service";
+import {
+  invalidateKnowledgeCache,
+  ensureTecfagManualsKnowledgePopulated,
+  findPreExtractedManualContent,
+} from "../../../lib/valentina/knowledge-service";
 import { invalidateCatalogImagesCache } from "./catalog-images";
 
 // Diretório de mídia estático para arquivos de Formato Real
@@ -44,6 +48,18 @@ async function extractKnowledgeText(name: string, type: string, base64?: string 
           // Suporte à classe PDFParse da versão 2.x
           if ((pdfParsePkg as any).PDFParse) {
             const ParserClass = (pdfParsePkg as any).PDFParse;
+            if (typeof ParserClass.setWorker === "function") {
+              const workerCandidates = [
+                path.resolve(process.cwd(), "node_modules/pdf-parse/dist/pdf-parse/esm/pdf.worker.mjs"),
+                path.resolve(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"),
+              ];
+              for (const candidate of workerCandidates) {
+                if (fs.existsSync(candidate)) {
+                  ParserClass.setWorker(pathToFileURL(candidate).href);
+                  break;
+                }
+              }
+            }
             const parser = new ParserClass({ data: buf });
             const result = await parser.getText();
             extractedText = result.text || "";
@@ -67,6 +83,11 @@ async function extractKnowledgeText(name: string, type: string, base64?: string 
           }
         } catch (err: any) {
           console.warn(`[knowledge.ts] Erro ao extrair texto do PDF ${name}:`, err?.message);
+        }
+
+        const preExtracted = findPreExtractedManualContent(name);
+        if (preExtracted && preExtracted.length > 20) {
+          return preExtracted.slice(0, 200000);
         }
       }
 
@@ -116,6 +137,13 @@ async function extractKnowledgeText(name: string, type: string, base64?: string 
     }
   }
 
+  if (type === "pdf" || ext === "pdf") {
+    const preExtracted = findPreExtractedManualContent(name);
+    if (preExtracted && preExtracted.length > 20) {
+      return preExtracted.slice(0, 200000);
+    }
+  }
+
   return rawContent || "";
 }
 
@@ -151,11 +179,24 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
               });
             }
             const raw = file.content || "";
-            // Evita despejar 250KB de Base64 puro no inspetor de texto RAG a menos que explicitamente solicitado
-            const safeContent =
-              !includeBase64 && raw.includes("[BASE64:")
-                ? raw.split("[BASE64:")[0]
-                : raw;
+            const textBeforeBase64 = raw.includes("[BASE64:") ? raw.split("[BASE64:")[0] : raw;
+            let safeContent = includeBase64 ? raw : textBeforeBase64;
+
+            // Se o PDF estiver com texto vazio (upload antigo antes da correção do worker), restaura automaticamente
+            if (safeContent.trim().length < 50 && tenantId === "tecfag") {
+              const recovered = findPreExtractedManualContent(file.name);
+              if (recovered && recovered.length > 50) {
+                const base64Suffix = raw.includes("[BASE64:") ? `[BASE64:${raw.split("[BASE64:")[1]}` : "";
+                const updatedRaw = base64Suffix ? `${recovered}\n\n${base64Suffix}` : recovered;
+                await db
+                  .update(knowledgeFiles)
+                  .set({ content: updatedRaw })
+                  .where(and(eq(knowledgeFiles.id, file.id), eq(knowledgeFiles.tenantId, tenantId)))
+                  .catch(() => {});
+                invalidateKnowledgeCache(tenantId);
+                safeContent = includeBase64 ? updatedRaw : recovered;
+              }
+            }
 
             return new Response(JSON.stringify({ content: safeContent }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -169,6 +210,10 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
         }
 
         try {
+          if (tenantId === "tecfag") {
+            await ensureTecfagManualsKnowledgePopulated(tenantId);
+          }
+
           let folders = await db
             .select()
             .from(knowledgeFolders)

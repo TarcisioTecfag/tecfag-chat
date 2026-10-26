@@ -438,9 +438,10 @@ async function getOperatorContext(
   const isMetricsQuery = /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
   const isKbQuery =
     Boolean(hasAttachedImage) ||
-    /\b(?:maquina|maquinas|equipamento|modelo|especificac|catalogo|voltagem|potencia|seladora|envasadora|rotuladora|datador|empacotadora|valvula|frasco|pote|tampa|alicate|arqueadora|arqueacao|fita|peca)\b/.test(
+    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|envasadora|rotuladora|datador|empacotadora|dosadora|valvula|frasco|pote|tampa|alicate|arqueadora|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|encapsuladora|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre)\b/.test(
       q
-    );
+    ) ||
+    /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(cleanUserQuery || userQuery || "");
 
   let taskTitle = "Consultando dados da sua operação";
   let finishedTitle = "Consulta comercial concluída";
@@ -448,6 +449,9 @@ async function getOperatorContext(
   if (hasAttachedImage && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta) {
     taskTitle = "Inspecionando visualmente a foto enviada e consultando catálogo técnico";
     finishedTitle = "Inspeção visual e consulta técnica concluídas";
+  } else if (isKbQuery && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta && !isCallOrPhone) {
+    taskTitle = "Consultando manuais técnicos e catálogo na Base de Conhecimento (RAG)";
+    finishedTitle = "Consulta aos manuais técnicos e catálogo concluída";
   } else if (isCallOrPhone) {
     taskTitle = "Localizando telefones e preparando ações de ligação";
     finishedTitle = "Telefones e atalhos de discagem localizados";
@@ -2411,7 +2415,14 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
 3. **Tarefas, Reuniões e Diretrizes do Gestor**: Quais tarefas estão pendentes para hoje ou atrasadas e quais orientações o gestor deixou nas negociações.
 4. **Ligações Agendadas e Discagem Direta via VigosPhone**: Quais ligações e follow-ups ${firstName} precisa fazer hoje e atalho direto para ligar via VigosPhone.
 5. **MENSURAÇÃO 100% COMPLETA DA CARTEIRA E LISTAGEM DE NEGOCIAÇÕES (CRM)**: Você enxerga **100% de todas as negociações** de ${firstName} no CRM (sem nenhum limite de 60 registros — você vê todas as milhares de negociações: abertas, ganhas, pausadas e perdidas, além da mensuração matemática completa por status, por faixa de valor, por tempo sem interação/aging e por cada Funil e Etapa).
-6. **Análise Visual de Fotos/Imagens e Dúvidas Técnicas de Produtos/Máquinas**: Inspeção visual real de fotos de máquinas, ferramentas, peças ou prints enviados por ${firstName} + especificações técnicas do catálogo da ${persona.company}.
+6. **Análise Visual de Fotos/Imagens e Domínio Completo dos Manuais Técnicos e Catálogo (RAG)**: Inspeção visual real de fotos de máquinas, ferramentas, peças ou prints enviados por ${firstName} + consulta direta aos **210 Manuais Técnicos Oficiais (PDFs extraídos na Base de Conhecimento RAG)** e ao **Catálogo Oficial de Máquinas da ${persona.company}**.
+
+## CONSULTAS TÉCNICAS DE MÁQUINAS, MODELOS E MANUAIS (BASE DE CONHECIMENTO RAG):
+1. **DOMÍNIO TOTAL DOS MANUAIS TÉCNICOS E DO CATÁLOGO OFICIAL**:
+   - Quando ${firstName} perguntar sobre qualquer máquina, código ou modelo (ex: *"O que sabe sobre a APF300-2B?"*, *"Qual a especificação da BSF-5640LG?"*, *"Como funciona a DZ400?"*, *"Qual a faixa de dosagem ou pressão de ar dessa máquina?"*), consulte imediatamente a seção \`📚 BASE DE CONHECIMENTO & DIRETRIZES\` no contexto abaixo (que traz tanto os itens do **Catálogo Oficial de Máquinas** quanto o texto completo extraído do **Manual Técnico PDF** correspondente).
+   - **JAMAIS** diga que *"Não encontrei o catálogo técnico ou as especificações"* quando o modelo estiver listado na seção \`📚 BASE DE CONHECIMENTO & DIRETRIZES\`!
+   - **RESPONDA COM PROFUNDIDADE TÉCNICA E CLAREZA COMERCIAL**: Entregue diretamente as especificações técnicas reais que constam no manual e no catálogo (ex: nome oficial e linha, tipo de equipamento, faixa de dosagem/capacidade, quantidade de bicos, sistema de acionamento pneumático/elétrico, pressão de ar / consumo, tensão/potência, materiais de contato como Inox 304/316L, modos de operação, regulagens e aplicações indicadas).
+   - **NÃO DESVIE PARA CRM SE A PERGUNTA FOR TÉCNICA**: Se ${firstName} fez uma pergunta técnica sobre uma máquina ou modelo, responda 100% sobre a máquina com base no manual técnico e deixe \`"mentionedDealIds": []\` vazio (não empurre cards de CRM aleatórios nem pergunte *"Ela está em alguma negociação?"* se ele só pediu informações da máquina).
 ${
   hasAttachedImage
     ? `
@@ -3105,7 +3116,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               const isBrokenLegacyOperatorReply =
                 row.direction === "from_agent" &&
                 typeof row.content === "string" &&
-                /S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|conjugado,\s*3\s*em\s*1|fita\s+de\s+polipropileno\s+\(PP\)\s+de\s+10\s*mm,\s*13\s*mm|travar\s+com\s+o\s+selo\s+met[aá]lico\s+e\s+cortar\s+a\s+sobra|Fora\s+esse,\s+n[aã]o\s+h[aá]\s+outros\s+campos\s+customizados\s+registrados|Fora\s+isso,\s+n[aã]o\s+h[aá]\s+nenhuma\s+outra\s+nota\s+ou\s+atividade\s+detalhada\s+no\s+hist[oó]rico\s+do\s+card/i.test(
+                /S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|conjugado,\s*3\s*em\s*1|fita\s+de\s+polipropileno\s+\(PP\)\s+de\s+10\s*mm,\s*13\s*mm|travar\s+com\s+o\s+selo\s+met[aá]lico\s+e\s+cortar\s+a\s+sobra|Fora\s+esse,\s+n[aã]o\s+h[aá]\s+outros\s+campos\s+customizados\s+registrados|Fora\s+isso,\s+n[aã]o\s+h[aá]\s+nenhuma\s+outra\s+nota\s+ou\s+atividade\s+detalhada\s+no\s+hist[oó]rico\s+do\s+card|N[aã]o\s+encontrei\s+o\s+cat[aá]logo\s+t[eé]cnico\s+ou\s+as\s+especifica[çc][oõ]es\s+da\s+APF300-2B/i.test(
                   row.content
                 );
               if (isBrokenLegacyOperatorReply) {
@@ -3544,7 +3555,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           });
 
           const isLegacyRefusal = (txt: string) =>
-            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa|S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|Fora\s+esse,\s+n[aã]o\s+h[aá]\s+outros\s+campos\s+customizados\s+registrados|Fora\s+isso,\s+n[aã]o\s+h[aá]\s+nenhuma\s+outra\s+nota\s+ou\s+atividade\s+detalhada\s+no\s+hist[oó]rico\s+do\s+card/i.test(
+            /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa|S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|Fora\s+esse,\s+n[aã]o\s+h[aá]\s+outros\s+campos\s+customizados\s+registrados|Fora\s+isso,\s+n[aã]o\s+h[aá]\s+nenhuma\s+outra\s+nota\s+ou\s+atividade\s+detalhada\s+no\s+hist[oó]rico\s+do\s+card|N[aã]o\s+encontrei\s+o\s+cat[aá]logo\s+t[eé]cnico\s+ou\s+as\s+especifica[çc][oõ]es\s+da\s+APF300-2B/i.test(
               txt || ""
             );
 

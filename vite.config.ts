@@ -22,10 +22,10 @@ export default defineConfig({
       "/crm/deals/**": { headers: { "cache-control": "no-cache" } },
       "/call/**": { headers: { "cache-control": "no-cache" } },
     },
-    // Externalizar socket.io e groq-sdk do bundle do servidor
-    // Eles usam APIs Node.js nativas e não podem ser bundlados
+    // Externalizar socket.io, groq-sdk e extratores de documentos (pdf-parse/pdfjs-dist/mammoth/xlsx)
+    // do bundle do servidor: pdfjs-dist carrega pdf.worker.mjs via caminho relativo em node_modules
     externals: {
-      external: ["socket.io", "groq-sdk"],
+      external: ["socket.io", "groq-sdk", "pdf-parse", "pdfjs-dist", "mammoth", "xlsx"],
     },
     // Incluir explicitamente os plugins do servidor (ex: WebSocket handler)
     plugins: [

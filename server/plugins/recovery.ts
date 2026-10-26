@@ -32,6 +32,12 @@ export default function recoveryPlugin(nitroApp: {
       const { SlaEngine } = await import("../../src/lib/sla-engine.js");
       const { AuditService } = await import("../../src/lib/audit-service.js");
       const { SupervisorEngine } = await import("../../src/lib/valentina/supervisor-engine.js");
+      const { ensureTecfagManualsKnowledgePopulated } = await import(
+        "../../src/lib/valentina/knowledge-service.js"
+      );
+      void ensureTecfagManualsKnowledgePopulated("tecfag").catch((err) =>
+        console.warn("[RecoveryPlugin] Aviso ao sincronizar manuais RAG da Tecfag:", err?.message),
+      );
       SlaEngine.getInstance().start();
       AuditService.getInstance().start();
       SupervisorEngine.getInstance().start();

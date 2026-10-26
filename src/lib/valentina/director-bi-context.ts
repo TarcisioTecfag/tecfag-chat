@@ -2191,9 +2191,9 @@ export async function getDirectorBiContext(
     // SEÇÃO 11: BASE DE CONHECIMENTO / CATÁLOGO (QUANDO SOLICITADO OU RELEVANTE)
     // ══════════════════════════════════════════════════════════════════════════
     const asksProductOrCatalog =
-      /\b(maquina|máquina|equipamento|catalogo|catálogo|modelo|seladora|envasadora|datador|dosadora|rotuladora|valvula|válvula|pote|frasco|gatilho|trigger|base\s+de\s+conhecimento|especificacao|especificação|ficha\s+tecnica)\b/i.test(
+      /\b(maquina|máquina|equipamento|catalogo|catálogo|modelo|manual|manuais|seladora|envasadora|datador|dosadora|rotuladora|empacotadora|valvula|válvula|pote|frasco|gatilho|trigger|base\s+de\s+conhecimento|especificacao|especificação|ficha\s+tecnica|encolhimento|tunel|túnel|vacuo|vácuo|arqueadora|fechadora|encapsuladora|blister|cartonadora|enfardadeira|esteira)\b/i.test(
         userQuery || ""
-      );
+      ) || /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(userQuery || "");
 
     if (asksProductOrCatalog) {
       try {
@@ -2204,7 +2204,7 @@ export async function getDirectorBiContext(
         const kbParts: string[] = [];
         for (const b of targetBases) {
           const kb = await getKnowledgeBaseContext(b, userQuery);
-          if (kb) kbParts.push(kb.slice(0, 6000));
+          if (kb) kbParts.push(kb.slice(0, 18000));
         }
         if (kbParts.length > 0) {
           sections.push(`📚 11. CATÁLOGO E BASE DE CONHECIMENTO:\n${kbParts.join("\n\n")}`);
