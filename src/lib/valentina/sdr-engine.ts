@@ -8,13 +8,21 @@ import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { QueuedMessageItem } from "./sdr-debouncer";
 import { extractCnpjFromText, fetchCnpjInfo } from "./cnpj-service";
-import { getKnowledgeBaseContext, getRealMediaFiles, KNOWLEDGE_MEDIA_DIR } from "./knowledge-service";
+import {
+  getKnowledgeBaseContext,
+  getRealMediaFiles,
+  KNOWLEDGE_MEDIA_DIR,
+  extractPhotoModelMetadata,
+  isExplicitMachinePhotoRequest,
+  resolveMatchingCatalogPhotos,
+} from "./knowledge-service";
 import { autoCreateOrUpdateRdCrmDeal } from "./sdr-crm-auto";
 import { ensureLocalCrmDealBeforeTransfer } from "./sdr-crm-local";
 import { buildTecfagFagnerPrompt } from "./sdr-tecfag-prompt";
 import { resolveLegacySdrStageAndFunnel } from "./legacy-sdr-routing";
 import {
   INDUSTRIAL_POLICY_VERSION,
+  INDUSTRIAL_REVIEW_FUNNEL,
   resolveIndustrialRoute,
   assessIndustrialReadiness,
   canFinishIndustrialTriage,
@@ -536,12 +544,25 @@ export class SdrEngine {
       // 5.1 Verificar se o lote contém algum CNPJ para validação matemática e consulta à API (cnpj.ws)
       let cnpjDirective = "";
       const detectedCnpjCandidate = extractCnpjFromText(combinedBatchText);
+      let fetchedCnpjInfo: Awaited<ReturnType<typeof fetchCnpjInfo>> | null = null;
 
       if (detectedCnpjCandidate) {
         console.log(`[SdrEngine] CNPJ detectado no lote: ${detectedCnpjCandidate}. Executando validação matemática...`);
         const cnpjInfo = await fetchCnpjInfo(detectedCnpjCandidate);
+        fetchedCnpjInfo = cnpjInfo;
 
         if (cnpjInfo.valid && cnpjInfo.details) {
+          existingCollectedData._RECEITA_FEDERAL = {
+            ...(typeof existingCollectedData._RECEITA_FEDERAL === "object" &&
+            existingCollectedData._RECEITA_FEDERAL
+              ? existingCollectedData._RECEITA_FEDERAL
+              : {}),
+            razaoSocial: cnpjInfo.details.razaoSocial || cnpjInfo.razaoSocial || "",
+            nomeFantasia: cnpjInfo.details.nomeFantasia || cnpjInfo.nomeFantasia || "",
+            capitalSocial: cnpjInfo.details.capitalSocial || "",
+            porte: cnpjInfo.details.porte || "",
+            cnaePrincipal: cnpjInfo.details.cnaePrincipal || "",
+          };
           try {
             if (convCheck?.contactId) {
               await syncContactDataFromTriage(tenantId, convCheck.contactId, {}, cnpjInfo.details);
@@ -1100,7 +1121,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
 
       // Se o lote enviou um CNPJ matematicamente inválido, expurgar qualquer tentativa da IA de preencher CNPJ ou Empresa
       if (detectedCnpjCandidate) {
-        const cnpjCheck = await fetchCnpjInfo(detectedCnpjCandidate);
+        const cnpjCheck = fetchedCnpjInfo || (await fetchCnpjInfo(detectedCnpjCandidate));
         if (!cnpjCheck.valid && aiResult.extractedData) {
           delete aiResult.extractedData["CNPJ OU CPF"];
           delete aiResult.extractedData["CNPJ"];
@@ -1206,8 +1227,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       const hasVitalInformation = hasName && (hasCompany || hasCnpj) && hasProduct;
 
       // Contagem de campos preenchidos (usada no metadata do flowState)
-      const filledCount = Object.values(updatedCollectedData).filter(
-        (entry: any) => entry?.value && !String(entry.value).toLowerCase().includes("aguardando")
+      const filledCount = Object.entries(updatedCollectedData).filter(
+        ([key, entry]: [string, any]) => !key.startsWith("_") && entry?.value && !String(entry.value).toLowerCase().includes("aguardando")
       ).length || [hasName, hasCompany || hasCnpj, hasProduct].filter(Boolean).length;
 
       // Resolver estágio do Kanban SDR (9 colunas) e Sub-Funil de Fluxos (9 sub-funis)
@@ -1249,10 +1270,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
       const stageAndFunnel = industrialRoute || resolveLegacySdrStageAndFunnel({ ...routeInput, existingFunnel: metaState.targetFunnel || "Máquinas" });
       const industrialReadiness = industrialRoute ? assessIndustrialReadiness(industrialRoute, updatedCollectedData) : null;
+      const isIndustrialReviewRoute = Boolean(
+        industrialTriage &&
+        industrialRoute &&
+        (industrialRoute.needsReview ||
+          industrialReadiness?.action === "review" ||
+          industrialRoute.reason === "human_requested"),
+      );
+      const effectiveTargetFunnel = isIndustrialReviewRoute
+        ? INDUSTRIAL_REVIEW_FUNNEL
+        : stageAndFunnel.targetFunnel;
 
-      if (industrialTriage && stageAndFunnel.targetFunnel) {
+      if (industrialTriage && effectiveTargetFunnel) {
         updatedCollectedData["SETOR / FUNIL DE DESTINO"] = {
-          value: stageAndFunnel.targetFunnel,
+          value: effectiveTargetFunnel,
           status: "filled",
         };
       }
@@ -1304,7 +1335,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
       // SEM hasVitalInformation → isCompleted = false SEMPRE, independente do que a IA disser
 
-      console.log(`[SdrEngine] 📊 Diagnóstico de conclusão (${tenantId}) — hasName=${hasName} hasCompany=${hasCompany} hasCnpj=${hasCnpj} hasProduct=${hasProduct} | stage=${stageAndFunnel.funnelStage} funnel=${stageAndFunnel.targetFunnel} | hasVitalInfo=${hasVitalInformation} | aiIsCompleted=${aiResult.isCompleted} | botAskingQuestion=${botIsAskingQuestion} | mentionTransfer=${messagesMentionTransfer} → isCompleted=${isCompleted}`);
+      console.log(`[SdrEngine] 📊 Diagnóstico de conclusão (${tenantId}) — hasName=${hasName} hasCompany=${hasCompany} hasCnpj=${hasCnpj} hasProduct=${hasProduct} | stage=${stageAndFunnel.funnelStage} funnel=${effectiveTargetFunnel} | hasVitalInfo=${hasVitalInformation} | aiIsCompleted=${aiResult.isCompleted} | botAskingQuestion=${botIsAskingQuestion} | mentionTransfer=${messagesMentionTransfer} → isCompleted=${isCompleted}`);
 
       const wasAlreadyCompleted = flowState?.outcome === "completed" || flowState?.outcome === "transferred";
       const now = new Date();
@@ -1354,8 +1385,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                   companyName: company,
                   targetOperatorId: allocatedOp.id,
                   targetOperatorName: allocatedOp.name,
-                  targetFunnel: industrialRoute.targetFunnel || "Atendimento Geral",
-                  funnelStage: industrialRoute.funnelStage || "Qualificação",
+                  targetFunnel: effectiveTargetFunnel || INDUSTRIAL_REVIEW_FUNNEL,
+                  funnelStage: isIndustrialReviewRoute ? "outros" : (industrialRoute.funnelStage || "Qualificação"),
                   collectedData: updatedCollectedData,
                   requireConfiguredPipeline: false,
                 });
@@ -1377,8 +1408,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 conversationId,
                 clientName,
                 company,
-                interest: productVal || industrialRoute.targetFunnel || "",
-                targetFunnel: industrialRoute.targetFunnel || null,
+                interest: productVal || effectiveTargetFunnel || "",
+                targetFunnel: effectiveTargetFunnel || null,
                 dealId: localCrmResult?.dealId || null,
                 dealTitle: localCrmResult?.dealTitle || null,
                 taskId: localCrmResult?.taskId || null,
@@ -1811,19 +1842,89 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
         // Extrai tags [SEND_IMAGE:url] dos balões, envia imagem via Baileys e
         // remove as tags do texto antes de chegar no sendHumanizedBotMessages.
         const SEND_IMAGE_RE = /\[SEND_IMAGE:([^\]]+)\]/gi;
-        const imageUrlsToSend: string[] = [];
+        const rawImageUrlsToSend: string[] = [];
 
         aiResult.messagesToSend = aiResult.messagesToSend.map((msg) => {
           let match: RegExpExecArray | null;
           SEND_IMAGE_RE.lastIndex = 0;
           while ((match = SEND_IMAGE_RE.exec(msg)) !== null) {
-            imageUrlsToSend.push(match[1].trim());
+            rawImageUrlsToSend.push(match[1].trim());
           }
           return msg.replace(/\[SEND_IMAGE:[^\]]+\]/gi, "").trim();
         }).filter(Boolean);
 
-        // 🔍 Diagnóstico: logar se Gemini gerou SEND_IMAGE ou não
-        console.log(`[SdrEngine] 🔍 DIAGNÓSTICO: imageUrlsToSend=${JSON.stringify(imageUrlsToSend)} | messagesToSend count=${aiResult.messagesToSend.length}`);
+        // ── Controle de Fotos na Janela de 24h + Pareamento de Catálogo ───────
+        const isExplicitClientPhotoReq = isExplicitMachinePhotoRequest(combinedBatchText);
+        const nowMs = Date.now();
+        const todayStartMs = new Date(
+          new Date().getFullYear(),
+          new Date().getMonth(),
+          new Date().getDate(),
+          0,
+          0,
+          0,
+          0
+        ).getTime();
+        const active24hWindowStartMs = Math.max(todayStartMs, nowMs - 24 * 60 * 60 * 1000);
+        const alreadySentUrlsAndKeysIn24h = new Set<string>();
+        for (const hm of historyMsgs) {
+          if (hm.senderType !== "bot" || hm.type !== "image") continue;
+          const hmTimeMs = hm.createdAt ? new Date(hm.createdAt).getTime() : 0;
+          if (hmTimeMs < active24hWindowStartMs) continue;
+          const mUrl = String(hm.mediaUrl || "").trim();
+          if (mUrl) {
+            alreadySentUrlsAndKeysIn24h.add(mUrl.toLowerCase());
+            const base = path.basename(mUrl);
+            const meta = extractPhotoModelMetadata(base);
+            if (meta?.normalizedModelKey) {
+              alreadySentUrlsAndKeysIn24h.add(meta.normalizedModelKey.toLowerCase());
+            }
+          }
+        }
+
+        let imageUrlsToSend = rawImageUrlsToSend.filter((imgUrl) => {
+          if (isExplicitClientPhotoReq) return true;
+          const lowerUrl = imgUrl.toLowerCase();
+          if (alreadySentUrlsAndKeysIn24h.has(lowerUrl)) return false;
+          const base = path.basename(imgUrl);
+          const meta = extractPhotoModelMetadata(base);
+          if (meta?.normalizedModelKey && alreadySentUrlsAndKeysIn24h.has(meta.normalizedModelKey.toLowerCase())) {
+            return false;
+          }
+          return true;
+        });
+
+        if (imageUrlsToSend.length === 0) {
+          const combinedTurnText = `${combinedBatchText}\n${aiResult.messagesToSend.join("\n")}`;
+          const isMachineMentioned =
+            isExplicitClientPhotoReq ||
+            /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento)\b/i.test(
+              combinedTurnText
+            );
+          if (isMachineMentioned) {
+            try {
+              const pairedPhotos = await resolveMatchingCatalogPhotos(tenantId, {
+                userText: combinedBatchText,
+                aiReplyText: aiResult.messagesToSend.join("\n"),
+                recentHistoryMessages: [...historyMsgs]
+                  .reverse()
+                  .slice(0, 8)
+                  .map((m: any) => String(m.content || "")),
+                alreadySentPhotoKeysInWindow: alreadySentUrlsAndKeysIn24h,
+                isExplicitRequest: isExplicitClientPhotoReq,
+                maxPhotos: 1,
+              });
+              for (const p of pairedPhotos) {
+                if (p.mediaUrl) imageUrlsToSend.push(p.mediaUrl);
+              }
+            } catch (pairErr: any) {
+              console.warn("[SdrEngine] Falha ao parear foto do catálogo:", pairErr?.message);
+            }
+          }
+        }
+
+        // 🔍 Diagnóstico: logar se Gemini/Catálogo gerou SEND_IMAGE ou não
+        console.log(`[SdrEngine] 🔍 DIAGNÓSTICO: imageUrlsToSend=${JSON.stringify(imageUrlsToSend)} | explicit=${isExplicitClientPhotoReq} | messagesToSend count=${aiResult.messagesToSend.length}`);
 
         if (imageUrlsToSend.length > 0 && !signal?.aborted) {
           // Carrega base64 APENAS das imagens solicitadas do banco (evitando puxar 99 MB de todas as 447 fotos)

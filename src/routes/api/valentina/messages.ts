@@ -33,7 +33,12 @@ import crypto from "crypto";
 import { getAiPersona } from "../../../lib/ai-persona";
 import { requireSession } from "../../../lib/auth-session";
 import { getCommercialHome } from "../../../lib/commercial/home-service";
-import { getKnowledgeBaseContext } from "../../../lib/valentina/knowledge-service";
+import {
+  getKnowledgeBaseContext,
+  isExplicitMachinePhotoRequest,
+  resolveMatchingCatalogPhotos,
+  type MatchedCatalogPhoto,
+} from "../../../lib/valentina/knowledge-service";
 import { getDirectorBiContext } from "../../../lib/valentina/director-bi-context";
 import {
   fieldAppliesToPipeline,
@@ -421,16 +426,22 @@ async function getOperatorContext(
       q
     );
 
+  const isExplicitPhotoRequest = isExplicitMachinePhotoRequest(
+    cleanUserQuery || userQuery || "",
+    Boolean(hasAttachedImage)
+  );
+
   // Classificação de intenção real para consultar apenas o que é necessário
   const hasExplicitMachineOrManualKeyword =
     Boolean(hasAttachedImage) ||
+    isExplicitPhotoRequest ||
     /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|selar|selagem|envasadora|envasar|envase|rotuladora|rotular|rotulagem|datador|datar|datacao|empacotadora|empacotar|dosadora|dosar|valvula|frasco|frascos|pote|potes|garrafa|garrafas|tampa|tampas|alicate|arqueadora|arquear|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|saches|encapsuladora|encapsular|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|plastico|salgadinho|salgadinhos|embalar|embalagem|embalagens|pacote|pacotes|saco|sacos|bandeja|bandejas|por\s+minuto|ciclos|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre)\b/.test(
       q
     ) ||
     /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(cleanUserQuery || userQuery || "");
 
   const isRecentMachineManualTurn =
-    /\b(?:puxei\s+as\s+informacoes\s+do\s+manual|segundo\s+o\s+catalogo|faixa\s+de\s+dosagem|ciclos\s+por\s+minuto|componentes\s+pneumaticos|manual\s+tecnico|painel\s+de\s+controle|ihm\s+touch|volume\s+de\s+envase|velocidade\s+da\s+esteira|tempo\s+entre\s+os\s+ciclos|nao,\s+essa\s+maquina\s+nao\s+serve)\b/.test(
+    /\b(?:puxei\s+as\s+informacoes\s+do\s+manual|segundo\s+o\s+manual|segundo\s+o\s+catalogo|linha\s+personnalite|linha\s+semi-industrial|faixa\s+de\s+dosagem|range\s+de\s+dosagem|embalagens\s+por\s+hora|ciclos\s+por\s+minuto|componentes\s+pneumaticos|alimentacao\s+eletrica|manual\s+tecnico|painel\s+de\s+controle|ihm\s+touch|volume\s+de\s+envase|velocidade\s+da\s+esteira|tempo\s+entre\s+os\s+ciclos|nao,\s+essa\s+maquina\s+nao\s+serve|envasadora|seladora|dosadora|rotuladora|datador|empacotadora|arqueadora|encapsuladora|pamq[a-z0-9]+)\b/.test(
       normRecentAiForIntent
     );
 
@@ -483,6 +494,9 @@ async function getOperatorContext(
   if (hasAttachedImage && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta) {
     taskTitle = "Inspecionando visualmente a foto enviada e consultando catálogo técnico";
     finishedTitle = "Inspeção visual e consulta técnica concluídas";
+  } else if (isExplicitPhotoRequest && !isDealOrCrm) {
+    taskTitle = "Localizando foto do equipamento no Catálogo e Base de Conhecimento";
+    finishedTitle = "Foto do equipamento localizada no Catálogo";
   } else if (isPureKbQuery) {
     taskTitle = "Consultando manuais técnicos e catálogo na Base de Conhecimento (RAG)";
     finishedTitle = "Consulta aos manuais técnicos e catálogo concluída";
@@ -2271,8 +2285,8 @@ async function getOperatorContext(
         const kbQuery = [
           cleanUserQuery,
           imageFileName ? imageFileName.replace(/\.[a-z0-9]{2,5}$/i, "") : "",
-          isFollowUpRequest && isRecentMachineManualTurn && recentAiContextText
-            ? recentAiContextText.slice(0, 300)
+          (isExplicitPhotoRequest || (isFollowUpRequest && isRecentMachineManualTurn)) && recentAiContextText
+            ? recentAiContextText.slice(-450)
             : "",
         ]
           .filter(Boolean)
@@ -3252,6 +3266,45 @@ export const Route = createFileRoute("/api/valentina/messages")({
                   .catch(() => {});
               }
 
+              // Auto-repara mensagens em que o agente confirmou o envio da foto ("Claro, segue aí a foto da VSF-30S.") antes do pareamento visual estar ativo
+              if (
+                row.direction === "from_agent" &&
+                typeof row.content === "string" &&
+                !/^\[LOCAL_MEDIA:image:/i.test(row.content.trim()) &&
+                /\bsegue\s+(?:a[ií]\s+)?a\s+foto\s+d[ao]\s+([A-Za-z0-9-]+)/i.test(row.content)
+              ) {
+                try {
+                  const matchedPhotos = await resolveMatchingCatalogPhotos(tenantId, {
+                    userText: row.content,
+                    isExplicitRequest: true,
+                    maxPhotos: 1,
+                  });
+                  if (matchedPhotos.length > 0) {
+                    const photo = matchedPhotos[0];
+                    const safeFileName = photo.fileName.replace(/[:\]]/g, "_");
+                    const patchedContent = `[LOCAL_MEDIA:image:${photo.rawImageUrl}:${safeFileName}]\n${row.content.trim()}`;
+                    const patchedMeta = {
+                      ...meta,
+                      catalogPhoto: {
+                        fileId: photo.fileId,
+                        fileName: photo.fileName,
+                        modelKey: photo.normalizedModelKey,
+                        modelDisplay: photo.modelDisplay,
+                        proactive: false,
+                      },
+                    };
+                    row.content = patchedContent;
+                    row.metadata = patchedMeta;
+                    db.update(internalMessages)
+                      .set({ content: patchedContent, metadata: patchedMeta })
+                      .where(and(eq(internalMessages.tenantId, tenantId), eq(internalMessages.id, row.id)))
+                      .catch(() => {});
+                  }
+                } catch {
+                  // Ignora falha silenciosa no auto-reparo
+                }
+              }
+
               const isOverload =
                 meta?.type === "operator_overload" ||
                 meta?.warningType === "overload" ||
@@ -3672,7 +3725,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               )
             )
             .orderBy(desc(internalMessages.createdAt))
-            .limit(14);
+            .limit(45);
 
           // Verifica se o operador já conversou com a IA hoje (para não cumprimentar toda hora!)
           const alreadyTalkingToday = recentChatRows.some((r) => {
@@ -3682,12 +3735,89 @@ export const Route = createFileRoute("/api/valentina/messages")({
             return isChatMsg && createdMs >= todayStart.getTime();
           });
 
+          // Janela de 24h ativa do Fagner/Valentina: reinicia na virada do ciclo diário (todayStart) ou após 24h corridas
+          const active24hWindowStartMs = Math.max(
+            todayStart.getTime(),
+            now.getTime() - 24 * 60 * 60 * 1000
+          );
+          const alreadySentPhotoKeysInWindow = new Set<string>();
+          for (const r of recentChatRows) {
+            if (r.direction !== "from_agent") continue;
+            const createdMs = r.createdAt ? new Date(r.createdAt).getTime() : 0;
+            if (createdMs < active24hWindowStartMs) continue;
+            const meta: any = r.metadata || {};
+            if (meta?.catalogPhoto) {
+              if (typeof meta.catalogPhoto.fileId === "string" && meta.catalogPhoto.fileId) {
+                alreadySentPhotoKeysInWindow.add(meta.catalogPhoto.fileId.toLowerCase());
+              }
+              if (typeof meta.catalogPhoto.modelKey === "string" && meta.catalogPhoto.modelKey) {
+                alreadySentPhotoKeysInWindow.add(meta.catalogPhoto.modelKey.toLowerCase());
+              }
+            }
+            if (Array.isArray(meta?.catalogPhotos)) {
+              for (const cp of meta.catalogPhotos) {
+                if (typeof cp?.fileId === "string" && cp.fileId) {
+                  alreadySentPhotoKeysInWindow.add(cp.fileId.toLowerCase());
+                }
+                if (typeof cp?.modelKey === "string" && cp.modelKey) {
+                  alreadySentPhotoKeysInWindow.add(cp.modelKey.toLowerCase());
+                }
+              }
+            }
+            const rawContent = typeof r.content === "string" ? r.content : "";
+            const localImgMatch = rawContent.match(
+              /\[LOCAL_MEDIA:image:[^\]]*fileId=([^:&\]\s]+)[^\]]*:([^\]]+)\]/i
+            );
+            if (localImgMatch) {
+              alreadySentPhotoKeysInWindow.add(localImgMatch[1].toLowerCase());
+            }
+          }
+          if (useManagerContext && Array.isArray(threadHistory)) {
+            for (const m of threadHistory) {
+              if (!m || m.sender === "operator" || typeof m.content !== "string") continue;
+              const msgTimeMs =
+                m.createdAt || m.timestamp || m.sentAtISO
+                  ? new Date(m.createdAt || m.timestamp || m.sentAtISO).getTime()
+                  : now.getTime();
+              if (!Number.isNaN(msgTimeMs) && msgTimeMs < active24hWindowStartMs) continue;
+              const localImgMatch = m.content.match(
+                /\[LOCAL_MEDIA:image:[^\]]*fileId=([^:&\]\s]+)[^\]]*:([^\]]+)\]/i
+              );
+              if (localImgMatch) {
+                alreadySentPhotoKeysInWindow.add(localImgMatch[1].toLowerCase());
+              }
+            }
+          }
+
           const isLegacyRefusal = (txt: string) =>
             /n[aã]o\s+(?:tenho|possuo)\s+acesso|n[aã]o\s+est[aã]o\s+dispon[ií]veis\s+no\s+contexto|n[aã]o\s+consigo\s+consultar\s+o\s+tempo\s+m[eé]dio|falha\s+no\s+in[ií]cio\s+do\s+ciclo|Erro\s+na\s+compila[cç][aã]o\s+da\s+m[eé]trica|Mec[aâ]nica\s+Souza\s+Ltda|Construtora\s+Alfa|S[aã]o\s+60\s+negocia[çc][oõ]es\s+no\s+total|todas\s+as\s+60\s+negocia[çc][oõ]es\s+da\s+sua\s+carteira|A\s+lista\s+completa\s+vai\s+ficar\s+gigante\s+aqui\s+no\s+WhatsApp|Fora\s+esse,\s+n[aã]o\s+h[aá]\s+outros\s+campos\s+customizados\s+registrados|Fora\s+isso,\s+n[aã]o\s+h[aá]\s+nenhuma\s+outra\s+nota\s+ou\s+atividade\s+detalhada\s+no\s+hist[oó]rico\s+do\s+card|N[aã]o\s+encontrei\s+o\s+cat[aá]logo\s+t[eé]cnico\s+ou\s+as\s+especifica[çc][oõ]es\s+da\s+APF300-2B/i.test(
               txt || ""
             );
 
           const chronologicalRecentRows = [...recentChatRows].reverse();
+
+          // Mensagens recentes em ordem da MAIS RECENTE para a mais antiga (para resolver pedidos diretos como "me manda uma foto dela")
+          const recentHistoryMessagesMostRecentFirst: string[] =
+            useManagerContext && Array.isArray(threadHistory)
+              ? [...threadHistory]
+                  .reverse()
+                  .filter(
+                    (m: any) =>
+                      m &&
+                      typeof m.content === "string" &&
+                      m.content.trim() !== "[object Object]" &&
+                      !isLegacyRefusal(m.content)
+                  )
+                  .slice(0, 8)
+                  .map((m: any) => String(m.content || ""))
+              : recentChatRows
+                  .filter(
+                    (r) =>
+                      (r.content || "").trim() !== "[object Object]" &&
+                      !(r.direction === "from_agent" && isLegacyRefusal(r.content || ""))
+                  )
+                  .slice(0, 8)
+                  .map((r) => r.content || "");
 
           let chatHistoryText = "";
           if (useManagerContext && Array.isArray(threadHistory)) {
@@ -3713,6 +3843,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                   (r.content || "").trim() !== "[object Object]" &&
                   !(r.direction === "from_agent" && isLegacyRefusal(r.content || ""))
               )
+              .slice(-14)
               .map((r) => {
                 const speaker = r.direction === "to_agent" ? operatorName : persona.name;
                 const timeTag = formatHistoryTimeTag(r.createdAt);
@@ -4025,6 +4156,34 @@ export const Route = createFileRoute("/api/valentina/messages")({
           }
           const contextDurationMs = Math.max(15, Date.now() - contextStartMs);
 
+          // ── Pareamento de Fotos do Catálogo (Proativo na 1ª vez na janela 24h ou Sob Demanda explícita) ──
+          const isExplicitPhotoReq = isExplicitMachinePhotoRequest(userText);
+          let matchedCatalogPhotos: MatchedCatalogPhoto[] = [];
+          if (!effectiveImageBase64 && !effectiveAttachment) {
+            try {
+              matchedCatalogPhotos = await resolveMatchingCatalogPhotos(contextTenantId, {
+                userText,
+                recentHistoryMessages: recentHistoryMessagesMostRecentFirst,
+                alreadySentPhotoKeysInWindow,
+                isExplicitRequest: isExplicitPhotoReq,
+                maxPhotos: 2,
+              });
+              if (matchedCatalogPhotos.length > 0) {
+                const photoListDesc = matchedCatalogPhotos
+                  .map(
+                    (p) =>
+                      `- Modelo ${p.modelDisplay}: arquivo "${p.fileName}" (foto oficial localizada na Base de Conhecimento e anexada automaticamente à sua resposta)`
+                  )
+                  .join("\n");
+                fileContext += `\n\n═══ FOTO OFICIAL DE CATÁLOGO PAREADA AUTOMATICAMENTE ═══\n${photoListDesc}\nREGRA DE ENTREGA DE FOTO: O sistema JÁ ANEXOU a imagem real renderizada desta máquina diretamente no balão da sua resposta. Portanto:\n1. NUNCA diga que não consegue enviar fotos ou imagens.\n2. Se o usuário pediu a foto diretamente, confirme de forma curta e natural (ex: "Claro, segue aí a foto da ${matchedCatalogPhotos[0].modelDisplay}." ou "Tá na mão a foto da ${matchedCatalogPhotos[0].modelDisplay}:").\n3. Se você está explicando as especificações da máquina e enviando a foto de prontidão, entregue a explicação técnica normalmente sabendo que a foto já acompanha sua mensagem.`;
+              } else if (!isExplicitPhotoReq && alreadySentPhotoKeysInWindow.size > 0) {
+                fileContext += `\n\nNOTA DE CONTROLE DE FOTOS (JANELA 24H): Fotos de máquinas que já foram enviadas proativamente nesta janela de 24h NÃO são reenviadas automaticamente, a menos que o usuário peça a foto diretamente. Portanto, responda à dúvida técnica sem prometer um novo envio de foto.`;
+              }
+            } catch (photoPreErr: any) {
+              console.warn("[valentina/messages] Erro ao pré-parear foto de catálogo:", photoPreErr?.message);
+            }
+          }
+
           // ── Seleciona o prompt correto (incluindo histórico + pergunta atual!) ──
           const systemPrompt = useManagerContext
             ? buildSupervisorPrompt(
@@ -4053,15 +4212,23 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const featureKey = useManagerContext ? "supervisor_chat" : persona.chatFeatureKey;
 
           // ── Chama o Vertex AI (suportando imagem anexada quando houver) ─────
-          let fragments: { text: string; delay?: number; blocks?: any[] }[] = [];
+          let fragments: { text: string; delay?: number; blocks?: any[]; catalogPhoto?: any }[] = [];
           let mentionedConversationIds: string[] = [];
           let mentionedDealIds: string[] = [];
           let suggestedCallDealIds: string[] = [];
           let alerts: any[] = [];
 
-          // Para interações casuais/curtas ("ta obrigado", "valeu", "ok") sem anexo, usa gemini-2.5-flash para resposta quase instantânea
+          // Para interações casuais/curtas ("ta obrigado", "valeu", "ok") ou pedido curto direto de foto já localizada, usa gemini-2.5-flash para resposta quase instantânea
+          const isFastPhotoDelivery = Boolean(
+            isExplicitPhotoReq &&
+              matchedCatalogPhotos.length > 0 &&
+              userText.trim().length <= 90 &&
+              !effectiveImageBase64 &&
+              !effectiveAttachment
+          );
           const isFastCasual = Boolean(
-            !useManagerContext && operatorContextResult?.isCasual && !effectiveImageBase64 && !effectiveAttachment
+            (!useManagerContext && operatorContextResult?.isCasual && !effectiveImageBase64 && !effectiveAttachment) ||
+              isFastPhotoDelivery
           );
           const selectedModel = isFastCasual ? "gemini-2.5-flash" : "gemini-2.5-pro";
 
@@ -4155,6 +4322,85 @@ export const Route = createFileRoute("/api/valentina/messages")({
           }
 
           const fullReplyText = fragments.map((f) => f.text).join("\n");
+
+          // Se a pergunta do usuário não citava o modelo diretamente mas a resposta técnica da IA identificou e explicou uma máquina (ex: via código PAMQ... ou descrição), pareia a foto respeitando a janela de 24h
+          const isMachineTopicTurn =
+            isExplicitPhotoReq ||
+            Boolean(operatorContextResult?.executedSteps?.some((s) => s.badgeType === "kb")) ||
+            /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento|modelo|manual|cat[aá]logo)\b/i.test(
+              `${userText} ${fullReplyText}`
+            );
+
+          if (
+            !effectiveImageBase64 &&
+            !effectiveAttachment &&
+            matchedCatalogPhotos.length === 0 &&
+            isMachineTopicTurn
+          ) {
+            try {
+              matchedCatalogPhotos = await resolveMatchingCatalogPhotos(contextTenantId, {
+                userText,
+                aiReplyText: fullReplyText,
+                recentHistoryMessages: recentHistoryMessagesMostRecentFirst,
+                alreadySentPhotoKeysInWindow,
+                isExplicitRequest: isExplicitPhotoReq,
+                maxPhotos: 2,
+              });
+            } catch (photoPostErr: any) {
+              console.warn("[valentina/messages] Erro ao pós-parear foto de catálogo:", photoPostErr?.message);
+            }
+          }
+
+          if (matchedCatalogPhotos.length > 0 && fragments.length > 0) {
+            for (let pIdx = 0; pIdx < matchedCatalogPhotos.length; pIdx++) {
+              const photo = matchedCatalogPhotos[pIdx];
+              const safeFileName = photo.fileName.replace(/[:\]]/g, "_");
+              const mediaPrefix = `[LOCAL_MEDIA:image:${photo.rawImageUrl}:${safeFileName}]`;
+              const targetFragIdx = Math.min(pIdx, fragments.length - 1);
+              if (!fragments[targetFragIdx].text.startsWith("[LOCAL_MEDIA:image:")) {
+                fragments[targetFragIdx] = {
+                  ...fragments[targetFragIdx],
+                  text: `${mediaPrefix}\n${fragments[targetFragIdx].text}`,
+                  catalogPhoto: {
+                    fileId: photo.fileId,
+                    fileName: photo.fileName,
+                    modelKey: photo.normalizedModelKey,
+                    modelDisplay: photo.modelDisplay,
+                    proactive: !isExplicitPhotoReq,
+                    sentAtISO: now.toISOString(),
+                  },
+                };
+              } else if (pIdx > 0) {
+                fragments.push({
+                  text: `${mediaPrefix}\nFoto oficial: ${photo.fileName.replace(/\.[a-z0-9]+$/i, "")}`,
+                  delay: fragments.length * 650,
+                  catalogPhoto: {
+                    fileId: photo.fileId,
+                    fileName: photo.fileName,
+                    modelKey: photo.normalizedModelKey,
+                    modelDisplay: photo.modelDisplay,
+                    proactive: !isExplicitPhotoReq,
+                    sentAtISO: now.toISOString(),
+                  },
+                });
+              }
+            }
+
+            liveExecutedSteps.push({
+              id: "step-catalog-photo-pair",
+              kind: "read",
+              actionVerb: isExplicitPhotoReq ? "Localizou foto" : "Pareou foto",
+              targetLabel: matchedCatalogPhotos.map((p) => p.fileName).join(", "),
+              scopeTag: isExplicitPhotoReq ? "#catalogo-sob-demanda" : "#catalogo-proativo-24h",
+              badgeType: "vision",
+              detailText: isExplicitPhotoReq
+                ? `Imagem oficial localizada no catálogo da Base de Conhecimento a pedido direto do usuário.`
+                : `Imagem oficial pareada proativamente com o equipamento (${matchedCatalogPhotos
+                    .map((p) => p.modelDisplay)
+                    .join(", ")}) respeitando o controle anti-repetição da janela de 24h.`,
+            });
+          }
+
           const relatedDeals = !useManagerContext
             ? resolveRelatedDeals(
                 mentionedDealIds,
@@ -4237,6 +4483,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 totalFragments: fragments.length,
                 userQuery: isFirstFrag ? userText : undefined,
                 blocks: frag.blocks || undefined,
+                catalogPhoto: frag.catalogPhoto || undefined,
                 relatedConversations: fragRelated,
                 relatedDeals: fragRelatedDeals,
                 relatedCalls: fragRelatedCalls,
@@ -4251,6 +4498,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               id: fragId,
               content: frag.text,
               blocks: frag.blocks || undefined,
+              catalogPhoto: frag.catalogPhoto || undefined,
               relatedConversations: fragRelated,
               relatedDeals: fragRelatedDeals,
               relatedCalls: fragRelatedCalls,

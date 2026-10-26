@@ -943,7 +943,39 @@ export function ValentinaChatTab() {
                         )}
 
                         <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs sm:text-sm text-foreground space-y-2">
-                          {msg.content && <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>}
+                          {(() => {
+                            const rawText = msg.content || "";
+                            const localImgMatch = rawText.match(
+                              /^\[LOCAL_MEDIA:image:(.+?):([^\]]+)\]\n?([\s\S]*)$/
+                            );
+                            if (localImgMatch) {
+                              const [, mediaUrl, mediaFileName, captionText] = localImgMatch;
+                              return (
+                                <div className="space-y-2">
+                                  <div
+                                    className="rounded-xl overflow-hidden border border-border/50 bg-background/60 max-w-xs cursor-pointer group relative"
+                                    onClick={() => setFullscreenSrc(mediaUrl)}
+                                  >
+                                    <img
+                                      src={mediaUrl}
+                                      alt={mediaFileName}
+                                      className="max-h-64 w-auto object-contain mx-auto transition-transform group-hover:scale-[1.02]"
+                                      loading="lazy"
+                                    />
+                                    <div className="px-2.5 py-1.5 bg-muted/50 border-t border-border/40 text-[11px] font-medium text-muted-foreground truncate">
+                                      {mediaFileName}
+                                    </div>
+                                  </div>
+                                  {captionText && (
+                                    <p className="whitespace-pre-wrap leading-relaxed">{captionText}</p>
+                                  )}
+                                </div>
+                              );
+                            }
+                            return rawText ? (
+                              <p className="whitespace-pre-wrap leading-relaxed">{rawText}</p>
+                            ) : null;
+                          })()}
                           {msg.blocks
                             ?.filter(
                               (block) =>

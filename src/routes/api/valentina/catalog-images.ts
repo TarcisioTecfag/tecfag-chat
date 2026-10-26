@@ -40,7 +40,7 @@ function normalizeForSearch(str: string): string {
     .trim();
 }
 
-function extractSkuOrModel(fileName: string): { displayName: string; sku: string } {
+export function extractSkuOrModel(fileName: string): { displayName: string; sku: string } {
   const displayName = fileName.replace(/\.(jpg|jpeg|png|webp|gif)$/i, "").trim();
 
   // 1. Padrão numérico entre colchetes ou no início (ex: "[180013] Válvula...")
@@ -49,16 +49,47 @@ function extractSkuOrModel(fileName: string): { displayName: string; sku: string
     return { displayName, sku: numericSkuMatch[1] };
   }
 
-  // 2. Padrão de código/modelo de máquina Tecfag após " - " (ex: "Seladora Contínua - FR900", "Arqueadora - AP8060C")
-  const dashParts = displayName.split(/\s+-\s+/);
+  // 2. Padrão de código/modelo de máquina Tecfag após " - " ou " – " (ex: "Seladora Contínua - FR900", "Seladora de Pedal – FRP1000")
+  const dashParts = displayName.split(/\s+[-–—]\s+/);
   if (dashParts.length >= 2) {
-    const candidate = dashParts[dashParts.length - 1].trim();
+    let candidate = dashParts[dashParts.length - 1].trim();
+    if (
+      /^(?:inox|pl[aá]stico|bivolt|220v|380v|manual|autom[aá]tica)$/i.test(candidate) &&
+      dashParts.length >= 3
+    ) {
+      candidate = dashParts[dashParts.length - 2].trim();
+    }
+    candidate = candidate.replace(/^(?:modelo|linha)\s+/i, "").trim();
     if (
       candidate.length >= 2 &&
-      candidate.length <= 22 &&
-      (/\d/.test(candidate) || /^[A-Z0-9\s./-]{2,14}$/.test(candidate))
+      candidate.length <= 26 &&
+      (/\d/.test(candidate) || /^[A-Z0-9\s.+/-]{2,18}$/.test(candidate) || /^(?:Pratic\s+Seal|Luxury)$/i.test(candidate))
     ) {
       return { displayName, sku: candidate };
+    }
+    const firstCode = dashParts[0].match(/\b([A-Z]{2,5}\s?\d{1,4}[A-Z0-9-]*)\b/);
+    if (firstCode) {
+      return { displayName, sku: firstCode[1].trim() };
+    }
+  }
+
+  // 3. Séries nomeadas ou código alfanumérico no final do nome sem travessão (ex: "Envasadora de Pós VSF-30S", "Genius 12", "SPG-6050")
+  if (!/\bpara\s+[A-Z0-9-]+$/i.test(displayName)) {
+    const seriesMatch = displayName.match(
+      /\b((?:Genius|Fusion|Diamond(?:\s+Flow|\s+Plus)?|Exacta|Union(?:\s+Plus(?:\s+II)?|\s+Pro|\s+Advance)?|Sensation\s+Line|Solutions(?:\s+Plus)?|Cipher)\s*[-_]?\s*[A-Za-z0-9]*(?:[-_\s][A-Za-z0-9]+)?)$/i
+    );
+    if (seriesMatch && seriesMatch[1].trim().length >= 3) {
+      return { displayName, sku: seriesMatch[1].trim() };
+    }
+    const tailCode = displayName.match(
+      /\b([A-Z]{1,7}(?:[-_\s]?\d{1,5})(?:[-_\s]?[A-Z0-9]{1,5})*)$/
+    );
+    if (tailCode && !/^(?:INOX\s*304|\d+\s*(?:ML|CM|M|L|KG|W|BICOS|CABECAS))$/i.test(tailCode[1].trim())) {
+      return { displayName, sku: tailCode[1].trim() };
+    }
+    const endUpper = displayName.match(/\s([A-Z]{3,6})$/);
+    if (endUpper && !/^(?:INOX|MANUAL|VACUO|VÁCUO)$/i.test(endUpper[1])) {
+      return { displayName, sku: endUpper[1].trim() };
     }
   }
 

@@ -35,12 +35,39 @@ interface IndexedKnowledgeDoc {
   normalizedContent: string;
 }
 
+export interface MatchedCatalogPhoto {
+  fileId: string;
+  name: string;
+  displayName: string;
+  modelCode: string;
+  compactModel: string;
+  rawImageUrl: string;
+  mediaUrl: string;
+  category: string;
+  photoKey: string;
+}
+
+interface IndexedCatalogPhotoItem {
+  id: string;
+  name: string;
+  displayName: string;
+  normalizedDisplayName: string;
+  sku: string;
+  compactModel: string;
+  category: string;
+  mediaUrl: string;
+  rawImageUrl: string;
+  photoKey: string;
+  isAccessoryForOtherModel: boolean;
+  modelRegex: RegExp | null;
+}
+
 // Cache leve em memória para evitar re-leitura repetitiva a cada mensagem da IA (TTL: 60s)
 interface CachedKnowledgeData {
   timestamp: number;
   totalActiveChars: number;
   indexedDocs: IndexedKnowledgeDoc[];
-  realMediaItems: Array<{ id: string; name: string; sku: string; category: string; mediaUrl: string }>;
+  realMediaItems: IndexedCatalogPhotoItem[];
 }
 const knowledgeCacheByTenant = new Map<string, CachedKnowledgeData>();
 const KNOWLEDGE_CACHE_TTL_MS = 60_000;
@@ -48,8 +75,10 @@ const KNOWLEDGE_CACHE_TTL_MS = 60_000;
 export function invalidateKnowledgeCache(tenantId?: string) {
   if (tenantId) {
     knowledgeCacheByTenant.delete(tenantId);
+    fastPhotoCacheByTenant.delete(tenantId);
   } else {
     knowledgeCacheByTenant.clear();
+    fastPhotoCacheByTenant.clear();
   }
 }
 
@@ -691,26 +720,25 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
         }
       }
 
-      const seenSkus = new Set<string>();
+      const seenPhotoKeys = new Set<string>();
       const realMediaItems: CachedKnowledgeData["realMediaItems"] = [];
 
       for (const f of files) {
-        if (f.format !== "real" || !f.content) continue;
+        const isImageFile =
+          f.format === "real" ||
+          f.type === "image" ||
+          /\.(jpg|jpeg|png|webp|gif)$/i.test(f.name || "");
+        if (!isImageFile) continue;
         const contentPrefix = (f.content || "").split("[BASE64:")[0];
         const match = contentPrefix.match(REAL_MEDIA_PATTERN);
-        if (!match) continue;
-        const skuMatch = f.name.match(/^\[?(\d{5,})\]?/);
-        const sku = skuMatch ? skuMatch[1] : f.name;
-        if (seenSkus.has(sku)) continue;
-        seenSkus.add(sku);
+        const extFromName = (f.name.split(".").pop() || "jpg").toLowerCase();
+        const mediaUrl = match ? match[1] : `/knowledge-media/${f.id}.${extFromName}`;
         const category = f.folderId ? folderMap.get(f.folderId) || "Geral" : "Geral";
-        realMediaItems.push({
-          id: f.id,
-          name: f.name,
-          sku,
-          category,
-          mediaUrl: match[1],
-        });
+        const indexedPhoto = buildIndexedCatalogPhotoItem(f.id, f.name, category, mediaUrl);
+        const dedupKey = indexedPhoto.compactModel || indexedPhoto.normalizedDisplayName || f.id;
+        if (seenPhotoKeys.has(dedupKey)) continue;
+        seenPhotoKeys.add(dedupKey);
+        realMediaItems.push(indexedPhoto);
       }
 
       cached = {
@@ -740,7 +768,7 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
       } else {
         // Base extensa (ex: Tecfag com 210 manuais técnicos = 5,74 MB):
         // Ranqueia por código de máquina, título e conteúdo para injetar os manuais exatos da pergunta!
-        const rawQuery = (queryHint || "").trim();
+        const rawQuery = expandInternalCatalogCodesInText((queryHint || "").trim());
         const normQuery = normalizeSearchText(rawQuery);
         const compactQuery = normQuery.replace(/[^a-z0-9]/g, "");
 
@@ -860,18 +888,24 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
     let selectedPhotos = cached.realMediaItems;
     if (selectedPhotos.length > MAX_PROMPT_PHOTOS) {
       if (queryHint && queryHint.trim().length >= 2) {
-        const terms = normalizeSearchText(queryHint)
+        const expandedHint = expandInternalCatalogCodesInText(queryHint);
+        const normHint = normalizeSearchText(expandedHint);
+        const compactHint = normHint.replace(/[^a-z0-9]/g, "");
+        const terms = normHint
           .split(/[^a-z0-9]+/)
           .filter((t) => t.length >= 2 && !RAG_STOPWORDS.has(t));
-        if (terms.length > 0) {
+        if (terms.length > 0 || compactHint.length >= 3) {
           const scored = selectedPhotos
             .map((item) => {
               const target = normalizeSearchText(`${item.name} ${item.category} ${item.sku}`);
               const compactTarget = target.replace(/[^a-z0-9]/g, "");
               let score = 0;
+              if (item.compactModel && item.compactModel.length >= 3 && compactHint.includes(item.compactModel)) {
+                score += 100;
+              }
               for (const term of terms) {
                 if (target.includes(term) || compactTarget.includes(term)) {
-                  score += /\d/.test(term) ? 3 : 1;
+                  score += /\d/.test(term) ? 5 : 1;
                 }
               }
               return { item, score };
@@ -890,7 +924,9 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
       }
     }
 
-    const realMediaLines = selectedPhotos.map((item) => `  - "${item.name}" → URL: ${item.mediaUrl}`);
+    const realMediaLines = selectedPhotos.map(
+      (item) => `  - "${item.name}"${item.sku ? ` [Modelo: ${item.sku}]` : ""} → URL: ${item.mediaUrl}`
+    );
 
     const realMediaSection =
       realMediaLines.length > 0
@@ -917,3 +953,498 @@ DIRETRIZ CRÍTICA DE USO DA BASE DE CONHECIMENTO:
     return `\n\n📚 BASE DE CONHECIMENTO (${persona.company}):\n${corePolicies}`;
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 📸 PAREAMENTO AUTOMÁTICO E SOB DEMANDA DE FOTOS DO CATÁLOGO / BASE DE CONHECIMENTO
+// ══════════════════════════════════════════════════════════════════════════════
+
+let cachedInternalCodeToModelMap: Map<string, string> | null = null;
+
+function getInternalCodeToModelMap(): Map<string, string> {
+  if (cachedInternalCodeToModelMap) return cachedInternalCodeToModelMap;
+  const map = new Map<string, string>();
+  const catalog = (defaultTecfagCatalog as CatalogEntry[]) || [];
+  for (const item of catalog) {
+    if (!item || item.active === false) continue;
+    const rawCode = (item.code || "").trim();
+    const rawName = (item.name || "").trim();
+    if (!rawCode || !rawName) continue;
+    const normCode = normalizeSearchText(rawCode).replace(/[^a-z0-9]/g, "");
+    if (normCode.length < 4) continue;
+    const modelPrefix = rawName.split(/\s+[-–—]\s+/)[0]?.trim() || "";
+    if (modelPrefix && modelPrefix.length >= 2 && modelPrefix.length <= 28) {
+      map.set(normCode, modelPrefix);
+    }
+  }
+  cachedInternalCodeToModelMap = map;
+  return map;
+}
+
+function expandInternalCatalogCodesInText(text: string): string {
+  if (!text) return "";
+  const codeMap = getInternalCodeToModelMap();
+  if (codeMap.size === 0) return text;
+  const tokens = normalizeSearchText(text).match(/\b[a-z]{2,6}\d{2,6}[a-z0-9]*\b/g) || [];
+  const additions: string[] = [];
+  for (const tk of tokens) {
+    const cleanTk = tk.replace(/[^a-z0-9]/g, "");
+    const mappedModel = codeMap.get(cleanTk);
+    if (mappedModel && !additions.includes(mappedModel)) {
+      additions.push(mappedModel);
+    }
+  }
+  return additions.length > 0 ? `${text} ${additions.join(" ")}` : text;
+}
+
+function escapeRegexLiteral(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function extractPhotoModelMetadata(fileName: string): {
+  displayName: string;
+  primaryModel: string;
+  compactModel: string;
+  isAccessoryForOtherModel: boolean;
+} {
+  const displayName = (fileName || "").replace(/\.(jpg|jpeg|png|webp|gif)$/i, "").trim();
+  const isAccessoryForOtherModel = /\bpara\s+[A-Z0-9-]+$/i.test(displayName);
+
+  // 1. SKU numérico entre colchetes ou no início
+  const numericSkuMatch = displayName.match(/^\[?(\d{4,8})\]?/);
+  if (numericSkuMatch) {
+    const primaryModel = numericSkuMatch[1];
+    return {
+      displayName,
+      primaryModel,
+      compactModel: primaryModel.toLowerCase(),
+      isAccessoryForOtherModel,
+    };
+  }
+
+  // 2. Separador com hífen ou travessão (" - " ou " – ")
+  const dashParts = displayName.split(/\s+[-–—]\s+/);
+  if (dashParts.length >= 2) {
+    let candidate = dashParts[dashParts.length - 1].trim();
+    if (
+      /^(?:inox|pl[aá]stico|bivolt|220v|380v|manual|autom[aá]tica)$/i.test(candidate) &&
+      dashParts.length >= 3
+    ) {
+      candidate = dashParts[dashParts.length - 2].trim();
+    }
+    candidate = candidate.replace(/^(?:modelo|linha)\s+/i, "").trim();
+    if (
+      candidate.length >= 2 &&
+      candidate.length <= 26 &&
+      (/\d/.test(candidate) ||
+        /^[A-Z0-9\s.+/-]{2,18}$/.test(candidate) ||
+        /^(?:Pratic\s+Seal|Luxury)$/i.test(candidate))
+    ) {
+      return {
+        displayName,
+        primaryModel: candidate,
+        compactModel: normalizeSearchText(candidate).replace(/[^a-z0-9+]/g, ""),
+        isAccessoryForOtherModel,
+      };
+    }
+    const firstCode = dashParts[0].match(/\b([A-Z]{2,5}\s?\d{1,4}[A-Z0-9-]*)\b/);
+    if (firstCode) {
+      const primaryModel = firstCode[1].trim();
+      return {
+        displayName,
+        primaryModel,
+        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        isAccessoryForOtherModel,
+      };
+    }
+  }
+
+  // 3. Séries nomeadas ou código alfanumérico no final do nome sem travessão (ex: "Envasadora de Pós VSF-30S", "Genius 12", "SPG-6050", "Empacotadora Cipher 420 com Balança Multicabeças")
+  if (!isAccessoryForOtherModel) {
+    const seriesMatch = displayName.match(
+      /\b((?:Genius|Fusion|Diamond(?:\s+Flow|\s+Plus)?|Exacta|Union(?:\s+Plus(?:\s+II)?|\s+Pro|\s+Advance)?|Sensation\s+Line|Solutions(?:\s+Plus)?|Cipher)\s*[-_]?\s*[A-Za-z0-9]*(?:[-_\s][A-Za-z0-9]+)?)$/i
+    );
+    if (seriesMatch && seriesMatch[1].trim().length >= 3) {
+      const primaryModel = seriesMatch[1].trim();
+      return {
+        displayName,
+        primaryModel,
+        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        isAccessoryForOtherModel,
+      };
+    }
+
+    const embeddedCipherOrSeries = displayName.match(
+      /\b((?:Cipher|Genius|Fusion|Exacta)\s*[-_]?\s*\d{1,4}[A-Za-z0-9-]*)\b/i
+    );
+    if (embeddedCipherOrSeries) {
+      const primaryModel = embeddedCipherOrSeries[1].trim();
+      return {
+        displayName,
+        primaryModel,
+        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        isAccessoryForOtherModel,
+      };
+    }
+
+    const tailCode = displayName.match(
+      /\b([A-Z]{1,7}(?:[-_\s]?\d{1,5})(?:[-_\s]?[A-Z0-9]{1,5})*)$/
+    );
+    if (
+      tailCode &&
+      !/^(?:INOX\s*304|\d+\s*(?:ML|CM|M|L|KG|W|BICOS|CABECAS))$/i.test(tailCode[1].trim())
+    ) {
+      const primaryModel = tailCode[1].trim();
+      return {
+        displayName,
+        primaryModel,
+        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        isAccessoryForOtherModel,
+      };
+    }
+
+    const endUpper = displayName.match(/\s([A-Z]{3,6})$/);
+    if (endUpper && !/^(?:INOX|MANUAL|VACUO|VÁCUO)$/i.test(endUpper[1])) {
+      const primaryModel = endUpper[1].trim();
+      return {
+        displayName,
+        primaryModel,
+        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        isAccessoryForOtherModel,
+      };
+    }
+  }
+
+  return {
+    displayName,
+    primaryModel: "",
+    compactModel: "",
+    isAccessoryForOtherModel,
+  };
+}
+
+function buildModelBoundaryRegex(primaryModel: string): RegExp | null {
+  const norm = normalizeSearchText(primaryModel);
+  if (!norm || norm.length < 2) return null;
+  // Se for combinação com "+" (ex: "FZL-200S + TDM100S"), exige ambos
+  if (norm.includes("+")) {
+    const parts = norm
+      .split("+")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      const partPatterns = parts.map((p) => {
+        const sub = p.match(/[a-z]+|\d+/g) || [p];
+        return sub.map(escapeRegexLiteral).join("[\\s\\-_/]*");
+      });
+      return new RegExp(
+        `(?:^|[^a-z0-9])(${partPatterns.join("[\\s+\\-_/]+")})(?![a-z0-9])`,
+        "i"
+      );
+    }
+  }
+
+  const subTokens = norm.match(/[a-z]+|\d+/g) || [];
+  if (subTokens.length === 0) return null;
+  const hasDigits = /\d/.test(norm);
+  const body = subTokens.map(escapeRegexLiteral).join("[\\s\\-_/]*");
+
+  // Evita que modelos curtos sem dígito (ex: "VSF", "Union") batam como prefixo de modelos compostos ("VSF-30S", "VSF 2000", "Union Plus")
+  const lookahead = hasDigits
+    ? `(?![a-z0-9]|[\\-_][a-z0-9]|[\\s\\-_]+(?:plus|ii|iii)\\b)`
+    : `(?![a-z0-9]|[\\s\\-_]*\\d|[\\s\\-_]+(?:plus|pro|advance|flow|ii|iii)\\b)`;
+
+  return new RegExp(`(?:^|[^a-z0-9])(${body})${lookahead}`, "i");
+}
+
+function buildIndexedCatalogPhotoItem(
+  id: string,
+  name: string,
+  category: string,
+  mediaUrl: string
+): IndexedCatalogPhotoItem {
+  const { displayName, primaryModel, compactModel, isAccessoryForOtherModel } =
+    extractPhotoModelMetadata(name);
+  const normalizedDisplayName = normalizeSearchText(displayName);
+  const rawImageUrl = `/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(id)}`;
+  const photoKey =
+    compactModel || normalizedDisplayName.replace(/[^a-z0-9]/g, "") || id;
+  const modelRegex = primaryModel ? buildModelBoundaryRegex(primaryModel) : null;
+
+  return {
+    id,
+    name,
+    displayName,
+    normalizedDisplayName,
+    sku: primaryModel,
+    compactModel,
+    category,
+    mediaUrl,
+    rawImageUrl,
+    photoKey,
+    isAccessoryForOtherModel,
+    modelRegex,
+  };
+}
+
+/**
+ * Detecta se a mensagem do usuário é uma solicitação direta de foto/imagem da máquina.
+ * Ex: "me manda uma foto dela", "tem foto?", "mostra uma imagem da vsf 30s", "manda foto".
+ */
+export function isExplicitMachinePhotoRequest(
+  text: string,
+  hasAttachedImage = false
+): boolean {
+  if (hasAttachedImage) return false;
+  const q = normalizeSearchText(text || "");
+  if (!q) return false;
+  return (
+    /\b(?:manda|mandar|mande|envia|enviar|envie|mostra|mostrar|mostre|tem|ter|quero\s+ver|ver|qual|cade|puxa|puxe|separa|separe|consegue|pode|teria)\b[\s\S]{0,42}\b(?:foto|fotos|imagem|imagens|fotografia)\b/i.test(
+      q
+    ) ||
+    /\b(?:foto|fotos|imagem|imagens)\b[\s\S]{0,28}\b(?:dela|dele|dessa|desse|da\s+maquina|do\s+equipamento|do\s+modelo|da\s+[a-z0-9]|do\s+[a-z0-9])/i.test(
+      q
+    ) ||
+    /^(?:me\s+)?(?:uma\s+)?(?:foto|fotos|imagem|imagens)(?:\s+por\s+favor|\?)?$/i.test(
+      q.trim()
+    )
+  );
+}
+
+/**
+ * Localiza na lista indexada de fotos do catálogo quais máquinas foram citadas em `sourceText`,
+ * priorizando modelos mais específicos (longest compactModel match) e consumindo o trecho do texto
+ * para impedir que prefixos curtos (ex: "VSF" ou "FX800") casem dentro de códigos maiores ("VSF-30S", "FX 800 C").
+ */
+function findCatalogPhotosMentionedInText(
+  sourceText: string,
+  allPhotos: IndexedCatalogPhotoItem[]
+): IndexedCatalogPhotoItem[] {
+  if (!sourceText || !sourceText.trim() || allPhotos.length === 0) return [];
+  const expanded = expandInternalCatalogCodesInText(sourceText);
+  const normText = normalizeSearchText(expanded);
+  if (!normText) return [];
+
+  // Ordena pelas fotos com modelo mais específico (maior compactModel) primeiro
+  const photosWithModel = allPhotos
+    .filter((p) => p.modelRegex && p.compactModel.length >= 2 && !p.isAccessoryForOtherModel)
+    .sort((a, b) => b.compactModel.length - a.compactModel.length);
+
+  const consumedSpans: Array<{ start: number; end: number }> = [];
+  const matchedWithPos: Array<{ photo: IndexedCatalogPhotoItem; pos: number }> = [];
+
+  const overlapsConsumed = (start: number, end: number) =>
+    consumedSpans.some((s) => start < s.end && end > s.start);
+
+  for (const photo of photosWithModel) {
+    if (!photo.modelRegex) continue;
+    const globalRegex = new RegExp(photo.modelRegex.source, "gi");
+    let m: RegExpExecArray | null;
+    while ((m = globalRegex.exec(normText)) !== null) {
+      const captured = m[1] || m[0];
+      const matchStart = m.index + (m[0].length - captured.length);
+      const matchEnd = matchStart + captured.length;
+
+      // Verifica se logo após o match há sufixo de modelo com espaço + código (ex: "fx 800 c" quando testando "fx800")
+      if (overlapsConsumed(matchStart, matchEnd)) continue;
+
+      consumedSpans.push({ start: matchStart, end: matchEnd });
+      matchedWithPos.push({ photo, pos: matchStart });
+      break;
+    }
+  }
+
+  // Também verifica match por nome descritivo completo do equipamento (ex: "Alicate para Arqueação Manual", "Esteira Curva")
+  if (matchedWithPos.length === 0) {
+    const byFullName = [...allPhotos]
+      .filter((p) => p.normalizedDisplayName.length >= 12)
+      .sort((a, b) => b.normalizedDisplayName.length - a.normalizedDisplayName.length);
+
+    for (const photo of byFullName) {
+      const idx = normText.indexOf(photo.normalizedDisplayName);
+      if (idx !== -1 && !overlapsConsumed(idx, idx + photo.normalizedDisplayName.length)) {
+        consumedSpans.push({
+          start: idx,
+          end: idx + photo.normalizedDisplayName.length,
+        });
+        matchedWithPos.push({ photo, pos: idx });
+      }
+    }
+  }
+
+  matchedWithPos.sort((a, b) => a.pos - b.pos);
+  return matchedWithPos.map((entry) => entry.photo);
+}
+
+const fastPhotoCacheByTenant = new Map<
+  string,
+  { timestamp: number; items: IndexedCatalogPhotoItem[] }
+>();
+
+async function getIndexedCatalogPhotosFast(tenantId: string): Promise<IndexedCatalogPhotoItem[]> {
+  const fullCached = knowledgeCacheByTenant.get(tenantId);
+  if (fullCached && Date.now() - fullCached.timestamp <= KNOWLEDGE_CACHE_TTL_MS) {
+    return fullCached.realMediaItems;
+  }
+  const fastCached = fastPhotoCacheByTenant.get(tenantId);
+  if (fastCached && Date.now() - fastCached.timestamp <= KNOWLEDGE_CACHE_TTL_MS) {
+    return fastCached.items;
+  }
+  try {
+    const rows = await db
+      .select({
+        id: knowledgeFiles.id,
+        folderId: knowledgeFiles.folderId,
+        name: knowledgeFiles.name,
+        format: knowledgeFiles.format,
+        type: knowledgeFiles.type,
+        content: sql<string>`SUBSTRING(${knowledgeFiles.content} FROM 1 FOR 180)`,
+      })
+      .from(knowledgeFiles)
+      .where(eq(knowledgeFiles.tenantId, tenantId));
+
+    const folders = await db
+      .select({ id: knowledgeFolders.id, name: knowledgeFolders.name })
+      .from(knowledgeFolders)
+      .where(eq(knowledgeFolders.tenantId, tenantId));
+
+    const folderMap = new Map<string, string>();
+    folders.forEach((f) => folderMap.set(f.id, f.name));
+
+    const seenKeys = new Set<string>();
+    const items: IndexedCatalogPhotoItem[] = [];
+    for (const f of rows) {
+      const isImageFile =
+        f.format === "real" ||
+        f.type === "image" ||
+        /\.(jpg|jpeg|png|webp|gif)$/i.test(f.name || "");
+      if (!isImageFile) continue;
+      const contentPrefix = (f.content || "").split("[BASE64:")[0];
+      const match = contentPrefix.match(REAL_MEDIA_PATTERN);
+      const extFromName = (f.name.split(".").pop() || "jpg").toLowerCase();
+      const mediaUrl = match ? match[1] : `/knowledge-media/${f.id}.${extFromName}`;
+      const category = f.folderId ? folderMap.get(f.folderId) || "Geral" : "Geral";
+      const indexed = buildIndexedCatalogPhotoItem(f.id, f.name, category, mediaUrl);
+      const dedupKey = indexed.compactModel || indexed.normalizedDisplayName || f.id;
+      if (seenKeys.has(dedupKey)) continue;
+      seenKeys.add(dedupKey);
+      items.push(indexed);
+    }
+    fastPhotoCacheByTenant.set(tenantId, { timestamp: Date.now(), items });
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve as fotos cadastradas no Catálogo / Base de Conhecimento para envio pelo Fagner:
+ * - Modo Proativo ("de prontidão"): Pareia o modelo/nome da máquina consultada ou explicada e retorna a foto
+ *   SE E SOMENTE SE ela ainda não tiver sido enviada na janela atual de 24h (`alreadySentPhotoKeysInWindow`).
+ *   Outras máquinas que ainda não foram enviadas na janela continuam liberadas normalmente.
+ * - Modo Sob Solicitação (`isExplicitPhotoRequest = true`): Quando o próprio usuário pede a foto diretamente
+ *   (ex: "me manda uma foto dela"), ignora o bloqueio de repetição e busca na pergunta atual ou no turno mais recente da conversa.
+ */
+export async function resolveMatchingCatalogPhotos(params: {
+  tenantId: string;
+  userQuery?: string;
+  attachedFileName?: string;
+  aiReplyText?: string;
+  recentHistoryMessages?: string[];
+  isExplicitPhotoRequest?: boolean;
+  alreadySentPhotoKeysInWindow?: Set<string> | string[];
+  maxPhotos?: number;
+}): Promise<MatchedCatalogPhoto[]> {
+  const {
+    tenantId,
+    userQuery = "",
+    attachedFileName = "",
+    aiReplyText = "",
+    recentHistoryMessages = [],
+    isExplicitPhotoRequest = false,
+    alreadySentPhotoKeysInWindow,
+    maxPhotos = 1,
+  } = params;
+
+  if (!tenantId) return [];
+
+  const allPhotos = await getIndexedCatalogPhotosFast(tenantId);
+  if (allPhotos.length === 0) return [];
+
+  const sentSet = new Set<string>();
+  if (alreadySentPhotoKeysInWindow) {
+    const items = Array.isArray(alreadySentPhotoKeysInWindow)
+      ? alreadySentPhotoKeysInWindow
+      : Array.from(alreadySentPhotoKeysInWindow);
+    for (const k of items) {
+      if (!k) continue;
+      const clean = normalizeSearchText(String(k)).replace(/[^a-z0-9]/g, "");
+      if (clean) sentSet.add(clean);
+      sentSet.add(String(k).trim());
+    }
+  }
+
+  const isAlreadySent = (photo: IndexedCatalogPhotoItem): boolean => {
+    if (sentSet.size === 0) return false;
+    if (sentSet.has(photo.id) || sentSet.has(photo.photoKey)) return true;
+    if (photo.compactModel && sentSet.has(photo.compactModel)) return true;
+    const normFile = normalizeSearchText(photo.displayName).replace(/[^a-z0-9]/g, "");
+    if (normFile && sentSet.has(normFile)) return true;
+    return false;
+  };
+
+  let candidates: IndexedCatalogPhotoItem[] = [];
+
+  // 1. Prioridade 1: Máquina citada diretamente na pergunta atual ou no nome do arquivo anexado (ex: "vsf 30s" ou "[PAMQGPAU036] VSF-30S - MANUAL.pdf")
+  const currentTurnInput = [userQuery, attachedFileName].filter(Boolean).join(" ");
+  if (currentTurnInput.trim()) {
+    candidates = findCatalogPhotosMentionedInText(currentTurnInput, allPhotos);
+  }
+
+  // 2. Prioridade 2 (Quando o usuário pediu foto tipo "me manda uma foto dela" sem repetir o código):
+  // Busca na mensagem mais recente do histórico que mencione um modelo de máquina (do turno mais recente para trás!)
+  if (candidates.length === 0 && isExplicitPhotoRequest && recentHistoryMessages.length > 0) {
+    for (const histMsg of recentHistoryMessages) {
+      const foundInTurn = findCatalogPhotosMentionedInText(histMsg, allPhotos);
+      if (foundInTurn.length > 0) {
+        candidates = [foundInTurn[0]];
+        break;
+      }
+    }
+  }
+
+  // 3. Prioridade 3: Máquina apresentada/explicada na própria resposta atual do Fagner
+  if (candidates.length === 0 && aiReplyText.trim()) {
+    candidates = findCatalogPhotosMentionedInText(aiReplyText, allPhotos);
+  }
+
+  if (candidates.length === 0) return [];
+
+  // Aplica a regra de controle anti-repetição:
+  // Se NÃO for pedido explícito do usuário (envio proativo "de prontidão"),
+  // bloqueia fotos que já foram enviadas nesta janela de 24h, permitindo apenas máquinas ainda não enviadas.
+  const filtered = isExplicitPhotoRequest
+    ? candidates
+    : candidates.filter((photo) => !isAlreadySent(photo));
+
+  const seenIds = new Set<string>();
+  const result: MatchedCatalogPhoto[] = [];
+  for (const photo of filtered) {
+    if (seenIds.has(photo.id)) continue;
+    seenIds.add(photo.id);
+    result.push({
+      fileId: photo.id,
+      name: photo.name,
+      displayName: photo.displayName,
+      modelCode: photo.sku || photo.displayName,
+      compactModel: photo.compactModel,
+      rawImageUrl: photo.rawImageUrl,
+      mediaUrl: photo.mediaUrl,
+      category: photo.category,
+      photoKey: photo.photoKey,
+    });
+    if (result.length >= maxPhotos) break;
+  }
+
+  return result;
+}
+
