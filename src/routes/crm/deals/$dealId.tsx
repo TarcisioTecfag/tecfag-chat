@@ -118,7 +118,7 @@ function DealPage() {
 
   if (!sessionChecked && !isAuthenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="fixed inset-0 flex h-full w-full items-center justify-center bg-background">
         <Loader2 className="h-7 w-7 animate-spin text-primary" />
       </div>
     );
@@ -127,7 +127,7 @@ function DealPage() {
   if (!authorized && !isAuthenticated) return <Login />;
 
   return (
-    <main className="crm-deal-route h-screen overflow-hidden bg-background" style={themeStyles}>
+    <main className="crm-deal-route fixed inset-0 h-full w-full overflow-hidden bg-background" style={themeStyles}>
       <DealDetailModal
         isOpen
         dealId={dealId}

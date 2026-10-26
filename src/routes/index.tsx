@@ -168,7 +168,7 @@ export function Index() {
   ]);
 
   if (!isMounted || isRestoringSession) {
-    return <div className="flex min-h-screen items-center justify-center bg-background text-primary"><Loader2 className="h-7 w-7 animate-spin" aria-label="Abrindo atendimento" /></div>;
+    return <div className="fixed inset-0 flex h-full w-full items-center justify-center bg-background text-primary"><Loader2 className="h-7 w-7 animate-spin" aria-label="Abrindo atendimento" /></div>;
   }
 
   if (!isAuthenticated) {
@@ -188,7 +188,7 @@ export function Index() {
 
   if (isMobile) {
     return (
-      <div className="min-h-screen bg-background" style={themeStyles}>
+      <div className="fixed inset-0 h-full w-full bg-background overflow-hidden" style={themeStyles}>
         <MobileLayout />
         <AnimatePresence>
           {isProfileModalOpen && <ProfileModal />}
@@ -266,7 +266,7 @@ export function Index() {
   };
 
   return (
-    <div className="fixed inset-0 h-screen h-[100dvh] w-screen overflow-hidden bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
+    <div className="fixed inset-0 h-full w-full overflow-hidden bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
       <div className={`flex h-full w-full gap-3 md:gap-5 ${activeView === "crm" ? "pl-3 pt-3 md:pl-5 md:pt-5 pb-0 pr-0" : "p-3 md:p-5"} overflow-hidden`}>
         <Sidebar />
         <div className="flex flex-1 h-full overflow-hidden relative">

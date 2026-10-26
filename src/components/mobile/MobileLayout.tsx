@@ -45,7 +45,7 @@ export const MobileLayout: React.FC = () => {
     : `view-${activeView}`;
 
   return (
-    <div className="flex flex-col h-[100dvh] max-h-[100dvh] w-full max-w-[100vw] bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-hidden touch-manipulation">
+    <div className="flex flex-col h-full max-h-full w-full max-w-full bg-background text-foreground font-sans selection:bg-primary/20 relative overflow-hidden touch-manipulation">
       {/* O menu de cima (MobileHeader) SÓ APARECE no mobile quando estivermos DENTRO de um chat */}
       <AnimatePresence mode="wait">
         {isInsideChat && (

@@ -85,7 +85,7 @@ export function Login() {
 
   return (
     <div
-      className="min-h-[100dvh] w-full bg-slate-950 md:bg-background flex flex-col md:grid md:grid-cols-5 text-foreground transition-all duration-500 select-none font-sans overflow-y-auto md:overflow-hidden"
+      className="fixed inset-0 h-full w-full bg-slate-950 md:bg-background flex flex-col md:grid md:grid-cols-5 text-foreground transition-all duration-500 select-none font-sans overflow-y-auto md:overflow-hidden"
       style={themeStyles}
     >
       {/* PAINEL DA ESQUERDA / TOPO MOBILE: Espaço para Foto & Citação */}
@@ -94,7 +94,7 @@ export function Login() {
         transition={panelTransition}
         className={`relative flex flex-col justify-between p-6 md:p-12 overflow-hidden bg-slate-950 text-white ${
           isValem ? "order-1 md:order-2" : "order-1 md:order-1"
-        } md:col-span-2 h-[36vh] min-h-[250px] max-h-[320px] md:h-auto md:min-h-screen md:max-h-none`}
+        } md:col-span-2 h-[36vh] min-h-[250px] max-h-[320px] md:h-full md:min-h-full md:max-h-none`}
       >
         {/* Fundo com a foto do Tecfag */}
         <div 
@@ -167,7 +167,7 @@ export function Login() {
         transition={panelTransition}
         className={`bg-card text-foreground ${
           isValem ? "order-2 md:order-1" : "order-2 md:order-2"
-        } md:col-span-3 flex flex-col items-center justify-center p-6 sm:p-12 md:p-20 relative z-10 -mt-8 md:mt-0 rounded-t-[32px] md:rounded-none shadow-[0_-12px_40px_rgba(0,0,0,0.15)] md:shadow-none flex-1 min-h-fit md:min-h-screen border-l border-border`}
+        } md:col-span-3 flex flex-col items-center justify-center p-6 sm:p-12 md:p-20 relative z-10 -mt-8 md:mt-0 rounded-t-[32px] md:rounded-none shadow-[0_-12px_40px_rgba(0,0,0,0.15)] md:shadow-none flex-1 min-h-fit md:h-full md:min-h-full border-l border-border`}
       >
         <motion.div
           initial={{ opacity: 0, y: 20 }}

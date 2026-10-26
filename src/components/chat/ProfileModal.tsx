@@ -607,14 +607,14 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                   Densidade da Tela
                 </label>
                 <span className="text-[10px] font-mono text-muted-foreground font-semibold">
-                  {density === "auto" ? "Notebook 75% Auto" : `${density}%`}
+                  {density === "auto" ? "Padrão 100% (Auto)" : `${density}%`}
                 </span>
               </div>
               <div className="grid grid-cols-4 gap-1 bg-muted/40 p-1 rounded-xl border border-border/40">
                 <button
                   type="button"
                   onClick={() => setDensity("auto")}
-                  title="Detecta telas de notebook automaticamente (75%) e monitores (100%)"
+                  title="Escala nativa automática da tela (100% sem zoom CSS forçado)"
                   className={`flex h-7 items-center justify-center gap-1 rounded-lg text-[11px] transition cursor-pointer ${
                     density === "auto"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
@@ -627,7 +627,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <button
                   type="button"
                   onClick={() => setDensity("75")}
-                  title="Proporção compacta 75% (ideal para notebook com espaço máximo)"
+                  title="Proporção compacta 75% (ideal para exibir mais colunas e itens na tela)"
                   className={`flex h-7 items-center justify-center rounded-lg text-[11px] transition cursor-pointer ${
                     density === "75"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
@@ -651,7 +651,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <button
                   type="button"
                   onClick={() => setDensity("100")}
-                  title="Escala padrão sem zoom (100% para monitores grandes)"
+                  title="Escala padrão sem zoom (100%)"
                   className={`flex h-7 items-center justify-center rounded-lg text-[11px] transition cursor-pointer ${
                     density === "100"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
@@ -662,7 +662,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 </button>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Recomendamos <strong>Auto</strong> ou <strong>75%</strong> para notebooks corporativos, aumentando a área visível do CRM e chat.
+                O modo <strong>Auto</strong> mantém a proporção nativa (100%) em qualquer computador ou notebook. Se preferir ver mais colunas, selecione <strong>85%</strong> ou <strong>75%</strong>.
               </p>
             </div>
           </div>
