@@ -71,11 +71,14 @@ export function MessageKnowledgeSourceButton({
   const isHonestUnknown = status === "honest_unknown";
   const isUnverifiedTech = status === "unverified_technical";
 
+  const hoverVisibilityClass = `opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:!opacity-100 ${
+    isExpanded ? "!opacity-100" : ""
+  }`;
+
   const statusConfig = isVerifiedManual
     ? {
         badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300",
-        btnClass:
-          "opacity-90 group-hover:opacity-100 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25",
+        btnClass: `${hoverVisibilityClass} text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25`,
         icon: ShieldCheck,
         title: message.knowledgeSourceStatusLabel || "Fonte Técnica Verificada (Manual / RAG)",
         desc:
@@ -86,8 +89,7 @@ export function MessageKnowledgeSourceButton({
     : isCatalogVerified
     ? {
         badgeBg: "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300",
-        btnClass:
-          "opacity-90 group-hover:opacity-100 text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25",
+        btnClass: `${hoverVisibilityClass} text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25`,
         icon: BookOpen,
         title: message.knowledgeSourceStatusLabel || "Fonte Verificada no Catálogo Oficial",
         desc:
@@ -98,8 +100,7 @@ export function MessageKnowledgeSourceButton({
     : isHonestUnknown
     ? {
         badgeBg: "bg-cyan-500/10 border-cyan-500/30 text-cyan-700 dark:text-cyan-300",
-        btnClass:
-          "opacity-90 group-hover:opacity-100 text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25",
+        btnClass: `${hoverVisibilityClass} text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25`,
         icon: Info,
         title: message.knowledgeSourceStatusLabel || "Sinceridade Técnica (Anti-Alucinação)",
         desc:
@@ -110,8 +111,7 @@ export function MessageKnowledgeSourceButton({
     : isUnverifiedTech
     ? {
         badgeBg: "bg-amber-500/15 border-amber-500/35 text-amber-700 dark:text-amber-300",
-        btnClass:
-          "opacity-95 group-hover:opacity-100 text-amber-600 dark:text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30",
+        btnClass: `${hoverVisibilityClass} text-amber-600 dark:text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30`,
         icon: AlertTriangle,
         title: message.knowledgeSourceStatusLabel || "Atenção: Sem Manual ou Ficha Vinculada",
         desc:
@@ -121,9 +121,7 @@ export function MessageKnowledgeSourceButton({
       }
     : {
         badgeBg: "bg-muted/80 border-border text-muted-foreground",
-        btnClass: `opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground ${
-          isExpanded ? "!opacity-100" : ""
-        }`,
+        btnClass: `${hoverVisibilityClass} hover:bg-muted text-muted-foreground hover:text-foreground`,
         icon: Info,
         title: message.knowledgeSourceStatusLabel || "Interação Operacional / Conversa",
         desc:
@@ -209,11 +207,13 @@ export function MessageKnowledgeSourceButton({
         </PopoverTrigger>
       </SystemTooltip>
       <PopoverContent
-        align="start"
+        align="end"
         side="top"
         sideOffset={8}
+        collisionPadding={16}
+        avoidCollisions={true}
         onClick={(e) => e.stopPropagation()}
-        className="w-[360px] sm:w-[410px] p-0 rounded-2xl border border-border/80 bg-popover/98 backdrop-blur-xl shadow-2xl overflow-hidden z-50"
+        className="w-[360px] sm:w-[400px] max-w-[calc(100vw-32px)] p-0 rounded-2xl border border-border/80 bg-popover/98 backdrop-blur-xl shadow-2xl overflow-hidden z-50"
       >
         {/* Cabeçalho do Inspetor de Fonte */}
         <div className="px-3.5 py-3 border-b border-border/60 bg-muted/30">

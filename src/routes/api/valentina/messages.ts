@@ -459,12 +459,26 @@ async function getOperatorContext(
     );
   const isCallOrPhone =
     /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
-  const hasStrictCrmKeyword =
-    /\b(?:negociac|card|cards|crm|proposta|orcamento|funil|parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|cliente|clientes|empresa|empresas|fechar|venda|vendas|mensur|carteira|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|comprador|sdr|questionario|email|cnpj|cpf)\b/.test(
+  const isWaitingChat =
+    /\b(?:esperando|aguardando|fila|conversa|conversas|chat|whatsapp|responder|atraso|sla|lead|leads|chegaram|chegou|hoje|caixa\s+de\s+entrada)\b/.test(
       q
     );
+  const hasExplicitCrmEntityWord =
+    /\b(?:negociac|card|cards|crm|proposta|orcamento|funil|etapa|carteira|pipeline|venda|vendas|mensur|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|comprador|sdr|questionario|email|cnpj|cpf)\b/.test(
+      q
+    );
+  const isPureWaitingQueueQuery =
+    /\b(?:esperando|aguardando|fila|caixa\s+de\s+entrada|sem\s+resposta)\b/.test(q) &&
+    !hasExplicitCrmEntityWord;
+  const hasStrictCrmKeyword =
+    hasExplicitCrmEntityWord ||
+    (!isPureWaitingQueueQuery &&
+      /\b(?:parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|cliente|clientes|empresa|empresas|fechar)\b/.test(
+        q
+      ));
   const hasBroadCrmModifier =
     !isMachineContext &&
+    !isPureWaitingQueueQuery &&
     /\b(?:valor|outra|outras|outro|outros|lista|listar|liste|todas|todos|quantas|quantos)\b/.test(
       q
     );
@@ -473,13 +487,10 @@ async function getOperatorContext(
   const isDealOrCrm =
     hasExplicitCrmKeyword ||
     (!isMachineContext &&
+      !isPureWaitingQueueQuery &&
       /\b(?:informacao|informacoes|ficha|volume|produto|produtos|arquivo|arquivos)\b/.test(q));
   const isGoalOrMeta = /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
   const isTaskOrAgenda = /\b(?:tarefa|tarefas|agenda|compromisso|reuniao|reunioes|pendente|atrasad|follow)\b/.test(q);
-  const isWaitingChat =
-    /\b(?:esperando|aguardando|fila|conversa|conversas|chat|whatsapp|responder|atraso|sla|lead|leads|chegaram|chegou|hoje)\b/.test(
-      q
-    );
   const isMetricsQuery = /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
   const isKbQuery =
     hasExplicitMachineOrManualKeyword ||
@@ -505,6 +516,9 @@ async function getOperatorContext(
   } else if (isPureKbQuery) {
     taskTitle = "Consultando manuais técnicos e catálogo na Base de Conhecimento (RAG)";
     finishedTitle = "Consulta aos manuais técnicos e catálogo concluída";
+  } else if (isPureWaitingQueueQuery) {
+    taskTitle = "Verificando clientes aguardando resposta na sua fila";
+    finishedTitle = "Inspeção da sua fila de atendimento concluída";
   } else if (isCallOrPhone) {
     taskTitle = "Localizando telefones e preparando ações de ligação";
     finishedTitle = "Telefones e atalhos de discagem localizados";
@@ -528,6 +542,7 @@ async function getOperatorContext(
     (isOverviewOrGeneral || isGoalOrMeta || (!isCallOrPhone && !isWaitingChat && !isTaskOrAgenda && primaryTerms.length === 0));
   const shouldRunDeals =
     !isPureKbQuery &&
+    !isPureWaitingQueueQuery &&
     (isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || (!hasAttachedImage && (primaryTerms.length > 0 || !isWaitingChat)));
   const shouldRunTasks =
     !isPureKbQuery && (isOverviewOrGeneral || isTaskOrAgenda || isCallOrPhone);
@@ -2780,9 +2795,22 @@ function isSpecificEnoughDealPhrase(phraseNorm: string): boolean {
 
 function isSecrecyOrEmptyRefusalReply(fullReplyText: string, ctx: OperatorContextResult | null): boolean {
   if (ctx?.isCasual || ctx?.isThirdPartyBlocked || ctx?.isPureKbQuery) return true;
-  return /sigilo\s+comercial|carteira\s+de\s+outro\s+consultor|outro\s+vendedor|exclusiv[oa]\s+de\s+outro\s+consultor/i.test(
-    fullReplyText || ""
-  );
+  const text = fullReplyText || "";
+  if (
+    /sigilo\s+comercial|carteira\s+de\s+outro\s+consultor|outro\s+vendedor|exclusiv[oa]\s+de\s+outro\s+consultor/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:n[aã]o\s+h[aá]\s+nenhum\s+cliente|nenhum\s+cliente\s+aguardando|caixa\s+de\s+entrada\s+est[aá]\s+em\s+dia|n[aã]o\s+tem\s+nenhum\s+cliente|zero\s+clientes?\s+aguardando|sua\s+fila\s+est[aá]\s+em\s+dia|fila\s+est[aá]\s+zerada|n[aã]o\s+encontrei\s+nenhum[a]?\s+(?:cliente|negocia[cç][aã]o|conversa))\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function resolveRelatedDeals(
@@ -2790,10 +2818,19 @@ function resolveRelatedDeals(
   suggestedCallDealIds: string[],
   fullReplyText: string,
   userText: string,
-  ctx: OperatorContextResult | null
+  ctx: OperatorContextResult | null,
+  operatorName?: string
 ): RelatedDealItem[] {
   if (!ctx || ctx.knownDeals.length === 0) return [];
   if (isSecrecyOrEmptyRefusalReply(fullReplyText, ctx)) return [];
+
+  const hasExplicitCrmListWord =
+    /\b(?:negocia[çc][aã]o|negocia[çc][oõ]es|cards?|crm|carteira|pipeline|funil|etapa|propostas?|or[çc]amentos?)\b/i.test(
+      userText
+    );
+  const asksPureWhatsAppQueue =
+    !hasExplicitCrmListWord &&
+    /\b(?:aguardando|esperando|fila|caixa\s+de\s+entrada|sem\s+resposta)\b/i.test(userText);
 
   const selectedMap = new Map<string, RelatedDealItem>();
   const byId = new Map(ctx.knownDeals.map((d) => [d.dealId, d]));
@@ -2804,6 +2841,25 @@ function resolveRelatedDeals(
     const found = byId.get(cleanId);
     if (found) selectedMap.set(found.dealId, found);
   }
+
+  // Se a pergunta foi puramente sobre a fila de espera do WhatsApp e a IA não citou IDs de negociações, não vasculha o texto para anexar cards de CRM
+  if (asksPureWhatsAppQueue && selectedMap.size === 0) {
+    return [];
+  }
+
+  // Ignora o próprio nome do operador logado (ex: "Tarcisio, dei uma olhada...") para não dar match falso em cards de teste com o nome do vendedor
+  const opFullNorm = normalizeForMatch(operatorName || "");
+  const opFirstNorm = opFullNorm.split(/\s+/)[0] || "";
+  const normUser = normalizeForMatch(userText);
+  const userExplicitlyTypedOpName =
+    Boolean(opFirstNorm && opFirstNorm.length >= 3 && containsWholeNormalizedPhrase(normUser, opFirstNorm));
+
+  const isOperatorSelfNamePhrase = (phraseNorm: string) => {
+    if (!phraseNorm || userExplicitlyTypedOpName) return false;
+    if (opFirstNorm && phraseNorm === opFirstNorm) return true;
+    if (opFullNorm && phraseNorm === opFullNorm) return true;
+    return false;
+  };
 
   // 2. Negociações citadas nominalmente ou por código numérico no texto da resposta da IA
   // Usa fronteira de palavra inteira (\b) e bloqueia termos genéricos de máquinas (como "Envasadora" ou sufixo "dora" dentro de "envasadora")
@@ -2818,9 +2874,13 @@ function resolveRelatedDeals(
     const matchedByCode =
       codeToken.length >= 4 && containsWholeNormalizedPhrase(normReply, codeToken);
     const matchedByTitle =
-      isSpecificEnoughDealPhrase(titleNorm) && containsWholeNormalizedPhrase(normReply, titleNorm);
+      !isOperatorSelfNamePhrase(titleNorm) &&
+      isSpecificEnoughDealPhrase(titleNorm) &&
+      containsWholeNormalizedPhrase(normReply, titleNorm);
     const matchedByCompany =
-      isSpecificEnoughDealPhrase(companyNorm) && containsWholeNormalizedPhrase(normReply, companyNorm);
+      !isOperatorSelfNamePhrase(companyNorm) &&
+      isSpecificEnoughDealPhrase(companyNorm) &&
+      containsWholeNormalizedPhrase(normReply, companyNorm);
 
     if (matchedByCode || matchedByTitle || matchedByCompany) {
       selectedMap.set(deal.dealId, deal);
@@ -2828,10 +2888,6 @@ function resolveRelatedDeals(
   }
 
   // 3. Detecta se o operador pediu listagem completa/ampla ou plural de negociações do CRM
-  const hasExplicitCrmListWord =
-    /\b(?:negocia[çc][aã]o|negocia[çc][oõ]es|cards?|crm|carteira|pipeline|funil|etapa|propostas?|or[çc]amentos?)\b/i.test(
-      userText
-    );
   const isTechnicalMachineReply =
     !hasExplicitCrmListWord &&
     /\b(?:ihm|touch\s+screen|volume\s+de\s+envase|velocidade\s+da\s+esteira|ciclos\s+por\s+minuto|manual\s+t[eé]cnico|segundo\s+o\s+cat[aá]logo|faixa\s+de\s+dosagem|seladora|envasadora|rotuladora|datador|empacotadora|dosadora|encapsuladora|arqueadora|t[uú]nel\s+de\s+encolhimento)\b/i.test(
@@ -2840,6 +2896,7 @@ function resolveRelatedDeals(
 
   const asksFullOrBroadList =
     !isTechnicalMachineReply &&
+    !asksPureWhatsAppQueue &&
     (/\b(?:minhas\s+negocia[çc][oõ]es|meus\s+cards|mensur[aeo]|mensura[çc][aã]o|carteira\s+completa|pipeline\s+completo)\b/i.test(
       userText
     ) ||
@@ -2847,6 +2904,7 @@ function resolveRelatedDeals(
         /\b(?:todas|todos|tudo|lista\s+completa|listar|liste|funil|etapa)\b/i.test(userText)));
   const asksPluralList =
     !isTechnicalMachineReply &&
+    !asksPureWhatsAppQueue &&
     /\b(?:quais|lista|paradas|parados|abertas|abertos|maiores|propostas|or[çc]amentos|negocia[çc][oõ]es)\b/i.test(
       userText
     );
@@ -3038,7 +3096,8 @@ function resolveRelatedConversations(
   fullReplyText: string,
   userText: string,
   ctx: OperatorContextResult | null,
-  relatedDeals: RelatedDealItem[] = []
+  relatedDeals: RelatedDealItem[] = [],
+  operatorName?: string
 ): RelatedConversationItem[] {
   if (!ctx || ctx.knownConversations.length === 0) return [];
   if (isSecrecyOrEmptyRefusalReply(fullReplyText, ctx)) return [];
@@ -3084,13 +3143,21 @@ function resolveRelatedConversations(
     if (found) addConv(found);
   }
 
-  // 2. Nomes de clientes citados nominalmente no texto da resposta da IA
-  const normReply = fullReplyText.toLowerCase();
-  const normUser = userText.toLowerCase();
+  // 2. Nomes de clientes citados nominalmente no texto da resposta da IA (excluindo o próprio nome do operador)
+  const opFullNorm = normalizeForMatch(operatorName || "");
+  const opFirstNorm = opFullNorm.split(/\s+/)[0] || "";
+  const normReply = normalizeForMatch(fullReplyText);
+  const normUser = normalizeForMatch(userText);
+  const userExplicitlyTypedOpName =
+    Boolean(opFirstNorm && opFirstNorm.length >= 3 && containsWholeNormalizedPhrase(normUser, opFirstNorm));
+
   for (const conv of ctx.knownConversations) {
-    const nameClean = (conv.clientName || "").trim().toLowerCase();
-    if (nameClean.length >= 4 && !nameClean.startsWith("cliente ")) {
-      if (normReply.includes(nameClean)) {
+    const nameNorm = normalizeForMatch(conv.clientName || "");
+    if (nameNorm.length >= 4 && !nameNorm.startsWith("cliente ")) {
+      if (!userExplicitlyTypedOpName && (nameNorm === opFirstNorm || nameNorm === opFullNorm)) {
+        continue;
+      }
+      if (containsWholeNormalizedPhrase(normReply, nameNorm)) {
         addConv(conv);
       }
     }
@@ -3114,14 +3181,19 @@ function resolveRelatedConversations(
       `${normUser} ${normReply}`
     );
 
+  const asksWaitingSpecifically =
+    /\b(?:aguardando|esperando|sem\s+resposta|atraso|atrasad|sla|sobrecarga)\b/i.test(normUser);
+
   const asksWhatsAppQueue =
-    /\b(?:conversa|conversas|atendimento|atendimentos|aguardando|esperando|fila|sobrecarga)\b/i.test(
-      normUser
-    );
+    asksWaitingSpecifically ||
+    /\b(?:conversa|conversas|atendimento|atendimentos|fila)\b/i.test(normUser);
 
   if (!isCrmFocused && asksWhatsAppQueue && selectedMap.size === 0) {
-    const pool =
-      ctx.waitingConversations.length > 0 ? ctx.waitingConversations : ctx.knownConversations;
+    const pool = asksWaitingSpecifically
+      ? ctx.waitingConversations
+      : ctx.waitingConversations.length > 0
+      ? ctx.waitingConversations
+      : ctx.knownConversations;
     for (const c of pool.slice(0, 3)) {
       addConv(c);
     }
@@ -3824,6 +3896,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
             const finalSorted = sortedChronological.filter((r) => !orphanObjectRowIds.has(r.id));
             let lastSeenUserQuery = "";
+            const metaRepairs: Array<{ id: string; metadata: Record<string, any> }> = [];
             for (const row of finalSorted) {
               if (row.direction === "to_agent") {
                 if (typeof row.content === "string" && row.content.trim()) {
@@ -3832,30 +3905,80 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 continue;
               }
               const rMeta = parseMetaObj(row.metadata);
-              if (rMeta.type === "sla_alert" || rMeta.type === "no_response" || rMeta.type === "operator_overload" || rMeta.type === "new_lead") {
+              if (
+                rMeta.type === "sla_alert" ||
+                rMeta.type === "no_response" ||
+                rMeta.type === "operator_overload" ||
+                rMeta.type === "new_lead"
+              ) {
                 continue;
               }
-              if (!Array.isArray(rMeta.knowledgeSources) || !rMeta.knowledgeSourceStatus) {
+
+              const effectiveUserQuery = rMeta.userQuery || lastSeenUserQuery;
+              let metaChanged = false;
+              const nextMeta: Record<string, any> = { ...rMeta };
+
+              // Auto-reparo: se a resposta afirma explicitamente que não há nenhum cliente aguardando / caixa em dia, limpa cards vazados
+              if (
+                isSecrecyOrEmptyRefusalReply(row.content || "", null) &&
+                ((Array.isArray(nextMeta.relatedDeals) && nextMeta.relatedDeals.length > 0) ||
+                  (Array.isArray(nextMeta.relatedConversations) && nextMeta.relatedConversations.length > 0) ||
+                  (Array.isArray(nextMeta.relatedCalls) && nextMeta.relatedCalls.length > 0))
+              ) {
+                delete nextMeta.relatedDeals;
+                delete nextMeta.relatedConversations;
+                delete nextMeta.relatedCalls;
+                metaChanged = true;
+              }
+
+              const hasStoredManualOrCatalog =
+                Array.isArray(nextMeta.knowledgeSources) &&
+                nextMeta.knowledgeSources.some(
+                  (s: any) => s?.kind === "manual" || s?.kind === "document" || s?.kind === "catalog"
+                );
+
+              if (!Array.isArray(nextMeta.knowledgeSources) || !nextMeta.knowledgeSourceStatus || hasStoredManualOrCatalog) {
                 const resolvedSources = await resolveKnowledgeSourcesForMessage({
                   tenantId,
-                  userQuery: rMeta.userQuery || lastSeenUserQuery,
+                  userQuery: effectiveUserQuery,
                   aiReplyText: row.content || "",
-                  catalogPhoto: rMeta.catalogPhoto || null,
+                  catalogPhoto: nextMeta.catalogPhoto || null,
                   hasCrmContext: Boolean(
-                    (Array.isArray(rMeta.relatedConversations) && rMeta.relatedConversations.length > 0) ||
-                      (Array.isArray(rMeta.relatedDeals) && rMeta.relatedDeals.length > 0) ||
-                      (Array.isArray(rMeta.relatedCalls) && rMeta.relatedCalls.length > 0)
+                    (Array.isArray(nextMeta.relatedConversations) && nextMeta.relatedConversations.length > 0) ||
+                      (Array.isArray(nextMeta.relatedDeals) && nextMeta.relatedDeals.length > 0) ||
+                      (Array.isArray(nextMeta.relatedCalls) && nextMeta.relatedCalls.length > 0)
                   ),
                 });
-                row.metadata = {
-                  ...rMeta,
-                  knowledgeSources: resolvedSources.sources,
-                  knowledgeSourceStatus: resolvedSources.status,
-                  knowledgeSourceStatusLabel: resolvedSources.statusLabel,
-                  knowledgeSourceStatusDescription: resolvedSources.statusDescription,
-                };
+                if (
+                  !Array.isArray(nextMeta.knowledgeSources) ||
+                  nextMeta.knowledgeSourceStatus !== resolvedSources.status ||
+                  nextMeta.knowledgeSources.length !== resolvedSources.sources.length
+                ) {
+                  nextMeta.knowledgeSources = resolvedSources.sources;
+                  nextMeta.knowledgeSourceStatus = resolvedSources.status;
+                  nextMeta.knowledgeSourceStatusLabel = resolvedSources.statusLabel;
+                  nextMeta.knowledgeSourceStatusDescription = resolvedSources.statusDescription;
+                  metaChanged = true;
+                }
+              }
+
+              if (metaChanged) {
+                row.metadata = nextMeta;
+                metaRepairs.push({ id: row.id, metadata: nextMeta });
               }
             }
+
+            if (metaRepairs.length > 0) {
+              Promise.all(
+                metaRepairs.map((u) =>
+                  db
+                    .update(internalMessages)
+                    .set({ metadata: u.metadata })
+                    .where(and(eq(internalMessages.tenantId, tenantId), eq(internalMessages.id, u.id)))
+                )
+              ).catch(() => {});
+            }
+
             return new Response(JSON.stringify(finalSorted), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -3918,7 +4041,12 @@ export const Route = createFileRoute("/api/valentina/messages")({
                       }
                     })()
                   : {};
-            if (!Array.isArray(rMeta.knowledgeSources) || !rMeta.knowledgeSourceStatus) {
+            const hasStoredManualOrCatalog =
+              Array.isArray(rMeta.knowledgeSources) &&
+              rMeta.knowledgeSources.some(
+                (s: any) => s?.kind === "manual" || s?.kind === "document" || s?.kind === "catalog"
+              );
+            if (!Array.isArray(rMeta.knowledgeSources) || !rMeta.knowledgeSourceStatus || hasStoredManualOrCatalog) {
               const resolvedSources = await resolveKnowledgeSourcesForMessage({
                 tenantId,
                 userQuery: rMeta.userQuery || lastAdminUserQuery,
@@ -5001,7 +5129,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 suggestedCallDealIds,
                 fullReplyText,
                 userText,
-                operatorContextResult
+                operatorContextResult,
+                operatorName
               )
             : [];
           const relatedConversations = !useManagerContext
@@ -5010,7 +5139,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 fullReplyText,
                 userText,
                 operatorContextResult,
-                relatedDeals
+                relatedDeals,
+                operatorName
               )
             : [];
           const relatedCalls = !useManagerContext
@@ -5049,6 +5179,10 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
           // ── Salva fragmentos no banco ───────────────────────────────────────
           const savedFragments: any[] = [];
+          const usedKbInTurn = Boolean(
+            (fileContext && fileContext.trim().length > 0) ||
+              liveExecutedSteps.some((s) => s.badgeType === "kb")
+          );
           for (let i = 0; i < fragments.length; i++) {
             const frag = fragments[i];
             const isFirstFrag = i === 0;
@@ -5068,6 +5202,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               userQuery: userText,
               aiReplyText: frag.text || fullReplyText,
               catalogPhoto: frag.catalogPhoto || null,
+              usedKnowledgeBase: usedKbInTurn,
               hasCrmContext: Boolean(
                 (fragRelated && fragRelated.length > 0) ||
                   (fragRelatedDeals && fragRelatedDeals.length > 0) ||

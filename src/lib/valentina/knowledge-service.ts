@@ -419,13 +419,37 @@ const RAG_STOPWORDS = new Set([
   "em", "na", "no", "nas", "nos", "para", "pra", "pro", "por", "com", "sem", "sob",
   "sobre", "que", "oque", "qual", "quais", "como", "onde", "quando", "quanto", "quantos",
   "quantas", "sabe", "saber", "me", "te", "se", "ele", "ela", "eles", "elas", "voce",
-  "voces", "nosso", "nossa", "seu", "sua", "esse", "essa", "este", "esta", "isso",
-  "isto", "aquele", "aquela", "aqui", "ai", "la", "tem", "ter", "fala", "fale", "diga",
-  "diz", "pode", "poderia", "quero", "queria", "preciso", "gostaria", "favor", "bom",
-  "boa", "dia", "tarde", "noite", "ola", "oi", "fagner", "valentina", "tecfag", "valem",
-  "manual", "manuais", "maquina", "maquinas", "equipamento", "equipamentos", "modelo",
-  "modelos", "informacao", "informacoes", "detalhe", "detalhes", "ficha", "tecnica",
-  "especificacao", "especificacoes", "catalogo",
+  "voces", "nosso", "nossa", "seu", "sua", "seus", "suas", "esse", "essa", "este", "esta",
+  "isso", "isto", "aquele", "aquela", "aqui", "ai", "la", "tem", "ter", "fala", "fale",
+  "diga", "diz", "pode", "poderia", "quero", "queria", "preciso", "gostaria", "favor",
+  "bom", "boa", "dia", "tarde", "noite", "ola", "oi", "fagner", "valentina", "tecfag",
+  "valem", "manual", "manuais", "maquina", "maquinas", "equipamento", "equipamentos",
+  "modelo", "modelos", "informacao", "informacoes", "detalhe", "detalhes", "ficha",
+  "tecnica", "especificacao", "especificacoes", "catalogo",
+  // Palavras operacionais, verbos comuns, fila de atendimento e CRM (evita falso-positivo em manuais)
+  "nao", "ha", "nenhum", "nenhuma", "momento", "dei", "olhada", "caixa", "entrada",
+  "aguardando", "esperando", "resposta", "respostas", "whatsapp", "cliente", "clientes",
+  "minha", "minhas", "meu", "meus", "agora", "estao", "esta", "estava", "estavam",
+  "tudo", "certo", "fila", "atendimento", "atendimentos", "negociacao", "negociacoes",
+  "tarefa", "tarefas", "meta", "metas", "conversa", "conversas", "ligacao", "ligacoes",
+  "card", "cards", "crm", "funil", "etapa", "proposta", "propostas", "orcamento",
+  "orcamentos", "carteira", "hoje", "ontem", "amanha", "semana", "mes", "ano", "mais",
+  "menos", "muito", "pouco", "bem", "mal", "sim", "ou", "mas", "porem", "foi", "foram",
+  "ser", "sao", "era", "eram", "tinha", "tinham", "tenho", "temos", "vai", "vao", "vou",
+  "vamos", "ja", "ainda", "so", "somente", "apenas", "tambem", "ate", "desde", "entre",
+  "apos", "antes", "depois", "durante", "outro", "outra", "outros", "outras", "algum",
+  "alguma", "alguns", "algumas", "todo", "toda", "todos", "todas", "cada", "mesmo",
+  "mesma", "mesmos", "mesmas", "qualquer", "quaisquer", "tanto", "tanta", "tantos",
+  "tantas", "quanta", "acesso", "contexto", "sistema", "operador", "vendedor", "consultor",
+  "equipe", "empresa", "empresas", "contato", "contatos", "telefone", "celular", "email",
+  "cnpj", "cpf", "valor", "valores", "total", "totais", "lista", "listar", "liste",
+  "resumo", "status", "pendente", "pendentes", "aberta", "abertas", "aberto", "abertos",
+  "fechada", "fechadas", "fechado", "fechados", "ganha", "ganhas", "ganho", "ganhos",
+  "perdida", "perdidas", "perdido", "perdidos", "parada", "paradas", "parado", "parados",
+  "atraso", "atrasada", "atrasadas", "atrasado", "atrasados", "sla", "lead", "leads",
+  "novo", "nova", "novos", "novas", "chegou", "chegaram", "transferido", "transferidos",
+  "transferida", "transferidas", "tarcisio", "responder", "respondido", "mensagens",
+  "mensagem", "alguem", "ninguem", "zerada", "zerado",
 ]);
 
 function extractManualPrimaryModelFromName(name: string, bracketModelRaw: string): string {
@@ -1924,6 +1948,7 @@ export interface ResolveKnowledgeSourcesOptions {
   catalogPhoto?: MatchedCatalogPhoto | Record<string, any> | null;
   hasCrmContext?: boolean;
   crmContextSummary?: string;
+  usedKnowledgeBase?: boolean;
 }
 
 export interface ResolvedKnowledgeSourcesResult {
@@ -1968,7 +1993,15 @@ function buildConciseManualSnippet(doc: IndexedKnowledgeDoc, terms: string[]): s
 export async function resolveKnowledgeSourcesForMessage(
   options: ResolveKnowledgeSourcesOptions
 ): Promise<ResolvedKnowledgeSourcesResult> {
-  const { tenantId, userQuery = "", aiReplyText = "", catalogPhoto, hasCrmContext, crmContextSummary } = options;
+  const {
+    tenantId,
+    userQuery = "",
+    aiReplyText = "",
+    catalogPhoto,
+    hasCrmContext,
+    crmContextSummary,
+    usedKnowledgeBase,
+  } = options;
 
   const cleanReply = (aiReplyText || "")
     .replace(/\[LOCAL_MEDIA:[^\]]+\]/gi, " ")
@@ -2000,9 +2033,63 @@ export async function resolveKnowledgeSourcesForMessage(
     };
   }
 
-  try {
-    const cached = await getOrLoadTenantKnowledgeCache(tenantId);
+  const combinedText = [
+    cleanReply,
+    cleanUser,
+    catalogPhoto?.modelCode || "",
+    catalogPhoto?.displayName || "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
+  const expandedCombined = expandInternalCatalogCodesInText(combinedText);
+  const normReply = normalizeSearchText(expandInternalCatalogCodesInText(cleanReply));
+  const normUser = normalizeSearchText(expandInternalCatalogCodesInText(cleanUser));
+  const normCombined = normalizeSearchText(expandedCombined);
+  const compactReply = normReply.replace(/[^a-z0-9]/g, "");
+  const compactCombined = normCombined.replace(/[^a-z0-9]/g, "");
+
+  const nonModelTokenRegex = /^(?:r\d+|\d+h|\d+min|\d+d|\d+m|\d+s|360o?|24h|48h|72h)$/i;
+  const replyModelMatches =
+    normReply.match(/\b[a-z]{1,6}[-_\s/]?\d{1,5}(?:[-_\s/]?[a-z0-9]{1,5})*\b/g) || [];
+  const userModelMatches =
+    normUser.match(/\b[a-z]{1,6}[-_\s/]?\d{1,5}(?:[-_\s/]?[a-z0-9]{1,5})*\b/g) || [];
+
+  const compactReplyModels = Array.from(
+    new Set(
+      replyModelMatches
+        .map((m) => m.replace(/[^a-z0-9]/g, ""))
+        .filter((m) => m.length >= 3 && !nonModelTokenRegex.test(m))
+    )
+  );
+  const compactUserModels = Array.from(
+    new Set(
+      userModelMatches
+        .map((m) => m.replace(/[^a-z0-9]/g, ""))
+        .filter((m) => m.length >= 3 && !nonModelTokenRegex.test(m))
+    )
+  );
+  const allCompactModels = Array.from(new Set([...compactReplyModels, ...compactUserModels]));
+
+  const hasExplicitMachineOrCatalogKeyword =
+    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|ficha\s+tecnica|seladora|selar|selagem|envasadora|envasar|envase|rotuladora|rotular|rotulagem|datador|datar|datacao|empacotadora|empacotar|dosadora|dosar|valvula|frasco|frascos|pote|potes|garrafa|garrafas|tampa|tampas|alicate|arqueadora|arquear|arqueacao|fita|tunel|encolhimento|vacuo|sache|saches|encapsuladora|encapsular|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|compressor|pneumatic|pamq[a-z0-9]+|vsf|apf|bsf|dzf?|dbf|dcgy|fql)\b/i.test(
+      normCombined
+    );
+
+  const isOperationalQueueOrCrmTurn =
+    /\b(?:aguardando\s+(?:sua\s+|minha\s+)?resposta|caixa\s+de\s+entrada\s+est[aá]\s+em\s+dia|nenhum\s+cliente\s+aguardando|fila\s+de\s+atendimento|clientes?\s+est[aã]o\s+aguardando|minhas\s+negocia[cç][oõ]es|meus\s+cards|minha\s+meta|minhas\s+tarefas|liga[cç][oõ]es\s+agendadas)\b/i.test(
+      normCombined
+    );
+
+  // Só busca em manuais técnicos e no catálogo de máquinas quando a mensagem realmente envolver máquinas/produtos/catálogo!
+  const shouldSearchTechnicalDocsAndCatalog =
+    Boolean(catalogPhoto && (catalogPhoto.fileId || catalogPhoto.mediaUrl || catalogPhoto.rawImageUrl || catalogPhoto.name)) ||
+    hasTechnicalSpecTerms ||
+    isHonestUnknown ||
+    allCompactModels.length > 0 ||
+    (hasExplicitMachineOrCatalogKeyword && usedKnowledgeBase !== false && !isOperationalQueueOrCrmTurn);
+
+  try {
     // 1. Se o balão contém uma Foto Oficial do Catálogo anexada
     if (catalogPhoto && (catalogPhoto.fileId || catalogPhoto.mediaUrl || catalogPhoto.rawImageUrl || catalogPhoto.name)) {
       const photoId = `photo-${catalogPhoto.fileId || catalogPhoto.modelCode || catalogPhoto.name}`;
@@ -2023,266 +2110,253 @@ export async function resolveKnowledgeSourcesForMessage(
       });
     }
 
-    const combinedText = [
-      cleanReply,
-      cleanUser,
-      catalogPhoto?.modelCode || "",
-      catalogPhoto?.displayName || "",
-    ]
-      .filter(Boolean)
-      .join(" ");
+    if (shouldSearchTechnicalDocsAndCatalog) {
+      const cached = await getOrLoadTenantKnowledgeCache(tenantId);
 
-    const expandedCombined = expandInternalCatalogCodesInText(combinedText);
-    const normReply = normalizeSearchText(expandInternalCatalogCodesInText(cleanReply));
-    const normUser = normalizeSearchText(expandInternalCatalogCodesInText(cleanUser));
-    const normCombined = normalizeSearchText(expandedCombined);
-    const compactReply = normReply.replace(/[^a-z0-9]/g, "");
-    const compactUser = normUser.replace(/[^a-z0-9]/g, "");
-    const compactCombined = normCombined.replace(/[^a-z0-9]/g, "");
+      const replyTerms = Array.from(
+        new Set(
+          normReply
+            .split(/[^a-z0-9]+/)
+            .map((t) => t.trim())
+            .filter((t) => t.length >= 2 && !RAG_STOPWORDS.has(t))
+        )
+      );
+      const userTerms = Array.from(
+        new Set(
+          normUser
+            .split(/[^a-z0-9]+/)
+            .map((t) => t.trim())
+            .filter((t) => t.length >= 2 && !RAG_STOPWORDS.has(t))
+        )
+      );
+      const allSearchTerms = Array.from(new Set([...replyTerms, ...userTerms]));
 
-    const replyModelMatches =
-      normReply.match(/\b[a-z]{1,6}[-_\s/]?\d{1,5}(?:[-_\s/]?[a-z0-9]{1,5})*\b/g) || [];
-    const userModelMatches =
-      normUser.match(/\b[a-z]{1,6}[-_\s/]?\d{1,5}(?:[-_\s/]?[a-z0-9]{1,5})*\b/g) || [];
+      // 2. Cruza com o Catálogo Oficial de Máquinas Tecfag (1.037 itens) para descobrir modelos e códigos PAMQ
+      const matchedCatalogEntries: Array<{ item: CatalogEntry; mappedModel: string; score: number }> = [];
+      const matchedFamilyTokens = new Set<string>();
+      const matchedPamqCodesCompact = new Set<string>();
 
-    const compactReplyModels = Array.from(
-      new Set(replyModelMatches.map((m) => m.replace(/[^a-z0-9]/g, "")).filter((m) => m.length >= 3))
-    );
-    const compactUserModels = Array.from(
-      new Set(userModelMatches.map((m) => m.replace(/[^a-z0-9]/g, "")).filter((m) => m.length >= 3))
-    );
-    const allCompactModels = Array.from(new Set([...compactReplyModels, ...compactUserModels]));
+      if (tenantId === "tecfag") {
+        const catalog = (defaultTecfagCatalog as CatalogEntry[]).filter((item) => item && item.active !== false);
+        const codeMap = getInternalCodeToModelMap();
 
-    const replyTerms = Array.from(
-      new Set(
-        normReply
-          .split(/[^a-z0-9]+/)
-          .map((t) => t.trim())
-          .filter((t) => t.length >= 2 && !RAG_STOPWORDS.has(t))
-      )
-    );
-    const userTerms = Array.from(
-      new Set(
-        normUser
-          .split(/[^a-z0-9]+/)
-          .map((t) => t.trim())
-          .filter((t) => t.length >= 2 && !RAG_STOPWORDS.has(t))
-      )
-    );
-    const allSearchTerms = Array.from(new Set([...replyTerms, ...userTerms]));
+        for (const item of catalog) {
+          const rawName = (item.name || "").trim();
+          const normName = normalizeSearchText(rawName);
+          const compactName = normName.replace(/[^a-z0-9]/g, "");
+          const rawCode = (item.code || "").trim();
+          const normCode = normalizeSearchText(rawCode).replace(/[^a-z0-9]/g, "");
+          const mappedModel = (normCode && codeMap.get(normCode)) || rawName.split(/\s+[-–—]\s+/)[0]?.trim() || "";
+          const normPrefix = normalizeSearchText(mappedModel);
+          const compactPrefix = normPrefix.replace(/[^a-z0-9]/g, "");
 
-    // 2. Cruza com o Catálogo Oficial de Máquinas Tecfag (1.037 itens) para descobrir modelos e códigos PAMQ
-    const matchedCatalogEntries: Array<{ item: CatalogEntry; mappedModel: string; score: number }> = [];
-    const matchedFamilyTokens = new Set<string>();
-    const matchedPamqCodesCompact = new Set<string>();
+          let score = 0;
 
-    if (tenantId === "tecfag") {
-      const catalog = (defaultTecfagCatalog as CatalogEntry[]).filter((item) => item && item.active !== false);
-      const codeMap = getInternalCodeToModelMap();
+          // Match exato do código interno PAMQ...
+          if (normCode && normCode.length >= 5 && compactCombined.includes(normCode)) {
+            score += compactReply.includes(normCode) ? 1400 : 1100;
+          }
 
-      for (const item of catalog) {
-        const rawName = (item.name || "").trim();
-        const normName = normalizeSearchText(rawName);
-        const compactName = normName.replace(/[^a-z0-9]/g, "");
-        const rawCode = (item.code || "").trim();
-        const normCode = normalizeSearchText(rawCode).replace(/[^a-z0-9]/g, "");
-        const mappedModel = (normCode && codeMap.get(normCode)) || rawName.split(/\s+[-–—]\s+/)[0]?.trim() || "";
-        const normPrefix = normalizeSearchText(mappedModel);
-        const compactPrefix = normPrefix.replace(/[^a-z0-9]/g, "");
-
-        let score = 0;
-
-        // Match exato do código interno PAMQ...
-        if (normCode && normCode.length >= 5 && compactCombined.includes(normCode)) {
-          score += compactReply.includes(normCode) ? 1400 : 1100;
-        }
-
-        // Match exato do modelo na resposta ou pergunta (ex: "VSF-30S", "VSF2000", "VSF", "APF300-2B")
-        if (compactPrefix && compactPrefix.length >= 2) {
-          if (compactReplyModels.includes(compactPrefix) || compactUserModels.includes(compactPrefix)) {
-            score += compactReplyModels.includes(compactPrefix) ? 1300 : 1050;
-          } else if (
-            compactPrefix.length >= 3 &&
-            (replyTerms.includes(compactPrefix) || userTerms.includes(compactPrefix))
-          ) {
-            score += replyTerms.includes(compactPrefix) ? 950 : 800;
-          } else {
-            for (const qm of allCompactModels) {
-              if (compactPrefix === qm) {
-                score += 1200;
-              } else if (
-                (compactPrefix.length >= 4 && qm.startsWith(compactPrefix)) ||
-                (qm.length >= 4 && compactPrefix.startsWith(qm))
-              ) {
-                score += 520;
-              } else {
-                const qFamily = qm.match(/^[a-z]{2,5}\d{2,5}/)?.[0];
-                const pFamily = compactPrefix.match(/^[a-z]{2,5}\d{2,5}/)?.[0];
-                if (qFamily && pFamily && qFamily === pFamily) {
-                  score += 380;
+          // Match exato do modelo na resposta ou pergunta (ex: "VSF-30S", "VSF2000", "VSF", "APF300-2B")
+          if (compactPrefix && compactPrefix.length >= 2) {
+            if (compactReplyModels.includes(compactPrefix) || compactUserModels.includes(compactPrefix)) {
+              score += compactReplyModels.includes(compactPrefix) ? 1300 : 1050;
+            } else if (
+              compactPrefix.length >= 3 &&
+              (replyTerms.includes(compactPrefix) || userTerms.includes(compactPrefix))
+            ) {
+              score += replyTerms.includes(compactPrefix) ? 950 : 800;
+            } else {
+              for (const qm of allCompactModels) {
+                if (compactPrefix === qm) {
+                  score += 1200;
+                } else if (
+                  (compactPrefix.length >= 4 && qm.startsWith(compactPrefix)) ||
+                  (qm.length >= 4 && compactPrefix.startsWith(qm))
+                ) {
+                  score += 520;
+                } else {
+                  const qFamily = qm.match(/^[a-z]{2,5}\d{2,5}/)?.[0];
+                  const pFamily = compactPrefix.match(/^[a-z]{2,5}\d{2,5}/)?.[0];
+                  if (qFamily && pFamily && qFamily === pFamily) {
+                    score += 380;
+                  }
                 }
               }
             }
           }
-        }
 
-        // Match de família (ex: usuário perguntou "VSF" e o item é da família VSF)
-        const prefixLetters = compactPrefix.match(/^[a-z]{2,6}/)?.[0] || "";
-        if (
-          prefixLetters.length >= 3 &&
-          (replyTerms.includes(prefixLetters) || userTerms.includes(prefixLetters))
-        ) {
-          score += replyTerms.includes(prefixLetters) ? 340 : 280;
-        }
+          // Match de família (ex: usuário perguntou "VSF" e o item é da família VSF)
+          const prefixLetters = compactPrefix.match(/^[a-z]{2,6}/)?.[0] || "";
+          if (
+            prefixLetters.length >= 3 &&
+            (replyTerms.includes(prefixLetters) || userTerms.includes(prefixLetters))
+          ) {
+            score += replyTerms.includes(prefixLetters) ? 340 : 280;
+          }
 
-        // Match de termos específicos com dígitos no nome do equipamento
-        for (const term of allSearchTerms) {
-          if (/\d/.test(term) && term.length >= 3 && (normName.includes(term) || compactName.includes(term))) {
-            score += replyTerms.includes(term) ? 180 : 130;
+          // Match de termos específicos com dígitos no nome do equipamento
+          for (const term of allSearchTerms) {
+            if (/\d/.test(term) && term.length >= 3 && (normName.includes(term) || compactName.includes(term))) {
+              score += replyTerms.includes(term) ? 180 : 130;
+            }
+          }
+
+          if (score >= 260) {
+            matchedCatalogEntries.push({ item, mappedModel, score });
+            if (compactPrefix.length >= 2) matchedFamilyTokens.add(compactPrefix);
+            if (prefixLetters.length >= 3) matchedFamilyTokens.add(prefixLetters);
+            if (normCode) matchedPamqCodesCompact.add(normCode);
           }
         }
 
-        if (score >= 260) {
-          matchedCatalogEntries.push({ item, mappedModel, score });
-          if (compactPrefix.length >= 2) matchedFamilyTokens.add(compactPrefix);
-          if (prefixLetters.length >= 3) matchedFamilyTokens.add(prefixLetters);
-          if (normCode) matchedPamqCodesCompact.add(normCode);
+        matchedCatalogEntries.sort((a, b) => b.score - a.score);
+      }
+
+      // 3. Cruza com os Manuais Técnicos (PDF) e Documentos da Base de Conhecimento (`cached.indexedDocs`)
+      if (cached.indexedDocs.length > 0 && (allSearchTerms.length > 0 || allCompactModels.length > 0)) {
+        const scoredDocs = cached.indexedDocs.map((doc) => {
+          let score = 0;
+          const isManualDoc =
+            doc.folderName.toLowerCase() === "manuais" ||
+            /manual/i.test(doc.name) ||
+            /^\[pamq/i.test(doc.name);
+
+          if (doc.bracketModelCompact && doc.bracketModelCompact.length >= 3) {
+            if (
+              allCompactModels.includes(doc.bracketModelCompact) ||
+              matchedPamqCodesCompact.has(doc.bracketModelCompact) ||
+              matchedFamilyTokens.has(doc.bracketModelCompact)
+            ) {
+              score += 1400;
+            } else if (compactCombined.includes(doc.bracketModelCompact)) {
+              score += 1100;
+            } else {
+              for (const qm of allCompactModels) {
+                if (
+                  doc.bracketModelCompact.startsWith(qm) ||
+                  qm.startsWith(doc.bracketModelCompact)
+                ) {
+                  score += 650;
+                } else {
+                  const qFamily = qm.match(/^[a-z]{2,5}\d{2,5}/)?.[0];
+                  const dFamily = doc.bracketModelCompact.match(/^[a-z]{2,5}\d{2,5}/)?.[0];
+                  if (qFamily && dFamily && qFamily === dFamily) {
+                    score += 460;
+                  }
+                }
+              }
+            }
+          }
+
+          for (const qm of allCompactModels) {
+            if (doc.modelTokens.includes(qm)) {
+              score += 620;
+            } else if (doc.compactAlnumName.includes(qm)) {
+              score += 420;
+            }
+          }
+
+          for (const fam of matchedFamilyTokens) {
+            if (fam.length >= 3 && (doc.modelTokens.includes(fam) || doc.bracketModelCompact === fam)) {
+              score += 480;
+            } else if (fam.length >= 3 && doc.bracketModelCompact.startsWith(fam)) {
+              score += 320;
+            }
+          }
+
+          for (const term of allSearchTerms) {
+            const hasDigit = /\d/.test(term);
+            if (doc.modelTokens.includes(term)) {
+              score += hasDigit ? 340 : 240;
+            } else if (hasDigit && (doc.normalizedName.includes(term) || doc.compactAlnumName.includes(term))) {
+              score += 150;
+            } else if (
+              !hasDigit &&
+              term.length >= 4 &&
+              new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(doc.normalizedName)
+            ) {
+              score += 60;
+            }
+            if (!isManualDoc && doc.normalizedContent.includes(term)) {
+              score += hasDigit ? 50 : 25;
+            }
+          }
+
+          return { doc, score };
+        });
+
+        scoredDocs.sort((a, b) => b.score - a.score);
+        const minDocScore = tenantId === "tecfag" ? 240 : 60;
+        const topDocs = scoredDocs.filter((d) => d.score >= minDocScore).slice(0, 4);
+
+        for (const { doc } of topDocs) {
+          const docSourceId = `doc-${doc.id}`;
+          if (seenIds.has(docSourceId)) continue;
+          seenIds.add(docSourceId);
+          const isManual =
+            doc.folderName.toLowerCase() === "manuais" ||
+            /manual/i.test(doc.name) ||
+            /^\[pamq/i.test(doc.name);
+          sources.push({
+            id: docSourceId,
+            kind: isManual ? "manual" : "document",
+            title: doc.name,
+            code: doc.bracketModelRaw || undefined,
+            folderOrCategory: isManual ? `Manual Técnico PDF • Pasta ${doc.folderName}` : `Documento • Pasta ${doc.folderName}`,
+            charCount: doc.content.length,
+            excerptOrDetail: buildConciseManualSnippet(doc, allSearchTerms),
+            fileId: doc.id,
+            verified: true,
+          });
         }
       }
 
-      matchedCatalogEntries.sort((a, b) => b.score - a.score);
-    }
+      // 4. Adiciona as Fichas do Catálogo Oficial correspondentes (até 5 fichas mais relevantes)
+      for (const { item, mappedModel } of matchedCatalogEntries.slice(0, 5)) {
+        const catId = `cat-${item.id || item.code || item.name}`;
+        if (seenIds.has(catId)) continue;
+        seenIds.add(catId);
 
-    // 3. Cruza com os Manuais Técnicos (PDF) e Documentos da Base de Conhecimento (`cached.indexedDocs`)
-    if (cached.indexedDocs.length > 0 && (allSearchTerms.length > 0 || allCompactModels.length > 0)) {
-      const scoredDocs = cached.indexedDocs.map((doc) => {
-        let score = 0;
-
-        if (doc.bracketModelCompact && doc.bracketModelCompact.length >= 3) {
-          if (
-            allCompactModels.includes(doc.bracketModelCompact) ||
-            matchedPamqCodesCompact.has(doc.bracketModelCompact) ||
-            matchedFamilyTokens.has(doc.bracketModelCompact)
-          ) {
-            score += 1400;
-          } else if (compactCombined.includes(doc.bracketModelCompact)) {
-            score += 1100;
-          } else {
-            for (const qm of allCompactModels) {
-              if (
-                doc.bracketModelCompact.startsWith(qm) ||
-                qm.startsWith(doc.bracketModelCompact)
-              ) {
-                score += 650;
-              } else {
-                const qFamily = qm.match(/^[a-z]{2,5}\d{2,5}/)?.[0];
-                const dFamily = doc.bracketModelCompact.match(/^[a-z]{2,5}\d{2,5}/)?.[0];
-                if (qFamily && dFamily && qFamily === dFamily) {
-                  score += 460;
-                }
-              }
-            }
-          }
+        const cleanTitle = (item.name || "").replace(/\s+/g, " ").trim();
+        const details: string[] = [];
+        if (item.code) details.push(`Código: ${item.code}`);
+        if (item.sku) details.push(`SKU: ${item.sku}`);
+        if (item.line) details.push(`Linha: ${item.line}`);
+        if (item.production) details.push(`Produção: ${item.production}`);
+        if (item.description) {
+          details.push(item.description.replace(/\s+/g, " ").trim());
         }
 
-        for (const qm of allCompactModels) {
-          if (doc.modelTokens.includes(qm)) {
-            score += 620;
-          } else if (doc.compactAlnumName.includes(qm)) {
-            score += 420;
-          }
-        }
-
-        for (const fam of matchedFamilyTokens) {
-          if (fam.length >= 3 && (doc.modelTokens.includes(fam) || doc.bracketModelCompact === fam)) {
-            score += 480;
-          } else if (fam.length >= 3 && doc.bracketModelCompact.startsWith(fam)) {
-            score += 320;
-          }
-        }
-
-        for (const term of allSearchTerms) {
-          const hasDigit = /\d/.test(term);
-          if (doc.modelTokens.includes(term)) {
-            score += hasDigit ? 340 : 240;
-          } else if (doc.normalizedName.includes(term) || doc.compactAlnumName.includes(term)) {
-            score += hasDigit ? 150 : 60;
-          }
-          if (doc.folderName.toLowerCase() !== "manuais" && doc.normalizedContent.includes(term)) {
-            score += hasDigit ? 50 : 25;
-          }
-        }
-
-        return { doc, score };
-      });
-
-      scoredDocs.sort((a, b) => b.score - a.score);
-      const minDocScore = tenantId === "tecfag" ? 220 : 60;
-      const topDocs = scoredDocs.filter((d) => d.score >= minDocScore).slice(0, 4);
-
-      for (const { doc } of topDocs) {
-        const docSourceId = `doc-${doc.id}`;
-        if (seenIds.has(docSourceId)) continue;
-        seenIds.add(docSourceId);
-        const isManual = doc.folderName.toLowerCase() === "manuais" || /manual/i.test(doc.name);
         sources.push({
-          id: docSourceId,
-          kind: isManual ? "manual" : "document",
-          title: doc.name,
-          code: doc.bracketModelRaw || undefined,
-          folderOrCategory: isManual ? `Manual Técnico PDF • Pasta ${doc.folderName}` : `Documento • Pasta ${doc.folderName}`,
-          charCount: doc.content.length,
-          excerptOrDetail: buildConciseManualSnippet(doc, allSearchTerms),
-          fileId: doc.id,
+          id: catId,
+          kind: "catalog",
+          title:
+            mappedModel && !normalizeSearchText(cleanTitle).includes(normalizeSearchText(mappedModel))
+              ? `${mappedModel} — ${cleanTitle}`
+              : cleanTitle,
+          code: item.code || (item.sku ? `SKU ${item.sku}` : undefined),
+          model: mappedModel || undefined,
+          folderOrCategory: item.line
+            ? `Catálogo Oficial Tecfag • Linha ${item.line}`
+            : "Catálogo Oficial de Máquinas",
+          excerptOrDetail:
+            details.join(" • ").slice(0, 260) || "Registro oficial ativo no Catálogo de Máquinas.",
           verified: true,
         });
       }
     }
 
-    // 4. Adiciona as Fichas do Catálogo Oficial correspondentes (até 5 fichas mais relevantes)
-    for (const { item, mappedModel } of matchedCatalogEntries.slice(0, 5)) {
-      const catId = `cat-${item.id || item.code || item.name}`;
-      if (seenIds.has(catId)) continue;
-      seenIds.add(catId);
-
-      const cleanTitle = (item.name || "").replace(/\s+/g, " ").trim();
-      const details: string[] = [];
-      if (item.code) details.push(`Código: ${item.code}`);
-      if (item.sku) details.push(`SKU: ${item.sku}`);
-      if (item.line) details.push(`Linha: ${item.line}`);
-      if (item.production) details.push(`Produção: ${item.production}`);
-      if (item.description) {
-        details.push(item.description.replace(/\s+/g, " ").trim());
-      }
-
-      sources.push({
-        id: catId,
-        kind: "catalog",
-        title:
-          mappedModel && !normalizeSearchText(cleanTitle).includes(normalizeSearchText(mappedModel))
-            ? `${mappedModel} — ${cleanTitle}`
-            : cleanTitle,
-        code: item.code || (item.sku ? `SKU ${item.sku}` : undefined),
-        model: mappedModel || undefined,
-        folderOrCategory: item.line
-          ? `Catálogo Oficial Tecfag • Linha ${item.line}`
-          : "Catálogo Oficial de Máquinas",
-        excerptOrDetail:
-          details.join(" • ").slice(0, 260) || "Registro oficial ativo no Catálogo de Máquinas.",
-        verified: true,
-      });
-    }
-
     // 5. Se utilizou dados do CRM / Atendimento em tempo real
-    if (hasCrmContext) {
+    if (hasCrmContext || isOperationalQueueOrCrmTurn) {
       sources.push({
         id: "crm-live-context",
         kind: "crm",
-        title: "Dados Operacionais em Tempo Real (CRM & Conversas)",
-        folderOrCategory: "Banco de Dados Operacional",
+        title: "Dados Operacionais em Tempo Real (Fila WhatsApp & CRM)",
+        folderOrCategory: "Banco de Dados Operacional • Tempo Real",
         excerptOrDetail:
           crmContextSummary ||
-          "Consulta cruzada em tempo real nas conversas, negócios (deals) e fila de atendimento do sistema.",
+          "Consulta direta em tempo real na sua fila de atendimento do WhatsApp e nos registros da sua carteira no CRM.",
         verified: true,
       });
     }
@@ -2292,12 +2366,16 @@ export async function resolveKnowledgeSourcesForMessage(
 
   const hasManualOrDoc = sources.some((s) => s.kind === "manual" || s.kind === "document");
   const hasCatalogOrPhoto = sources.some((s) => s.kind === "catalog" || s.kind === "photo");
+  const hasCrmSource = sources.some((s) => s.kind === "crm");
   const hasTechnicalClaims = hasTechnicalSpecTerms || hasManualOrDoc || hasCatalogOrPhoto;
 
   let status: KnowledgeSourceStatus = "operational_or_chat";
-  let statusLabel = "Interação Operacional / Conversa";
-  let statusDescription =
-    "Mensagem conversacional ou de apoio operacional (sem exigência de manual técnico específico).";
+  let statusLabel = hasCrmSource
+    ? "Consulta Operacional em Tempo Real (Fila & CRM)"
+    : "Interação Operacional / Conversa";
+  let statusDescription = hasCrmSource
+    ? "O assistente consultou em tempo real sua fila de atendimento no WhatsApp e sua carteira no CRM (nenhum manual técnico de máquina foi utilizado)."
+    : "Mensagem conversacional ou de apoio operacional (sem exigência de manual técnico específico).";
 
   if (hasManualOrDoc) {
     if (isHonestUnknown) {
