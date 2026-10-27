@@ -4,10 +4,11 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useEffect } from "react";
-import { Globe, CheckCircle2, AlertCircle, Copy, Check, Loader2, ExternalLink, Save, Settings } from "lucide-react";
+import { Globe, CheckCircle2, AlertCircle, Copy, Check, Loader2, ExternalLink, Save, Settings, Code2, HelpCircle } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { toast } from "sonner";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { SiteChannelCard } from "./SiteChannelCard";
 import { VtexStoreCard } from "./VtexStoreCard";
 
@@ -252,40 +253,62 @@ export function LiveChatSettingsTab() {
 
       {/* ── Card: Script de instalação ────────────────────────────────── */}
       </>}
-      <div className="rounded-2xl bg-card border border-border p-6 shadow-soft">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-            <Globe className="h-5 w-5" />
+      <div className="rounded-2xl bg-card border border-border p-6 shadow-soft space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 pb-4">
+          <div className="flex items-start gap-3.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20">
+              <Code2 className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-foreground">Script de Instalação do Widget</h3>
+                <SystemTooltip content="Este snippet carrega o botão flutuante de atendimento na vitrine da loja e captura automaticamente a URL e o contexto do produto visitado.">
+                  <span className="text-muted-foreground hover:text-foreground cursor-help">
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </span>
+                </SystemTooltip>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Insira este código antes do fechamento da tag <code className="rounded bg-muted px-1 py-0.5 text-[10px]">{"</head>"}</code> ou via Google Tag Manager / CMS da loja.
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-base font-bold text-foreground">Script de Instalação</h3>
-            <p className="text-xs text-muted-foreground">Cole este código no {"<head>"} das páginas da loja</p>
-          </div>
+          <span className="rounded-lg bg-muted/70 border border-border px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+            Bundle: {widgetBundle}.iife.js
+          </span>
         </div>
 
         <div className="relative">
-          <pre className="bg-muted/50 rounded-xl p-4 text-[11px] font-mono text-foreground overflow-x-auto border border-border whitespace-pre-wrap">
+          <pre className="bg-muted/40 rounded-xl p-4 pr-28 text-[11px] font-mono text-foreground overflow-x-auto border border-border whitespace-pre-wrap leading-relaxed">
             {widgetScript}
           </pre>
-          <button
-            onClick={handleCopy}
-            className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-card border border-border text-[11px] font-semibold hover:bg-muted transition cursor-pointer"
-          >
-            {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
-            {copied ? "Copiado!" : "Copiar"}
-          </button>
+          <SystemTooltip content="Copiar código HTML/JS do widget para a área de transferência">
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border text-xs font-semibold hover:bg-muted transition cursor-pointer shadow-sm"
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5 text-primary" />}
+              {copied ? "Copiado!" : "Copiar código"}
+            </button>
+          </SystemTooltip>
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
-          <a
-            href="/test-chat.html"
-            target="_blank"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold bg-muted text-foreground border border-border hover:bg-muted/80 transition cursor-pointer"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Abrir página de teste
-          </a>
-          <p className="text-[11px] text-muted-foreground">Página de teste do widget; confira o tenant antes de conectar</p>
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <p className="text-[11px] text-muted-foreground">
+            Ambiente de homologação local disponível para validar o comportamento visual do widget antes de publicar na loja.
+          </p>
+          <SystemTooltip content="Abre o simulador do widget em uma nova aba para testar a experiência do visitante da loja.">
+            <a
+              href="/test-chat.html"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-muted text-foreground border border-border hover:bg-muted/80 transition cursor-pointer"
+            >
+              <ExternalLink className="h-3.5 w-3.5 text-primary" />
+              Abrir página de teste
+            </a>
+          </SystemTooltip>
         </div>
       </div>
     </div>

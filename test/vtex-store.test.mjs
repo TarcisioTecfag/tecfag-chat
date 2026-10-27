@@ -708,9 +708,17 @@ function panelHarness({ role = "admin", loadFails = false, conflict = false } = 
         },
       },
       "react/jsx-runtime": jsxRuntime,
+      "lucide-react": new Proxy({}, { get: () => () => null }),
       "@/hooks/useChatState": { useChat: () => ({ sessionRole: role, tenant: "fixture" }) },
       "@/lib/vtex/contract": contract,
       "@/lib/vtex/turn": turn,
+      "@/components/ui/tooltip": { SystemTooltip: ({ children }) => children },
+      "@/components/ui/popover": {
+        Popover: ({ children }) => children,
+        PopoverTrigger: ({ children }) => children,
+        PopoverContent: ({ children }) => children,
+      },
+      "@/components/ui/system-date-time-picker": { SystemDateTimePicker: () => null },
     },
     {
       fetch: async (url, options = {}) => {
