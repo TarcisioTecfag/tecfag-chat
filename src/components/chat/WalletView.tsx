@@ -251,6 +251,7 @@ export function WalletView() {
               Clientes da Carteira
             </motion.button>
             <motion.button
+              data-tour="profile.personal-templates-tab"
               whileTap={{ scale: 0.95 }}
               onClick={() => setActiveTab("templates")}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
@@ -268,7 +269,10 @@ export function WalletView() {
         {/* Stats KPI Section (Visible in Wallet Tab) */}
         {activeTab === "wallet" && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0">
-            <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
+            <div
+              data-tour="wallet.summary-total"
+              className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft"
+            >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary border border-border">
                 <Briefcase className="h-5 w-5" />
               </div>
@@ -280,7 +284,10 @@ export function WalletView() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
+            <div
+              data-tour="wallet.summary-active"
+              className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft"
+            >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 border border-border">
                 <MessageSquare className="h-5 w-5" />
               </div>
@@ -292,7 +299,10 @@ export function WalletView() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft">
+            <div
+              data-tour="wallet.summary-waiting"
+              className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 shadow-soft"
+            >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-border">
                 <LayoutTemplate className="h-5 w-5" />
               </div>

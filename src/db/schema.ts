@@ -1771,3 +1771,50 @@ export type CrmProposal              = typeof crmProposals.$inferSelect;
 export type CrmDealFile              = typeof crmDealFiles.$inferSelect;
 export type CrmDealQuestionnaire     = typeof crmDealQuestionnaires.$inferSelect;
 export type CrmDealEmail             = typeof crmDealEmails.$inferSelect;
+
+// ─── 27. OPERATOR ONBOARDING (Wizard Guiado do Fagner / Valentina) ────────────
+export const operatorOnboarding = pgTable(
+  "operator_onboarding",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .references(() => tenants.id, { onDelete: "cascade" })
+      .notNull(),
+    operatorId: text("operator_id")
+      .references(() => operators.id, { onDelete: "cascade" })
+      .notNull(),
+    tourKey: text("tour_key").default("operator_fagner_v1").notNull(),
+    contentVersion: integer("content_version").default(1).notNull(),
+    runId: text("run_id").notNull(),
+    status: text("status").default("not_started").notNull(), // 'not_started' | 'in_progress' | 'paused' | 'completed'
+    currentStepId: text("current_step_id"),
+    visitedStepIds: jsonb("visited_step_ids").$type<string[]>().default([]).notNull(),
+    completedStepIds: jsonb("completed_step_ids").$type<string[]>().default([]).notNull(),
+    unavailableSteps: jsonb("unavailable_steps")
+      .$type<Array<{ stepId: string; reason: string; recordedAt: string }>>()
+      .default([])
+      .notNull(),
+    startedAt: timestamp("started_at"),
+    pausedAt: timestamp("paused_at"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+    lastCompletedVersion: integer("last_completed_version"),
+    lastCompletedAt: timestamp("last_completed_at"),
+    deferredUntil: timestamp("deferred_until"),
+    revision: integer("revision").default(1).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_operator_onboarding_tenant_operator_tour").on(
+      table.tenantId,
+      table.operatorId,
+      table.tourKey,
+    ),
+    index("idx_operator_onboarding_tenant_status").on(
+      table.tenantId,
+      table.status,
+    ),
+  ],
+);
+
+export type OperatorOnboarding = typeof operatorOnboarding.$inferSelect;
+

@@ -314,6 +314,7 @@ export function CrmToolbar({
       <div className="flex flex-wrap items-center justify-between gap-2.5 px-3 py-2.5 sm:px-4 sm:py-3">
         <Select value={selectedPipelineId} onValueChange={onPipelineChange}>
           <SelectTrigger
+            data-tour="crm.pipeline-select"
             aria-label="Funil de negociações"
             className="h-9 sm:h-10 w-full @[38rem]/crm-toolbar:w-auto min-w-0 max-w-full gap-2.5 sm:gap-3 rounded-lg border-transparent bg-transparent px-1 text-sm sm:text-base font-semibold shadow-none @[38rem]/crm-toolbar:max-w-80 cursor-pointer hover:bg-muted/30 transition-colors"
           >
@@ -353,6 +354,7 @@ export function CrmToolbar({
                 <button
                   key={mode}
                   type="button"
+                  data-tour={mode === "kanban" ? "crm.view-board" : "crm.view-list"}
                   aria-pressed={viewMode === mode}
                   onClick={() => onViewModeChange(mode)}
                   className={`flex h-8 items-center gap-1.5 sm:gap-2 rounded-md px-2.5 sm:px-3 text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"}`}
@@ -367,6 +369,7 @@ export function CrmToolbar({
           <div className="flex shrink-0 rounded-lg bg-primary text-primary-foreground shadow-xs">
             <button
               type="button"
+              data-tour="crm.new-deal"
               onClick={onNewDealClick}
               className="flex h-9 sm:h-10 items-center gap-1.5 sm:gap-2 rounded-l-lg px-3 sm:px-4 text-xs sm:text-sm font-semibold hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 whitespace-nowrap"
             >
@@ -377,6 +380,7 @@ export function CrmToolbar({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
+                  data-tour="crm.quick-create-trigger"
                   aria-label="Outras opções de criação"
                   className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-r-lg border-l border-primary-foreground/25 hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
@@ -406,6 +410,7 @@ export function CrmToolbar({
       <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2.5 sm:px-4 sm:py-3">
         <div ref={searchContainerRef} className="relative min-w-0 flex-1">
           <div
+            data-tour="crm.search-trigger"
             onClick={() => {
               searchInputRef.current?.focus();
               setIsSearchFocused(true);

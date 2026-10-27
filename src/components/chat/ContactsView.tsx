@@ -686,6 +686,7 @@ export function ContactsView() {
           {/* Botao Empresas (entre Conversas e Novo Contato) */}
           <button
             type="button"
+            data-tour="contacts.tab-companies"
             onClick={() => setChannelFilter((prev) => (prev === "companies" ? "all" : "companies"))}
             className={`inline-flex h-9 sm:h-10 flex-1 sm:flex-none items-center justify-center gap-1.5 sm:gap-2 rounded-xl border px-2.5 sm:px-5 text-xs sm:text-sm font-semibold transition cursor-pointer shadow-soft whitespace-nowrap ${
               isCompaniesView
@@ -700,6 +701,7 @@ export function ContactsView() {
           {canCreateContact && (
             <button
               type="button"
+              data-tour="contacts.new-contact"
               onClick={() => {
                 setCreatingCompany(false);
                 setNewAccount(null);
@@ -728,6 +730,7 @@ export function ContactsView() {
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
           )}
           <input
+            data-tour="contacts.search"
             placeholder={
               isCompaniesView
                 ? "Filtrar por razão social, fantasia, CNPJ, telefone..."
@@ -800,28 +803,28 @@ export function ContactsView() {
         ) : (
           <div className="flex items-center gap-1.5 self-end sm:self-auto">
             <span className="text-xs text-muted-foreground font-semibold mr-1">Canal:</span>
-            <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}>Todos</motion.button>
+            <motion.button data-tour="contacts.tab-all" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}>Todos</motion.button>
             <Tooltip>
               <TooltipTrigger asChild>
-                <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
+                <motion.button data-tour="contacts.tab-whatsapp" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
               </TooltipTrigger>
               <TooltipContent side="top">Apenas WhatsApp</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
+                <motion.button data-tour="contacts.tab-instagram" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
               </TooltipTrigger>
               <TooltipContent side="top">Apenas Instagram</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
+                <motion.button data-tour="contacts.tab-messenger" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
               </TooltipTrigger>
               <TooltipContent side="top">Apenas Messenger</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("livechat")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "livechat" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><SiteLogo className="h-4.5 w-4.5" /></motion.button>
+                <motion.button data-tour="contacts.tab-site" whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("livechat")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "livechat" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><SiteLogo className="h-4.5 w-4.5" /></motion.button>
               </TooltipTrigger>
               <TooltipContent side="top">Apenas Site (Live Chat)</TooltipContent>
             </Tooltip>

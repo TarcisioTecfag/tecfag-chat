@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ViewId } from "@/lib/rbac";
 import { dispatchTabNavigation } from "./useTabNavigation";
+import { isGlobalTourRunnerActive } from "./useOnboarding";
 
 export function isEditingText(target: EventTarget | null): boolean {
   if (!target) return false;
@@ -52,6 +53,10 @@ export function getAccessibleModulesList({
     "contacts",
     "wallet",
   ];
+
+  if (isGlobalTourRunnerActive()) {
+    return navItems.filter((id) => canAccessView(id));
+  }
 
   const decorativeItems: ViewId[] = [
     ...(tenant === "tecfag" && sessionRole === "admin"

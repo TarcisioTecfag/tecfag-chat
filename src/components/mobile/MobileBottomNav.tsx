@@ -139,7 +139,10 @@ export const MobileBottomNav: React.FC = () => {
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {/* Status & Tema Rápidos */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div
+                  data-tour="profile.mobile-drawer-controls"
+                  className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
+                >
                   <div className="rounded-2xl bg-muted/30 border border-border/60 p-2.5">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
                       Status de Atendimento
@@ -274,6 +277,7 @@ export const MobileBottomNav: React.FC = () => {
                         return (
                           <button
                             key={item.id}
+                            data-tour={`nav.${item.id}`}
                             type="button"
                             onClick={() => handleTabClick(item.id)}
                             className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl p-3 border text-center transition cursor-pointer ${
@@ -357,6 +361,7 @@ export const MobileBottomNav: React.FC = () => {
           return (
             <motion.button
               key={item.id}
+              data-tour={`nav.${item.id}`}
               type="button"
               onClick={() => handleTabClick(item.id)}
               whileTap={{ scale: 0.9 }}

@@ -2,15 +2,18 @@ import React from "react";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle } from "lucide-react";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle, Smartphone } from "lucide-react";
 import { Channel, QueueType, getConversationSortTimestamp } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusWizardModal } from "./StatusWizardModal";
 import { ProfilePopover } from "./ProfileModal";
+import { PersonalWhatsappConnectionsDialog } from "./PersonalWhatsappConnectionsDialog";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useOptionalOnboarding } from "@/hooks/useOnboarding";
+import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
 import { getConversationPreviewMessage } from "@/components/crm/CrmChatWidget";
 
@@ -126,7 +129,19 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
   const [showStatusWizard, setShowStatusWizard] = React.useState(false);
+  const [showPersonalWhatsappModal, setShowPersonalWhatsappModal] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ chatId: string; x: number; y: number } | null>(null);
+  const onboarding = useOptionalOnboarding();
+
+  useOnboardingAdapter("chatList", (cmd) => {
+    if (cmd.command === "openPersonalWhatsappModal") {
+      setShowPersonalWhatsappModal(true);
+    } else if (cmd.command === "selectFagnerConversation") {
+      setSelectedChatId("valentina");
+    } else if (cmd.command === "openStatusWizard") {
+      setShowStatusWizard(true);
+    }
+  });
   const pageCursorRef = React.useRef<{ before: string; beforeId: string; beforeQueue: "active" | "finalizados" } | null>(null);
   const pageLoadingRef = React.useRef(false);
   const pageGenerationRef = React.useRef(0);
@@ -182,11 +197,11 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
   }, [currentGroup, channelFilter]);
 
   const queues = React.useMemo(() => [
-    { id: "meus", label: "Meus" },
-    { id: "todos", label: "Todos" },
-    { id: "fila", label: "Fila" },
-    { id: "automacao", label: "Bot" },
-    { id: "finalizados", label: "Fim" },
+    { id: "meus", label: "Meus", tourKey: "chat.queue-mine" },
+    { id: "todos", label: "Todos", tourKey: "chat.queue-all" },
+    { id: "fila", label: "Fila", tourKey: "chat.queue-waiting" },
+    { id: "automacao", label: "Bot", tourKey: "chat.queue-bot" },
+    { id: "finalizados", label: "Fim", tourKey: "chat.queue-finished" },
   ].filter((queue) => readRules.enabled && (queue.id === "todos" ? !readRules.ownOnly && readRules.queues.length > 1 :
     readRules.queues.includes(queue.id as typeof readRules.queues[number]))), [readRules]);
 
@@ -241,8 +256,19 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     <>
     <aside className="flex h-full w-full md:w-[260px] md:shrink-0 flex-col rounded-3xl bg-card px-3.5 md:px-4 py-3 xl:py-4 shadow-soft select-none border border-border">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-base xl:text-lg font-bold text-foreground tracking-tight">Atendimentos</h2>
+        <SystemTooltip content="Meu WhatsApp (Conexão Individual)">
+          <button
+            type="button"
+            data-tour="whatsapp.personal-entry"
+            onClick={() => setShowPersonalWhatsappModal(true)}
+            className="flex items-center gap-1 rounded-xl border border-border bg-muted/60 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-primary/40 hover:bg-muted hover:text-foreground cursor-pointer"
+          >
+            <Smartphone className="h-3.5 w-3.5 text-emerald-500" />
+            <span className="hidden xl:inline">Meu WhatsApp</span>
+          </button>
+        </SystemTooltip>
       </div>
 
       <div className="my-2 xl:my-2.5 h-px bg-line" />
@@ -317,6 +343,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                   <button
                     onClick={() => {
                       setShowStatusDropdown(false);
+                      if (onboarding?.isDemoMode) return;
                       logout();
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-destructive hover:bg-destructive/10 transition cursor-pointer"
@@ -328,12 +355,12 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                   <div className="flex items-center justify-center py-0.5">
                     <button
                       type="button"
+                      data-tour="profile.status-wizard-open"
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowStatusDropdown(false);
                         setShowStatusWizard(true);
                       }}
-                      title="Como funciona a auto-resposta e os status de atendimento?"
                       aria-label="Como funciona a auto-resposta e os status de atendimento"
                       className="group flex items-center justify-center h-6 w-6 rounded-full text-muted-foreground/60 hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
                     >
@@ -352,6 +379,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
       <div className="relative mt-2.5 md:mt-3.5">
         <Search className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
         <input
+          data-tour="chat.search"
           placeholder="Buscar contato, CNPJ, tag..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
@@ -362,6 +390,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
       {/* Channels Filter Row */}
       <div className="mt-2 md:mt-3 flex items-center justify-between gap-1 border-b border-line pb-2 md:pb-2.5">
         <button
+          data-tour="chat.channel-all"
           onClick={() => setChannelFilter("all")}
           className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
             channelFilter === "all"
@@ -374,6 +403,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
         {(!currentGroup || currentGroup.allowedChannels.includes("whatsapp")) && (
           <SystemTooltip content="Apenas WhatsApp">
             <button
+              data-tour="chat.channel-whatsapp"
               onClick={() => setChannelFilter("whatsapp")}
               className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
                 channelFilter === "whatsapp"
@@ -388,6 +418,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
         {(!currentGroup || currentGroup.allowedChannels.includes("instagram")) && (
           <SystemTooltip content="Apenas Instagram">
             <button
+              data-tour="chat.channel-instagram"
               onClick={() => setChannelFilter("instagram")}
               className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
                 channelFilter === "instagram"
@@ -402,6 +433,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
         {(!currentGroup || currentGroup.allowedChannels.includes("messenger")) && (
           <SystemTooltip content="Apenas Messenger">
             <button
+              data-tour="chat.channel-messenger"
               onClick={() => setChannelFilter("messenger")}
               className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
                 channelFilter === "messenger"
@@ -416,6 +448,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
         {(!currentGroup || currentGroup.allowedChannels.includes("livechat")) && (
           <SystemTooltip content="Apenas Site (Live Chat)">
             <button
+              data-tour="chat.channel-site"
               onClick={() => setChannelFilter("livechat")}
               className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
                 channelFilter === "livechat"
@@ -436,6 +469,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           return (
             <button
               key={q.id}
+              data-tour={q.tourKey}
               onClick={() => {
                 setActiveQueue(q.id as QueueType);
                 setSelectedChatId(null);
@@ -462,6 +496,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
       {/* Chat List */}
       <div
+        data-tour="chat.conversation-list"
         className="mt-3 flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin"
         onScroll={(event) => {
           const target = event.currentTarget;
@@ -481,10 +516,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             }}
           >
             <button
+              data-tour="chat.fagner-assistant-row"
               onClick={() => {
                 setSelectedChatId("valentina");
                 if (!embedded) setActiveView("chat");
-                markAsRead("valentina");
+                if (!onboarding?.isDemoMode) {
+                  markAsRead("valentina");
+                }
               }}
               className={`flex w-full items-center gap-2 rounded-2xl p-2 text-left transition-colors duration-150 cursor-pointer ${
                 selectedChatId === "valentina" && (embedded || activeView === "chat") ? "bg-muted" : "hover:bg-muted/50"
@@ -728,6 +766,10 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     <StatusWizardModal
       isOpen={showStatusWizard}
       onClose={() => setShowStatusWizard(false)}
+    />
+    <PersonalWhatsappConnectionsDialog
+      open={showPersonalWhatsappModal}
+      onOpenChange={setShowPersonalWhatsappModal}
     />
     </>
   );

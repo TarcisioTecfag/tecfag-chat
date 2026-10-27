@@ -533,13 +533,13 @@ export function CommercialHomeView({
             {/* Ações Rápidas de Topo com Animações Fluidas */}
             <div className="flex items-center gap-1.5 sm:gap-2">
               <motion.button
+                data-tour="home.refresh"
                 whileHover={{ scale: 1.1, rotate: 60 }}
                 whileTap={{ scale: 0.9 }}
                 transition={{ duration: 0.2 }}
                 onClick={() => void load()}
                 disabled={loading}
                 className="border border-border bg-card p-2 text-muted-foreground hover:border-border hover:text-foreground cursor-pointer rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-400 dark:hover:text-zinc-50 transition-colors shadow-sm"
-                title="Atualizar dados do cockpit"
               >
                 <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
               </motion.button>
@@ -554,11 +554,6 @@ export function CommercialHomeView({
                     ? "border-red-600/80 bg-red-50 text-red-600 dark:border-red-600/80 dark:bg-red-950/40 dark:text-red-300"
                     : "border-border bg-card"
                 }`}
-                title={
-                  overdueActionsCount > 0
-                    ? `Atenção: Você possui ${overdueActionsCount} diretriz(es) em atraso!`
-                    : "Notificações de atendimento"
-                }
               >
                 <Bell size={16} strokeWidth={1.8} className={overdueActionsCount > 0 ? "text-red-500" : ""} />
                 <span
@@ -596,6 +591,7 @@ export function CommercialHomeView({
 
               {/* Botão Vermelho Oficial "Abrir CRM" */}
               <motion.button
+                data-tour="home.open-crm"
                 whileHover={{
                   scale: 1.04,
                   y: -1,
@@ -631,6 +627,7 @@ export function CommercialHomeView({
             </div>
 
             <motion.button
+              data-tour="home.today-agenda"
               whileHover={{ x: 4, scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
               transition={{ duration: 0.15 }}
@@ -662,6 +659,7 @@ export function CommercialHomeView({
               <div className="grid gap-3 lg:grid-cols-[1.3fr_1fr_1fr]">
                 {/* CARD 1: RITMO DE HOJE COM HOVER & ANIMAÇÃO */}
                 <motion.section
+                  data-tour="home.rhythm-card"
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.05, ease: "easeOut" }}

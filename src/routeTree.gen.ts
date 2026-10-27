@@ -72,6 +72,7 @@ import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-c
 import { Route as ApiSettingsMcpRouteImport } from './routes/api/settings/mcp'
 import { Route as ApiPlatformAccessRouteImport } from './routes/api/platform/access'
 import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
+import { Route as ApiOperatorsOnboardingRouteImport } from './routes/api/operators/onboarding'
 import { Route as ApiLivechatVtexConfigRouteImport } from './routes/api/livechat/vtex-config'
 import { Route as ApiLivechatVisitorsRouteImport } from './routes/api/livechat/visitors'
 import { Route as ApiLivechatTrayConfigRouteImport } from './routes/api/livechat/tray-config'
@@ -510,6 +511,11 @@ const ApiPlatformAccessRoute = ApiPlatformAccessRouteImport.update({
 const ApiOperatorsProfileRoute = ApiOperatorsProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => ApiOperatorsRoute,
+} as any)
+const ApiOperatorsOnboardingRoute = ApiOperatorsOnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => ApiOperatorsRoute,
 } as any)
 const ApiLivechatVtexConfigRoute = ApiLivechatVtexConfigRouteImport.update({
@@ -1246,6 +1252,7 @@ export interface FileRoutesByFullPath {
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
+  '/api/operators/onboarding': typeof ApiOperatorsOnboardingRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/mcp': typeof ApiSettingsMcpRoute
@@ -1428,6 +1435,7 @@ export interface FileRoutesByTo {
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
+  '/api/operators/onboarding': typeof ApiOperatorsOnboardingRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/mcp': typeof ApiSettingsMcpRoute
@@ -1611,6 +1619,7 @@ export interface FileRoutesById {
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
   '/api/livechat/vtex-config': typeof ApiLivechatVtexConfigRoute
+  '/api/operators/onboarding': typeof ApiOperatorsOnboardingRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
   '/api/settings/mcp': typeof ApiSettingsMcpRoute
@@ -1795,6 +1804,7 @@ export interface FileRouteTypes {
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
     | '/api/livechat/vtex-config'
+    | '/api/operators/onboarding'
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/mcp'
@@ -1977,6 +1987,7 @@ export interface FileRouteTypes {
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
     | '/api/livechat/vtex-config'
+    | '/api/operators/onboarding'
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/mcp'
@@ -2159,6 +2170,7 @@ export interface FileRouteTypes {
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
     | '/api/livechat/vtex-config'
+    | '/api/operators/onboarding'
     | '/api/operators/profile'
     | '/api/platform/access'
     | '/api/settings/mcp'
@@ -2810,6 +2822,13 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/api/operators/profile'
       preLoaderRoute: typeof ApiOperatorsProfileRouteImport
+      parentRoute: typeof ApiOperatorsRoute
+    }
+    '/api/operators/onboarding': {
+      id: '/api/operators/onboarding'
+      path: '/onboarding'
+      fullPath: '/api/operators/onboarding'
+      preLoaderRoute: typeof ApiOperatorsOnboardingRouteImport
       parentRoute: typeof ApiOperatorsRoute
     }
     '/api/livechat/vtex-config': {
@@ -3709,10 +3728,12 @@ const ApiGroupsRouteWithChildren = ApiGroupsRoute._addFileChildren(
 )
 
 interface ApiOperatorsRouteChildren {
+  ApiOperatorsOnboardingRoute: typeof ApiOperatorsOnboardingRoute
   ApiOperatorsProfileRoute: typeof ApiOperatorsProfileRoute
 }
 
 const ApiOperatorsRouteChildren: ApiOperatorsRouteChildren = {
+  ApiOperatorsOnboardingRoute: ApiOperatorsOnboardingRoute,
   ApiOperatorsProfileRoute: ApiOperatorsProfileRoute,
 }
 

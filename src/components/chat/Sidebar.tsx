@@ -196,6 +196,7 @@ export function Sidebar() {
               return (
                 <motion.button
                   key={item.id}
+                  data-tour={`nav.${item.id}`}
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.94 }}
                   onClick={() => setActiveView(item.id as any)}
@@ -243,7 +244,6 @@ export function Sidebar() {
                         ? "bg-primary-soft text-primary font-semibold"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
-                    title={item.label}
                   >
                     {isActive && (
                       <motion.span
@@ -266,7 +266,6 @@ export function Sidebar() {
                   key={index}
                   whileHover={{ scale: 0.98 }}
                   className="relative grid h-9 w-9 xl:h-10 xl:w-10 place-items-center rounded-xl md:rounded-2xl text-muted-foreground/50 hover:bg-muted/40 cursor-not-allowed group transition-colors duration-150 shrink-0"
-                  title={`${item.label} (Brevemente)`}
                   disabled
                 >
                   <Icon className="h-4 w-4 xl:h-[18px] xl:w-[18px]" strokeWidth={1.75} />
@@ -285,8 +284,8 @@ export function Sidebar() {
       <div className="flex flex-col items-center gap-1.5 xl:gap-2.5 shrink-0 pt-2 border-t border-line/40 w-full z-10">
         {/* Dica de Atalhos de Teclado */}
         <div
+          data-tour="profile.keyboard-shortcuts"
           className="relative grid h-7 w-7 md:h-8 md:w-8 place-items-center rounded-lg md:rounded-xl text-muted-foreground/60 hover:text-primary hover:bg-primary-soft/40 transition-colors group cursor-help shrink-0"
-          title="Navegação por Teclado: Setas ↑/↓ para módulos · Setas ←/→ para abas"
           aria-label="Navegação por Teclado: Setas ↑/↓ para módulos · Setas ←/→ para abas"
         >
           <Keyboard className="h-3.5 w-3.5 md:h-4 md:w-4" />
@@ -297,6 +296,7 @@ export function Sidebar() {
 
         <ProfilePopover side="right" align="end" sideOffset={14}>
           <button
+            data-tour="profile.trigger"
             className="relative block h-8 w-8 md:h-10 md:w-10 rounded-full cursor-pointer group transition-transform hover:scale-105 active:scale-95 shrink-0"
             aria-label="Editar Meu Perfil"
           >

@@ -200,6 +200,10 @@ const migrations = [
     name: "0048_whatsapp_connection_group_access",
     url: new URL("../src/db/migrations/0048_whatsapp_connection_group_access.sql", import.meta.url),
   },
+  {
+    name: "0049_operator_onboarding",
+    url: new URL("../src/db/migrations/0049_operator_onboarding.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

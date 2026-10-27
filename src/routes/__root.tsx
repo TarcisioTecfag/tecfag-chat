@@ -31,6 +31,8 @@ import {
 
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { isAppShellPath, isKnownStandalonePath } from "@/lib/app-routes";
+import { OnboardingProvider } from "@/components/onboarding/OnboardingProvider";
+import { OnboardingHost } from "@/components/onboarding/OnboardingHost";
 import { Index } from "./index";
 
 installAssetRecovery();
@@ -339,12 +341,15 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={300}>
         <ChatProvider>
-          <PersistentAppShell />
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
-          <MaybeCrmChatWidget />
-          <Toaster />
-          <DeployNotificationModal />
+          <OnboardingProvider>
+            <PersistentAppShell />
+            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+            <Outlet />
+            <MaybeCrmChatWidget />
+            <OnboardingHost />
+            <Toaster />
+            <DeployNotificationModal />
+          </OnboardingProvider>
         </ChatProvider>
       </TooltipProvider>
     </QueryClientProvider>

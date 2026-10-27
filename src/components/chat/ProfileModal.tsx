@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useDensity } from "@/hooks/useDensity";
+import { useOptionalOnboarding } from "@/hooks/useOnboarding";
+import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
@@ -168,6 +170,19 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const onboarding = useOptionalOnboarding();
+
+  useOnboardingAdapter("profileModal", (cmd) => {
+    if (cmd.command === "previewTheme") {
+      setActiveTab("aparencia");
+    } else if (cmd.command === "openProfileModal") {
+      setActiveTab("perfil");
+    } else if (cmd.command === "changeDemoOperatorStatus") {
+      setActiveTab("perfil");
+      setStatus("pausa");
+    }
+  });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarClick = () => {
@@ -207,6 +222,10 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (onboarding?.isDemoMode) {
+      toast.success("Perfil validado em modo de demonstração (nenhum dado real alterado).");
+      return;
+    }
     try {
       setIsSubmitting(true);
       await updateOperatorProfile({
@@ -225,7 +244,10 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
   };
 
   return (
-    <div className="flex flex-col h-full w-full select-none text-foreground">
+    <div
+      data-tour="profile.modal"
+      className="flex flex-col h-full w-full select-none text-foreground"
+    >
       {/* Hidden input for local upload */}
       <input
         type="file"
@@ -289,9 +311,9 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
               <div className="flex items-center gap-3">
                 {/* Main Avatar Display */}
                 <div
+                  data-tour="profile.avatar-presets"
                   onClick={() => setShowAvatarPicker((prev) => !prev)}
                   className="relative group cursor-pointer shrink-0"
-                  title="Clique para alterar foto ou ícone"
                 >
                   <img
                     src={avatar}
@@ -323,6 +345,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                   <div className="text-[11px] text-muted-foreground truncate">{email}</div>
                   <button
                     type="button"
+                    data-tour="profile.avatar-upload"
                     onClick={() => setShowAvatarPicker((prev) => !prev)}
                     className="text-[10px] font-medium text-primary hover:underline cursor-pointer flex items-center gap-1 mt-0.5"
                   >
@@ -394,7 +417,6 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                       type="button"
                       onClick={handleAvatarClick}
                       className="h-9 w-9 rounded-lg border border-dashed border-border/80 bg-muted/30 hover:bg-muted hover:border-primary/50 text-muted-foreground hover:text-foreground flex items-center justify-center transition cursor-pointer"
-                      title="Subir foto do PC"
                     >
                       <Camera className="h-3.5 w-3.5" />
                     </button>
@@ -410,6 +432,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <div className="grid grid-cols-3 gap-1 bg-muted/40 p-1 rounded-lg border border-border/40">
                   <button
                     type="button"
+                    data-tour="profile.status-disponivel"
                     onClick={() => setStatus("disponivel")}
                     className={`flex h-7 items-center justify-center gap-1.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
                       status === "disponivel"
@@ -422,6 +445,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                   </button>
                   <button
                     type="button"
+                    data-tour="profile.status-pausa"
                     onClick={() => setStatus("pausa")}
                     className={`flex h-7 items-center justify-center gap-1.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
                       status === "pausa"
@@ -434,6 +458,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                   </button>
                   <button
                     type="button"
+                    data-tour="profile.status-desconectado"
                     onClick={() => setStatus("desconectado")}
                     className={`flex h-7 items-center justify-center gap-1.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
                       status === "desconectado"
@@ -456,6 +481,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 </label>
                 <input
                   type="text"
+                  data-tour="profile.name-input"
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -469,6 +495,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 </label>
                 <input
                   type="email"
+                  data-tour="profile.email-input"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -483,12 +510,14 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
+                    data-tour="profile.password-input"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="h-8 w-full rounded-lg bg-muted/40 px-2.5 pr-8 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border/50"
                   />
                   <button
                     type="button"
+                    data-tour="profile.password-visibility"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
                   >
@@ -508,7 +537,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                     </div>
                   </div>
                 </div>
-                {canAccessView("groups") && (
+                {!onboarding?.isRunnerActive && canAccessView("groups") && (
                   <button
                     type="button"
                     onClick={() => {
@@ -521,12 +550,48 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                   </button>
                 )}
               </div>
+
+              {/* Tour Guiado do Fagner / Valentina */}
+              {onboarding?.enabled && (
+                <div
+                  data-tour="profile.fagner-tour"
+                  className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-2 flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold text-foreground truncate">
+                        Tour do {onboarding.personaName} ({onboarding.coverage.completionPct}%)
+                      </div>
+                      <div className="text-[10px] text-muted-foreground truncate">
+                        {onboarding.progress?.status === "completed"
+                          ? "Treinamento concluído"
+                          : "Guia interativo das funções"}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    data-tour="profile.fagner-tour-restart"
+                    onClick={() => {
+                      onClose();
+                      onboarding.openTourEntryModal();
+                    }}
+                    className="rounded-md bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground hover:opacity-90 shrink-0 cursor-pointer"
+                  >
+                    {onboarding.progress?.status === "in_progress" ||
+                    onboarding.progress?.status === "paused"
+                      ? "Retomar"
+                      : "Abrir Tour"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ) : (
           <div className="space-y-3.5 py-1">
             {/* Tema / Aparência */}
-            <div className="space-y-1.5">
+            <div data-tour="profile.theme-section" className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">
                   Tema / Aparência
@@ -544,26 +609,26 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
               <div className="grid grid-cols-4 gap-1 bg-muted/40 p-1 rounded-xl border border-border/40">
                 <button
                   type="button"
+                  data-tour="profile.theme-light"
                   onClick={() => setTheme("light")}
                   className={`flex h-8 items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
                     theme === "light"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
                   }`}
-                  title="Tema Claro (Branco)"
                 >
                   <Sun className="h-3.5 w-3.5 shrink-0" />
                   <span>Claro</span>
                 </button>
                 <button
                   type="button"
+                  data-tour="profile.theme-dark"
                   onClick={() => setTheme("dark")}
                   className={`flex h-8 items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
                     theme === "dark"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
                   }`}
-                  title="Tema Escuro Padrão (Azul)"
                 >
                   <Moon className="h-3.5 w-3.5 shrink-0" />
                   <span>Azul</span>
@@ -576,20 +641,19 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                       ? "bg-background text-foreground shadow-xs border border-primary/40 font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
                   }`}
-                  title="Tema Dark (Identidade Visual Voice Score)"
                 >
                   <Palette className="h-3.5 w-3.5 shrink-0" />
                   <span>Dark</span>
                 </button>
                 <button
                   type="button"
+                  data-tour="profile.theme-system"
                   onClick={() => setTheme("system")}
                   className={`flex h-8 items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
                     theme === "system"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
                   }`}
-                  title="Sincronizar com o sistema operacional"
                 >
                   <Monitor className="h-3.5 w-3.5 shrink-0" />
                   <span>Auto</span>
@@ -614,7 +678,6 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <button
                   type="button"
                   onClick={() => setDensity("auto")}
-                  title="Adapta automaticamente para 75%/80% em telas de notebook e 100% em monitores grandes"
                   className={`flex h-7 items-center justify-center gap-1 rounded-lg text-[11px] transition cursor-pointer ${
                     density === "auto"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
@@ -627,7 +690,6 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <button
                   type="button"
                   onClick={() => setDensity("75")}
-                  title="Forçar proporção compacta de notebook (75%) em qualquer monitor"
                   className={`flex h-7 items-center justify-center rounded-lg text-[11px] transition cursor-pointer ${
                     density === "75"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
@@ -639,7 +701,6 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <button
                   type="button"
                   onClick={() => setDensity("85")}
-                  title="Escala equilibrada intermediária (85%)"
                   className={`flex h-7 items-center justify-center rounded-lg text-[11px] transition cursor-pointer ${
                     density === "85"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
@@ -651,7 +712,6 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <button
                   type="button"
                   onClick={() => setDensity("100")}
-                  title="Escala padrão sem zoom (100%)"
                   className={`flex h-7 items-center justify-center rounded-lg text-[11px] transition cursor-pointer ${
                     density === "100"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
@@ -673,6 +733,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
           <button
             type="button"
             onClick={() => {
+              if (onboarding?.isDemoMode) return;
               logout();
               onClose();
             }}
@@ -691,6 +752,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
             </button>
             <button
               type="submit"
+              data-tour="profile.save"
               disabled={isSubmitting}
               className="h-8 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition cursor-pointer shadow-xs"
             >

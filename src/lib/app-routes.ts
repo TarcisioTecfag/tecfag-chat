@@ -83,6 +83,7 @@ export const MODULE_ROUTE_SPECS: Record<ViewId, ModuleRouteSpec> = {
       whatsapp: "whatsapp",
       instagram: "instagram",
       messenger: "messenger",
+      livechat: "site",
       companies: "empresas",
     },
     slugToTab: {
@@ -91,6 +92,8 @@ export const MODULE_ROUTE_SPECS: Record<ViewId, ModuleRouteSpec> = {
       whatsapp: "whatsapp",
       instagram: "instagram",
       messenger: "messenger",
+      site: "livechat",
+      livechat: "livechat",
       empresas: "companies",
       companies: "companies",
     },
