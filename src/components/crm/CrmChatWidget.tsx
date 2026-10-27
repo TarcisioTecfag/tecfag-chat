@@ -3396,13 +3396,71 @@ export function CrmChatWidget() {
                                     <span>{message.time}</span>
                                   </div>
                                 </div>
-                                {selected.id === "valentina" &&
-                                  !message.isWarning &&
-                                  message.id !== "val_welcome" && (
+                                {(() => {
+                                  if (
+                                    selected.id !== "valentina" ||
+                                    message.isWarning ||
+                                    message.id === "val_welcome"
+                                  ) {
+                                    return null;
+                                  }
+                                  const nextMsg =
+                                    i < threadMessages.length - 1 ? threadMessages[i + 1] : null;
+                                  const isLinkedToNext = Boolean(
+                                    nextMsg &&
+                                      nextMsg.side !== "out" &&
+                                      !nextMsg.isInternalNote &&
+                                      nextMsg.sender !== "system" &&
+                                      nextMsg.author !== "Sistema" &&
+                                      !nextMsg.isWarning &&
+                                      nextMsg.id !== "val_welcome"
+                                  );
+                                  if (isLinkedToNext) return null;
+
+                                  const seenIds = new Set<string>();
+                                  const mergedSources: any[] = [];
+                                  let k = i;
+                                  while (k >= 0) {
+                                    const gm = threadMessages[k];
+                                    if (
+                                      !gm ||
+                                      gm.side === "out" ||
+                                      gm.isInternalNote ||
+                                      gm.sender === "system" ||
+                                      gm.author === "Sistema" ||
+                                      gm.isWarning ||
+                                      gm.id === "val_welcome"
+                                    ) {
+                                      break;
+                                    }
+                                    k--;
+                                  }
+                                  for (let idx = k + 1; idx <= i; idx++) {
+                                    const gm = threadMessages[idx];
+                                    if (Array.isArray(gm?.knowledgeSources)) {
+                                      for (const src of gm.knowledgeSources) {
+                                        const key = src.id || `${src.kind}:${src.title}`;
+                                        if (!seenIds.has(key)) {
+                                          seenIds.add(key);
+                                          mergedSources.push(src);
+                                        }
+                                      }
+                                    }
+                                  }
+
+                                  return (
                                     <div className="mb-1 shrink-0">
-                                      <MessageKnowledgeSourceButton message={message} compact />
+                                      <MessageKnowledgeSourceButton
+                                        message={
+                                          mergedSources.length > 0
+                                            ? { ...message, knowledgeSources: mergedSources }
+                                            : message
+                                        }
+                                        compact
+                                      />
                                     </div>
-                                  )}
+                                  );
+                                })()}
                               </div>
                             );
                           })

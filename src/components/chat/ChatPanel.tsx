@@ -3394,6 +3394,36 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 dateLabel={dateLabel}
                 connectionBanner={connectionBanner}
                 systemGroup={systemGroup}
+                groupKnowledgeSources={
+                  activeChat.id === "valentina" && !isMe && !isSystem && isLast && prevLinked
+                    ? (() => {
+                        const groupMsgs: (typeof displayed)[0][] = [];
+                        let k = i;
+                        while (k >= 0) {
+                          groupMsgs.unshift(displayed[k]);
+                          if (k > 0 && canLink(displayed[k - 1], displayed[k])) {
+                            k--;
+                          } else {
+                            break;
+                          }
+                        }
+                        const seenIds = new Set<string>();
+                        const merged: NonNullable<typeof m.knowledgeSources> = [];
+                        for (const gm of groupMsgs) {
+                          if (Array.isArray(gm.knowledgeSources)) {
+                            for (const src of gm.knowledgeSources) {
+                              const key = src.id || `${src.kind}:${src.title}`;
+                              if (!seenIds.has(key)) {
+                                seenIds.add(key);
+                                merged.push(src);
+                              }
+                            }
+                          }
+                        }
+                        return merged.length > 0 ? merged : m.knowledgeSources;
+                      })()
+                    : m.knowledgeSources
+                }
                 isMe={isMe}
                 isSystem={isSystem}
                 isExpanded={isExpanded}

@@ -906,7 +906,7 @@ export function ValentinaChatTab() {
                 transition={{ duration: 0.2 }}
                 className="max-w-3xl mx-auto space-y-4 w-full"
               >
-                {activeMessages.map((msg) =>
+                {activeMessages.map((msg, msgIdx) =>
                   msg.sender === "operator" ? (
                     /* Mensagem do Usuário / Operador com Foto de Perfil */
                     <div key={msg.id} className="flex gap-3 justify-end items-start">
@@ -941,16 +941,43 @@ export function ValentinaChatTab() {
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-bold text-foreground">{persona.name}</span>
                           <span className="text-[10px] text-muted-foreground">{formatTime(msg.timestamp)}</span>
-                          <MessageKnowledgeSourceButton
-                            message={{
-                              author: persona.name,
-                              knowledgeSources: msg.knowledgeSources,
-                              knowledgeSourceStatus: msg.knowledgeSourceStatus,
-                              knowledgeSourceStatusLabel: msg.knowledgeSourceStatusLabel,
-                              knowledgeSourceStatusDescription: msg.knowledgeSourceStatusDescription,
-                            }}
-                            compact
-                          />
+                          {(() => {
+                            const nextMsg =
+                              msgIdx < activeMessages.length - 1 ? activeMessages[msgIdx + 1] : null;
+                            if (nextMsg && nextMsg.sender !== "operator") return null;
+                            const seenIds = new Set<string>();
+                            const mergedSources: NonNullable<typeof msg.knowledgeSources> = [];
+                            let k = msgIdx;
+                            while (k >= 0 && activeMessages[k]?.sender !== "operator") {
+                              k--;
+                            }
+                            for (let idx = k + 1; idx <= msgIdx; idx++) {
+                              const gm = activeMessages[idx];
+                              if (Array.isArray(gm?.knowledgeSources)) {
+                                for (const src of gm.knowledgeSources) {
+                                  const key = src.id || `${src.kind}:${src.title}`;
+                                  if (!seenIds.has(key)) {
+                                    seenIds.add(key);
+                                    mergedSources.push(src);
+                                  }
+                                }
+                              }
+                            }
+                            return (
+                              <MessageKnowledgeSourceButton
+                                message={{
+                                  author: persona.name,
+                                  knowledgeSources:
+                                    mergedSources.length > 0 ? mergedSources : msg.knowledgeSources,
+                                  knowledgeSourceStatus: msg.knowledgeSourceStatus,
+                                  knowledgeSourceStatusLabel: msg.knowledgeSourceStatusLabel,
+                                  knowledgeSourceStatusDescription:
+                                    msg.knowledgeSourceStatusDescription,
+                                }}
+                                compact
+                              />
+                            );
+                          })()}
                         </div>
 
                         {msg.thoughtTrace && (

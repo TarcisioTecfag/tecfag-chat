@@ -43,7 +43,6 @@ import {
 
 export function MessageKnowledgeSourceButton({
   message,
-  isExpanded,
   compact = false,
 }: {
   message: {
@@ -56,6 +55,7 @@ export function MessageKnowledgeSourceButton({
   isExpanded?: boolean;
   compact?: boolean;
 }) {
+  const [open, setOpen] = React.useState(false);
   const sources = Array.isArray(message.knowledgeSources) ? message.knowledgeSources : [];
   const status: KnowledgeSourceStatus =
     message.knowledgeSourceStatus ||
@@ -71,14 +71,14 @@ export function MessageKnowledgeSourceButton({
   const isHonestUnknown = status === "honest_unknown";
   const isUnverifiedTech = status === "unverified_technical";
 
-  const hoverVisibilityClass = `opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:!opacity-100 ${
-    isExpanded ? "!opacity-100" : ""
-  }`;
+  const hoverVisibilityClass = open
+    ? "opacity-100 pointer-events-auto"
+    : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto";
 
   const statusConfig = isVerifiedManual
     ? {
-        badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300",
-        btnClass: `${hoverVisibilityClass} text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25`,
+        badgeBg: "bg-primary/10 border-primary/30 text-primary",
+        btnClass: `${hoverVisibilityClass} text-primary bg-primary/10 hover:bg-primary/20 border border-primary/25`,
         icon: ShieldCheck,
         title: message.knowledgeSourceStatusLabel || "Fonte Técnica Verificada (Manual / RAG)",
         desc:
@@ -88,8 +88,8 @@ export function MessageKnowledgeSourceButton({
       }
     : isCatalogVerified
     ? {
-        badgeBg: "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300",
-        btnClass: `${hoverVisibilityClass} text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25`,
+        badgeBg: "bg-primary/10 border-primary/30 text-primary",
+        btnClass: `${hoverVisibilityClass} text-primary bg-primary/10 hover:bg-primary/20 border border-primary/25`,
         icon: BookOpen,
         title: message.knowledgeSourceStatusLabel || "Fonte Verificada no Catálogo Oficial",
         desc:
@@ -99,8 +99,8 @@ export function MessageKnowledgeSourceButton({
       }
     : isHonestUnknown
     ? {
-        badgeBg: "bg-cyan-500/10 border-cyan-500/30 text-cyan-700 dark:text-cyan-300",
-        btnClass: `${hoverVisibilityClass} text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25`,
+        badgeBg: "bg-primary/10 border-primary/30 text-primary",
+        btnClass: `${hoverVisibilityClass} text-primary bg-primary/10 hover:bg-primary/20 border border-primary/25`,
         icon: Info,
         title: message.knowledgeSourceStatusLabel || "Sinceridade Técnica (Anti-Alucinação)",
         desc:
@@ -110,8 +110,8 @@ export function MessageKnowledgeSourceButton({
       }
     : isUnverifiedTech
     ? {
-        badgeBg: "bg-amber-500/15 border-amber-500/35 text-amber-700 dark:text-amber-300",
-        btnClass: `${hoverVisibilityClass} text-amber-600 dark:text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30`,
+        badgeBg: "bg-primary/10 border-primary/30 text-primary",
+        btnClass: `${hoverVisibilityClass} text-primary bg-primary/10 hover:bg-primary/20 border border-primary/25`,
         icon: AlertTriangle,
         title: message.knowledgeSourceStatusLabel || "Atenção: Sem Manual ou Ficha Vinculada",
         desc:
@@ -120,8 +120,8 @@ export function MessageKnowledgeSourceButton({
         tooltip: "Atenção: Nenhum manual vinculado a esta especificação — Clique para auditar",
       }
     : {
-        badgeBg: "bg-muted/80 border-border text-muted-foreground",
-        btnClass: `${hoverVisibilityClass} hover:bg-muted text-muted-foreground hover:text-foreground`,
+        badgeBg: "bg-primary/10 border-primary/25 text-primary",
+        btnClass: `${hoverVisibilityClass} hover:bg-primary/10 text-muted-foreground hover:text-primary`,
         icon: Info,
         title: message.knowledgeSourceStatusLabel || "Interação Operacional / Conversa",
         desc:
@@ -169,39 +169,37 @@ export function MessageKnowledgeSourceButton({
     switch (kind) {
       case "manual":
       case "document":
-        return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25";
       case "catalog":
-        return "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/25";
       case "photo":
-        return "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/25";
       case "crm":
-        return "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/25";
+        return "bg-primary/10 text-primary border-primary/25";
       default:
         return "bg-muted text-muted-foreground border-border";
     }
   };
 
   return (
-    <Popover>
-      <SystemTooltip content={statusConfig.tooltip}>
+    <Popover open={open} onOpenChange={setOpen}>
+      <SystemTooltip content={open ? null : statusConfig.tooltip}>
         <PopoverTrigger asChild>
           <button
             type="button"
             onClick={(e) => e.stopPropagation()}
+            onMouseLeave={(e) => e.currentTarget.blur()}
             className={`${
               compact ? "p-1" : "p-1.5"
-            } rounded-full transition-all duration-150 cursor-pointer shrink-0 relative flex items-center justify-center ${
+            } rounded-full transition-opacity duration-150 cursor-pointer shrink-0 relative flex items-center justify-center ${
               statusConfig.btnClass
             }`}
           >
             <HelpCircle className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
             {hasSources && (
-              <span className="absolute -top-1 -right-1 min-w-[13px] h-[13px] px-0.5 rounded-full bg-emerald-600 text-white text-[8px] font-bold flex items-center justify-center shadow-xs pointer-events-none">
+              <span className="absolute -top-1 -right-1 min-w-[13px] h-[13px] px-0.5 rounded-full bg-primary text-primary-foreground text-[8px] font-bold flex items-center justify-center shadow-xs pointer-events-none">
                 {sources.length}
               </span>
             )}
             {!hasSources && isUnverifiedTech && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 pointer-events-none" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-primary pointer-events-none" />
             )}
           </button>
         </PopoverTrigger>
@@ -212,6 +210,7 @@ export function MessageKnowledgeSourceButton({
         sideOffset={8}
         collisionPadding={16}
         avoidCollisions={true}
+        onCloseAutoFocus={(e) => e.preventDefault()}
         onClick={(e) => e.stopPropagation()}
         className="w-[360px] sm:w-[400px] max-w-[calc(100vw-32px)] p-0 rounded-2xl border border-border/80 bg-popover/98 backdrop-blur-xl shadow-2xl overflow-hidden z-50"
       >
@@ -387,6 +386,7 @@ export interface ChatMessageBubbleProps {
   dateLabel: string | null;
   connectionBanner?: ConnectionBannerInfo | null;
   systemGroup?: SystemAnnotationItem[];
+  groupKnowledgeSources?: KnowledgeSourceItem[];
   isMe: boolean;
   isSystem: boolean;
   isExpanded: boolean;
@@ -435,6 +435,7 @@ function ChatMessageBubbleComponent({
   dateLabel,
   connectionBanner,
   systemGroup,
+  groupKnowledgeSources,
   isMe,
   isSystem,
   isExpanded,
@@ -569,7 +570,8 @@ function ChatMessageBubbleComponent({
               <button
                 type="button"
                 onClick={() => onSetReactingMsgId(reactingMsgId === m.id ? null : m.id)}
-                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
+                onMouseLeave={(e) => e.currentTarget.blur()}
+                className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
                   isExpanded ? "!opacity-100" : ""
                 } ${reactingMsgId === m.id ? "!opacity-100 bg-muted text-foreground" : ""}`}
               >
@@ -588,7 +590,8 @@ function ChatMessageBubbleComponent({
                       time: m.time,
                     })
                   }
-                  className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
+                  onMouseLeave={(e) => e.currentTarget.blur()}
+                  className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
                     isExpanded ? "!opacity-100" : ""
                   }`}
                 >
@@ -600,7 +603,8 @@ function ChatMessageBubbleComponent({
               <button
                 type="button"
                 onClick={() => onSetReplyingTo(m)}
-                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
+                onMouseLeave={(e) => e.currentTarget.blur()}
+                className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
                   isExpanded ? "!opacity-100" : ""
                 }`}
               >
@@ -1427,9 +1431,8 @@ function ChatMessageBubbleComponent({
               <button
                 type="button"
                 onClick={() => onSetReplyingTo(m)}
-                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
-                  isExpanded ? "!opacity-100" : ""
-                }`}
+                onMouseLeave={(e) => e.currentTarget.blur()}
+                className="opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-opacity duration-150 cursor-pointer shrink-0"
               >
                 <CornerUpLeft className="h-3.5 w-3.5" />
               </button>
@@ -1438,16 +1441,23 @@ function ChatMessageBubbleComponent({
               <button
                 type="button"
                 onClick={() => onSetReactingMsgId(reactingMsgId === m.id ? null : m.id)}
-                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
-                  isExpanded ? "!opacity-100" : ""
-                } ${reactingMsgId === m.id ? "!opacity-100 bg-muted text-foreground" : ""}`}
+                onMouseLeave={(e) => e.currentTarget.blur()}
+                className={`opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-opacity duration-150 cursor-pointer shrink-0 ${
+                  reactingMsgId === m.id ? "!opacity-100 !pointer-events-auto bg-muted text-foreground" : ""
+                }`}
               >
                 <Smile className="h-3.5 w-3.5" />
               </button>
             </SystemTooltip>
             {activeChat.id === "valentina" ? (
-              !m.isWarning && m.id !== "val_welcome" ? (
-                <MessageKnowledgeSourceButton message={m} isExpanded={isExpanded} />
+              isLast && !m.isWarning && m.id !== "val_welcome" ? (
+                <MessageKnowledgeSourceButton
+                  message={
+                    groupKnowledgeSources && groupKnowledgeSources.length > 0
+                      ? { ...m, knowledgeSources: groupKnowledgeSources }
+                      : m
+                  }
+                />
               ) : null
             ) : (
               <SystemTooltip content="Marcar como evidência do negócio">
@@ -1461,9 +1471,8 @@ function ChatMessageBubbleComponent({
                       time: m.time,
                     })
                   }
-                  className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
-                    isExpanded ? "!opacity-100" : ""
-                  }`}
+                  onMouseLeave={(e) => e.currentTarget.blur()}
+                  className="opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-opacity duration-150 cursor-pointer shrink-0"
                 >
                   <Bookmark className="h-3.5 w-3.5" />
                 </button>
@@ -1535,6 +1544,7 @@ export const ChatMessageBubble = memo(
     if (prev.prevLinked !== next.prevLinked || prev.nextLinked !== next.nextLinked) return false;
     if (prev.gap !== next.gap || prev.dateLabel !== next.dateLabel) return false;
     if ((prev.systemGroup?.length ?? 0) !== (next.systemGroup?.length ?? 0)) return false;
+    if ((prev.groupKnowledgeSources?.length ?? 0) !== (next.groupKnowledgeSources?.length ?? 0)) return false;
     if (
       prev.connectionBanner?.label !== next.connectionBanner?.label ||
       prev.connectionBanner?.foreignConversationId !== next.connectionBanner?.foreignConversationId
