@@ -91,6 +91,33 @@ export type Message = {
   relatedDeals?: RelatedDealItem[];
   relatedCalls?: RelatedCallActionItem[];
   thoughtTrace?: import("./valentina/agentic-thought-trace").AgenticThoughtTraceData;
+  archivedByReset?: boolean;
+  catalogPhoto?: Record<string, any> | null;
+  knowledgeSources?: KnowledgeSourceItem[];
+  knowledgeSourceStatus?: KnowledgeSourceStatus;
+  knowledgeSourceStatusLabel?: string;
+  knowledgeSourceStatusDescription?: string;
+};
+
+export type KnowledgeSourceStatus =
+  | "verified"
+  | "catalog_only"
+  | "honest_unknown"
+  | "unverified_technical"
+  | "operational_or_chat";
+
+export type KnowledgeSourceItem = {
+  id: string;
+  kind: "manual" | "catalog" | "document" | "photo" | "crm";
+  title: string;
+  code?: string;
+  model?: string;
+  folderOrCategory?: string;
+  excerptOrDetail?: string;
+  charCount?: number;
+  fileId?: string;
+  mediaUrl?: string;
+  verified: boolean;
 };
 
 export type Conversation = {

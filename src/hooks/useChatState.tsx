@@ -264,7 +264,9 @@ type ChatContextType = {
   >;
   isValentinaTyping: boolean;
   valentinaThoughtTrace: AgenticThoughtTraceData | null;
+  valentinaResetAt: string | null;
   reloadValentinaHistory: (limit?: number) => Promise<void>;
+  resetValentinaChat: () => Promise<void>;
   disconnectBaileys: () => void;
   connectBaileys: (forceNew?: boolean) => void;
 
@@ -303,6 +305,44 @@ export function extractBrtMessageDateStr(msg: Message | null | undefined): strin
     }
   }
   return msg.date || null;
+}
+
+export function getValentinaResetStorageKey(
+  tenant: string | null | undefined,
+  operatorId: string | null | undefined
+): string {
+  return `valentina_reset_at_${tenant || "default"}_${operatorId || "default"}`;
+}
+
+export function readStoredValentinaResetAt(
+  tenant: string | null | undefined,
+  operatorId: string | null | undefined
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(getValentinaResetStorageKey(tenant, operatorId)) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function isValentinaMessageArchived(
+  msg: Message | null | undefined,
+  currentBrtDateStr: string = getBrtTodayDateStr(),
+  resetAtISO?: string | null
+): boolean {
+  if (!msg || msg.id === "val_welcome") return false;
+  if (msg.archivedByReset) return true;
+  const mDate = extractBrtMessageDateStr(msg);
+  if (mDate && mDate !== currentBrtDateStr) return true;
+  if (resetAtISO && msg.sentAtISO) {
+    const msgMs = new Date(msg.sentAtISO).getTime();
+    const resetMs = new Date(resetAtISO).getTime();
+    if (!isNaN(msgMs) && !isNaN(resetMs) && msgMs <= resetMs) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function buildValentinaWelcomeMessage(
@@ -350,7 +390,8 @@ function composeValentinaMessagesWithTodayWelcome(
   realMessages: Message[],
   tenant: string | null | undefined,
   operatorName: string | undefined,
-  nowDateObj: Date = new Date()
+  nowDateObj: Date = new Date(),
+  resetAtISO?: string | null
 ): Message[] {
   const cleanReal = realMessages.filter((m) => m.id !== "val_welcome");
   const todayDateStr = getBrtTodayDateStr(nowDateObj);
@@ -358,11 +399,10 @@ function composeValentinaMessagesWithTodayWelcome(
   const todayMessages: Message[] = [];
 
   for (const msg of cleanReal) {
-    const mDate = extractBrtMessageDateStr(msg);
-    if (mDate === todayDateStr) {
-      todayMessages.push(msg);
-    } else {
+    if (isValentinaMessageArchived(msg, todayDateStr, resetAtISO)) {
       olderMessages.push(msg);
+    } else {
+      todayMessages.push(msg);
     }
   }
 
@@ -1554,7 +1594,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             existingValHistory,
             tenant,
             operatorProfile?.name,
-            nowDateObj
+            nowDateObj,
+            valentinaResetAtRef.current
           );
           const lastValMsg = initialValMessages[initialValMessages.length - 1];
 
@@ -1610,6 +1651,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [tenant, currentOperatorId, isAuthenticated]);
 
   const valentinaHistoryRef = useRef<Message[]>([]);
+  const [valentinaResetAt, setValentinaResetAt] = useState<string | null>(() =>
+    readStoredValentinaResetAt(tenant, currentOperatorId)
+  );
+  const valentinaResetAtRef = useRef<string | null>(valentinaResetAt);
+  useEffect(() => {
+    const stored = readStoredValentinaResetAt(tenant, currentOperatorId);
+    valentinaResetAtRef.current = stored;
+    setValentinaResetAt(stored);
+  }, [tenant, currentOperatorId]);
+
   const operatorNameRef = useRef<string | undefined>(operatorProfile?.name);
   useEffect(() => {
     operatorNameRef.current = operatorProfile?.name;
@@ -1761,6 +1812,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sentAtISO: validDate.toISOString(),
         side: r.direction === "to_agent" ? "out" : "in",
         isInternalNote: false,
+        ...(meta.archivedByReset ? { archivedByReset: true } : {}),
         ...(isWarning ? { isWarning: true } : {}),
         ...(warningType ? { warningType } : {}),
         ...(warningMetadata ? { warningMetadata } : {}),
@@ -1819,7 +1871,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const merged = composeValentinaMessagesWithTodayWelcome(
                 mappedMessages,
                 tenant,
-                operatorNameRef.current
+                operatorNameRef.current,
+                new Date(),
+                valentinaResetAtRef.current
               );
               const lastMsg = merged[merged.length - 1];
               return {
@@ -1837,7 +1891,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const merged = composeValentinaMessagesWithTodayWelcome(
                 [],
                 tenant,
-                operatorNameRef.current
+                operatorNameRef.current,
+                new Date(),
+                valentinaResetAtRef.current
               );
               const lastMsg = merged[merged.length - 1];
               return {
@@ -1855,6 +1911,94 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [tenant, currentOperatorId, mapInternalRowToMessage, setConversations]
   );
 
+  const resetValentinaChat = useCallback(async () => {
+    if (!tenant || !currentOperatorId) return;
+    const personaName = getAiPersona(tenant).name;
+
+    // Cancela qualquer resposta pendente ou timer de debounce da IA
+    if (valentinaDebounceTimerRef.current) {
+      clearTimeout(valentinaDebounceTimerRef.current);
+      valentinaDebounceTimerRef.current = null;
+    }
+    valentinaQueuedInputsRef.current = [];
+    if (valentinaPendingRef.current) {
+      try {
+        valentinaPendingRef.current.controller.abort();
+      } catch {}
+      valentinaPendingRef.current = null;
+    }
+    valentinaGenerationRef.current += 1;
+    setValentinaThoughtTrace(null);
+    setIsValentinaTyping(false);
+
+    const nowDate = new Date();
+    const resetIso = nowDate.toISOString();
+    const storageKey = getValentinaResetStorageKey(tenant, currentOperatorId);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(storageKey, resetIso);
+      } catch {}
+    }
+    valentinaResetAtRef.current = resetIso;
+    setValentinaResetAt(resetIso);
+
+    // Marca todas as mensagens existentes no histórico em memória como arquivadas pelo reset
+    valentinaHistoryRef.current = valentinaHistoryRef.current.map((m) =>
+      m.id === "val_welcome" ? m : { ...m, archivedByReset: true }
+    );
+
+    // Reposiciona todas as mensagens atuais como anteriores à mensagem de boas-vindas (val_welcome)
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== "valentina") return c;
+        const archivedExisting = c.messages
+          .filter((m) => m.id !== "val_welcome")
+          .map((m) => ({ ...m, archivedByReset: true }));
+        const merged = composeValentinaMessagesWithTodayWelcome(
+          archivedExisting,
+          tenant,
+          operatorNameRef.current,
+          nowDate,
+          resetIso
+        );
+        const lastMsg = merged[merged.length - 1];
+        return {
+          ...c,
+          messages: merged,
+          lastMessageTime: lastMsg?.time || c.lastMessageTime,
+          unreadCount: 0,
+        };
+      })
+    );
+
+    // Dispara o mesmo evento da virada do dia para que a UI recolha automaticamente para "Ver anteriores"
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("valentina:day-changed", {
+          detail: { date: getBrtTodayDateStr(nowDate), resetAt: resetIso },
+        })
+      );
+    }
+
+    try {
+      await fetch("/api/valentina/messages", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reset",
+          scope: "operator",
+          tenantId: tenant,
+          operatorId: currentOperatorId,
+        }),
+      });
+    } catch (err) {
+      console.error("Erro ao persistir reset do chat da IA:", err);
+    }
+
+    toast.success(`Conversa com ${personaName} arquivada para anteriores.`);
+  }, [tenant, currentOperatorId, setConversations]);
+
   // Carrega histórico do chat individual do operador com Valentina/Fagner (scope=operator + alertas proativos)
   useEffect(() => {
     if (!currentOperatorId || !tenant) return;
@@ -1870,7 +2014,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const merged = composeValentinaMessagesWithTodayWelcome(
           c.messages,
           tenant,
-          operatorProfile?.name
+          operatorProfile?.name,
+          new Date(),
+          valentinaResetAtRef.current
         );
         return {
           ...c,
@@ -1893,7 +2039,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const merged = composeValentinaMessagesWithTodayWelcome(
               c.messages,
               tenant,
-              operatorNameRef.current
+              operatorNameRef.current,
+              new Date(),
+              valentinaResetAtRef.current
             );
             const lastMsg = merged[merged.length - 1];
             return {
@@ -4775,6 +4923,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isValentinaTyping,
         valentinaThoughtTrace,
         reloadValentinaHistory,
+        valentinaResetAt,
+        resetValentinaChat,
         disconnectBaileys,
         connectBaileys,
 

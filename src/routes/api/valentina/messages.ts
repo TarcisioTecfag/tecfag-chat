@@ -3699,6 +3699,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
         try {
           const body = await request.json();
           const {
+            action,
             content,
             batchedUserMessages,
             scope = "operator",
@@ -3708,6 +3709,41 @@ export const Route = createFileRoute("/api/valentina/messages")({
             knowledgeBase,
             threadHistory,
           } = body;
+
+          // ── Ação de Reset do Chat (arquiva mensagens do ciclo atual para "anteriores", sem excluir) ──
+          if (action === "reset") {
+            const resetNow = new Date();
+            const resetIso = resetNow.toISOString();
+            const brtTodayYmdReset = resetNow.toLocaleDateString("en-CA", {
+              timeZone: "America/Sao_Paulo",
+            });
+            const todayStartReset = new Date(`${brtTodayYmdReset}T00:00:00-03:00`);
+            const targetScope = scope || "operator";
+
+            await db
+              .update(internalMessages)
+              .set({
+                metadata: sql`COALESCE(${internalMessages.metadata}, '{}'::jsonb) || ${JSON.stringify(
+                  {
+                    archivedByReset: true,
+                    archivedAt: resetIso,
+                  }
+                )}::jsonb`,
+              })
+              .where(
+                and(
+                  eq(internalMessages.tenantId, tenantId),
+                  eq(internalMessages.operatorId, operatorId),
+                  gte(internalMessages.createdAt, todayStartReset),
+                  sql`(${internalMessages.metadata}->>'scope' = ${targetScope} OR (${targetScope} = 'operator' AND (${internalMessages.metadata}->>'isChat' = 'true' OR ${internalMessages.metadata}->>'type' IN ('lead_transfer', 'sla_alert', 'operator_overload', 'no_response'))))`
+                )
+              );
+
+            return new Response(
+              JSON.stringify({ ok: true, resetAt: resetIso }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
 
           if (!content && !attachment && !imageBase64) {
             return new Response(
@@ -3816,25 +3852,44 @@ export const Route = createFileRoute("/api/valentina/messages")({
             .orderBy(desc(internalMessages.createdAt))
             .limit(45);
 
-          // Verifica se o operador já conversou com a IA hoje (para não cumprimentar toda hora!)
-          const alreadyTalkingToday = recentChatRows.some((r) => {
-            const meta: any = r.metadata || {};
+          const parseRowMeta = (rawMeta: unknown): Record<string, any> => {
+            if (!rawMeta) return {};
+            if (typeof rawMeta === "string") {
+              try {
+                const parsed = JSON.parse(rawMeta);
+                return parsed && typeof parsed === "object" ? parsed : {};
+              } catch {
+                return {};
+              }
+            }
+            return typeof rawMeta === "object" ? (rawMeta as Record<string, any>) : {};
+          };
+
+          // Filtra apenas mensagens do ciclo ativo (ignorando as que foram arquivadas via botão de Reset)
+          const activeSessionChatRows = recentChatRows.filter((r) => {
+            const meta = parseRowMeta(r.metadata);
+            return meta?.archivedByReset !== true;
+          });
+
+          // Verifica se o operador já conversou com a IA no ciclo ativo de hoje (para não cumprimentar toda hora!)
+          const alreadyTalkingToday = activeSessionChatRows.some((r) => {
+            const meta = parseRowMeta(r.metadata);
             const isChatMsg = r.direction === "to_agent" || meta?.isChat === true;
             const createdMs = r.createdAt ? new Date(r.createdAt).getTime() : 0;
             return isChatMsg && createdMs >= todayStart.getTime();
           });
 
-          // Janela de 24h ativa do Fagner/Valentina: reinicia na virada do ciclo diário (todayStart) ou após 24h corridas
+          // Janela de 24h ativa do Fagner/Valentina: reinicia na virada do ciclo diário (todayStart), em Reset manual ou após 24h corridas
           const active24hWindowStartMs = Math.max(
             todayStart.getTime(),
             now.getTime() - 24 * 60 * 60 * 1000
           );
           const alreadySentPhotoKeysInWindow = new Set<string>();
-          for (const r of recentChatRows) {
+          for (const r of activeSessionChatRows) {
             if (r.direction !== "from_agent") continue;
             const createdMs = r.createdAt ? new Date(r.createdAt).getTime() : 0;
             if (createdMs < active24hWindowStartMs) continue;
-            const meta: any = r.metadata || {};
+            const meta = parseRowMeta(r.metadata);
             if (meta?.catalogPhoto) {
               if (typeof meta.catalogPhoto.fileId === "string" && meta.catalogPhoto.fileId) {
                 alreadySentPhotoKeysInWindow.add(meta.catalogPhoto.fileId.toLowerCase());
@@ -3893,7 +3948,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
               txt || ""
             );
 
-          const chronologicalRecentRows = [...recentChatRows].reverse();
+          const chronologicalRecentRows = [...activeSessionChatRows].reverse();
 
           // Mensagens recentes em ordem da MAIS RECENTE para a mais antiga (para resolver pedidos diretos como "me manda uma foto dela")
           const recentHistoryMessagesMostRecentFirst: string[] =
@@ -3909,7 +3964,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                   )
                   .slice(0, 8)
                   .map((m: any) => String(m.content || ""))
-              : recentChatRows
+              : activeSessionChatRows
                   .filter(
                     (r) =>
                       (r.content || "").trim() !== "[object Object]" &&
@@ -3964,17 +4019,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
           const recentDealIdsFromHistory: string[] = [];
           const existingByTempId = new Map<string, { id: string; content: string; createdAt: Date }>();
-          for (const r of [...chronologicalRecentRows].reverse().slice(0, 12)) {
-            const meta: any =
-              typeof r.metadata === "string"
-                ? (() => {
-                    try {
-                      return JSON.parse(r.metadata);
-                    } catch {
-                      return {};
-                    }
-                  })()
-                : r.metadata || {};
+          for (const r of recentChatRows.slice(0, 12)) {
+            const meta = parseRowMeta(r.metadata);
             if (typeof meta?.tempId === "string" && meta.tempId.trim() && r.direction === "to_agent") {
               existingByTempId.set(meta.tempId.trim(), {
                 id: r.id,
@@ -3982,6 +4028,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 createdAt: r.createdAt || now,
               });
             }
+          }
+          for (const r of [...chronologicalRecentRows].reverse().slice(0, 12)) {
+            const meta = parseRowMeta(r.metadata);
             if (Array.isArray(meta?.relatedDeals)) {
               for (const rd of meta.relatedDeals) {
                 const dId = rd?.dealId || rd?.id;

@@ -63,7 +63,7 @@ import {
   ensureMiniChatBodyEventGuard,
 } from "@/components/ui/dialog";
 import { SystemTooltip } from "@/components/ui/tooltip";
-import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr } from "@/hooks/useChatState";
+import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr, isValentinaMessageArchived } from "@/hooks/useChatState";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -1064,6 +1064,8 @@ export function CrmChatWidget() {
     isValentinaTyping,
     valentinaThoughtTrace,
     reloadValentinaHistory,
+    valentinaResetAt,
+    resetValentinaChat,
   } = useChat();
   const { canAccessView, canViewCrm } = usePermissions();
 
@@ -1445,8 +1447,7 @@ export function CrmChatWidget() {
       if (showOlderValentinaDays) return base;
       return base.filter((m) => {
         if (m.id === "val_welcome") return true;
-        const mDate = extractBrtMessageDateStr(m);
-        return !mDate || mDate === currentBrtDateStr;
+        return !isValentinaMessageArchived(m, currentBrtDateStr, valentinaResetAt);
       });
     }
     if (
@@ -1469,7 +1470,7 @@ export function CrmChatWidget() {
       if (!b.sentAtISO) return -1;
       return a.sentAtISO.localeCompare(b.sentAtISO);
     });
-  }, [selected, history, showOlderValentinaDays, currentBrtDateStr]);
+  }, [selected, history, showOlderValentinaDays, currentBrtDateStr, valentinaResetAt]);
 
   // Identifica a última mensagem recebida do cliente (side === 'in')
   const lastInboundMessage = useMemo<Message | null>(() => {
@@ -2492,7 +2493,22 @@ export function CrmChatWidget() {
                         </div>
 
                       <div className="flex items-center gap-1">
-                        {selected.id !== "valentina" && (
+                        {selected.id === "valentina" ? (
+                          <SystemTooltip content={`Resetar ${aiPersona.name} (arquivar para anteriores)`}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowOlderValentinaDays(false);
+                                setShowValOlderPrompt(false);
+                                void resetValentinaChat();
+                              }}
+                              aria-label={`Resetar ${aiPersona.name}`}
+                              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </button>
+                          </SystemTooltip>
+                        ) : (
                           <SystemTooltip
                             content={
                               showSystemInfo

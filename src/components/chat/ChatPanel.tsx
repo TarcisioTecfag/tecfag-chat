@@ -10,7 +10,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
 import { MessageReactionPicker } from "./MessageReactionPicker";
-import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr } from "@/hooks/useChatState";
+import { useChat, getBrtTodayDateStr, extractBrtMessageDateStr, isValentinaMessageArchived } from "@/hooks/useChatState";
 import { useWhatsappConnections, useContactWhatsappHistory } from "@/hooks/useWhatsappConnections";
 import { WhatsappNumberPicker } from "./WhatsappNumberPicker";
 import type { Message } from "@/lib/mockData";
@@ -1000,6 +1000,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     isValentinaTyping,
     valentinaThoughtTrace,
     reloadValentinaHistory,
+    valentinaResetAt,
+    resetValentinaChat,
     toggleReaction,
   } = useChat();
 
@@ -1567,10 +1569,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       if (m.id === "val_welcome") return false;
       if (m.isWarning && !showValWarnings) return false;
       if (!m.isWarning && !showValResponses) return false;
-      const mDate = extractBrtMessageDateStr(m);
-      return Boolean(mDate && mDate !== currentBrtDateStr);
+      return isValentinaMessageArchived(m, currentBrtDateStr, valentinaResetAt);
     });
-  }, [activeChat?.id, allMessages, currentBrtDateStr, showValWarnings, showValResponses]);
+  }, [activeChat?.id, allMessages, currentBrtDateStr, valentinaResetAt, showValWarnings, showValResponses]);
 
   const handleLoadOlderValentina = useCallback(async () => {
     if (loadingOlderValentina) return;
@@ -2679,6 +2680,26 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       Respostas/Conversas de {aiPersona.name}
                     </TooltipContent>
                   </Tooltip>
+
+                  {/* Resetar Conversa (Arquivar para Anteriores) */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowOlderValentinaDays(false);
+                          setShowValOlderPrompt(false);
+                          void resetValentinaChat();
+                        }}
+                        className="grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-semibold transition cursor-pointer"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      Resetar {aiPersona.name} (arquivar para anteriores)
+                    </TooltipContent>
+                  </Tooltip>
                 </>
               )}
 
@@ -3082,7 +3103,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-muted/60 px-3 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
             >
               <Clock className="h-3 w-3" />
-              <span>Exibindo conversas de dias anteriores · Ocultar anteriores</span>
+              <span>Exibindo conversas anteriores · Ocultar anteriores</span>
             </button>
           </div>
         )}
@@ -3115,8 +3136,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               }
               if (!showOlderValentinaDays && !msgSearch.trim()) {
                 if (m.id === "val_welcome") return true;
-                const mDate = extractBrtMessageDateStr(m);
-                return !mDate || mDate === currentBrtDateStr;
+                return !isValentinaMessageArchived(m, currentBrtDateStr, valentinaResetAt);
               }
               return true;
             });
@@ -4073,17 +4093,19 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         <QuickResponsesPopover
                           isOpen={showQuickMenu}
                           onClose={() => setShowQuickMenu(false)}
-                          onSelect={selectQuickResponse}
+                          onSelectResponse={selectQuickResponse}
                           quickResponses={quickResponses}
                           templates={templates || []}
-                          slashQuery={text.startsWith("/") ? text.slice(1) : ""}
+                          slashFilterText={text.startsWith("/") ? text.slice(1) : ""}
                           canManageGlobalTemplates={canManageGlobalTemplates}
-                          onCreateTemplate={createTemplate}
-                          onUpdateTemplate={updateTemplate}
-                          onDeleteTemplate={deleteTemplate}
-                          onCreateQuickResponse={createQuickResponse}
-                          onUpdateQuickResponse={updateQuickResponse}
-                          onDeleteQuickResponse={deleteQuickResponse}
+                          operatorName={operatorProfile.name}
+                          customerName={activeChat.name}
+                          onCreateIndividual={createTemplate}
+                          onUpdateIndividual={updateTemplate}
+                          onDeleteIndividual={deleteTemplate}
+                          onCreateGlobal={async (response) => { await createQuickResponse({ ...response, description: response.description ?? "" }); }}
+                          onUpdateGlobal={async (id, fields) => { await updateQuickResponse(id, fields); }}
+                          onDeleteGlobal={async (id) => { await deleteQuickResponse(id); }}
                           onOpenFullManager={() => {
                             setShowQuickMenu(false);
                             const targetView = canManageGlobalTemplates ? "groups" : "wallet";
