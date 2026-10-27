@@ -40,6 +40,8 @@ export interface McpNamedKey {
   active: boolean;
 }
 
+export type McpAuditEventType = "query" | "connection" | "config_change";
+
 export interface McpAuditLogEntry {
   id: string;
   timestamp: string;
@@ -52,6 +54,12 @@ export interface McpAuditLogEntry {
   resultSummary: string;
   status: "success" | "error";
   latencyMs: number;
+  eventType?: McpAuditEventType;
+  transport?: string;
+  clientName?: string;
+  clientIp?: string;
+  responseBytes?: number;
+  responsePreview?: string;
 }
 
 export interface McpTenantSettings {
@@ -71,6 +79,124 @@ export interface McpAccessContext {
   keyId?: string;
   keyLabel?: string;
   skipAuditLog?: boolean;
+  clientIp?: string;
+  userAgent?: string;
+  clientName?: string;
+  transport?: string;
+  sessionId?: string;
+}
+
+interface McpActiveSession {
+  sessionId: string;
+  access: McpAccessContext;
+  clientName?: string;
+  sseController?: ReadableStreamDefaultController<Uint8Array>;
+  createdAt: number;
+  lastSeenAt: number;
+}
+
+const mcpSessions = new Map<string, McpActiveSession>();
+const MCP_SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 horas
+const MAX_AUDIT_LOGS = 500;
+const tenantWriteLocks = new Map<string, Promise<unknown>>();
+
+function withTenantSettingsLock<T>(
+  tenantId: "tecfag" | "valem",
+  task: () => Promise<T>,
+): Promise<T> {
+  const prev = tenantWriteLocks.get(tenantId) || Promise.resolve();
+  const next = prev.catch(() => undefined).then(task);
+  tenantWriteLocks.set(
+    tenantId,
+    next.catch(() => undefined),
+  );
+  return next;
+}
+
+function cleanupExpiredMcpSessions(): void {
+  const now = Date.now();
+  for (const [id, session] of mcpSessions.entries()) {
+    if (now - session.lastSeenAt > MCP_SESSION_TTL_MS) {
+      mcpSessions.delete(id);
+    }
+  }
+}
+
+export function registerMcpSession(
+  sessionId: string,
+  access: McpAccessContext,
+  clientName?: string,
+): void {
+  if (!sessionId) return;
+  cleanupExpiredMcpSessions();
+  const existing = mcpSessions.get(sessionId);
+  mcpSessions.set(sessionId, {
+    sessionId,
+    access: { ...access, sessionId },
+    clientName: clientName || existing?.clientName || access.clientName,
+    sseController: existing?.sseController,
+    createdAt: existing?.createdAt || Date.now(),
+    lastSeenAt: Date.now(),
+  });
+}
+
+export function updateMcpSessionClient(sessionId: string, clientName: string): void {
+  if (!sessionId || !clientName) return;
+  const existing = mcpSessions.get(sessionId);
+  if (existing) {
+    existing.clientName = clientName;
+    existing.access.clientName = clientName;
+    existing.lastSeenAt = Date.now();
+  }
+}
+
+export function getMcpSession(sessionId: string): McpActiveSession | undefined {
+  if (!sessionId) return undefined;
+  cleanupExpiredMcpSessions();
+  const existing = mcpSessions.get(sessionId);
+  if (existing) {
+    existing.lastSeenAt = Date.now();
+  }
+  return existing;
+}
+
+export function attachMcpSseController(
+  sessionId: string,
+  access: McpAccessContext,
+  controller: ReadableStreamDefaultController<Uint8Array>,
+): void {
+  if (!sessionId) return;
+  cleanupExpiredMcpSessions();
+  const existing = mcpSessions.get(sessionId);
+  mcpSessions.set(sessionId, {
+    sessionId,
+    access: { ...access, sessionId },
+    clientName: existing?.clientName || access.clientName,
+    sseController: controller,
+    createdAt: existing?.createdAt || Date.now(),
+    lastSeenAt: Date.now(),
+  });
+}
+
+export function pushMcpSseMessage(sessionId: string, payload: unknown): boolean {
+  if (!sessionId || payload === null || payload === undefined) return false;
+  const session = mcpSessions.get(sessionId);
+  if (!session?.sseController) return false;
+  try {
+    const encoder = new TextEncoder();
+    session.sseController.enqueue(
+      encoder.encode(`event: message\ndata: ${JSON.stringify(payload)}\n\n`),
+    );
+    session.lastSeenAt = Date.now();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function closeMcpSession(sessionId: string): void {
+  if (!sessionId) return;
+  mcpSessions.delete(sessionId);
 }
 
 const TOOL_LABELS_PT: Record<string, string> = {
@@ -84,10 +210,70 @@ const TOOL_LABELS_PT: Record<string, string> = {
   search_contacts: "Busca de Contatos",
   get_sales_and_commercial_metrics: "Métricas de Vendas & Meta",
   get_rodizio_and_operators_status: "Escala do Rodízio & Operadores",
+  mcp_initialize: "Conexão Inicializada (Handshake MCP)",
+  mcp_tools_list: "Sincronização de Ferramentas (tools/list)",
+  mcp_sse_connect: "Conexão SSE Aberta (Link Único)",
+  mcp_http_inspect: "Verificação / Acesso ao Link Único (GET)",
+  config_toggle_enabled: "Alteração de Status do Conector",
+  config_rotate_primary_token: "Rotação do Link Único Principal",
+  config_restore_default_token: "Restauração do Link Oficial Padrão",
+  config_create_named_key: "Criação de Link Individual",
+  config_toggle_named_key: "Alteração de Status de Link Individual",
+  config_delete_named_key: "Revogação de Link Individual",
+  config_clear_audit_logs: "Limpeza do Histórico de Auditoria",
 };
+
+export function inferMcpAuditEventType(toolName: string, rawType?: unknown): McpAuditEventType {
+  if (rawType === "query" || rawType === "connection" || rawType === "config_change") {
+    return rawType;
+  }
+  if (toolName.startsWith("config_")) return "config_change";
+  if (toolName.startsWith("mcp_")) return "connection";
+  return "query";
+}
 
 export function formatMcpToolLabel(toolName: string): string {
   return TOOL_LABELS_PT[toolName] || toolName;
+}
+
+export function detectMcpClientName(request: Request): string {
+  const url = new URL(request.url);
+  const explicit =
+    request.headers.get("x-mcp-client-name") ||
+    url.searchParams.get("client") ||
+    url.searchParams.get("clientName") ||
+    "";
+  if (explicit.trim()) return explicit.trim();
+
+  const ua = (request.headers.get("user-agent") || "").trim();
+  if (!ua) return "Cliente MCP";
+  const lower = ua.toLowerCase();
+  if (lower.includes("claude")) return "Claude (Anthropic)";
+  if (lower.includes("antigravity")) return "Antigravity IDE";
+  if (lower.includes("cursor")) return "Cursor IDE";
+  if (lower.includes("windsurf")) return "Windsurf IDE";
+  if (lower.includes("mcp-remote") || lower.includes("modelcontextprotocol")) return "MCP Client";
+  if (lower.includes("openai") || lower.includes("chatgpt")) return "OpenAI / ChatGPT";
+  if (lower.includes("node") || lower.includes("undici")) return "Conector Node / MCP";
+  if (lower.includes("mozilla") || lower.includes("chrome") || lower.includes("safari")) {
+    return "Navegador Web";
+  }
+  return ua.length > 48 ? `${ua.slice(0, 45)}...` : ua;
+}
+
+export function extractRequestClientIp(request: Request): string {
+  const xff = request.headers.get("x-forwarded-for");
+  if (xff && xff.trim()) {
+    return xff.split(",")[0].trim();
+  }
+  const realIp =
+    request.headers.get("x-real-ip") ||
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("x-client-ip");
+  if (realIp && realIp.trim()) {
+    return realIp.trim();
+  }
+  return "direto";
 }
 
 export function summarizeMcpToolArguments(
@@ -103,7 +289,7 @@ export function summarizeMcpToolArguments(
   return entries
     .map(([k, v]) => {
       const valStr = typeof v === "object" ? JSON.stringify(v) : String(v);
-      return `${k}: ${valStr.length > 40 ? `${valStr.slice(0, 37)}...` : valStr}`;
+      return `${k}: ${valStr.length > 45 ? `${valStr.slice(0, 42)}...` : valStr}`;
     })
     .join(" · ");
 }
@@ -227,9 +413,17 @@ export async function getMcpTenantSettings(
       };
     }
     const row = rows[0];
+    let parsedCfg: unknown = row.config;
+    if (typeof parsedCfg === "string") {
+      try {
+        parsedCfg = JSON.parse(parsedCfg);
+      } catch {
+        parsedCfg = {};
+      }
+    }
     const cfg =
-      row.config && typeof row.config === "object" && !Array.isArray(row.config)
-        ? (row.config as Record<string, unknown>)
+      parsedCfg && typeof parsedCfg === "object" && !Array.isArray(parsedCfg)
+        ? (parsedCfg as Record<string, unknown>)
         : {};
     const primaryToken =
       typeof cfg.primaryToken === "string" && cfg.primaryToken.trim()
@@ -255,22 +449,31 @@ export async function getMcpTenantSettings(
     const rawLogs = Array.isArray(cfg.auditLogs) ? cfg.auditLogs : [];
     const auditLogs: McpAuditLogEntry[] = rawLogs
       .filter((l): l is Record<string, unknown> => Boolean(l && typeof l === "object"))
-      .map((l) => ({
-        id: String(l.id || ""),
-        timestamp: String(l.timestamp || new Date().toISOString()),
-        keyId: String(l.keyId || "primary"),
-        keyLabel: String(l.keyLabel || "Link Principal"),
-        toolName: String(l.toolName || ""),
-        toolLabel: String(l.toolLabel || formatMcpToolLabel(String(l.toolName || ""))),
-        argumentsSummary: String(l.argumentsSummary || "Consulta geral"),
-        argumentsRaw:
-          l.argumentsRaw && typeof l.argumentsRaw === "object" && !Array.isArray(l.argumentsRaw)
-            ? (l.argumentsRaw as Record<string, unknown>)
-            : {},
-        resultSummary: String(l.resultSummary || ""),
-        status: l.status === "error" ? ("error" as const) : ("success" as const),
-        latencyMs: Number(l.latencyMs || 0),
-      }))
+      .map((l) => {
+        const toolName = String(l.toolName || "");
+        return {
+          id: String(l.id || ""),
+          timestamp: String(l.timestamp || new Date().toISOString()),
+          keyId: String(l.keyId || "primary"),
+          keyLabel: String(l.keyLabel || "Link Principal"),
+          toolName,
+          toolLabel: String(l.toolLabel || formatMcpToolLabel(toolName)),
+          argumentsSummary: String(l.argumentsSummary || "Consulta geral"),
+          argumentsRaw:
+            l.argumentsRaw && typeof l.argumentsRaw === "object" && !Array.isArray(l.argumentsRaw)
+              ? (l.argumentsRaw as Record<string, unknown>)
+              : {},
+          resultSummary: String(l.resultSummary || ""),
+          status: l.status === "error" ? ("error" as const) : ("success" as const),
+          latencyMs: Number(l.latencyMs || 0),
+          eventType: inferMcpAuditEventType(toolName, l.eventType),
+          transport: typeof l.transport === "string" ? l.transport : undefined,
+          clientName: typeof l.clientName === "string" ? l.clientName : undefined,
+          clientIp: typeof l.clientIp === "string" ? l.clientIp : undefined,
+          responseBytes: typeof l.responseBytes === "number" ? l.responseBytes : undefined,
+          responsePreview: typeof l.responsePreview === "string" ? l.responsePreview : undefined,
+        };
+      })
       .filter((l) => Boolean(l.id && l.toolName));
 
     return {
@@ -281,7 +484,8 @@ export async function getMcpTenantSettings(
       namedKeys,
       auditLogs,
     };
-  } catch {
+  } catch (err) {
+    console.error(`[MCP Config] Erro ao carregar configurações do tenant ${tenantId}:`, err);
     return {
       tenantId,
       enabled: true,
@@ -291,6 +495,66 @@ export async function getMcpTenantSettings(
       auditLogs: [],
     };
   }
+}
+
+async function persistMcpTenantSettingsUnlocked(
+  tenantId: "tecfag" | "valem",
+  settings: {
+    enabled: boolean;
+    primaryToken: string;
+    primaryTokenUpdatedAt: string | null;
+    namedKeys: McpNamedKey[];
+    auditLogs?: McpAuditLogEntry[];
+  },
+): Promise<McpTenantSettings> {
+  const defaultRowId = `mcp-config-${tenantId}`;
+  const enabledInt = settings.enabled ? 1 : 0;
+  const currentAuditLogs = Array.isArray(settings.auditLogs)
+    ? settings.auditLogs.slice(0, MAX_AUDIT_LOGS)
+    : (await getMcpTenantSettings(tenantId)).auditLogs.slice(0, MAX_AUDIT_LOGS);
+
+  const configJson = {
+    primaryToken: settings.primaryToken,
+    primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
+    namedKeys: settings.namedKeys,
+    auditLogs: currentAuditLogs,
+  };
+  const serializedConfig = JSON.stringify(configJson);
+
+  const existing = await defaultSqlClient<Array<{ id: string }>>`
+    SELECT id FROM agent_configs
+    WHERE tenant_id = ${tenantId} AND agent_type = 'mcp'
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `;
+
+  const targetId = existing[0]?.id || defaultRowId;
+
+  await defaultSqlClient`
+    INSERT INTO agent_configs (id, tenant_id, agent_type, enabled, config, created_at, updated_at)
+    VALUES (
+      ${targetId},
+      ${tenantId},
+      'mcp',
+      ${enabledInt},
+      ${serializedConfig}::jsonb,
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET enabled = EXCLUDED.enabled,
+        config = EXCLUDED.config,
+        updated_at = NOW()
+  `;
+
+  return {
+    tenantId,
+    enabled: settings.enabled,
+    primaryToken: settings.primaryToken,
+    primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
+    namedKeys: settings.namedKeys,
+    auditLogs: currentAuditLogs,
+  };
 }
 
 export async function saveMcpTenantSettings(
@@ -303,117 +567,89 @@ export async function saveMcpTenantSettings(
     auditLogs?: McpAuditLogEntry[];
   },
 ): Promise<McpTenantSettings> {
-  const rowId = `mcp-config-${tenantId}`;
-  const enabledInt = settings.enabled ? 1 : 0;
-  const currentAuditLogs = Array.isArray(settings.auditLogs)
-    ? settings.auditLogs.slice(0, 250)
-    : (await getMcpTenantSettings(tenantId)).auditLogs.slice(0, 250);
-
-  const configJson = {
-    primaryToken: settings.primaryToken,
-    primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
-    namedKeys: settings.namedKeys,
-    auditLogs: currentAuditLogs,
-  };
-
-  const existing = await defaultSqlClient<Array<{ id: string }>>`
-    SELECT id FROM agent_configs
-    WHERE tenant_id = ${tenantId} AND agent_type = 'mcp'
-    LIMIT 1
-  `;
-
-  if (existing.length > 0) {
-    await defaultSqlClient`
-      UPDATE agent_configs
-      SET enabled = ${enabledInt},
-          config = ${defaultSqlClient.json(configJson as any)},
-          updated_at = NOW()
-      WHERE id = ${existing[0].id}
-        AND tenant_id = ${tenantId}
-    `;
-  } else {
-    await defaultSqlClient`
-      INSERT INTO agent_configs (id, tenant_id, agent_type, enabled, config, created_at, updated_at)
-      VALUES (
-        ${rowId},
-        ${tenantId},
-        'mcp',
-        ${enabledInt},
-        ${defaultSqlClient.json(configJson as any)},
-        NOW(),
-        NOW()
-      )
-    `;
-  }
-
-  return {
-    tenantId,
-    enabled: settings.enabled,
-    primaryToken: settings.primaryToken,
-    primaryTokenUpdatedAt: settings.primaryTokenUpdatedAt,
-    namedKeys: settings.namedKeys,
-    auditLogs: currentAuditLogs,
-  };
+  return withTenantSettingsLock(tenantId, () =>
+    persistMcpTenantSettingsUnlocked(tenantId, settings),
+  );
 }
 
 export async function recordMcpToolAuditLog(params: {
   tenantId: "tecfag" | "valem";
   access?: McpAccessContext;
   toolName: string;
+  toolLabel?: string;
   toolArgs: Record<string, unknown>;
+  argumentsSummary?: string;
   resultSummary: string;
   status: "success" | "error";
   latencyMs: number;
+  eventType?: McpAuditEventType;
+  transport?: string;
+  clientName?: string;
+  clientIp?: string;
+  responseBytes?: number;
+  responsePreview?: string;
 }): Promise<void> {
   if (params.access?.skipAuditLog) return;
-  try {
-    const current = await getMcpTenantSettings(params.tenantId);
-    const nowIso = new Date().toISOString();
-    const keyId = params.access?.keyId || "primary";
-    const keyLabel =
-      params.access?.keyLabel ||
-      (params.tenantId === "valem" ? "Link Principal (Valem)" : "Link Principal (Tecfag)");
+  await withTenantSettingsLock(params.tenantId, async () => {
+    try {
+      const current = await getMcpTenantSettings(params.tenantId);
+      const nowIso = new Date().toISOString();
+      const keyId = params.access?.keyId || "primary";
+      const keyLabel =
+        params.access?.keyLabel ||
+        (params.tenantId === "valem" ? "Link Principal (Valem)" : "Link Principal (Tecfag)");
+      const eventType = inferMcpAuditEventType(params.toolName, params.eventType);
 
-    const newEntry: McpAuditLogEntry = {
-      id: `mcp-log-${crypto.randomBytes(6).toString("hex")}`,
-      timestamp: nowIso,
-      keyId,
-      keyLabel,
-      toolName: params.toolName,
-      toolLabel: formatMcpToolLabel(params.toolName),
-      argumentsSummary: summarizeMcpToolArguments(params.toolName, params.toolArgs),
-      argumentsRaw: params.toolArgs || {},
-      resultSummary: params.resultSummary,
-      status: params.status,
-      latencyMs: params.latencyMs,
-    };
+      const newEntry: McpAuditLogEntry = {
+        id: `mcp-log-${crypto.randomBytes(6).toString("hex")}`,
+        timestamp: nowIso,
+        keyId,
+        keyLabel,
+        toolName: params.toolName,
+        toolLabel: params.toolLabel || formatMcpToolLabel(params.toolName),
+        argumentsSummary:
+          params.argumentsSummary || summarizeMcpToolArguments(params.toolName, params.toolArgs),
+        argumentsRaw: params.toolArgs || {},
+        resultSummary: params.resultSummary,
+        status: params.status,
+        latencyMs: params.latencyMs,
+        eventType,
+        transport: params.transport || params.access?.transport || "HTTP JSON-RPC",
+        clientName: params.clientName || params.access?.clientName || "Cliente MCP",
+        clientIp: params.clientIp || params.access?.clientIp || "direto",
+        responseBytes: params.responseBytes,
+        responsePreview: params.responsePreview,
+      };
 
-    const updatedKeys = current.namedKeys.map((k) =>
-      k.id === keyId
-        ? {
-            ...k,
-            lastUsedAt: nowIso,
-            usageCount: (k.usageCount || 0) + 1,
-          }
-        : k,
-    );
+      const shouldIncrementKeyUsage = eventType === "query" || params.toolName === "mcp_initialize";
+      const updatedKeys = current.namedKeys.map((k) =>
+        k.id === keyId
+          ? {
+              ...k,
+              lastUsedAt: nowIso,
+              usageCount: shouldIncrementKeyUsage ? (k.usageCount || 0) + 1 : k.usageCount || 0,
+            }
+          : k,
+      );
 
-    const updatedLogs = [newEntry, ...current.auditLogs].slice(0, 250);
+      const updatedLogs = [newEntry, ...current.auditLogs].slice(0, MAX_AUDIT_LOGS);
 
-    await saveMcpTenantSettings(params.tenantId, {
-      enabled: current.enabled,
-      primaryToken: current.primaryToken,
-      primaryTokenUpdatedAt: current.primaryTokenUpdatedAt,
-      namedKeys: updatedKeys,
-      auditLogs: updatedLogs,
-    });
-  } catch {
-    // Non-blocking audit update
-  }
+      await persistMcpTenantSettingsUnlocked(params.tenantId, {
+        enabled: current.enabled,
+        primaryToken: current.primaryToken,
+        primaryTokenUpdatedAt: current.primaryTokenUpdatedAt,
+        namedKeys: updatedKeys,
+        auditLogs: updatedLogs,
+      });
+    } catch (err) {
+      console.error("[MCP Audit] Erro ao persistir log de auditoria:", err);
+    }
+  });
 }
 
 /**
- * Valida o acesso à rota /api/mcp via Token de Conector (query ?token=, Header Bearer ou x-mcp-token)
+ * Valida o acesso à rota /api/mcp via Token de Conector (query ?token=, Header Bearer ou x-mcp-token),
+ * via Session ID MCP já autenticada (Mcp-Session-Id / ?sessionId=),
  * ou via Sessão Autenticada do servidor (requireSession).
  * Quando um token escopado por tenant é usado (ex: Tecfag), trava o tenantId no servidor
  * para garantir 100% de isolamento multi-tenant.
@@ -428,6 +664,31 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
   const headerToken = request.headers.get("x-mcp-token") || "";
   const candidateToken = (queryToken || bearerToken || headerToken).trim();
 
+  const sessionId = (
+    request.headers.get("mcp-session-id") ||
+    url.searchParams.get("sessionId") ||
+    ""
+  ).trim();
+  const clientIp = extractRequestClientIp(request);
+  const userAgent = (request.headers.get("user-agent") || "").trim();
+  const detectedClientName = detectMcpClientName(request);
+  const existingSession = sessionId ? getMcpSession(sessionId) : undefined;
+  const effectiveClientName = existingSession?.clientName || detectedClientName;
+
+  const finalizeAccess = (ctx: McpAccessContext): McpAccessContext => {
+    const enriched: McpAccessContext = {
+      ...ctx,
+      clientIp,
+      userAgent,
+      clientName: effectiveClientName,
+      sessionId: sessionId || undefined,
+    };
+    if (ctx.authorized && sessionId) {
+      registerMcpSession(sessionId, enriched, effectiveClientName);
+    }
+    return enriched;
+  };
+
   const adminTokens = [
     process.env.MCP_ACCESS_TOKEN,
     DEFAULT_MCP_ADMIN_TOKEN,
@@ -435,14 +696,14 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
 
   if (candidateToken) {
     if (adminTokens.some((expected) => safeCompareToken(candidateToken, expected))) {
-      return {
+      return finalizeAccess({
         authorized: true,
         lockedTenantId: null,
         defaultTenantId: "tecfag",
         authMode: "token_admin",
         keyId: "admin",
         keyLabel: "Admin Multi-Tenant",
-      };
+      });
     }
 
     const [tecfagSettings, valemSettings] = await Promise.all([
@@ -457,28 +718,28 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
       ].filter((t): t is string => Boolean(t && t.trim()));
 
       if (tecfagPrimaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
-        return {
+        return finalizeAccess({
           authorized: true,
           lockedTenantId: "tecfag",
           defaultTenantId: "tecfag",
           authMode: "token_tecfag",
           keyId: "primary",
           keyLabel: "Link Principal (Tecfag)",
-        };
+        });
       }
 
       const matchedNamedKey = tecfagSettings.namedKeys.find(
         (k) => k.active && safeCompareToken(candidateToken, k.token),
       );
       if (matchedNamedKey) {
-        return {
+        return finalizeAccess({
           authorized: true,
           lockedTenantId: "tecfag",
           defaultTenantId: "tecfag",
           authMode: "token_tecfag",
           keyId: matchedNamedKey.id,
           keyLabel: matchedNamedKey.label,
-        };
+        });
       }
     }
 
@@ -489,52 +750,58 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
       ].filter((t): t is string => Boolean(t && t.trim()));
 
       if (valemPrimaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
-        return {
+        return finalizeAccess({
           authorized: true,
           lockedTenantId: "valem",
           defaultTenantId: "valem",
           authMode: "token_valem",
           keyId: "primary",
           keyLabel: "Link Principal (Valem)",
-        };
+        });
       }
 
       const matchedNamedKey = valemSettings.namedKeys.find(
         (k) => k.active && safeCompareToken(candidateToken, k.token),
       );
       if (matchedNamedKey) {
-        return {
+        return finalizeAccess({
           authorized: true,
           lockedTenantId: "valem",
           defaultTenantId: "valem",
           authMode: "token_valem",
           keyId: matchedNamedKey.id,
           keyLabel: matchedNamedKey.label,
-        };
+        });
       }
     }
+  }
+
+  // Se o cliente já autenticou a sessão MCP (via GET SSE ou POST initialize com token)
+  // e enviou o sessionId nas chamadas seguintes:
+  if (!candidateToken && existingSession?.access.authorized) {
+    return finalizeAccess(existingSession.access);
   }
 
   // Fallback: sessão autenticada de operador logado no navegador
   const auth = await requireSession(request);
   if (!("response" in auth)) {
     const sessionTenant = auth.session.tenantId === "valem" ? "valem" : "tecfag";
-    return {
+    return finalizeAccess({
       authorized: true,
       lockedTenantId: sessionTenant,
       defaultTenantId: sessionTenant,
       authMode: "session",
       keyId: "session",
       keyLabel: `Sessão Web (${auth.session.operator.name || "Operador"})`,
-    };
+    });
   }
 
-  return {
+  return finalizeAccess({
     authorized: false,
     lockedTenantId: null,
     defaultTenantId: "tecfag",
     authMode: "none",
-  };
+  });
 }
 
 function resolveEffectiveTenantId(
@@ -2192,31 +2459,99 @@ export async function handleSingleJsonRpcMessage(
   sql: any = defaultSqlClient,
 ): Promise<any | null> {
   if (!msg || typeof msg !== "object") return null;
-  const { id, method, params } = msg;
 
-  // Notificação JSON-RPC (sem id) não gera payload de resposta
-  if (id === undefined || id === null) {
+  // Suporte tanto para JSON-RPC padrão quanto chamadas REST diretas { tool, arguments }
+  const isDirectToolCall =
+    !msg.method && (typeof msg.tool === "string" || typeof msg.toolName === "string");
+  const method: string = isDirectToolCall
+    ? "tools/call"
+    : String(msg.method || "");
+  const params: any = isDirectToolCall
+    ? {
+        name: msg.tool || msg.toolName,
+        arguments:
+          msg.arguments && typeof msg.arguments === "object"
+            ? msg.arguments
+            : msg.params && typeof msg.params === "object"
+              ? msg.params
+              : {},
+      }
+    : msg.params;
+
+  const hasExplicitId = msg.id !== undefined && msg.id !== null;
+  const id = hasExplicitId
+    ? msg.id
+    : method === "tools/call" || method === "initialize" || method === "tools/list"
+      ? `mcp-${Date.now()}`
+      : null;
+
+  // Notificações JSON-RPC (ex: notifications/initialized) sem id não geram resposta
+  if (id === null || method.startsWith("notifications/")) {
     return null;
   }
 
+  const defaultTenant: "tecfag" | "valem" =
+    access?.lockedTenantId || access?.defaultTenantId || "tecfag";
+
   try {
     if (method === "initialize") {
+      const startedAt = Date.now();
       const clientVersion = params?.protocolVersion || "2024-11-05";
+      const rawClientName = params?.clientInfo?.name
+        ? `${params.clientInfo.name}${params.clientInfo.version ? ` v${params.clientInfo.version}` : ""}`
+        : undefined;
+      const effectiveClientName = rawClientName || access?.clientName || "Cliente MCP";
+
+      if (access?.sessionId && rawClientName) {
+        updateMcpSessionClient(access.sessionId, rawClientName);
+      }
+
+      const responsePayload = {
+        protocolVersion: clientVersion,
+        capabilities: {
+          tools: { listChanged: false },
+          resources: { listChanged: false },
+          prompts: { listChanged: false },
+        },
+        serverInfo: {
+          name: "valem-tecfag-mcp",
+          version: "1.0.0",
+        },
+      };
+      const jsonText = JSON.stringify(responsePayload, null, 2);
+
+      await recordMcpToolAuditLog({
+        tenantId: defaultTenant,
+        access,
+        toolName: "mcp_initialize",
+        toolLabel: "Conexão Inicializada (Handshake MCP)",
+        toolArgs: {
+          protocolVersion: clientVersion,
+          client: effectiveClientName,
+        },
+        argumentsSummary: `Cliente: ${effectiveClientName} · Protocolo ${clientVersion}`,
+        resultSummary: `Conectado com sucesso (${effectiveClientName})`,
+        status: "success",
+        latencyMs: Date.now() - startedAt,
+        eventType: "connection",
+        clientName: effectiveClientName,
+        responseBytes: Buffer.byteLength(jsonText, "utf8"),
+        responsePreview: JSON.stringify(
+          {
+            handshake: "initialize",
+            clientInfo: params?.clientInfo || { name: effectiveClientName },
+            protocolVersion: clientVersion,
+            serverInfo: responsePayload.serverInfo,
+          },
+          null,
+          2,
+        ),
+      });
+
       return {
         jsonrpc: "2.0",
         id,
-        result: {
-          protocolVersion: clientVersion,
-          capabilities: {
-            tools: { listChanged: false },
-            resources: { listChanged: false },
-            prompts: { listChanged: false },
-          },
-          serverInfo: {
-            name: "valem-tecfag-mcp",
-            version: "1.0.0",
-          },
-        },
+        result: responsePayload,
       };
     }
 
@@ -2225,6 +2560,28 @@ export async function handleSingleJsonRpcMessage(
     }
 
     if (method === "tools/list") {
+      const startedAt = Date.now();
+      const previewObj = {
+        totalTools: MCP_TOOLS.length,
+        tools: MCP_TOOLS.map((t) => ({ name: t.name, description: t.description.slice(0, 90) })),
+      };
+      const fullJson = JSON.stringify({ tools: MCP_TOOLS });
+
+      await recordMcpToolAuditLog({
+        tenantId: defaultTenant,
+        access,
+        toolName: "mcp_tools_list",
+        toolLabel: "Sincronização de Ferramentas (tools/list)",
+        toolArgs: {},
+        argumentsSummary: "Listagem de catálogo de ferramentas MCP",
+        resultSummary: `${MCP_TOOLS.length} ferramentas sincronizadas com o cliente IA`,
+        status: "success",
+        latencyMs: Date.now() - startedAt,
+        eventType: "connection",
+        responseBytes: Buffer.byteLength(fullJson, "utf8"),
+        responsePreview: JSON.stringify(previewObj, null, 2),
+      });
+
       return {
         jsonrpc: "2.0",
         id,
@@ -2256,18 +2613,26 @@ export async function handleSingleJsonRpcMessage(
 
     if (method === "tools/call") {
       const toolName = String(params?.name || "");
-      const toolArgs = params?.arguments && typeof params.arguments === "object" ? params.arguments : {};
+      const toolArgs =
+        params?.arguments && typeof params.arguments === "object" ? params.arguments : {};
       const startedAt = Date.now();
-      let effectiveTenant: "tecfag" | "valem" = "tecfag";
+      let effectiveTenant: "tecfag" | "valem" = defaultTenant;
       try {
         effectiveTenant = resolveEffectiveTenantId(toolArgs.tenantId, access);
       } catch {
-        effectiveTenant = access?.lockedTenantId || access?.defaultTenantId || "tecfag";
+        effectiveTenant = defaultTenant;
       }
       try {
         const data = await executeMcpTool(toolName, toolArgs, access, sql);
         const latencyMs = Date.now() - startedAt;
-        void recordMcpToolAuditLog({
+        const jsonText = JSON.stringify(data, null, 2);
+        const responseBytes = Buffer.byteLength(jsonText, "utf8");
+        const responsePreview =
+          jsonText.length > 1800
+            ? `${jsonText.slice(0, 1800)}\n... [truncado no preview · total ${responseBytes.toLocaleString("pt-BR")} bytes enviados]`
+            : jsonText;
+
+        await recordMcpToolAuditLog({
           tenantId: effectiveTenant,
           access,
           toolName,
@@ -2275,6 +2640,9 @@ export async function handleSingleJsonRpcMessage(
           resultSummary: summarizeMcpToolResult(toolName, data),
           status: "success",
           latencyMs,
+          eventType: "query",
+          responseBytes,
+          responsePreview,
         });
         return {
           jsonrpc: "2.0",
@@ -2283,7 +2651,7 @@ export async function handleSingleJsonRpcMessage(
             content: [
               {
                 type: "text",
-                text: JSON.stringify(data, null, 2),
+                text: jsonText,
               },
             ],
             isError: false,
@@ -2292,7 +2660,8 @@ export async function handleSingleJsonRpcMessage(
       } catch (toolError) {
         const latencyMs = Date.now() - startedAt;
         const errMsg = toolError instanceof Error ? toolError.message : String(toolError);
-        void recordMcpToolAuditLog({
+        const errJson = JSON.stringify({ error: errMsg }, null, 2);
+        await recordMcpToolAuditLog({
           tenantId: effectiveTenant,
           access,
           toolName,
@@ -2300,6 +2669,9 @@ export async function handleSingleJsonRpcMessage(
           resultSummary: `Erro: ${errMsg}`,
           status: "error",
           latencyMs,
+          eventType: "query",
+          responseBytes: Buffer.byteLength(errJson, "utf8"),
+          responsePreview: errJson,
         });
         return {
           jsonrpc: "2.0",
@@ -2308,13 +2680,7 @@ export async function handleSingleJsonRpcMessage(
             content: [
               {
                 type: "text",
-                text: JSON.stringify(
-                  {
-                    error: errMsg,
-                  },
-                  null,
-                  2,
-                ),
+                text: errJson,
               },
             ],
             isError: true,

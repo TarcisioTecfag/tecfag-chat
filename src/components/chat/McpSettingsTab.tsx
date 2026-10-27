@@ -39,6 +39,8 @@ interface McpNamedKey {
   active: boolean;
 }
 
+type McpAuditEventType = "query" | "connection" | "config_change";
+
 interface McpAuditLogEntry {
   id: string;
   timestamp: string;
@@ -51,6 +53,33 @@ interface McpAuditLogEntry {
   resultSummary: string;
   status: "success" | "error";
   latencyMs: number;
+  eventType?: McpAuditEventType;
+  transport?: string;
+  clientName?: string;
+  clientIp?: string;
+  responseBytes?: number;
+  responsePreview?: string;
+}
+
+function resolveLogEventType(entry: McpAuditLogEntry): McpAuditEventType {
+  if (
+    entry.eventType === "query" ||
+    entry.eventType === "connection" ||
+    entry.eventType === "config_change"
+  ) {
+    return entry.eventType;
+  }
+  if (entry.toolName.startsWith("config_")) return "config_change";
+  if (entry.toolName.startsWith("mcp_")) return "connection";
+  return "query";
+}
+
+function formatByteSize(bytes?: number): string | null {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(2)} MB`;
 }
 
 interface McpToolItem {
@@ -80,6 +109,8 @@ export function McpSettingsTab() {
 
   const [loading, setLoading] = useState(true);
   const [refreshingLogs, setRefreshingLogs] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [primaryToken, setPrimaryToken] = useState(
     activeTenant === "valem"
@@ -103,6 +134,7 @@ export function McpSettingsTab() {
   const [togglingEnabled, setTogglingEnabled] = useState(false);
 
   const [selectedKeyFilter, setSelectedKeyFilter] = useState<string>("all");
+  const [selectedEventType, setSelectedEventType] = useState<"all" | McpAuditEventType>("all");
   const [logSearch, setLogSearch] = useState("");
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [clearingLogs, setClearingLogs] = useState(false);
@@ -199,6 +231,7 @@ export function McpSettingsTab() {
         setNamedKeys(Array.isArray(data.namedKeys) ? data.namedKeys : []);
         setAuditLogs(Array.isArray(data.auditLogs) ? data.auditLogs : []);
         setTools(Array.isArray(data.tools) ? data.tools : []);
+        setLastSyncedAt(new Date().toISOString());
       }
     } catch (err) {
       console.error("Erro ao carregar configurações do MCP:", err);
@@ -211,8 +244,20 @@ export function McpSettingsTab() {
   useEffect(() => {
     setTestResult(null);
     setSelectedKeyFilter("all");
+    setSelectedEventType("all");
     void loadMcpSettings(false);
   }, [activeTenant]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+      void loadMcpSettings(true);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, activeTenant]);
 
   const copyToClipboard = async (text: string, id: string, successLabel: string) => {
     try {
@@ -241,6 +286,9 @@ export function McpSettingsTab() {
       const data = await res.json();
       if (res.ok && data.ok) {
         setEnabled(nextState);
+        if (Array.isArray(data.settings?.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
         toast.success(
           nextState
             ? `Conector MCP remoto ativado para ${companyLabel}.`
@@ -271,6 +319,9 @@ export function McpSettingsTab() {
         setPrimaryToken(data.settings.primaryToken);
         setPrimaryTokenUpdatedAt(data.settings.primaryTokenUpdatedAt);
         setIsDefaultPrimaryToken(false);
+        if (Array.isArray(data.settings.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
         toast.success("Novo Link Principal gerado com sucesso!");
       } else {
         toast.error(data.error || "Não foi possível rotacionar o link principal.");
@@ -297,6 +348,9 @@ export function McpSettingsTab() {
         setPrimaryToken(data.settings.primaryToken);
         setPrimaryTokenUpdatedAt(data.settings.primaryTokenUpdatedAt);
         setIsDefaultPrimaryToken(true);
+        if (Array.isArray(data.settings.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
         toast.success("Token padrão original restaurado com sucesso!");
       } else {
         toast.error(data.error || "Não foi possível restaurar o token padrão.");
@@ -323,6 +377,9 @@ export function McpSettingsTab() {
       const data = await res.json();
       if (res.ok && data.ok && data.settings) {
         setNamedKeys(data.settings.namedKeys || []);
+        if (Array.isArray(data.settings.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
         setNewKeyLabel("");
         if (data.createdKey?.token) {
           const url = buildConnectorUrl(data.createdKey.token);
@@ -358,6 +415,9 @@ export function McpSettingsTab() {
       const data = await res.json();
       if (res.ok && data.ok && data.settings) {
         setNamedKeys(data.settings.namedKeys || []);
+        if (Array.isArray(data.settings.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
         toast.success(!currentActive ? "Link individual ativado." : "Link individual pausado.");
       }
     } catch {
@@ -376,6 +436,9 @@ export function McpSettingsTab() {
       const data = await res.json();
       if (res.ok && data.ok && data.settings) {
         setNamedKeys(data.settings.namedKeys || []);
+        if (Array.isArray(data.settings.auditLogs)) {
+          setAuditLogs(data.settings.auditLogs);
+        }
         if (selectedKeyFilter === keyId) {
           setSelectedKeyFilter("all");
         }
@@ -398,7 +461,7 @@ export function McpSettingsTab() {
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setAuditLogs([]);
+        setAuditLogs(Array.isArray(data.settings?.auditLogs) ? data.settings.auditLogs : []);
         toast.success("Histórico de auditoria limpo com sucesso.");
       }
     } catch {
@@ -453,9 +516,31 @@ export function McpSettingsTab() {
     auditSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const eventTypeCounts = useMemo(() => {
+    let queries = 0;
+    let connections = 0;
+    let configs = 0;
+    for (const log of auditLogs) {
+      const evType = resolveLogEventType(log);
+      if (evType === "query") queries += 1;
+      else if (evType === "connection") connections += 1;
+      else if (evType === "config_change") configs += 1;
+    }
+    return {
+      all: auditLogs.length,
+      query: queries,
+      connection: connections,
+      config_change: configs,
+    };
+  }, [auditLogs]);
+
   const filteredAuditLogs = useMemo(() => {
     return auditLogs.filter((entry) => {
       if (selectedKeyFilter !== "all" && entry.keyId !== selectedKeyFilter) {
+        return false;
+      }
+      const evType = resolveLogEventType(entry);
+      if (selectedEventType !== "all" && evType !== selectedEventType) {
         return false;
       }
       if (logSearch.trim()) {
@@ -466,6 +551,10 @@ export function McpSettingsTab() {
           entry.toolLabel,
           entry.argumentsSummary,
           entry.resultSummary,
+          entry.clientName || "",
+          entry.transport || "",
+          entry.clientIp || "",
+          entry.responsePreview || "",
         ]
           .join(" ")
           .toLowerCase();
@@ -473,7 +562,7 @@ export function McpSettingsTab() {
       }
       return true;
     });
-  }, [auditLogs, selectedKeyFilter, logSearch]);
+  }, [auditLogs, selectedKeyFilter, selectedEventType, logSearch]);
 
   const filterOptions = useMemo(() => {
     const map = new Map<string, { id: string; label: string; count: number }>();
@@ -998,7 +1087,7 @@ export function McpSettingsTab() {
       >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-border pb-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <History className="h-4 w-4 text-primary" />
               <h4 className="text-sm font-extrabold text-foreground">
                 Histórico de Consultas & Auditoria por Link / Pessoa
@@ -1006,14 +1095,22 @@ export function McpSettingsTab() {
               <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border">
                 {filteredAuditLogs.length} registro(s)
               </span>
+              {lastSyncedAt && (
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  · Sincronizado às{" "}
+                  {new Date(lastSyncedAt).toLocaleTimeString("pt-BR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
+                </span>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Veja exatamente <strong className="text-foreground">quem puxou</strong>,{" "}
-              <strong className="text-foreground">qual link utilizou</strong>,{" "}
-              <strong className="text-foreground">qual módulo/ferramenta consultou</strong>,{" "}
-              <strong className="text-foreground">quais filtros enviou</strong> e o{" "}
-              <strong className="text-foreground">resumo do que foi retornado</strong> em tempo
-              real.
+              Rastreamento completo de <strong className="text-foreground">conexões</strong>,{" "}
+              <strong className="text-foreground">consultas e envio de informações</strong> e{" "}
+              <strong className="text-foreground">alterações de segurança/chaves</strong> no Link
+              Único e links individuais.
             </p>
           </div>
 
@@ -1022,12 +1119,31 @@ export function McpSettingsTab() {
               <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Buscar pessoa, ferramenta ou termo..."
+                placeholder="Buscar pessoa, ferramenta, IP ou dado..."
                 value={logSearch}
                 onChange={(e) => setLogSearch(e.target.value)}
-                className="h-9 w-56 rounded-xl bg-muted/40 border border-border pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                className="h-9 w-60 rounded-xl bg-muted/40 border border-border pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
               />
             </div>
+
+            <SystemTooltip content="Atualização automática a cada 8 segundos enquanto esta aba estiver aberta">
+              <button
+                type="button"
+                onClick={() => setAutoRefresh((prev) => !prev)}
+                className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  autoRefresh
+                    ? "bg-primary/10 text-primary border-primary/30"
+                    : "bg-muted/40 text-muted-foreground border-border hover:text-foreground"
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    autoRefresh ? "bg-primary animate-pulse" : "bg-muted-foreground/50"
+                  }`}
+                />
+                {autoRefresh ? "Ao vivo (8s)" : "Auto-sync off"}
+              </button>
+            </SystemTooltip>
 
             <button
               type="button"
@@ -1055,33 +1171,82 @@ export function McpSettingsTab() {
           </div>
         </div>
 
-        {/* Filtros por Pessoa / Link */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          <button
-            type="button"
-            onClick={() => setSelectedKeyFilter("all")}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
-              selectedKeyFilter === "all"
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
-            }`}
-          >
-            Todos os Links ({auditLogs.length})
-          </button>
-          {filterOptions.map((opt) => (
+        {/* Filtros por Tipo de Evento + Pessoa / Link */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
             <button
-              key={opt.id}
               type="button"
-              onClick={() => setSelectedKeyFilter(opt.id)}
+              onClick={() => setSelectedEventType("all")}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
-                selectedKeyFilter === opt.id
+                selectedEventType === "all"
+                  ? "bg-foreground text-background border-foreground"
+                  : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
+              }`}
+            >
+              Todos os Eventos ({eventTypeCounts.all})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedEventType("query")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
+                selectedEventType === "query"
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
               }`}
             >
-              {opt.label} ({opt.count})
+              Consultas & Envio de Dados ({eventTypeCounts.query})
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={() => setSelectedEventType("connection")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
+                selectedEventType === "connection"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
+              }`}
+            >
+              Conexões & Handshakes ({eventTypeCounts.connection})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedEventType("config_change")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
+                selectedEventType === "config_change"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
+              }`}
+            >
+              Alterações de Configuração ({eventTypeCounts.config_change})
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <button
+              type="button"
+              onClick={() => setSelectedKeyFilter("all")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
+                selectedKeyFilter === "all"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
+              }`}
+            >
+              Todos os Links ({auditLogs.length})
+            </button>
+            {filterOptions.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setSelectedKeyFilter(opt.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap border ${
+                  selectedKeyFilter === opt.id
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/40 text-muted-foreground hover:text-foreground border-border"
+                }`}
+              >
+                {opt.label} ({opt.count})
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Tabela / Lista de Consultas Auditadas */}
@@ -1089,25 +1254,49 @@ export function McpSettingsTab() {
           <div className="rounded-xl bg-muted/20 border border-dashed border-border p-8 text-center space-y-1.5">
             <Clock className="h-5 w-5 text-muted-foreground mx-auto" />
             <p className="text-xs font-bold text-foreground">
-              Nenhuma consulta registrada para o filtro selecionado
+              Nenhum evento registrado para o filtro selecionado
             </p>
             <p className="text-[11px] text-muted-foreground max-w-md mx-auto">
-              Assim que alguém fizer uma pergunta no Claude/Antigravity/Codex (ou quando você
-              clicar em <strong>Testar Conector Agora</strong> no topo), cada leitura aparecerá
-              detalhada aqui.
+              Assim que alguém se conectar pelo Link Único, fizer uma consulta no
+              Claude/Antigravity/Codex ou alterar configurações, o registro completo aparecerá aqui
+              automaticamente.
             </p>
           </div>
         ) : (
-          <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+          <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
             {filteredAuditLogs.map((log) => {
               const isExpanded = expandedLogId === log.id;
+              const evType = resolveLogEventType(log);
+              const formattedBytes = formatByteSize(log.responseBytes);
+              const eventTypeBadge =
+                evType === "config_change"
+                  ? {
+                      label: "Alteração Config",
+                      cls: "bg-amber-500/10 text-amber-500 border-amber-500/25",
+                    }
+                  : evType === "connection"
+                    ? {
+                        label: "Conexão / Acesso",
+                        cls: "bg-sky-500/10 text-sky-500 border-sky-500/25",
+                      }
+                    : {
+                        label: "Consulta / Envio de Dados",
+                        cls: "bg-emerald-500/10 text-emerald-500 border-emerald-500/25",
+                      };
+
               return (
                 <div
                   key={log.id}
-                  className="rounded-xl bg-muted/20 hover:bg-muted/35 border border-border p-3.5 transition space-y-2"
+                  className="rounded-xl bg-muted/20 hover:bg-muted/35 border border-border p-3.5 transition space-y-2.5"
                 >
                   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <span
+                        className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border ${eventTypeBadge.cls}`}
+                      >
+                        {eventTypeBadge.label}
+                      </span>
+
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary border border-primary/25 text-xs font-extrabold">
                         <Users className="h-3 w-3" />
                         {log.keyLabel}
@@ -1120,6 +1309,30 @@ export function McpSettingsTab() {
                       <code className="text-[11px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
                         {log.toolName}
                       </code>
+
+                      {log.clientName && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-card text-muted-foreground border border-border">
+                          {log.clientName}
+                        </span>
+                      )}
+
+                      {log.transport && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-card text-muted-foreground border border-border">
+                          {log.transport}
+                        </span>
+                      )}
+
+                      {log.clientIp && log.clientIp !== "direto" && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-card text-muted-foreground border border-border">
+                          IP: {log.clientIp}
+                        </span>
+                      )}
+
+                      {formattedBytes && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-muted text-foreground border border-border">
+                          {formattedBytes} enviados
+                        </span>
+                      )}
 
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
@@ -1147,9 +1360,9 @@ export function McpSettingsTab() {
                       <button
                         type="button"
                         onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                        className="px-2 py-1 rounded-lg bg-card hover:bg-muted text-[11px] font-semibold text-muted-foreground hover:text-foreground border border-border transition cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg bg-card hover:bg-muted text-[11px] font-semibold text-muted-foreground hover:text-foreground border border-border transition cursor-pointer"
                       >
-                        {isExpanded ? "Ocultar parâmetros" : "Ver parâmetros"}
+                        {isExpanded ? "Ocultar detalhes" : "Ver detalhes & dados"}
                       </button>
                     </div>
                   </div>
@@ -1157,7 +1370,7 @@ export function McpSettingsTab() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                     <div className="rounded-lg bg-card/70 border border-border/70 px-3 py-2">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                        O que foi buscado (Filtros):
+                        O que foi solicitado / Filtros recebidos:
                       </span>
                       <span className="font-mono text-[11px] text-foreground">
                         {log.argumentsSummary}
@@ -1166,7 +1379,7 @@ export function McpSettingsTab() {
 
                     <div className="rounded-lg bg-card/70 border border-border/70 px-3 py-2">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                        Resumo do que foi puxado:
+                        Resumo da resposta / Dados enviados:
                       </span>
                       <span className="font-semibold text-[11px] text-foreground">
                         {log.resultSummary}
@@ -1175,9 +1388,25 @@ export function McpSettingsTab() {
                   </div>
 
                   {isExpanded && (
-                    <pre className="rounded-lg bg-card border border-border p-3 text-[11px] font-mono text-muted-foreground overflow-x-auto">
-                      {JSON.stringify(log.argumentsRaw || {}, null, 2)}
-                    </pre>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 pt-1">
+                      <div className="rounded-lg bg-card border border-border p-3 space-y-1.5">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                          Parâmetros / Filtros Brutos Recebidos:
+                        </span>
+                        <pre className="text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-60">
+                          {JSON.stringify(log.argumentsRaw || {}, null, 2)}
+                        </pre>
+                      </div>
+
+                      <div className="rounded-lg bg-card border border-border p-3 space-y-1.5">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                          Preview dos Dados Enviados / Resposta:
+                        </span>
+                        <pre className="text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-60 whitespace-pre-wrap">
+                          {log.responsePreview || log.resultSummary || "Sem preview adicional."}
+                        </pre>
+                      </div>
+                    </div>
                   )}
                 </div>
               );

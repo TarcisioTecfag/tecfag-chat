@@ -10,6 +10,7 @@
  *      categorização dos 26 motivos de perda, projeção de monitoramento e journal do Fagner)
  */
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1730,6 +1731,154 @@ async function executeTool(name, args = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 let useContentLengthFraming = false;
+let bridgeSessionId = crypto.randomUUID();
+let detectedClientLabel =
+  process.env.MCP_CLIENT_LABEL ||
+  (process.env.ANTIGRAVITY_CLI_ALIAS ? "Antigravity IDE" : "Cliente MCP Local (Stdio)");
+
+const DEFAULT_REMOTE_MCP_URL =
+  "https://tecfagchat.up.railway.app/api/mcp?token=mcp_tf_8f4e2a9c1d7b6e3f5a0c2d4e8b1f7a3c";
+const REMOTE_MCP_URL =
+  process.env.MCP_LOCAL_ONLY === "1"
+    ? ""
+    : (process.env.MCP_REMOTE_URL || DEFAULT_REMOTE_MCP_URL).trim();
+
+const LOCAL_TOOL_LABELS = {
+  search_conversations: "Busca de Conversas",
+  get_conversation_messages: "Mensagens da Conversa",
+  get_fagner_triage_overview: "Panorama da Triagem IA",
+  get_fagner_triage_history: "Histórico da Triagem IA",
+  search_crm_deals: "Pesquisa de Negociações (CRM)",
+  get_crm_deal_details: "Ficha 360º da Negociação",
+  search_crm_accounts: "Empresas & Receita Federal",
+  search_contacts: "Busca de Contatos",
+  get_sales_and_commercial_metrics: "Métricas de Vendas & Meta",
+  get_rodizio_and_operators_status: "Escala do Rodízio & Operadores",
+  mcp_initialize: "Conexão Inicializada (Handshake MCP)",
+  mcp_tools_list: "Sincronização de Ferramentas (tools/list)",
+};
+
+function summarizeLocalArgs(args) {
+  const entries = Object.entries(args || {}).filter(
+    ([k, v]) => k !== "tenantId" && v !== undefined && v !== null && String(v).trim() !== "",
+  );
+  if (!entries.length) return "Consulta geral (padrão)";
+  return entries
+    .map(([k, v]) => {
+      const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+      return `${k}: ${s.length > 42 ? `${s.slice(0, 39)}...` : s}`;
+    })
+    .join(" · ");
+}
+
+async function recordLocalMcpAuditLog({
+  tenantId = "tecfag",
+  toolName,
+  toolArgs = {},
+  resultSummary,
+  status = "success",
+  latencyMs = 1,
+  eventType = "query",
+  responseBytes,
+  responsePreview,
+}) {
+  try {
+    const safeTenant = tenantId === "valem" ? "valem" : "tecfag";
+    const defaultRowId = `mcp-config-${safeTenant}`;
+    const existing = await sql`
+      SELECT id, enabled, config
+      FROM agent_configs
+      WHERE tenant_id = ${safeTenant} AND agent_type = 'mcp'
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `;
+    const row = existing[0];
+    const cfg =
+      row?.config && typeof row.config === "object" && !Array.isArray(row.config)
+        ? row.config
+        : {};
+    const currentLogs = Array.isArray(cfg.auditLogs) ? cfg.auditLogs : [];
+    const newEntry = {
+      id: `mcp-log-${crypto.randomBytes(6).toString("hex")}`,
+      timestamp: new Date().toISOString(),
+      keyId: "primary",
+      keyLabel:
+        safeTenant === "valem" ? "Link Principal (Valem)" : "Link Principal (Tecfag)",
+      toolName,
+      toolLabel: LOCAL_TOOL_LABELS[toolName] || toolName,
+      argumentsSummary: summarizeLocalArgs(toolArgs),
+      argumentsRaw: toolArgs || {},
+      resultSummary,
+      status,
+      latencyMs,
+      eventType,
+      transport: `Stdio Bridge (${detectedClientLabel})`,
+      clientName: detectedClientLabel,
+      clientIp: "local-stdio",
+      responseBytes,
+      responsePreview,
+    };
+
+    const nextConfig = {
+      primaryToken:
+        cfg.primaryToken ||
+        (safeTenant === "valem"
+          ? "mcp_vl_3c7a1f8b4e2d0c5a3f6e7b1d9c2a4e8f"
+          : "mcp_tf_8f4e2a9c1d7b6e3f5a0c2d4e8b1f7a3c"),
+      primaryTokenUpdatedAt: cfg.primaryTokenUpdatedAt || null,
+      namedKeys: Array.isArray(cfg.namedKeys) ? cfg.namedKeys : [],
+      auditLogs: [newEntry, ...currentLogs].slice(0, 500),
+    };
+
+    const targetId = row?.id || defaultRowId;
+    const enabledInt = row ? Number(row.enabled ?? 1) : 1;
+    const serializedConfig = JSON.stringify(nextConfig);
+
+    await sql`
+      INSERT INTO agent_configs (id, tenant_id, agent_type, enabled, config, created_at, updated_at)
+      VALUES (
+        ${targetId},
+        ${safeTenant},
+        'mcp',
+        ${enabledInt},
+        ${serializedConfig}::jsonb,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (id) DO UPDATE
+      SET config = EXCLUDED.config,
+          updated_at = NOW()
+    `;
+  } catch (err) {
+    process.stderr.write(`[mcp-local-audit-warn] ${err?.message || err}\n`);
+  }
+}
+
+async function forwardToRemoteMcp(msg) {
+  if (!REMOTE_MCP_URL) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18_000);
+    const res = await fetch(REMOTE_MCP_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Mcp-Session-Id": bridgeSessionId,
+        "x-mcp-client-name": detectedClientLabel,
+        "x-mcp-bridge": detectedClientLabel,
+      },
+      body: JSON.stringify(msg),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    process.stderr.write(`[mcp-remote-fallback] ${err?.message || err}\n`);
+    return null;
+  }
+}
 
 function sendJsonRpc(message) {
   const json = JSON.stringify(message);
@@ -1752,7 +1901,35 @@ async function handleJsonRpcMessage(msg) {
 
   try {
     if (method === "initialize") {
+      const startedAt = Date.now();
       const clientVersion = params?.protocolVersion || "2024-11-05";
+      if (params?.clientInfo?.name) {
+        detectedClientLabel = `${params.clientInfo.name}${params.clientInfo.version ? ` v${params.clientInfo.version}` : ""}`;
+      }
+
+      // Notifica e registra handshake no Link Único em produção + banco local
+      await Promise.allSettled([
+        forwardToRemoteMcp(msg),
+        recordLocalMcpAuditLog({
+          tenantId: "tecfag",
+          toolName: "mcp_initialize",
+          toolArgs: { protocolVersion: clientVersion, client: detectedClientLabel },
+          resultSummary: `Conectado via Stdio Bridge (${detectedClientLabel})`,
+          status: "success",
+          latencyMs: Date.now() - startedAt,
+          eventType: "connection",
+          responsePreview: JSON.stringify(
+            {
+              handshake: "initialize",
+              client: detectedClientLabel,
+              protocolVersion: clientVersion,
+            },
+            null,
+            2,
+          ),
+        }),
+      ]);
+
       sendJsonRpc({
         jsonrpc: "2.0",
         id,
@@ -1778,6 +1955,25 @@ async function handleJsonRpcMessage(msg) {
     }
 
     if (method === "tools/list") {
+      const startedAt = Date.now();
+      await Promise.allSettled([
+        forwardToRemoteMcp(msg),
+        recordLocalMcpAuditLog({
+          tenantId: "tecfag",
+          toolName: "mcp_tools_list",
+          toolArgs: {},
+          resultSummary: `${TOOLS.length} ferramentas sincronizadas (${detectedClientLabel})`,
+          status: "success",
+          latencyMs: Date.now() - startedAt,
+          eventType: "connection",
+          responsePreview: JSON.stringify(
+            { totalTools: TOOLS.length, tools: TOOLS.map((t) => t.name) },
+            null,
+            2,
+          ),
+        }),
+      ]);
+
       sendJsonRpc({
         jsonrpc: "2.0",
         id,
@@ -1811,10 +2007,62 @@ async function handleJsonRpcMessage(msg) {
     }
 
     if (method === "tools/call") {
+      const startedAt = Date.now();
       const toolName = params?.name;
       const toolArgs = params?.arguments || {};
+      const effectiveTenant = toolArgs?.tenantId === "valem" ? "valem" : "tecfag";
+
+      // Prioriza o Link Único em produção para garantir dados 100% em tempo real + log centralizado
+      const remoteRpc = await forwardToRemoteMcp(msg);
+      if (remoteRpc && remoteRpc.result && !remoteRpc.error) {
+        const remoteText = remoteRpc.result?.content?.[0]?.text || "";
+        const responseBytes = Buffer.byteLength(remoteText, "utf8");
+        const responsePreview =
+          remoteText.length > 1800
+            ? `${remoteText.slice(0, 1800)}\n... [truncado · total ${responseBytes} bytes]`
+            : remoteText;
+
+        await recordLocalMcpAuditLog({
+          tenantId: effectiveTenant,
+          toolName,
+          toolArgs,
+          resultSummary: `Dados consultados via Link Único (${responseBytes.toLocaleString("pt-BR")} bytes)`,
+          status: remoteRpc.result?.isError ? "error" : "success",
+          latencyMs: Date.now() - startedAt,
+          eventType: "query",
+          responseBytes,
+          responsePreview,
+        });
+
+        sendJsonRpc({
+          jsonrpc: "2.0",
+          id,
+          result: remoteRpc.result,
+        });
+        return;
+      }
+
       try {
         const data = await executeTool(toolName, toolArgs);
+        const jsonText = JSON.stringify(data, null, 2);
+        const responseBytes = Buffer.byteLength(jsonText, "utf8");
+        const responsePreview =
+          jsonText.length > 1800
+            ? `${jsonText.slice(0, 1800)}\n... [truncado · total ${responseBytes} bytes]`
+            : jsonText;
+
+        await recordLocalMcpAuditLog({
+          tenantId: effectiveTenant,
+          toolName,
+          toolArgs,
+          resultSummary: `Dados retornados localmente (${responseBytes.toLocaleString("pt-BR")} bytes)`,
+          status: "success",
+          latencyMs: Date.now() - startedAt,
+          eventType: "query",
+          responseBytes,
+          responsePreview,
+        });
+
         sendJsonRpc({
           jsonrpc: "2.0",
           id,
@@ -1822,13 +2070,25 @@ async function handleJsonRpcMessage(msg) {
             content: [
               {
                 type: "text",
-                text: JSON.stringify(data, null, 2),
+                text: jsonText,
               },
             ],
             isError: false,
           },
         });
       } catch (toolError) {
+        const errMsg = toolError instanceof Error ? toolError.message : String(toolError);
+        await recordLocalMcpAuditLog({
+          tenantId: effectiveTenant,
+          toolName,
+          toolArgs,
+          resultSummary: `Erro: ${errMsg}`,
+          status: "error",
+          latencyMs: Date.now() - startedAt,
+          eventType: "query",
+          responsePreview: JSON.stringify({ error: errMsg }, null, 2),
+        });
+
         sendJsonRpc({
           jsonrpc: "2.0",
           id,
@@ -1838,7 +2098,7 @@ async function handleJsonRpcMessage(msg) {
                 type: "text",
                 text: JSON.stringify(
                   {
-                    error: toolError instanceof Error ? toolError.message : String(toolError),
+                    error: errMsg,
                   },
                   null,
                   2,
