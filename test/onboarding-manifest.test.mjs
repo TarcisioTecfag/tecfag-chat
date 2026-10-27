@@ -55,12 +55,12 @@ const manifestMod = loadTsModule("src/lib/onboarding/manifest.ts");
 const policyMod = loadTsModule("src/lib/onboarding/policy.ts");
 const appRoutesMod = loadTsModule("src/lib/app-routes.ts");
 
-test("manifest has 8 chapters, 237 steps, unique orders and valid data-tour selectors", () => {
+test("manifest has 8 chapters, 232 steps, unique orders and valid data-tour selectors", () => {
   assert.equal(typesMod.OPERATOR_TOUR_KEY, "operator-first-login");
   assert.equal(typesMod.ONBOARDING_TOUR_VERSION, 1);
   assert.equal(manifestMod.ONBOARDING_CHAPTERS.length, 8);
-  assert.equal(manifestMod.ONBOARDING_STEPS.length, 237);
-  assert.ok(manifestMod.ONBOARDING_SELECTORS.length >= 234);
+  assert.equal(manifestMod.ONBOARDING_STEPS.length, 232);
+  assert.ok(manifestMod.ONBOARDING_SELECTORS.length >= 229);
 
   const seenIds = new Set();
   const seenOrders = new Set();
@@ -118,11 +118,11 @@ test("manifest excludes proposals, technical questionnaires, and emails", () => 
   }
 });
 
-test("manifest covers 100% of the inventoried functional IDs (exercised + 4 non-exercised)", () => {
+test("manifest covers 100% of the inventoried functional IDs (exercised + 8 non-exercised)", () => {
   assert.equal(manifestMod.ALL_INVENTORIED_FUNCTIONAL_IDS.length, 137);
 
   const nonExercisedIds = Object.keys(manifestMod.NON_EXERCISED_FUNCTIONAL_IDS);
-  assert.deepEqual(nonExercisedIds.sort(), ["H12", "M05", "P05", "W05"]);
+  assert.deepEqual(nonExercisedIds.sort(), ["H12", "M05", "P05", "W01", "W02", "W03", "W04", "W05"]);
 
   const exercisedSet = new Set();
   for (const step of manifestMod.ONBOARDING_STEPS) {

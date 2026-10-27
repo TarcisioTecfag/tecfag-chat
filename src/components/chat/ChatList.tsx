@@ -2,13 +2,12 @@ import React from "react";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
-import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle, Smartphone } from "lucide-react";
+import { Search, MessageSquare, Phone, Instagram, Send, Star, User, Pin, BookOpen, Bot, LogOut, FileText, Camera, Video, Mic, Smile, HelpCircle } from "lucide-react";
 import { Channel, QueueType, getConversationSortTimestamp } from "@/lib/mockData";
 import { motion, AnimatePresence } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusWizardModal } from "./StatusWizardModal";
 import { ProfilePopover } from "./ProfileModal";
-import { PersonalWhatsappConnectionsDialog } from "./PersonalWhatsappConnectionsDialog";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -129,14 +128,11 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
   const [showStatusWizard, setShowStatusWizard] = React.useState(false);
-  const [showPersonalWhatsappModal, setShowPersonalWhatsappModal] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ chatId: string; x: number; y: number } | null>(null);
   const onboarding = useOptionalOnboarding();
 
   useOnboardingAdapter("chatList", (cmd) => {
-    if (cmd.command === "openPersonalWhatsappModal") {
-      setShowPersonalWhatsappModal(true);
-    } else if (cmd.command === "selectFagnerConversation") {
+    if (cmd.command === "selectFagnerConversation") {
       setSelectedChatId("valentina");
     } else if (cmd.command === "openStatusWizard") {
       setShowStatusWizard(true);
@@ -256,19 +252,8 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     <>
     <aside className="flex h-full w-full md:w-[260px] md:shrink-0 flex-col rounded-3xl bg-card px-3.5 md:px-4 py-3 xl:py-4 shadow-soft select-none border border-border">
       {/* Header */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between">
         <h2 className="text-base xl:text-lg font-bold text-foreground tracking-tight">Atendimentos</h2>
-        <SystemTooltip content="Meu WhatsApp (Conexão Individual)">
-          <button
-            type="button"
-            data-tour="whatsapp.personal-entry"
-            onClick={() => setShowPersonalWhatsappModal(true)}
-            className="flex items-center gap-1 rounded-xl border border-border bg-muted/60 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-primary/40 hover:bg-muted hover:text-foreground cursor-pointer"
-          >
-            <Smartphone className="h-3.5 w-3.5 text-emerald-500" />
-            <span className="hidden xl:inline">Meu WhatsApp</span>
-          </button>
-        </SystemTooltip>
       </div>
 
       <div className="my-2 xl:my-2.5 h-px bg-line" />
@@ -766,10 +751,6 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     <StatusWizardModal
       isOpen={showStatusWizard}
       onClose={() => setShowStatusWizard(false)}
-    />
-    <PersonalWhatsappConnectionsDialog
-      open={showPersonalWhatsappModal}
-      onOpenChange={setShowPersonalWhatsappModal}
     />
     </>
   );
