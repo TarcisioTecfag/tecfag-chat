@@ -194,14 +194,15 @@ export function MetaTemplateSelectModal({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleClose}
-          title="Fechar seletor de templates"
-          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {mode === "inline" && (
+          <button
+            type="button"
+            onClick={handleClose}
+            className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {loading && templates.length === 0 ? (

@@ -72,11 +72,6 @@ interface DealOption {
   account?: { id: string; name: string } | null;
 }
 
-interface AccountOption {
-  id: string;
-  name: string;
-}
-
 export interface CreateTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -100,10 +95,9 @@ export function CreateTaskModal({
   operators: initialOperators,
   currentOperatorId,
 }: CreateTaskModalProps) {
-  // Negociação e Empresa selecionadas
+  // Negociação selecionada
   const [selectedDealId, setSelectedDealId] = useState<string | null>(initialDealId || null);
   const [selectedDealTitle, setSelectedDealTitle] = useState<string>(initialDealTitle || "");
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(initialAccountId || null);
   const [selectedAccountName, setSelectedAccountName] = useState<string>(initialAccountName || "");
 
   // Campos do formulário
@@ -116,21 +110,16 @@ export function CreateTaskModal({
   const [markAsCompleted, setMarkAsCompleted] = useState(false);
 
   // Estados de controle de popovers
-  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isDealOpen, setIsDealOpen] = useState(false);
   const [isOperatorOpen, setIsOperatorOpen] = useState(false);
   const [isTypeOpen, setIsTypeOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isTimeOpen, setIsTimeOpen] = useState(false);
 
-  // Busca de Deals e Empresas (quando não travado)
+  // Busca de Deals (quando não travado)
   const [dealQuery, setDealQuery] = useState("");
   const [dealOptions, setDealOptions] = useState<DealOption[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
-
-  const [accountQuery, setAccountQuery] = useState("");
-  const [accountOptions, setAccountOptions] = useState<AccountOption[]>([]);
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
 
   const [operatorSearch, setOperatorSearch] = useState("");
   const [saving, setSaving] = useState(false);
@@ -139,8 +128,8 @@ export function CreateTaskModal({
   const [calendarMonth, setCalendarMonth] = useState<number>(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState<number>(new Date().getFullYear());
 
-  // Trava campos de empresa e negociação quando chamado para um deal específico
-  const isDealLocked = Boolean(initialDealId || selectedDealId);
+  // Trava o campo de negociação apenas quando o modal foi aberto a partir de uma negociação específica
+  const isDealLocked = Boolean(initialDealId);
 
   // Reset e inicialização ao abrir o drawer
   useEffect(() => {
@@ -148,7 +137,6 @@ export function CreateTaskModal({
 
     setSelectedDealId(initialDealId || null);
     setSelectedDealTitle(initialDealTitle || "");
-    setSelectedAccountId(initialAccountId || null);
     setSelectedAccountName(initialAccountName || "");
 
     setSubject("");
@@ -177,11 +165,10 @@ export function CreateTaskModal({
     }
 
     setDealQuery("");
-    setAccountQuery("");
     setOperatorSearch("");
   }, [isOpen, initialDealId, initialDealTitle, initialAccountId, initialAccountName, currentOperatorId, initialOperators]);
 
-  // Se tem initialDealId mas não tem initialAccountName, busca dados da negociação para preencher empresa
+  // Se tem initialDealId mas não tem initialAccountName, busca dados da negociação para exibir subtítulo
   useEffect(() => {
     if (!isOpen || !initialDealId || initialAccountName) return;
     let isMounted = true;
@@ -189,11 +176,8 @@ export function CreateTaskModal({
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!isMounted || !data?.deal) return;
-        if (data.deal.account) {
-          setSelectedAccountId(data.deal.account.id);
+        if (data.deal.account?.name) {
           setSelectedAccountName(data.deal.account.name);
-        } else if (data.deal.accountId) {
-          setSelectedAccountId(data.deal.accountId);
         }
         if (!selectedDealTitle && data.deal.title) {
           setSelectedDealTitle(data.deal.title);
@@ -234,56 +218,11 @@ export function CreateTaskModal({
     };
   }, [isOpen, dealQuery, isDealLocked]);
 
-  // Busca de empresas quando destravado
-  useEffect(() => {
-    if (!isOpen || isDealLocked) return;
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      setLoadingAccounts(true);
-      try {
-        const params = new URLSearchParams({ limit: "30", type: "company" });
-        if (accountQuery.trim()) params.set("search", accountQuery.trim());
-        const res = await fetch(`/api/crm/accounts?${params}`, { signal: controller.signal });
-        if (res.ok) {
-          const data = await res.json();
-          setAccountOptions(data.accounts || []);
-        }
-      } catch (err: any) {
-        if (!controller.signal.aborted) {
-          console.error("Erro ao buscar empresas:", err);
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoadingAccounts(false);
-      }
-    }, 250);
-
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [isOpen, accountQuery, isDealLocked]);
-
   const handleSelectDeal = (deal: DealOption) => {
     setSelectedDealId(deal.id);
     setSelectedDealTitle(deal.title);
-    if (deal.account) {
-      setSelectedAccountId(deal.account.id);
-      setSelectedAccountName(deal.account.name);
-    } else if (deal.accountId) {
-      setSelectedAccountId(deal.accountId);
-    }
+    setSelectedAccountName(deal.account?.name || "");
     setIsDealOpen(false);
-  };
-
-  const handleSelectAccount = (acc: AccountOption | null) => {
-    if (!acc) {
-      setSelectedAccountId(null);
-      setSelectedAccountName("");
-    } else {
-      setSelectedAccountId(acc.id);
-      setSelectedAccountName(acc.name);
-    }
-    setIsAccountOpen(false);
   };
 
   // Toggle responsável (multi-seleção com checkboxes)
@@ -489,99 +428,17 @@ export function CreateTaskModal({
         side="right"
         className="flex h-full w-full max-w-[460px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[460px] shadow-2xl border-l border-border"
       >
-        {/* Cabeçalho do Drawer */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border/80 shrink-0">
+        {/* Cabeçalho do Drawer (o ícone X padrão já é renderizado pelo SheetContent) */}
+        <div className="flex items-center justify-between px-6 py-4 pr-12 border-b border-border/80 shrink-0">
           <SheetTitle className="text-base font-bold text-foreground">
             Criar Tarefa
           </SheetTitle>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-1 rounded-md transition-colors cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
           {/* Corpo do Formulário com Scroll Suave */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 text-xs scrollbar-thin">
-            {/* 1. Empresa da negociação */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-foreground">
-                Empresa da negociação
-              </Label>
-              {isDealLocked ? (
-                <SystemTooltip content="A empresa está vinculada à negociação atual e não pode ser alterada aqui.">
-                  <div className="flex h-10 w-full items-center justify-between rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-xs text-muted-foreground cursor-not-allowed select-none">
-                    <span className="truncate font-medium">{selectedAccountName || "Empresa vinculada à negociação"}</span>
-                    <Lock className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
-                  </div>
-                </SystemTooltip>
-              ) : (
-                <Popover open={isAccountOpen} onOpenChange={setIsAccountOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs transition-colors hover:bg-muted/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
-                    >
-                      <span className={selectedAccountName ? "text-foreground font-medium truncate" : "text-muted-foreground truncate"}>
-                        {selectedAccountName || "Selecionar"}
-                      </span>
-                      <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 opacity-70" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[380px] p-2" align="start">
-                    <div className="relative mb-2">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                      <Input
-                        value={accountQuery}
-                        onChange={(e) => setAccountQuery(e.target.value)}
-                        placeholder="Buscar empresa..."
-                        className="h-8 pl-8 text-xs"
-                      />
-                    </div>
-                    <div className="max-h-48 overflow-y-auto space-y-1">
-                      {selectedAccountId && (
-                        <button
-                          type="button"
-                          onClick={() => handleSelectAccount(null)}
-                          className="w-full text-left px-2.5 py-1.5 text-xs text-rose-500 hover:bg-rose-500/10 rounded-md transition-colors"
-                        >
-                          Remover vínculo com empresa
-                        </button>
-                      )}
-                      {loadingAccounts ? (
-                        <div className="flex items-center justify-center p-3 text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> Carregando...
-                        </div>
-                      ) : accountOptions.length > 0 ? (
-                        accountOptions.map((acc) => (
-                          <button
-                            type="button"
-                            key={acc.id}
-                            onClick={() => handleSelectAccount(acc)}
-                            className={`w-full text-left px-2.5 py-1.5 text-xs rounded-md transition-colors ${
-                              acc.id === selectedAccountId
-                                ? "bg-primary/10 text-primary font-bold"
-                                : "text-foreground hover:bg-muted"
-                            }`}
-                          >
-                            {acc.name}
-                          </button>
-                        ))
-                      ) : (
-                        <p className="p-2 text-center text-muted-foreground text-xs">
-                          Nenhuma empresa encontrada.
-                        </p>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              )}
-            </div>
-
-            {/* 2. Negociação * */}
+            {/* 1. Negociação * */}
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-foreground">
                 Negociação <span className="text-rose-500">*</span>
@@ -589,7 +446,10 @@ export function CreateTaskModal({
               {isDealLocked ? (
                 <SystemTooltip content="A tarefa será criada exclusivamente para esta negociação.">
                   <div className="flex h-10 w-full items-center justify-between rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-xs text-muted-foreground cursor-not-allowed select-none">
-                    <span className="truncate font-semibold text-foreground/80">{selectedDealTitle || "Negociação atual"}</span>
+                    <span className="truncate font-semibold text-foreground/80">
+                      {selectedDealTitle || "Negociação atual"}
+                      {selectedAccountName ? ` · ${selectedAccountName}` : ""}
+                    </span>
                     <Lock className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
                   </div>
                 </SystemTooltip>
@@ -601,7 +461,9 @@ export function CreateTaskModal({
                       className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs transition-colors hover:bg-muted/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
                     >
                       <span className={selectedDealTitle ? "text-foreground font-semibold truncate" : "text-muted-foreground truncate"}>
-                        {selectedDealTitle || "Selecionar negociação"}
+                        {selectedDealTitle
+                          ? `${selectedDealTitle}${selectedAccountName ? ` · ${selectedAccountName}` : ""}`
+                          : "Selecionar negociação"}
                       </span>
                       <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 opacity-70" />
                     </button>

@@ -1527,19 +1527,12 @@ export function BulkActionsSuite({
           side="right"
           className="flex h-full w-full max-w-[460px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[460px] shadow-2xl border-l border-border"
         >
-          {/* Cabeçalho do Drawer */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border/80 shrink-0">
+          {/* Cabeçalho do Drawer (o ícone X padrão já é renderizado pelo SheetContent) */}
+          <div className="flex items-center justify-between px-6 py-4 pr-12 border-b border-border/80 shrink-0">
             <SheetTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <Calendar className="h-4 w-4 text-primary" />
               <span>Criar Tarefa em Massa ({effectiveCount})</span>
             </SheetTitle>
-            <button
-              type="button"
-              onClick={() => setIsCreateTaskModalOpen(false)}
-              className="text-muted-foreground hover:text-foreground p-1 rounded-md transition-colors cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
 
           <div className="flex flex-1 flex-col overflow-hidden">
