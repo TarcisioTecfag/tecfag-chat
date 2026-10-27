@@ -1813,6 +1813,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         side: r.direction === "to_agent" ? "out" : "in",
         isInternalNote: false,
         ...(meta.archivedByReset ? { archivedByReset: true } : {}),
+        ...(meta.catalogPhoto || r.catalogPhoto ? { catalogPhoto: meta.catalogPhoto || r.catalogPhoto } : {}),
+        ...(Array.isArray(meta.knowledgeSources)
+          ? { knowledgeSources: meta.knowledgeSources }
+          : Array.isArray(r.knowledgeSources)
+          ? { knowledgeSources: r.knowledgeSources }
+          : {}),
+        ...(meta.knowledgeSourceStatus || r.knowledgeSourceStatus
+          ? { knowledgeSourceStatus: meta.knowledgeSourceStatus || r.knowledgeSourceStatus }
+          : {}),
+        ...(meta.knowledgeSourceStatusLabel || r.knowledgeSourceStatusLabel
+          ? { knowledgeSourceStatusLabel: meta.knowledgeSourceStatusLabel || r.knowledgeSourceStatusLabel }
+          : {}),
+        ...(meta.knowledgeSourceStatusDescription || r.knowledgeSourceStatusDescription
+          ? {
+              knowledgeSourceStatusDescription:
+                meta.knowledgeSourceStatusDescription || r.knowledgeSourceStatusDescription,
+            }
+          : {}),
         ...(isWarning ? { isWarning: true } : {}),
         ...(warningType ? { warningType } : {}),
         ...(warningMetadata ? { warningMetadata } : {}),
@@ -2460,6 +2478,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 side: "in",
                 isInternalNote: false,
                 ...(i === 0 ? { thoughtTrace: frag.thoughtTrace || resolvedTrace } : {}),
+                ...(frag.catalogPhoto ? { catalogPhoto: frag.catalogPhoto } : {}),
+                ...(Array.isArray(frag.knowledgeSources)
+                  ? { knowledgeSources: frag.knowledgeSources }
+                  : {}),
+                ...(frag.knowledgeSourceStatus
+                  ? { knowledgeSourceStatus: frag.knowledgeSourceStatus }
+                  : {}),
+                ...(frag.knowledgeSourceStatusLabel
+                  ? { knowledgeSourceStatusLabel: frag.knowledgeSourceStatusLabel }
+                  : {}),
+                ...(frag.knowledgeSourceStatusDescription
+                  ? { knowledgeSourceStatusDescription: frag.knowledgeSourceStatusDescription }
+                  : {}),
                 ...(Array.isArray(frag.relatedConversations) &&
                 frag.relatedConversations.length > 0
                   ? { relatedConversations: frag.relatedConversations }

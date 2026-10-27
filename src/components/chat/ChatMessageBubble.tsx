@@ -14,8 +14,18 @@ import {
   PhoneCall,
   UserCheck,
   Users,
+  HelpCircle,
+  BookOpen,
+  FileText,
+  ShieldCheck,
+  AlertTriangle,
+  Database,
+  Image as ImageIcon,
+  Package,
+  Info,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { MessageReactionPicker } from "./MessageReactionPicker";
@@ -23,13 +33,294 @@ import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
 import { SystemAnnotationBubble, type SystemAnnotationItem } from "./SystemAnnotationBubble";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
-import { Message } from "@/lib/mockData";
+import { Message, type KnowledgeSourceItem, type KnowledgeSourceStatus } from "@/lib/mockData";
 import {
   renderTextWithLinks,
   renderMessageContent,
   isEmojiOnly,
   QuotedMessagePreview,
 } from "./ChatPanel";
+
+export function MessageKnowledgeSourceButton({
+  message,
+  isExpanded,
+  compact = false,
+}: {
+  message: {
+    author?: string;
+    knowledgeSources?: KnowledgeSourceItem[];
+    knowledgeSourceStatus?: KnowledgeSourceStatus;
+    knowledgeSourceStatusLabel?: string;
+    knowledgeSourceStatusDescription?: string;
+  };
+  isExpanded?: boolean;
+  compact?: boolean;
+}) {
+  const sources = Array.isArray(message.knowledgeSources) ? message.knowledgeSources : [];
+  const status: KnowledgeSourceStatus =
+    message.knowledgeSourceStatus ||
+    (sources.some((s) => s.kind === "manual" || s.kind === "document")
+      ? "verified"
+      : sources.some((s) => s.kind === "catalog" || s.kind === "photo")
+      ? "catalog_only"
+      : "operational_or_chat");
+
+  const hasSources = sources.length > 0;
+  const isVerifiedManual = status === "verified";
+  const isCatalogVerified = status === "catalog_only";
+  const isHonestUnknown = status === "honest_unknown";
+  const isUnverifiedTech = status === "unverified_technical";
+
+  const statusConfig = isVerifiedManual
+    ? {
+        badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300",
+        btnClass:
+          "opacity-90 group-hover:opacity-100 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25",
+        icon: ShieldCheck,
+        title: message.knowledgeSourceStatusLabel || "Fonte Técnica Verificada (Manual / RAG)",
+        desc:
+          message.knowledgeSourceStatusDescription ||
+          "As informações técnicas desta mensagem foram extraídas diretamente dos Manuais Técnicos (PDF) e Catálogo Oficial indexados na Base de Conhecimento.",
+        tooltip: `Fonte verificada (${sources.length} ${sources.length === 1 ? "documento/ficha" : "documentos/fichas"}) — Clique para ver de onde ${message.author || "o assistente"} tirou a informação`,
+      }
+    : isCatalogVerified
+    ? {
+        badgeBg: "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300",
+        btnClass:
+          "opacity-90 group-hover:opacity-100 text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25",
+        icon: BookOpen,
+        title: message.knowledgeSourceStatusLabel || "Fonte Verificada no Catálogo Oficial",
+        desc:
+          message.knowledgeSourceStatusDescription ||
+          "Modelos, códigos e linhas consultados diretamente no Catálogo Oficial de Máquinas e Acervo da Base de Conhecimento.",
+        tooltip: `Catálogo Oficial (${sources.length} ${sources.length === 1 ? "referência" : "referências"}) — Clique para ver a fonte da informação`,
+      }
+    : isHonestUnknown
+    ? {
+        badgeBg: "bg-cyan-500/10 border-cyan-500/30 text-cyan-700 dark:text-cyan-300",
+        btnClass:
+          "opacity-90 group-hover:opacity-100 text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25",
+        icon: Info,
+        title: message.knowledgeSourceStatusLabel || "Sinceridade Técnica (Anti-Alucinação)",
+        desc:
+          message.knowledgeSourceStatusDescription ||
+          "O assistente verificou a documentação disponível e declarou com sinceridade os pontos que não constam no manual/catálogo, sem inventar dados.",
+        tooltip: "Sinceridade Técnica — Clique para ver os documentos checados",
+      }
+    : isUnverifiedTech
+    ? {
+        badgeBg: "bg-amber-500/15 border-amber-500/35 text-amber-700 dark:text-amber-300",
+        btnClass:
+          "opacity-95 group-hover:opacity-100 text-amber-600 dark:text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30",
+        icon: AlertTriangle,
+        title: message.knowledgeSourceStatusLabel || "Atenção: Sem Manual ou Ficha Vinculada",
+        desc:
+          message.knowledgeSourceStatusDescription ||
+          "Esta resposta cita termos técnicos, mas nenhum Manual Técnico PDF ou item do Catálogo Oficial foi vinculado diretamente. Recomenda-se validar na ficha física antes de confirmar ao cliente.",
+        tooltip: "Atenção: Nenhum manual vinculado a esta especificação — Clique para auditar",
+      }
+    : {
+        badgeBg: "bg-muted/80 border-border text-muted-foreground",
+        btnClass: `opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground ${
+          isExpanded ? "!opacity-100" : ""
+        }`,
+        icon: Info,
+        title: message.knowledgeSourceStatusLabel || "Interação Operacional / Conversa",
+        desc:
+          message.knowledgeSourceStatusDescription ||
+          "Mensagem conversacional ou de acompanhamento operacional (não exigiu extração de ficha técnica de máquina).",
+        tooltip: "Ver fonte da informação",
+      };
+
+  const StatusIcon = statusConfig.icon;
+
+  const getSourceIcon = (kind: KnowledgeSourceItem["kind"]) => {
+    switch (kind) {
+      case "manual":
+      case "document":
+        return FileText;
+      case "catalog":
+        return Package;
+      case "photo":
+        return ImageIcon;
+      case "crm":
+        return Database;
+      default:
+        return BookOpen;
+    }
+  };
+
+  const getSourceBadgeLabel = (kind: KnowledgeSourceItem["kind"]) => {
+    switch (kind) {
+      case "manual":
+        return "Manual Técnico PDF";
+      case "document":
+        return "Documento Oficial";
+      case "catalog":
+        return "Catálogo Oficial";
+      case "photo":
+        return "Foto Oficial da Base";
+      case "crm":
+        return "Dados do CRM";
+      default:
+        return "Fonte da Base";
+    }
+  };
+
+  const getSourceAccent = (kind: KnowledgeSourceItem["kind"]) => {
+    switch (kind) {
+      case "manual":
+      case "document":
+        return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25";
+      case "catalog":
+        return "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/25";
+      case "photo":
+        return "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/25";
+      case "crm":
+        return "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/25";
+      default:
+        return "bg-muted text-muted-foreground border-border";
+    }
+  };
+
+  return (
+    <Popover>
+      <SystemTooltip content={statusConfig.tooltip}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            onClick={(e) => e.stopPropagation()}
+            className={`${
+              compact ? "p-1" : "p-1.5"
+            } rounded-full transition-all duration-150 cursor-pointer shrink-0 relative flex items-center justify-center ${
+              statusConfig.btnClass
+            }`}
+          >
+            <HelpCircle className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
+            {hasSources && (
+              <span className="absolute -top-1 -right-1 min-w-[13px] h-[13px] px-0.5 rounded-full bg-emerald-600 text-white text-[8px] font-bold flex items-center justify-center shadow-xs pointer-events-none">
+                {sources.length}
+              </span>
+            )}
+            {!hasSources && isUnverifiedTech && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 pointer-events-none" />
+            )}
+          </button>
+        </PopoverTrigger>
+      </SystemTooltip>
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={8}
+        onClick={(e) => e.stopPropagation()}
+        className="w-[360px] sm:w-[410px] p-0 rounded-2xl border border-border/80 bg-popover/98 backdrop-blur-xl shadow-2xl overflow-hidden z-50"
+      >
+        {/* Cabeçalho do Inspetor de Fonte */}
+        <div className="px-3.5 py-3 border-b border-border/60 bg-muted/30">
+          <div className="flex items-start gap-2.5">
+            <div className={`p-1.5 rounded-xl border shrink-0 mt-0.5 ${statusConfig.badgeBg}`}>
+              <StatusIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Fonte da Informação • {message.author || "Assistente IA"}
+                </span>
+                {hasSources && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-background border border-border text-foreground shrink-0">
+                    {sources.length} {sources.length === 1 ? "fonte" : "fontes"}
+                  </span>
+                )}
+              </div>
+              <h4 className="text-xs font-bold text-foreground mt-0.5 leading-snug">
+                {statusConfig.title}
+              </h4>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                {statusConfig.desc}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Lista de Documentos / Manuais / Fichas Consultadas */}
+        <div className="max-h-[300px] overflow-y-auto divide-y divide-border/50">
+          {hasSources ? (
+            sources.map((src) => {
+              const SrcIcon = getSourceIcon(src.kind);
+              const badgeAccent = getSourceAccent(src.kind);
+              return (
+                <div
+                  key={src.id}
+                  className="px-3.5 py-2.5 hover:bg-muted/30 transition-colors flex flex-col gap-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span
+                      className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeAccent}`}
+                    >
+                      <SrcIcon className="h-3 w-3 shrink-0" />
+                      {getSourceBadgeLabel(src.kind)}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {src.code && (
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-muted text-foreground border border-border/70">
+                          {src.code}
+                        </span>
+                      )}
+                      {src.charCount && src.charCount > 0 && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {(src.charCount / 1000).toFixed(1)}k chars
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="text-xs font-semibold text-foreground leading-snug break-words">
+                    {src.title}
+                  </div>
+
+                  {src.folderOrCategory && (
+                    <div className="text-[10px] font-medium text-muted-foreground">
+                      {src.folderOrCategory}
+                    </div>
+                  )}
+
+                  {src.excerptOrDetail && (
+                    <div className="mt-0.5 text-[11px] text-muted-foreground bg-muted/40 border border-border/60 rounded-lg px-2.5 py-1.5 leading-relaxed line-clamp-4">
+                      {src.excerptOrDetail}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <div className="px-4 py-5 text-center">
+              <p className="text-xs font-medium text-foreground">
+                {isUnverifiedTech
+                  ? "Nenhum Manual PDF ou Ficha do Catálogo Oficial foi localizado para esta afirmação."
+                  : isHonestUnknown
+                  ? "O assistente verificou a base e informou sinceramente que o dado solicitado não consta nos manuais ativos."
+                  : "Esta mensagem não exigiu extração de manual técnico ou ficha de equipamento."}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                {isUnverifiedTech
+                  ? "Cuidado com possível alucinação: confirme especificações críticas na ficha física ou com a engenharia."
+                  : "Quando a resposta incluir dados técnicos de uma máquina, o manual PDF e a ficha do catálogo aparecerão listados aqui."}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Rodapé de Auditoria Anti-Alucinação */}
+        <div className="px-3.5 py-2 bg-muted/40 border-t border-border/60 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+          <span>Auditoria de Fonte & Anti-Alucinação</span>
+          <span className="font-semibold text-foreground/80">
+            {hasSources ? "Base Oficial Vinculada" : isUnverifiedTech ? "Requer Conferência" : "Sem Manual Técnico"}
+          </span>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function getVigosPhoneLink(phone?: string | null): string {
   if (!phone) return "#";
@@ -285,24 +576,26 @@ function ChatMessageBubbleComponent({
                 <Smile className="h-3.5 w-3.5" />
               </button>
             </SystemTooltip>
-            <SystemTooltip content="Marcar como evidência do negócio">
-              <button
-                type="button"
-                onClick={() =>
-                  onSetMarkingEvidenceMsg({
-                    id: m.id,
-                    text: m.text,
-                    author: m.author,
-                    time: m.time,
-                  })
-                }
-                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
-                  isExpanded ? "!opacity-100" : ""
-                }`}
-              >
-                <Bookmark className="h-3.5 w-3.5" />
-              </button>
-            </SystemTooltip>
+            {activeChat.id !== "valentina" && (
+              <SystemTooltip content="Marcar como evidência do negócio">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onSetMarkingEvidenceMsg({
+                      id: m.id,
+                      text: m.text,
+                      author: m.author,
+                      time: m.time,
+                    })
+                  }
+                  className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
+                    isExpanded ? "!opacity-100" : ""
+                  }`}
+                >
+                  <Bookmark className="h-3.5 w-3.5" />
+                </button>
+              </SystemTooltip>
+            )}
             <SystemTooltip content="Responder">
               <button
                 type="button"
@@ -1152,24 +1445,30 @@ function ChatMessageBubbleComponent({
                 <Smile className="h-3.5 w-3.5" />
               </button>
             </SystemTooltip>
-            <SystemTooltip content="Marcar como evidência do negócio">
-              <button
-                type="button"
-                onClick={() =>
-                  onSetMarkingEvidenceMsg({
-                    id: m.id,
-                    text: m.text,
-                    author: m.author,
-                    time: m.time,
-                  })
-                }
-                className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
-                  isExpanded ? "!opacity-100" : ""
-                }`}
-              >
-                <Bookmark className="h-3.5 w-3.5" />
-              </button>
-            </SystemTooltip>
+            {activeChat.id === "valentina" ? (
+              !m.isWarning && m.id !== "val_welcome" ? (
+                <MessageKnowledgeSourceButton message={m} isExpanded={isExpanded} />
+              ) : null
+            ) : (
+              <SystemTooltip content="Marcar como evidência do negócio">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onSetMarkingEvidenceMsg({
+                      id: m.id,
+                      text: m.text,
+                      author: m.author,
+                      time: m.time,
+                    })
+                  }
+                  className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-amber-500 transition-all duration-150 cursor-pointer shrink-0 ${
+                    isExpanded ? "!opacity-100" : ""
+                  }`}
+                >
+                  <Bookmark className="h-3.5 w-3.5" />
+                </button>
+              </SystemTooltip>
+            )}
 
             {reactingMsgId === m.id && (
               <MessageReactionPicker

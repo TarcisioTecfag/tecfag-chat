@@ -53,6 +53,7 @@ import {
   WhatsappLogo,
 } from "@/components/chat/ChatList";
 import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
+import { MessageKnowledgeSourceButton } from "@/components/chat/ChatMessageBubble";
 import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import {
   Dialog,
@@ -3391,10 +3392,17 @@ export function CrmChatWidget() {
                                     </div>
                                   )}
 
-                                  <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-muted-foreground font-medium select-none">
+                                  <div className="mt-1 flex items-center justify-end gap-1.5 text-[9.5px] text-muted-foreground font-medium select-none">
                                     <span>{message.time}</span>
                                   </div>
                                 </div>
+                                {selected.id === "valentina" &&
+                                  !message.isWarning &&
+                                  message.id !== "val_welcome" && (
+                                    <div className="mb-1 shrink-0">
+                                      <MessageKnowledgeSourceButton message={message} compact />
+                                    </div>
+                                  )}
                               </div>
                             );
                           })

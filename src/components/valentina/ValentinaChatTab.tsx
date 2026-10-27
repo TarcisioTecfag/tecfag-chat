@@ -15,6 +15,7 @@ import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ValentinaBlockRenderer } from "./chat-blocks/ValentinaBlockRenderer";
 import { ValentinaThreadRail } from "./chat-blocks/ValentinaThreadRail";
 import { AgenticThoughtTrace } from "./chat-blocks/AgenticThoughtTrace";
+import { MessageKnowledgeSourceButton } from "@/components/chat/ChatMessageBubble";
 import {
   buildAgenticThoughtTrace,
   isCasualConversationQuery,
@@ -561,6 +562,13 @@ export function ValentinaChatTab() {
               timestamp: new Date().toISOString(),
               blocks: rawBlocks && rawBlocks.length > 0 ? rawBlocks : undefined,
               thoughtTrace: i === 0 ? resolvedTrace : undefined,
+              knowledgeSources: Array.isArray(fragments[i].knowledgeSources)
+                ? fragments[i].knowledgeSources
+                : undefined,
+              knowledgeSourceStatus: fragments[i].knowledgeSourceStatus || undefined,
+              knowledgeSourceStatusLabel: fragments[i].knowledgeSourceStatusLabel || undefined,
+              knowledgeSourceStatusDescription:
+                fragments[i].knowledgeSourceStatusDescription || undefined,
             };
 
             setThreads((prev) =>
@@ -927,12 +935,22 @@ export function ValentinaChatTab() {
                     </div>
                   ) : (
                     /* Mensagem da Valentina / Fagner */
-                    <div key={msg.id} className="flex gap-3 items-start">
+                    <div key={msg.id} className="flex gap-3 items-start group">
                       <ValentinaAvatar className="h-7 w-7 mt-0.5" />
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-bold text-foreground">{persona.name}</span>
                           <span className="text-[10px] text-muted-foreground">{formatTime(msg.timestamp)}</span>
+                          <MessageKnowledgeSourceButton
+                            message={{
+                              author: persona.name,
+                              knowledgeSources: msg.knowledgeSources,
+                              knowledgeSourceStatus: msg.knowledgeSourceStatus,
+                              knowledgeSourceStatusLabel: msg.knowledgeSourceStatusLabel,
+                              knowledgeSourceStatusDescription: msg.knowledgeSourceStatusDescription,
+                            }}
+                            compact
+                          />
                         </div>
 
                         {msg.thoughtTrace && (
