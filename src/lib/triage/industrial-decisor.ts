@@ -55,7 +55,56 @@ const categories = [
   "contadora",
   "termoformadora",
   "rosqueadeira",
+  "arqueadora",
+  "cintadora",
+  "tunel",
+  "fechadora",
+  "montadora",
+  "encaixotadora",
+  "envolvedora",
+  "paletizadora",
+  "cortadora",
+  "dispensador",
+  "misturador",
+  "moinho",
+  "polidora",
 ];
+const STOPWORDS = new Set([
+  "para",
+  "com",
+  "sem",
+  "por",
+  "uma",
+  "uns",
+  "umas",
+  "dos",
+  "das",
+  "nos",
+  "nas",
+  "quero",
+  "preciso",
+  "procuro",
+  "busco",
+  "gostaria",
+  "orcamento",
+  "cotacao",
+  "comprar",
+  "maquina",
+  "maquinas",
+  "equipamento",
+  "equipamentos",
+  "industrial",
+  "industriais",
+  "unidades",
+  "unidade",
+  "pacotes",
+  "pacote",
+  "embalagens",
+  "embalagem",
+  "dia",
+  "hora",
+  "minuto",
+]);
 const normalized = (text: string) =>
   normalizeTriageText(text)
     .replace(/[^a-z0-9 ]/g, " ")
@@ -74,10 +123,21 @@ export function machineCategories(text: string) {
   const words = normalized(text).split(" ");
   const synonyms: Record<string, string[]> = {
     seladora: ["selar", "selagem"],
-    envasadora: ["envase", "envasar", "envasamento"],
-    empacotadora: ["empacotar", "empacotamento"],
+    envasadora: ["envase", "envasar", "envasamento", "envazamento", "envaz"],
+    empacotadora: ["empacotar", "empacotamento", "embaladora", "flowpack"],
     dosadora: ["dosar", "dosagem"],
-    enchedora: ["encher", "enchimento"],
+    enchedora: ["encher", "enchimento", "enchim"],
+    rotuladora: ["rotular", "rotulagem"],
+    datador: ["datar", "datacao", "codificadora", "codificador", "inkjet"],
+    rosqueadeira: ["rosquear", "rosqueadora", "tampadora", "recravadeira"],
+    termoformadora: ["blister", "termoformagem"],
+    arqueadora: ["arquear", "arqueacao", "cintar", "cintadora"],
+    cintadora: ["cintar", "arquear", "arqueadora"],
+    tunel: ["encolhimento", "shrink"],
+    fechadora: ["fechar", "fechamento"],
+    montadora: ["montar", "montagem", "armadora"],
+    encaixotadora: ["encaixotar", "encaixotamento"],
+    envolvedora: ["envolver", "stretch", "estiravel"],
   };
   return Array.from(
     new Set([
@@ -91,8 +151,44 @@ export function machineCategories(text: string) {
 function compatibleCategory(interest: string, machine: IndustrialMachine) {
   const requested = machineCategories(interest);
   const literalName = namedMachineCategories(machine.name);
-  const offered = literalName.length ? literalName : machineCategories(machine.name);
+  const fromName = literalName.length ? literalName : machineCategories(machine.name);
+  const offered = fromName.length ? fromName : namedMachineCategories(machine.description || "");
   return !requested.length || requested.every((category) => offered.includes(category));
+}
+function narrowBroadCandidates(
+  candidates: IndustrialMachine[],
+  input: MachineDecisionInput,
+  hasExplicitCategory: boolean,
+): IndustrialMachine[] {
+  if (candidates.length <= 100) return candidates;
+  const queryText = normalized(
+    `${input.interest} ${input.application} ${input.production} ${input.customerContext}`,
+  );
+  const queryTokens = Array.from(
+    new Set(
+      queryText
+        .split(" ")
+        .filter((token) => token.length >= 3 && !STOPWORDS.has(token)),
+    ),
+  );
+  const scored = candidates.map((machine, index) => {
+    const nameTokens = normalized(
+      `${machine.name} ${machine.code} ${machine.sku} ${machine.aliases.join(" ")}`,
+    );
+    const descTokens = normalized(`${machine.description || ""} ${machine.production || ""}`);
+    let score = 0;
+    for (const token of queryTokens) {
+      if (` ${nameTokens} `.includes(` ${token} `)) score += 4;
+      else if (nameTokens.includes(token)) score += 2;
+      else if (` ${descTokens} `.includes(` ${token} `)) score += 2;
+      else if (descTokens.includes(token)) score += 1;
+    }
+    return { machine, score, index };
+  });
+  const maxScore = scored.reduce((max, item) => Math.max(max, item.score), 0);
+  if (!hasExplicitCategory && maxScore === 0) return [];
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  return scored.slice(0, 100).map((item) => item.machine);
 }
 export function prepareMachineDecision(
   settings: IndustrialSettings,
@@ -136,11 +232,12 @@ export function prepareMachineDecision(
       candidates: [],
     };
   const requested = machineCategories(input.interest);
-  const candidates = active.filter(
+  const rawCandidates = active.filter(
     (machine) => !requested.length || compatibleCategory(input.interest, machine),
   );
-  if (!candidates.length) return { decision: review("no_category_match"), candidates: [] };
-  if (candidates.length > 100)
+  if (!rawCandidates.length) return { decision: review("no_category_match"), candidates: [] };
+  const candidates = narrowBroadCandidates(rawCandidates, input, requested.length > 0);
+  if (!candidates.length)
     return { decision: review("catalog_search_too_broad"), candidates: [] };
   return { decision: null, candidates };
 }
@@ -175,8 +272,8 @@ function confirmMachine(
   if (!compatibleCategory(input.interest, machine)) reason = "category_conflict";
   else if (exceedsCatalogCapacity(input.production, machine.production))
     reason = "capacity_requires_review";
-  else if (machine.line === "PERSONNALITE") reason = "premium_requires_review";
-  else if ((input.capitalSocial || 0) >= 350_000) reason = "capital_requires_review";
+  else if (machine.line === "SEMI-INDUSTRIAL" && (input.capitalSocial || 0) >= 350_000)
+    reason = "capital_requires_review";
   return {
     status: reason === "catalog_confirmed" ? "confirmed" : "review",
     machineId: machine.id,

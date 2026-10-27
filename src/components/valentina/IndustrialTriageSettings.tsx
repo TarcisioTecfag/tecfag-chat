@@ -602,9 +602,7 @@ export function IndustrialTriageSettings() {
   const configuredDestinationsCount = useMemo(
     () =>
       DESTINATION_KEYS.filter((key) => {
-        const policy = INDUSTRIAL_DESTINATIONS[key];
         const res = resolveIndustrialDestination(settings, key);
-        if (!policy.createsDeal) return !res.conflict;
         return Boolean(res.destination?.pipelineId && res.destination?.stageId) && !res.conflict;
       }).length,
     [settings],
@@ -2078,8 +2076,8 @@ export function IndustrialTriageSettings() {
                       const DestIcon = getDestinationIcon(key);
 
                       const isFullyConfigured =
-                        (!policy.createsDeal ||
-                          (Boolean(destination?.pipelineId) && Boolean(destination?.stageId))) &&
+                        Boolean(destination?.pipelineId) &&
+                        Boolean(destination?.stageId) &&
                         !resolved.conflict;
 
                       const patch = (value: Partial<NonNullable<typeof destination>>) =>
@@ -2139,46 +2137,44 @@ export function IndustrialTriageSettings() {
                           {/* Cabeçalho do Card */}
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex items-start gap-2.5">
-                              {policy.createsDeal && (
-                                <SystemTooltip
-                                  content={
-                                    destination
-                                      ? `Desmarcar para desativar a abertura automática de card de ${policy.label}`
-                                      : `Marcar para habilitar e vincular o funil CRM de ${policy.label}`
-                                  }
-                                >
-                                  <div className="pt-0.5">
-                                    <Checkbox
-                                      checked={Boolean(destination)}
-                                      disabled={busy}
-                                      onCheckedChange={(checked) => {
-                                        if (checked) {
-                                          const singleAuto = autoMatchIndustrialDestinations(
-                                            choices,
-                                            setIndustrialDestination(settings, key, {
-                                              sectorId: autoSectorId,
-                                            }),
-                                            true,
-                                          );
-                                          const autoDest = resolveIndustrialDestination(
-                                            singleAuto,
+                              <SystemTooltip
+                                content={
+                                  destination
+                                    ? `Desmarcar para desativar a abertura automática de card de ${policy.label}`
+                                    : `Marcar para habilitar e vincular o funil CRM de ${policy.label}`
+                                }
+                              >
+                                <div className="pt-0.5">
+                                  <Checkbox
+                                    checked={Boolean(destination)}
+                                    disabled={busy}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        const singleAuto = autoMatchIndustrialDestinations(
+                                          choices,
+                                          setIndustrialDestination(settings, key, {
+                                            sectorId: autoSectorId,
+                                          }),
+                                          true,
+                                        );
+                                        const autoDest = resolveIndustrialDestination(
+                                          singleAuto,
+                                          key,
+                                        ).destination;
+                                        update(
+                                          setIndustrialDestination(
+                                            settings,
                                             key,
-                                          ).destination;
-                                          update(
-                                            setIndustrialDestination(
-                                              settings,
-                                              key,
-                                              autoDest || { sectorId: autoSectorId },
-                                            ),
-                                          );
-                                        } else {
-                                          update(setIndustrialDestination(settings, key, undefined));
-                                        }
-                                      }}
-                                    />
-                                  </div>
-                                </SystemTooltip>
-                              )}
+                                            autoDest || { sectorId: autoSectorId },
+                                          ),
+                                        );
+                                      } else {
+                                        update(setIndustrialDestination(settings, key, undefined));
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              </SystemTooltip>
 
                               <div className="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20 shrink-0">
                                 <DestIcon className="h-4 w-4" />
@@ -2214,13 +2210,11 @@ export function IndustrialTriageSettings() {
                               >
                                 {resolved.conflict
                                   ? "Conflito"
-                                  : !policy.createsDeal
-                                    ? "100% Automático (Rodízio)"
-                                    : isFullyConfigured
-                                      ? "Funil Vinculado"
-                                      : destination
-                                        ? "Selecione Funil/Etapa"
-                                        : "Desativado"}
+                                  : isFullyConfigured
+                                    ? "Funil Vinculado"
+                                    : destination
+                                      ? "Selecione Funil/Etapa"
+                                      : "Desativado"}
                               </span>
                             </SystemTooltip>
                           </div>
@@ -2254,7 +2248,7 @@ export function IndustrialTriageSettings() {
                           )}
 
                           {/* Seletores Exclusivos do CRM (Apenas Funil CRM e Etapa Inicial) */}
-                          {policy.createsDeal && destination && (
+                          {destination && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
                               <div className="space-y-1">
                                 <SystemTooltip content="Funil do CRM onde o card da oportunidade será aberto automaticamente para o operador sorteado no rodízio">
@@ -2272,7 +2266,7 @@ export function IndustrialTriageSettings() {
                                     );
                                     patch({
                                       pipelineId: val || undefined,
-                                      stageId: firstStage?.id || undefined,
+                                      stageId: val ? firstStage?.id || undefined : undefined,
                                     });
                                   }}
                                   options={pipelineOptions}
@@ -2296,14 +2290,6 @@ export function IndustrialTriageSettings() {
                                 />
                               </div>
                             </div>
-                          )}
-
-                          {!policy.createsDeal && (
-                            <p className="text-[10px] text-muted-foreground bg-muted/30 rounded-xl px-3 py-2 border border-border/60">
-                              <strong className="text-foreground">Sem abertura de card CRM:</strong>{" "}
-                              Esta rota apenas transfere a conversa para o próximo especialista ativo
-                              na <strong>{meta.fluxosFolderName}</strong> para validação humana.
-                            </p>
                           )}
                         </div>
                       );
@@ -2571,7 +2557,7 @@ export function IndustrialTriageSettings() {
 
               {/* Linha Comercial (Menu Suspenso Customizado) */}
               <div className="space-y-1">
-                <SystemTooltip content="Semi-Industrial vai direto para o Funil Máquinas quando confirmado; Personnalité passa por revisão humana especializada">
+                <SystemTooltip content="Semi-Industrial vai direto para o Funil Máquinas quando confirmado; Personnalité vai direto para o Funil Personnalité quando confirmado">
                   <label className="text-[11px] font-extrabold text-foreground flex items-center gap-1 cursor-help">
                     <span>Linha Comercial *</span>
                     <HelpCircle className="h-3 w-3 text-muted-foreground" />

@@ -152,16 +152,52 @@ describe("catálogo e Decisor industrial sem provedor", () => {
     assert.equal((await decide({ input: input("Quero APF 500") })).machineId, "semi");
     assert.equal((await decide({ input: input("APF5000") })).status, "review");
   });
-  it("Personnalité sempre requer revisão e preserva a linha identificada", async () => {
+  it("Personnalité confirmada no catálogo roteia direto para Personnalité sem revisão forçada", async () => {
     const result = await decide({ input: input("AFPP1328") });
-    assert.equal(result.reason, "premium_requires_review");
+    assert.equal(result.status, "confirmed");
+    assert.equal(result.reason, "catalog_confirmed");
+    assert.equal(result.line, "PERSONNALITE");
     const route = applyMachineDecision(
       resolveIndustrialRoute({ text: "Quero uma empacotadora", collectedData: {} }),
       result,
     );
     assert.equal(route.subflow, "PERSONNALITE");
-    assert.equal(route.needsReview, true);
-    assert.equal(industrialDestinationKey(route), "REVIEW");
+    assert.equal(route.targetFunnel, "Personnalité");
+    assert.equal(route.needsReview, false);
+    assert.equal(industrialDestinationKey(route), "PERSONNALITE");
+  });
+  it("categoria ampla (>100 itens) ranqueia e filtra top 100 candidatos para a IA em vez de falhar", async () => {
+    const config = settings();
+    for (let i = 1; i <= 150; i++) {
+      config.catalog.push({
+        id: `sel-${i}`,
+        name: i === 42 ? "Seladora a Vácuo de Bancada DZ400" : `Seladora Manual SM-${i}`,
+        code: `CODE-SEL-${i}`,
+        sku: `SKU-SEL-${i}`,
+        line: i === 42 ? "PERSONNALITE" : "SEMI-INDUSTRIAL",
+        production: "200/h",
+        description: i === 42 ? "Ideal para vácuo de carnes e queijos" : "Seladora simples",
+        aliases: [],
+        active: true,
+      });
+    }
+    const result = await decide({
+      settings: config,
+      input: {
+        interest: "Quero uma seladora a vácuo de bancada",
+        application: "Carnes e queijos",
+        production: "100 unidades/hora",
+        customerContext: "Quero uma seladora a vácuo de bancada para carnes e queijos",
+      },
+      suggest: async (candidates) => {
+        assert.equal(candidates.length, 100);
+        assert.equal(candidates[0].id, "sel-42");
+        return { machineId: "sel-42", confidence: 0.98, reason: "Seladora a vácuo compatível" };
+      },
+    });
+    assert.equal(result.status, "confirmed");
+    assert.equal(result.machineId, "sel-42");
+    assert.equal(result.line, "PERSONNALITE");
   });
   for (const term of ["revenda", "licitação", "edital", "pregão"])
     it(`${term} exige revisão antes de IA`, async () => {
@@ -450,6 +486,15 @@ describe("destinos unificados e compatibilidade de configuração", () => {
     const corrected = setIndustrialDestination(input, "REVIEW", { sectorId: "review" });
     assert.deepEqual(consolidateIndustrialDestinations(corrected).destinations, {
       REVIEW: { sectorId: "review" },
+    });
+    const withFunnel = setIndustrialDestination(corrected, "REVIEW", {
+      sectorId: "review",
+      pipelineId: "pipe-sdr",
+      stageId: "stage-analise",
+    });
+    assert.equal(industrialSettingsSchema.safeParse(withFunnel).success, true);
+    assert.deepEqual(consolidateIndustrialDestinations(withFunnel).destinations, {
+      REVIEW: { sectorId: "review", pipelineId: "pipe-sdr", stageId: "stage-analise" },
     });
   });
   it("nomes antigos preservam o assunto e apontam para o destino novo", () => {

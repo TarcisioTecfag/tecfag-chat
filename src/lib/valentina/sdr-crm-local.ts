@@ -384,14 +384,24 @@ async function resolveTargetPipelineAndStage(
 
   const normTargetFunnel = norm(targetFunnel);
   const normStageKey = norm(funnelStage);
+  const isReviewFunnel =
+    normTargetFunnel.includes("analise") ||
+    normTargetFunnel.includes("revisao") ||
+    normTargetFunnel === "atendimento geral" ||
+    normStageKey === "outros" ||
+    normStageKey === "triagem";
   if (requireConfiguredPipeline && !pipelines.some((pipeline: any) => norm(pipeline.name) === normTargetFunnel)) {
     throw new Error("Funil de destino não configurado para este atendimento");
   }
 
-  // Tenta encontrar funil específico com nome correspondente ao fluxo (ex: "Máquinas", "Peças", "Personnalité", etc.)
+  // Tenta encontrar funil específico com nome correspondente ao fluxo (ex: "Máquinas", "Peças", "Personnalité", "Funil SDR" para Análise, etc.)
   let chosenPipeline =
-    (requireConfiguredPipeline ? pipelines.find((p: any) => norm(p.name) === normTargetFunnel) : undefined) || pipelines.find((p: any) => {
+    (requireConfiguredPipeline ? pipelines.find((p: any) => norm(p.name) === normTargetFunnel) : undefined) ||
+    pipelines.find((p: any) => {
       const pName = norm(p.name);
+      if (isReviewFunnel && (pName.includes("funil sdr") || pName === "sdr" || pName.includes("triagem") || pName.includes("analise"))) {
+        return true;
+      }
       return (
         (normTargetFunnel && (pName === normTargetFunnel || pName.includes(normTargetFunnel) || normTargetFunnel.includes(pName))) ||
         (normStageKey && (pName === normStageKey || pName.includes(normStageKey)))

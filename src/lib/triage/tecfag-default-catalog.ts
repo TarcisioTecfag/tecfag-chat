@@ -121,7 +121,7 @@ export const DESTINATION_DETAILS: Record<
     title: "Personnalité (Projetos Industriais)",
     subtitle: "Equipamentos industriais de alta capacidade e linhas completas Personnalité",
     whenTriggered:
-      "Configura o funil de referência para equipamentos da linha Personnalité (por política de segurança, passam por validação antes da abertura de card).",
+      "Acionado quando o Decisor IA confirma um equipamento ativo da linha Personnalité com confiança ≥ 95% e capacidade compatível.",
     flowBadge: "Fluxo 1 • Industrial",
     fluxosFolderName: "Pasta Personnalité",
     sectorKeywords: ["personnalite", "personalite", "comercial", "projetos", "tecfag"],
@@ -169,13 +169,13 @@ export const DESTINATION_DETAILS: Record<
   },
   REVIEW: {
     title: "Análise e Revisão Humana (Especialista SDR)",
-    subtitle: "Triagens que exigem validação humana antes de gerar oportunidade no CRM",
+    subtitle: "Triagens em análise quando o Fagner não teve certeza do destino ou que exigem validação humana",
     whenTriggered:
-      "Acionado em casos de Personnalité, licitação/revenda, capital social ≥ R$ 350 mil, máquina não comercializada, dúvida técnica ou quando o cliente pede atendente humano. Não cria card automático no CRM.",
+      "Acionado quando o Fagner não tem certeza da classificação, em casos de licitação/revenda, capital social ≥ R$ 350 mil em equipamento Semi-Industrial, máquina não comercializada, capacidade acima do catálogo ou quando o cliente pede atendente humano. Abre o card no Funil e Etapa configurados abaixo (ex: Funil SDR).",
     flowBadge: "Fluxo 5 • Revisão Humana",
     fluxosFolderName: "Pasta Análise e revisão humana",
     sectorKeywords: ["comercial", "sdr", "recepcao", "triagem", "atendimento", "tecfag"],
-    pipelineKeywords: [],
+    pipelineKeywords: ["funil sdr", "sdr", "triagem", "analise", "revisao"],
   },
 };
 
@@ -206,7 +206,8 @@ export function autoMatchIndustrialDestinations(
 
   for (const key of DESTINATION_KEYS) {
     const existing = resolveIndustrialDestination(next, key);
-    if (!overwriteExisting && existing.configured && !existing.conflict && existing.destination?.sectorId) {
+    const hasPipeline = Boolean(existing.destination?.pipelineId && existing.destination?.stageId);
+    if (!overwriteExisting && existing.configured && !existing.conflict && existing.destination?.sectorId && hasPipeline) {
       continue;
     }
 
@@ -215,13 +216,6 @@ export function autoMatchIndustrialDestinations(
 
     const matchedSectorId = resolveAutomaticSectorId(key, choices.sectors, existing.destination?.sectorId);
     if (!matchedSectorId) continue;
-
-    if (!policy.createsDeal) {
-      next = setIndustrialDestination(next, key, {
-        sectorId: matchedSectorId,
-      });
-      continue;
-    }
 
     // 2. Encontrar melhor funil CRM
     let matchedPipeline = choices.pipelines.find((p) => {
@@ -232,12 +226,28 @@ export function autoMatchIndustrialDestinations(
       matchedPipeline = choices.pipelines[0];
     }
 
-    if (!matchedPipeline) continue;
+    if (!matchedPipeline) {
+      if (!policy.createsDeal) {
+        next = setIndustrialDestination(next, key, {
+          sectorId: matchedSectorId,
+        });
+      }
+      continue;
+    }
 
     // 3. Encontrar melhor etapa de entrada daquele funil
     const stagesForPipeline = choices.stages.filter((st) => st.pipelineId === matchedPipeline!.id);
     let matchedStage = stagesForPipeline.find((st) => {
       const stNorm = norm(st.name);
+      if (key === "REVIEW") {
+        return (
+          stNorm.includes("analise") ||
+          stNorm.includes("revisao") ||
+          stNorm.includes("triagem") ||
+          stNorm.includes("leads recebidos") ||
+          stNorm.includes("recebido")
+        );
+      }
       return (
         stNorm.includes("leads recebidos") ||
         stNorm.includes("recebido") ||
@@ -252,9 +262,13 @@ export function autoMatchIndustrialDestinations(
 
     if (matchedStage) {
       next = setIndustrialDestination(next, key, {
-        sectorId: matchedSector.id,
+        sectorId: matchedSectorId,
         pipelineId: matchedPipeline.id,
         stageId: matchedStage.id,
+      });
+    } else if (!policy.createsDeal) {
+      next = setIndustrialDestination(next, key, {
+        sectorId: matchedSectorId,
       });
     }
   }

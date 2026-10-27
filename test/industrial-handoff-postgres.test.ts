@@ -996,6 +996,101 @@ try {
     },
   );
   await check(
+    "Personnalité confirmado pelo Decisor roteia direto para o funil Personnalité e cria card",
+    async () => {
+      const key = await fixture();
+      await scopedDb
+        .insert(schema.crmPipelines)
+        .values({ id: "pipe-pers", tenantId, name: "Personnalité" })
+        .onConflictDoNothing();
+      await scopedDb
+        .insert(schema.crmStages)
+        .values({
+          id: "stage-pers",
+          tenantId,
+          pipelineId: "pipe-pers",
+          name: "Leads Recebidos",
+        })
+        .onConflictDoNothing();
+      const currentCfg = await readIndustrialSettings(scopedDb, tenantId);
+      const savedCfg = await saveIndustrialSettings(
+        scopedDb,
+        tenantId,
+        currentCfg.revision,
+        {
+          ...currentCfg.settings,
+          catalog: [
+            ...currentCfg.settings.catalog,
+            {
+              id: "machine-pers-1",
+              name: "Empacotadora Automática AFPP1328",
+              code: "AFPP1328",
+              sku: "SKU-PERS-1",
+              line: "PERSONNALITE",
+              production: "1800/h",
+              description: "Linha Personnalité",
+              aliases: [],
+              active: true,
+            },
+          ],
+          destinations: {
+            ...currentCfg.settings.destinations,
+            PERSONNALITE: {
+              sectorId: "sector-sales",
+              pipelineId: "pipe-pers",
+              stageId: "stage-pers",
+            },
+          },
+        },
+        opA,
+      );
+      const updatedCfg = await readIndustrialSettings(scopedDb, tenantId);
+      const prevOps = (await config()).flowOperators;
+      await mutateIndustrialRodizio(scopedDb, tenantId, (ops) =>
+        ops.map((op) => ({
+          ...op,
+          funnels: op.funnels.includes("Personnalité")
+            ? op.funnels
+            : [...op.funnels, "Personnalité"],
+        })),
+      );
+      try {
+        const persDecision: MachineDecision = {
+          status: "confirmed",
+          machineId: "machine-pers-1",
+          line: "PERSONNALITE",
+          confidence: 0.99,
+          method: "exact_catalog",
+          reason: "catalog_confirmed",
+          catalogRevision: savedCfg.revision,
+          catalogFingerprint: updatedCfg.catalogFingerprint,
+        };
+        const persRoute = applyMachineDecision(route, persDecision);
+        assert.equal(persRoute.subflow, "PERSONNALITE");
+        assert.equal(persRoute.targetFunnel, "Personnalité");
+        assert.equal(persRoute.needsReview, false);
+        await prepare(key, persRoute, persDecision);
+        const beforeDeals = await count(schema.crmDeals);
+        const result = await store.execute(key);
+        assert.equal(result.status, "transferred");
+        assert.equal(result.sectorId, "sector-sales");
+        assert.equal(result.deal?.funnelId, "pipe-pers");
+        assert.equal(result.deal?.stageId, "stage-pers");
+        assert.equal(await count(schema.crmDeals), beforeDeals + 1);
+      } finally {
+        await mutateIndustrialRodizio(scopedDb, tenantId, () => prevOps);
+        const latestCfg = await readIndustrialSettings(scopedDb, tenantId);
+        await saveIndustrialSettings(
+          scopedDb,
+          tenantId,
+          latestCfg.revision,
+          currentCfg.settings,
+          opA,
+        );
+      }
+    },
+  );
+  await check(
     "troca apenas de destino preserva prova de catálogo e usa o novo setor por ID",
     async () => {
       const key = await fixture();

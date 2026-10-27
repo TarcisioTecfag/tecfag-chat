@@ -496,7 +496,7 @@ export function createIndustrialHandoffStore(
             const isCommercial = ["MAQUINAS", "PERSONNALITE"].includes(request.route.subflow || "");
             const validCatalogDecision =
               machine?.status === "confirmed" &&
-              machine.line === "SEMI-INDUSTRIAL" &&
+              (machine.line === "SEMI-INDUSTRIAL" || machine.line === "PERSONNALITE") &&
               Number.isFinite(machine.confidence) &&
               machine.confidence >= 0.95 &&
               machine.confidence <= 1 &&
@@ -516,7 +516,11 @@ export function createIndustrialHandoffStore(
               throw new HandoffOperationalError("destination_conflict");
             const destination = resolvedDestination?.destination;
             if (!destination) throw new HandoffOperationalError("destination_unconfigured");
-            if (readiness.createsDeal && (!destination.pipelineId || !destination.stageId))
+            const reviewCreatesDeal =
+              readiness.action === "review" &&
+              Boolean(destination.pipelineId && destination.stageId);
+            const shouldCreateDeal = readiness.createsDeal || reviewCreatesDeal;
+            if (shouldCreateDeal && (!destination.pipelineId || !destination.stageId))
               throw new HandoffOperationalError("destination_pipeline_invalid");
             const sector = await validateIndustrialDestination(tx, key.tenantId, destination);
             const funnel =
@@ -557,7 +561,7 @@ export function createIndustrialHandoffStore(
                 id: chosen.id,
                 name: registered.find((op) => op.id === chosen.id)!.name,
               };
-              const deal = readiness.createsDeal
+              const deal = shouldCreateDeal
                 ? await ensureDeal(
                     {
                       tenantId: key.tenantId,
@@ -569,7 +573,8 @@ export function createIndustrialHandoffStore(
                       targetOperatorId: operator.id,
                       targetOperatorName: operator.name,
                       targetFunnel: funnel!,
-                      funnelStage: request.route.funnelStage,
+                      funnelStage:
+                        readiness.action === "review" ? "outros" : request.route.funnelStage,
                       collectedData: Object.fromEntries(
                         Object.entries(request.data).map(([name, field]) => [
                           name,
@@ -584,7 +589,7 @@ export function createIndustrialHandoffStore(
                       ),
                       requireConfiguredPipeline: true,
                       reuseScope: "person_and_funnel",
-                      destination: readiness.createsDeal
+                      destination: shouldCreateDeal
                         ? { pipelineId: destination.pipelineId!, stageId: destination.stageId! }
                         : undefined,
                     },
@@ -593,7 +598,7 @@ export function createIndustrialHandoffStore(
                     throw new HandoffOperationalError("crm_failed");
                   })
                 : null;
-              if (readiness.createsDeal && (!deal?.success || !deal.dealId))
+              if (shouldCreateDeal && (!deal?.success || !deal.dealId))
                 throw new HandoffOperationalError("crm_failed");
               if (options.signal?.aborted)
                 throw new HandoffOperationalError("processing_cancelled");
