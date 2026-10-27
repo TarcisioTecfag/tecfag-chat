@@ -34,11 +34,16 @@ export interface VertexCallContext {
 }
 
 export function calculateVertexCost(model: string, promptTokens: number, completionTokens: number): { usd: number; brl: number } {
-  const isFlash = model.toLowerCase().includes("flash");
-  
-  // Preços oficiais por 1,000,000 tokens (USD)
-  const promptRatePer1M = isFlash ? 0.075 : 1.25;
-  const completionRatePer1M = isFlash ? 0.30 : 5.00;
+  const normalized = (model || "").toLowerCase();
+  const isFlash25 = normalized.includes("2.5-flash");
+  const isFlash = normalized.includes("flash");
+
+  // Preços oficiais por 1,000,000 tokens (USD) — Google Vertex AI
+  // gemini-2.5-pro: $1.25 input / $10.00 output (ou $5.00 média ponderada <=200k)
+  // gemini-2.5-flash: $0.15 input / $0.60 output
+  // gemini-2.0-flash / gemini-1.5-flash: $0.075 input / $0.30 output
+  const promptRatePer1M = isFlash25 ? 0.15 : isFlash ? 0.075 : 1.25;
+  const completionRatePer1M = isFlash25 ? 0.60 : isFlash ? 0.30 : 5.00;
 
   const usdPrompt = (promptTokens / 1_000_000) * promptRatePer1M;
   const usdCompletion = (completionTokens / 1_000_000) * completionRatePer1M;
@@ -324,10 +329,11 @@ class VertexAiService {
         .join("");
       const responseText = nonThoughtText || candidateParts[0]?.text;
       
-      // Extrair uso de tokens real da resposta do Vertex AI
+      // Extrair uso de tokens real da resposta do Vertex AI (incluindo thinking tokens do Gemini 2.5)
       const usage = data?.usageMetadata || {};
       const promptTokens = usage?.promptTokenCount || 0;
-      const completionTokens = usage?.candidatesTokenCount || 0;
+      const thoughtsTokens = usage?.thoughtsTokenCount || 0;
+      const completionTokens = (usage?.candidatesTokenCount || 0) + thoughtsTokens;
       const totalTokens = usage?.totalTokenCount || (promptTokens + completionTokens);
 
       logAiUsage({
@@ -339,7 +345,10 @@ class VertexAiService {
         totalTokens,
         latencyMs,
         status: "success",
-        metadata: context?.metadata,
+        metadata: {
+          ...(context?.metadata || {}),
+          ...(thoughtsTokens > 0 ? { thoughtsTokens } : {}),
+        },
       });
 
       return responseText || null;
@@ -369,7 +378,8 @@ class VertexAiService {
 
   /**
    * Streaming de geração de texto via streamGenerateContent (SSE).
-   * Yields chunks de texto conforme chegam, permitindo pipeline de latência baixa.
+   * Yields chunks de texto conforme chegam, permitindo pipeline de latência baixa,
+   * e registra telemetria de uso em aiUsageLogs ao concluir.
    */
   public async *generateTextStream(
     promptInput: string | MultimodalPart[],
@@ -377,15 +387,31 @@ class VertexAiService {
     signal?: AbortSignal,
     context?: VertexCallContext
   ): AsyncGenerator<string, void, unknown> {
-    const accessToken = await this.getAccessToken();
-    if (!accessToken) throw new Error("[VertexAI Stream] Sem token de acesso");
-
+    const startTime = Date.now();
     const tenantId = context?.tenantId;
     if (!tenantId) {
       throw new Error("[VertexAI Stream] Violação arquitetural de isolamento: tenantId é estritamente obrigatório em todas as chamadas Vertex AI (AGENTS.md).");
     }
-
+    const feature = context?.feature || "general";
     const model = modelName || this.defaultModelName;
+
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) {
+      logAiUsage({
+        tenantId,
+        feature,
+        model,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        latencyMs: Date.now() - startTime,
+        status: "error",
+        errorMessage: "[VertexAI Stream] Sem token de acesso",
+        metadata: context?.metadata,
+      });
+      throw new Error("[VertexAI Stream] Sem token de acesso");
+    }
+
     const url =
       `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}` +
       `/locations/${this.location}/publishers/google/models/${model}:streamGenerateContent?alt=sse`;
@@ -411,6 +437,18 @@ class VertexAiService {
 
     if (!response.ok) {
       const errText = await response.text();
+      logAiUsage({
+        tenantId,
+        feature,
+        model,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        latencyMs: Date.now() - startTime,
+        status: "error",
+        errorMessage: `HTTP ${response.status}: ${errText.slice(0, 200)}`,
+        metadata: context?.metadata,
+      });
       throw new Error(`[VertexAI Stream] HTTP ${response.status}: ${errText.slice(0, 200)}`);
     }
 
@@ -419,6 +457,20 @@ class VertexAiService {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
+    let streamedChars = 0;
+
+    const captureUsageFromChunk = (json: any) => {
+      const usage = json?.usageMetadata;
+      if (!usage) return;
+      if (typeof usage.promptTokenCount === "number") promptTokens = usage.promptTokenCount;
+      const cand = typeof usage.candidatesTokenCount === "number" ? usage.candidatesTokenCount : 0;
+      const thoughts = typeof usage.thoughtsTokenCount === "number" ? usage.thoughtsTokenCount : 0;
+      if (cand + thoughts > 0) completionTokens = cand + thoughts;
+      if (typeof usage.totalTokenCount === "number") totalTokens = usage.totalTokenCount;
+    };
 
     try {
       while (true) {
@@ -439,9 +491,13 @@ class VertexAiService {
 
           try {
             const json = JSON.parse(jsonStr);
+            captureUsageFromChunk(json);
             const text: string =
               json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-            if (text) yield text;
+            if (text) {
+              streamedChars += text.length;
+              yield text;
+            }
           } catch {
             // chunk JSON inválido — ignorar
           }
@@ -454,14 +510,41 @@ class VertexAiService {
         if (jsonStr && jsonStr !== "[DONE]") {
           try {
             const json = JSON.parse(jsonStr);
+            captureUsageFromChunk(json);
             const text: string =
               json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-            if (text) yield text;
+            if (text) {
+              streamedChars += text.length;
+              yield text;
+            }
           } catch {}
         }
       }
     } finally {
       reader.releaseLock();
+      // Fallback de estimativa caso o stream tenha encerrado antes do chunk final de usageMetadata
+      if (promptTokens === 0 && typeof promptInput === "string") {
+        promptTokens = Math.max(1, Math.ceil(promptInput.length / 4));
+      }
+      if (completionTokens === 0 && streamedChars > 0) {
+        completionTokens = Math.max(1, Math.ceil(streamedChars / 4));
+      }
+      if (totalTokens === 0) {
+        totalTokens = promptTokens + completionTokens;
+      }
+      if (!signal?.aborted) {
+        logAiUsage({
+          tenantId,
+          feature,
+          model,
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          latencyMs: Date.now() - startTime,
+          status: "success",
+          metadata: { ...(context?.metadata || {}), streaming: true },
+        });
+      }
     }
   }
 

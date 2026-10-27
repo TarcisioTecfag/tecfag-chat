@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 // Componentes migrados do Monitoramento
 import { OverviewTab, CostsTab } from "@/components/chat/MonitorView";
+import { WhatsappLogo } from "@/components/chat/ChatList";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { ReportsIATab } from "@/components/reports/ReportsIATab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
@@ -35,9 +37,9 @@ type ChannelVolume = {
 
 type SectorPerformance = {
   name: string;
-  avgResponse: number;
+  avgResponse: number | null;
   completed: number;
-  slaPct: number;
+  slaPct: number | null;
 };
 
 type OperatorPerformance = {
@@ -244,12 +246,12 @@ function PerformanceTab({ volumes, channels, sectors }: {
                     <td className="px-5 py-3 text-foreground font-bold">{sec.name}</td>
                     <td className="px-5 py-3 text-muted-foreground">{sec.completed}</td>
                     <td className="px-5 py-3 text-foreground">
-                      {sec.avgResponse >= 60 ? `${Math.floor(sec.avgResponse / 60)}min` : `${sec.avgResponse}s`}
+                      {sec.avgResponse === null ? "Sem amostra" : sec.avgResponse >= 60 ? `${Math.floor(sec.avgResponse / 60)}min` : `${sec.avgResponse}s`}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1.5">
-                        <span className={`h-1.5 w-1.5 rounded-full ${sec.slaPct >= 90 ? "bg-primary" : "bg-muted-foreground"}`} />
-                        <span className={sec.slaPct >= 90 ? "text-primary font-bold" : "text-muted-foreground font-semibold"}>{sec.slaPct}%</span>
+                        <span className={`h-1.5 w-1.5 rounded-full ${sec.slaPct !== null && sec.slaPct >= 90 ? "bg-primary" : "bg-muted-foreground"}`} />
+                        <span className={sec.slaPct !== null && sec.slaPct >= 90 ? "text-primary font-bold" : "text-muted-foreground font-semibold"}>{sec.slaPct === null ? "Sem amostra" : `${sec.slaPct}%`}</span>
                       </div>
                     </td>
                   </tr>
@@ -572,6 +574,7 @@ export function AnalyticsView() {
   const { canAccessAnalyticsTab } = usePermissions();
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [performanceError, setPerformanceError] = useState<string | null>(null);
 
   // Estados para dados reais das abas
   const [overview, setOverview] = useState<any | null>(null);
@@ -622,6 +625,7 @@ export function AnalyticsView() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setPerformanceError(null);
     try {
       // Buscar dados reais de todas as APIs do módulo de estatísticas em paralelo
       const [ovRes, alRes, auRes, perfRes, slaRes, contRes, repRes] = await Promise.all([
@@ -645,6 +649,9 @@ export function AnalyticsView() {
           channels: pData.channels || [],
           sectors: pData.sectors || [],
         });
+      } else {
+        setPerformanceData({ volumes: [], channels: [], sectors: [] });
+        setPerformanceError("Indicadores de desempenho indisponíveis. Tente atualizar novamente.");
       }
 
       if (slaRes.ok) {
@@ -674,6 +681,8 @@ export function AnalyticsView() {
       setLastRefresh(new Date());
     } catch (e) {
       console.error("[AnalyticsView] Erro ao carregar dados reais de BI:", e);
+      setPerformanceData({ volumes: [], channels: [], sectors: [] });
+      setPerformanceError("Não foi possível atualizar os indicadores de desempenho.");
     } finally {
       setLoading(false);
     }
@@ -722,6 +731,8 @@ export function AnalyticsView() {
     allowedTabs: allowedTabIds,
   });
 
+  const [costViewMode, setCostViewMode] = useState<"ai" | "meta">("ai");
+
   useEffect(() => {
     if (!allowedTabs.some(t => t.id === activeTab)) {
       if (allowedTabs.length > 0) {
@@ -741,14 +752,48 @@ export function AnalyticsView() {
           </h1>
           <p className="text-[11px] text-muted-foreground mt-0.5">Análise e BI de performance histórica consolidada</p>
         </div>
-        <button
-          onClick={fetchData}
-          title="Atualizar agora"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer shrink-0"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
-          {lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-        </button>
+        <div className="flex items-center gap-2.5 shrink-0">
+          {activeTab === "costs" && (
+            <SystemTooltip
+              content={
+                costViewMode === "meta"
+                  ? "Alternar para Custos de I.A. (Vertex AI)"
+                  : "Custos WhatsApp (Meta Oficial API)"
+              }
+              side="bottom"
+            >
+              <button
+                type="button"
+                onClick={() => setCostViewMode((prev) => (prev === "ai" ? "meta" : "ai"))}
+                aria-label={
+                  costViewMode === "meta"
+                    ? "Alternar para Custos de I.A. (Vertex AI)"
+                    : "Ver Custos WhatsApp (Meta Oficial API)"
+                }
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                  costViewMode === "meta"
+                    ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                    : "bg-muted/40 border-line text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5"
+                }`}
+              >
+                <WhatsappLogo className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline text-[11px]">
+                  {costViewMode === "meta" ? "Meta Oficial API" : "Custos Meta API"}
+                </span>
+              </button>
+            </SystemTooltip>
+          )}
+          <SystemTooltip content="Atualizar agora" side="bottom">
+            <button
+              type="button"
+              onClick={fetchData}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition cursor-pointer shrink-0"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-primary" : ""}`} />
+              {lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+            </button>
+          </SystemTooltip>
+        </div>
       </div>
 
       {/* Interna Tab Bar */}
@@ -822,6 +867,7 @@ export function AnalyticsView() {
           )}
 
           {activeTab === "performance" && (
+            performanceError ? <div role="alert" className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-foreground">{performanceError}</div> :
             <PerformanceTab
               volumes={performanceData.volumes}
               channels={performanceData.channels}
@@ -844,7 +890,11 @@ export function AnalyticsView() {
             />
           )}
           {activeTab === "costs" && (
-            <CostsTab tenant={tenant} />
+            <CostsTab
+              tenant={tenant}
+              costViewMode={costViewMode}
+              onChangeCostViewMode={setCostViewMode}
+            />
           )}
         </div>
       )}

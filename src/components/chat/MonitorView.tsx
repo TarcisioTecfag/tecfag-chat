@@ -1,4 +1,4 @@
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, SystemTooltip } from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -20,10 +20,12 @@ import {
   Smile, Meh, Frown
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { MOCK_LIVE, MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
 import { OperatorsRankingTab } from "./OperatorsRankingTab";
 import { SiteVisitorsTab } from "./SiteVisitorsTab";
+import { WhatsappLogo } from "./ChatList";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
   ResponsiveContainer,
@@ -2441,22 +2443,27 @@ function GlobalTasksTab() {
 
   // ─── Task completion toggle ─────────────────────────────────────────────
   const toggleTaskStatus = async (task: GlobalTaskData) => {
-    const newStatus = task.status === "done" ? "pending" : "done";
+    const newStatus = task.status === "done" || task.status === "completed" ? "pending" : "done";
     // Optimistic update
     setTasks((prev) =>
       prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t))
     );
     try {
-      await fetch("/api/tasks", {
+      const response = await fetch("/api/tasks", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenantId: tenant, taskId: task.id, status: newStatus }),
       });
-    } catch {
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || "Não foi possível atualizar a tarefa.");
+      }
+    } catch (error) {
       // Revert on error
       setTasks((prev) =>
         prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t))
       );
+      toast.error(error instanceof Error ? error.message : "Não foi possível atualizar a tarefa.");
     }
   };
 
@@ -3096,34 +3103,853 @@ function GlobalTasksTab() {
   );
 }
 
-// ── Aba de Custos & Telemetria Vertex AI ─────────────────────────────────────
-export function CostsTab({ tenant }: { tenant: string }) {
-  const [period, setPeriod] = useState<"today" | "7d" | "30d">("7d");
+function formatAiFeatureBadgeLabel(feature: string, tenant: string): string {
+  switch (feature) {
+    case "sdr_agent":
+      return "SDR Bot (Triagem)";
+    case "conversation_audit":
+      return "Auditoria QA";
+    case "supervisor_chat":
+      return tenant === "tecfag" ? "Fagner Supervisor" : "Valentina Supervisor";
+    case "valentina_chat":
+      return "Valentina Chat";
+    case "fagner_chat":
+      return "Fagner Chat";
+    case "operator_assistant":
+      return "Assistente Inline";
+    case "sla_advisor":
+      return "Análise SLA";
+    case "executive_reports":
+      return "Relatórios Executivos";
+    case "crm_ai_priority":
+      return "Priorização CRM";
+    case "call_transcription":
+      return "Transcrição Áudio/Voz";
+    case "sentiment_analysis":
+      return "Análise Sentimento";
+    case "knowledge_rag":
+      return "Base RAG";
+    default:
+      return feature || "Geral Vertex AI";
+  }
+}
+
+// ── Aba de Custos & Telemetria (Vertex AI + WhatsApp Meta Oficial API) ──────
+export function CostsTab({
+  tenant,
+  costViewMode: externalCostViewMode,
+  onChangeCostViewMode,
+}: {
+  tenant: string;
+  costViewMode?: "ai" | "meta";
+  onChangeCostViewMode?: (mode: "ai" | "meta") => void;
+}) {
+  const [internalCostMode, setInternalCostMode] = useState<"ai" | "meta">("ai");
+  const activeCostMode = externalCostViewMode ?? internalCostMode;
+  const handleSetCostMode = useCallback(
+    (nextMode: "ai" | "meta") => {
+      if (onChangeCostViewMode) {
+        onChangeCostViewMode(nextMode);
+      } else {
+        setInternalCostMode(nextMode);
+      }
+    },
+    [onChangeCostViewMode],
+  );
+
+  // ── Estados do Painel Vertex AI ──
+  const [period, setPeriod] = useState<"today" | "7d" | "30d" | "month">("7d");
   const [featureFilter, setFeatureFilter] = useState<string>("all");
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
 
+  // ── Estados do Painel Meta Oficial API ──
+  const [metaPeriod, setMetaPeriod] = useState<"today" | "7d" | "30d" | "month">("7d");
+  const [metaCategoryFilter, setMetaCategoryFilter] = useState<string>("all");
+  const [metaBillingFilter, setMetaBillingFilter] = useState<string>("all");
+  const [metaOriginFilter, setMetaOriginFilter] = useState<string>("all");
+  const [metaSearchQuery, setMetaSearchQuery] = useState("");
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [metaData, setMetaData] = useState<any>(null);
+
   const fetchCosts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/gestao/costs?tenantId=${tenant}&period=${period}&feature=${featureFilter}&model=${modelFilter}`);
+      const res = await fetch(
+        `/api/gestao/costs?tenantId=${tenant}&period=${period}&feature=${featureFilter}&model=${modelFilter}`,
+      );
       if (res.ok) {
         const json = await res.json();
         setData(json);
       }
     } catch (e) {
-      console.error("[CostsTab] Erro ao buscar custos:", e);
+      console.error("[CostsTab] Erro ao buscar custos de IA:", e);
     } finally {
       setLoading(false);
     }
   }, [tenant, period, featureFilter, modelFilter]);
 
-  useEffect(() => {
-    fetchCosts();
-  }, [fetchCosts]);
+  const fetchMetaCosts = useCallback(async () => {
+    setMetaLoading(true);
+    try {
+      const res = await fetch(
+        `/api/gestao/meta-costs?tenantId=${tenant}&period=${metaPeriod}&category=${metaCategoryFilter}&billing=${metaBillingFilter}&origin=${metaOriginFilter}`,
+      );
+      if (res.ok) {
+        const json = await res.json();
+        setMetaData(json);
+      }
+    } catch (e) {
+      console.error("[CostsTab] Erro ao buscar custos Meta API:", e);
+    } finally {
+      setMetaLoading(false);
+    }
+  }, [tenant, metaPeriod, metaCategoryFilter, metaBillingFilter, metaOriginFilter]);
 
+  useEffect(() => {
+    if (activeCostMode === "ai") {
+      fetchCosts();
+    } else {
+      fetchMetaCosts();
+    }
+  }, [activeCostMode, fetchCosts, fetchMetaCosts]);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MODO 2: PAINEL DE CUSTOS & TARIFAÇÃO WHATSAPP — META OFICIAL API
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (activeCostMode === "meta") {
+    if (metaLoading && !metaData) {
+      return (
+        <div className="flex flex-col items-center justify-center flex-1 py-20 text-muted-foreground gap-3">
+          <Loader2 className="h-7 w-7 animate-spin text-primary" />
+          <p className="text-xs font-semibold">
+            Calculando disparos, templates, tarifas e bônus da Meta Oficial Cloud API...
+          </p>
+        </div>
+      );
+    }
+
+    const metaSummary = metaData?.summary || {
+      totalMessages: 0,
+      billableMessages: 0,
+      freeBonusMessages: 0,
+      failedMessages: 0,
+      deliveredOrReadCount: 0,
+      deliveryRatePct: 100,
+      templatesSent: 0,
+      serviceMessagesSent: 0,
+      operatorMessages: 0,
+      botMessages: 0,
+      activeConversationsCount: 0,
+      activeServiceWindowsCount: 0,
+      totalCostUsd: 0,
+      totalCostBrl: 0,
+      totalSavedUsd: 0,
+      totalSavedBrl: 0,
+      avgCostPerMessageBrl: 0,
+      avgCostPerBillableBrl: 0,
+      registeredTemplatesCount: 0,
+    };
+
+    const monthlyBonus = metaData?.monthlyBonus || {
+      allowanceConversationsLimit: 1000,
+      usedConversations: 0,
+      remainingConversations: 1000,
+      usagePercentage: 0,
+      freeMessagesInMonth: 0,
+      isWithinFreeTier: true,
+    };
+
+    const tariffSchedule = metaData?.tariffSchedule || {
+      usdToBrl: 5.6,
+      rates: [],
+    };
+
+    const categoryBreakdown = metaData?.categoryBreakdown || [];
+    const templateBreakdown = metaData?.templateBreakdown || [];
+    const metaTimeline = metaData?.timeline || [];
+    const metaLogs = (metaData?.logs || []).filter((log: any) => {
+      if (!metaSearchQuery) return true;
+      const q = metaSearchQuery.toLowerCase();
+      return (
+        log.contactName?.toLowerCase().includes(q) ||
+        log.contactPhone?.toLowerCase().includes(q) ||
+        log.templateName?.toLowerCase().includes(q) ||
+        log.categoryLabel?.toLowerCase().includes(q) ||
+        log.billingRuleLabel?.toLowerCase().includes(q) ||
+        log.contentPreview?.toLowerCase().includes(q) ||
+        log.senderName?.toLowerCase().includes(q)
+      );
+    });
+
+    return (
+      <div className="flex flex-col flex-1 overflow-y-auto pr-1 space-y-4 pb-4">
+        {/* Top Header & Filters — Meta Oficial API */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/20 p-3.5 rounded-2xl border border-line">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold shadow-xs">
+              <WhatsappLogo className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-extrabold text-foreground flex flex-wrap items-center gap-2">
+                Gestão de Custos & Tarifação WhatsApp
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold border border-primary/20">
+                  <ShieldCheck className="h-3 w-3" />
+                  Meta Oficial Cloud API
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-foreground text-[10px] font-bold border border-border">
+                  <Sparkles className="h-3 w-3 text-primary" />
+                  Bônus Mensal: {monthlyBonus.remainingConversations}/
+                  {monthlyBonus.allowanceConversationsLimit} conversas grátis disponíveis
+                </span>
+              </h2>
+              <p className="text-[11px] text-muted-foreground">
+                Contabilização oficial de templates (Marketing, Utilidade, Autenticação), mensagens de serviço e isenção da Janela 24h
+              </p>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center bg-card rounded-xl p-1 border border-line shadow-xs">
+              <button
+                type="button"
+                onClick={() => setMetaPeriod("today")}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                  metaPeriod === "today"
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Hoje
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetaPeriod("7d")}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                  metaPeriod === "7d"
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                7 Dias
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetaPeriod("30d")}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                  metaPeriod === "30d"
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                30 Dias
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetaPeriod("month")}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                  metaPeriod === "month"
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Mês Atual
+              </button>
+            </div>
+
+            <Select value={metaCategoryFilter} onValueChange={setMetaCategoryFilter}>
+              <SelectTrigger className="w-auto h-8 text-xs font-semibold rounded-xl bg-card border-line px-3 py-1.5 focus:ring-primary/20">
+                <SelectValue placeholder="Todas Categorias Meta" />
+              </SelectTrigger>
+              <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+                <SelectItem value="all" className="cursor-pointer text-xs">
+                  Todas Categorias Meta
+                </SelectItem>
+                <SelectItem value="MARKETING" className="cursor-pointer text-xs">
+                  Marketing (Templates)
+                </SelectItem>
+                <SelectItem value="UTILITY" className="cursor-pointer text-xs">
+                  Utilidade (Pós-Venda / Avisos)
+                </SelectItem>
+                <SelectItem value="AUTHENTICATION" className="cursor-pointer text-xs">
+                  Autenticação (OTP)
+                </SelectItem>
+                <SelectItem value="SERVICE" className="cursor-pointer text-xs">
+                  Serviço (Janela 24h Gratuita)
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={metaBillingFilter} onValueChange={setMetaBillingFilter}>
+              <SelectTrigger className="w-auto h-8 text-xs font-semibold rounded-xl bg-card border-line px-3 py-1.5 focus:ring-primary/20">
+                <SelectValue placeholder="Todas Cobranças & Bônus" />
+              </SelectTrigger>
+              <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+                <SelectItem value="all" className="cursor-pointer text-xs">
+                  Todas Cobranças & Bônus
+                </SelectItem>
+                <SelectItem value="billable" className="cursor-pointer text-xs">
+                  Apenas Tarifados (Pagos)
+                </SelectItem>
+                <SelectItem value="free" className="cursor-pointer text-xs">
+                  Grátis (Bônus Janela 24h & Franquia)
+                </SelectItem>
+                <SelectItem value="templates" className="cursor-pointer text-xs">
+                  Apenas Templates Oficiais
+                </SelectItem>
+                <SelectItem value="failed" className="cursor-pointer text-xs">
+                  Falhas (Não Cobrados)
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={metaOriginFilter} onValueChange={setMetaOriginFilter}>
+              <SelectTrigger className="w-auto h-8 text-xs font-semibold rounded-xl bg-card border-line px-3 py-1.5 focus:ring-primary/20">
+                <SelectValue placeholder="Todas Origens" />
+              </SelectTrigger>
+              <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+                <SelectItem value="all" className="cursor-pointer text-xs">
+                  Todas Origens
+                </SelectItem>
+                <SelectItem value="agent" className="cursor-pointer text-xs">
+                  Operador Humano
+                </SelectItem>
+                <SelectItem value="bot" className="cursor-pointer text-xs">
+                  Bot IA (SDR / Follow-up)
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <SystemTooltip content="Voltar para Custos de I.A. (Vertex AI)" side="bottom">
+              <button
+                type="button"
+                onClick={() => handleSetCostMode("ai")}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-card border border-line rounded-xl text-[11px] font-bold text-muted-foreground hover:text-primary hover:border-primary/30 transition cursor-pointer"
+              >
+                <Cpu className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">Ver I.A.</span>
+              </button>
+            </SystemTooltip>
+
+            <SystemTooltip content="Atualizar custos Meta API" side="bottom">
+              <button
+                type="button"
+                onClick={fetchMetaCosts}
+                className="p-1.5 bg-card border border-line rounded-xl text-muted-foreground hover:text-primary transition cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${metaLoading ? "animate-spin" : ""}`} />
+              </button>
+            </SystemTooltip>
+          </div>
+        </div>
+
+        {/* 4 KPI Cards — Meta Oficial API */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* Card 1: Custo Total Meta API */}
+          <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                Custo Total Meta API
+              </span>
+              <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
+                <DollarSign className="h-4 w-4" />
+              </div>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-foreground tracking-tight flex items-baseline gap-1.5">
+                R${" "}
+                {metaSummary.totalCostBrl.toLocaleString("pt-BR", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+                <span className="text-xs font-semibold text-muted-foreground">
+                  (US$ {metaSummary.totalCostUsd.toFixed(2)})
+                </span>
+              </div>
+              <p className="text-[11px] text-primary font-semibold mt-1 flex items-center gap-1">
+                <TrendingUp className="h-3 w-3" />
+                {metaSummary.billableMessages} disparos tarifados • Brasil (+55)
+              </p>
+            </div>
+          </div>
+
+          {/* Card 2: Bônus & Economia (Janela 24h + Franquia 1.000 conversas) */}
+          <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                Bônus Meta & Economia (Janela 24h)
+              </span>
+              <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
+                <Sparkles className="h-4 w-4" />
+              </div>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-foreground tracking-tight flex items-baseline gap-1.5">
+                R${" "}
+                {metaSummary.totalSavedBrl.toLocaleString("pt-BR", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+                <span className="text-xs font-semibold text-primary">economizados</span>
+              </div>
+              <div className="mt-1.5 space-y-1">
+                <div className="flex items-center justify-between text-[10px] font-semibold text-muted-foreground">
+                  <span>
+                    Franquia Mensal: {monthlyBonus.usedConversations} /{" "}
+                    {monthlyBonus.allowanceConversationsLimit} janelas grátis
+                  </span>
+                  <span className="text-foreground font-bold">{monthlyBonus.usagePercentage}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-500"
+                    style={{ width: `${Math.max(monthlyBonus.usagePercentage, 3)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Mensagens & Templates Enviados */}
+          <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                Disparos & Templates Meta
+              </span>
+              <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
+                <MessageSquare className="h-4 w-4" />
+              </div>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-foreground tracking-tight">
+                {metaSummary.totalMessages}
+                <span className="text-xs font-normal text-muted-foreground ml-1">
+                  mensagens enviadas
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground font-semibold mt-1">
+                <span className="text-foreground">
+                  Grátis (24h): {metaSummary.freeBonusMessages}
+                </span>
+                <span>•</span>
+                <span className="text-primary">Templates: {metaSummary.templatesSent}</span>
+                <span>•</span>
+                <span>Pagas: {metaSummary.billableMessages}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: Custo Médio & Taxa de Entrega */}
+          <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between relative overflow-hidden group">
+            <div className="flex items-center justify-between text-muted-foreground mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                Custo Médio / Disparo
+              </span>
+              <div className="p-1.5 rounded-xl bg-primary/10 text-primary">
+                <BarChart2 className="h-4 w-4" />
+              </div>
+            </div>
+            <div>
+              <div className="text-2xl font-black text-foreground tracking-tight flex items-baseline gap-1.5">
+                R$ {metaSummary.avgCostPerMessageBrl.toFixed(3)}
+                <span className="text-[10px] font-semibold text-muted-foreground">
+                  (Tarifado: R$ {metaSummary.avgCostPerBillableBrl.toFixed(3)})
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground font-semibold mt-1 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-primary" />
+                Entrega: {metaSummary.deliveryRatePct}% • Op: {metaSummary.operatorMessages} / IA:{" "}
+                {metaSummary.botMessages}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Middle Section: Evolution Chart + Category & Official Tariff Schedule */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between">
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div>
+                  <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
+                    <TrendingUp className="h-3.5 w-3.5 text-primary" />
+                    Evolução Diária de Custos Meta (R$) & Volume de Mensagens (Pagas vs. Bônus 24h)
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground">
+                    Comparativo diário entre tarifação efetiva e mensagens isentas pela janela gratuita de 24h
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-60 w-full">
+                {metaTimeline.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart
+                      data={metaTimeline}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
+                      <XAxis
+                        dataKey="dateFormatted"
+                        tick={{ fontSize: 10 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <YAxis
+                        yAxisId="left"
+                        tick={{ fontSize: 10 }}
+                        stroke="var(--muted-foreground)"
+                        tickFormatter={(v) => `R$${v}`}
+                      />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        tick={{ fontSize: 10 }}
+                        stroke="var(--muted-foreground)"
+                        tickFormatter={(v) => `${v}`}
+                      />
+                      <RechartsTooltip
+                        contentStyle={{
+                          backgroundColor: "var(--card)",
+                          borderColor: "var(--border)",
+                          borderRadius: "12px",
+                          color: "var(--foreground)",
+                          fontSize: "11px",
+                        }}
+                        formatter={(value: any, name: any) => {
+                          if (name === "Custo Meta (R$)")
+                            return [`R$ ${Number(value).toFixed(2)}`, name];
+                          return [`${Number(value)} msgs`, name];
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "5px" }} />
+                      <Bar
+                        yAxisId="left"
+                        dataKey="costBrl"
+                        name="Custo Meta (R$)"
+                        fill="var(--primary)"
+                        radius={[6, 6, 0, 0]}
+                        barSize={22}
+                        isAnimationActive={false}
+                      />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="freeMessages"
+                        name="Grátis (Bônus 24h)"
+                        stroke="var(--foreground)"
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: "var(--foreground)" }}
+                        isAnimationActive={false}
+                      />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="billableMessages"
+                        name="Disparos Tarifados"
+                        stroke="var(--muted-foreground)"
+                        strokeDasharray="4 4"
+                        strokeWidth={2}
+                        dot={{ r: 2.5, fill: "var(--muted-foreground)" }}
+                        isAnimationActive={false}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+                    Sem disparos via Meta Oficial API para os filtros selecionados
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Resumo de Templates Disparados */}
+            <div className="mt-3 pt-3 border-t border-line/60">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-extrabold text-foreground flex items-center gap-1.5">
+                  <FileText className="h-3.5 w-3.5 text-primary" />
+                  Templates Oficiais Disparados no Período ({templateBreakdown.length})
+                </span>
+                <span className="text-[10px] text-muted-foreground font-semibold">
+                  {metaSummary.registeredTemplatesCount} templates sincronizados na conta
+                </span>
+              </div>
+              {templateBreakdown.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {templateBreakdown.slice(0, 6).map((tpl: any) => (
+                    <div
+                      key={tpl.templateName}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-muted/40 border border-line text-[11px]"
+                    >
+                      <span className="font-bold text-foreground truncate max-w-[160px]">
+                        {tpl.templateName}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-md bg-primary/10 text-primary text-[9px] font-bold uppercase">
+                        {tpl.category}
+                      </span>
+                      <span className="text-muted-foreground font-mono text-[10px]">
+                        {tpl.sentCount}x
+                      </span>
+                      <span className="font-mono font-bold text-foreground text-[10px]">
+                        R$ {tpl.costBrl.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Nenhum template disparado no período — 100% das mensagens enviadas foram respostas livres de atendimento (Janela 24h Gratuita).
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Category Breakdown & Official Meta Tariff Table */}
+          <div className="bg-card rounded-2xl p-4 border border-line shadow-soft flex flex-col justify-between">
+            <div>
+              <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5 mb-1">
+                <Layers className="h-3.5 w-3.5 text-primary" />
+                Categorias & Tabela de Tarifas Meta (+55)
+              </h3>
+              <p className="text-[10px] text-muted-foreground mb-3.5">
+                Tarifação oficial por categoria e volume de mensagens gratuitas
+              </p>
+
+              <div className="space-y-3">
+                {categoryBreakdown.map((item: any) => (
+                  <div key={item.category} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className="text-foreground text-[11px] truncate flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-primary" />
+                        {item.categoryName}
+                      </span>
+                      <span className="text-muted-foreground font-mono text-[11px]">
+                        R$ {item.costBrl.toFixed(2)} ({item.percentageOfVolume}% vol)
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.max(
+                            item.percentageOfCost > 0
+                              ? item.percentageOfCost
+                              : item.percentageOfVolume,
+                            4,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span>
+                        {item.totalMessages} envios ({item.billableMessages} pagos •{" "}
+                        {item.freeMessages} grátis)
+                      </span>
+                      <span className="font-mono">
+                        {item.unitRateUsd > 0
+                          ? `Tarifa: US$ ${item.unitRateUsd.toFixed(4)} (R$ ${item.unitRateBrl.toFixed(3)})`
+                          : "Tarifa: R$ 0,00 (Grátis)"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 p-2.5 rounded-xl bg-primary/5 border border-primary/10 text-[10px] text-muted-foreground space-y-1.5">
+              <div className="flex items-start gap-2">
+                <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-extrabold text-foreground block">
+                    Regra de Bônus & Isenção Meta Oficial:
+                  </span>
+                  Respostas livres de atendimento (<strong className="text-foreground">SERVICE</strong>) e
+                  templates de <strong className="text-foreground">UTILITY</strong> enviados dentro da{" "}
+                  <strong className="text-foreground">Janela de 24h</strong> aberta pelo cliente têm{" "}
+                  <strong className="text-primary">custo R$ 0,00</strong>, além da franquia mensal de{" "}
+                  <strong className="text-foreground">1.000 conversas de serviço gratuitas</strong>.
+                </div>
+              </div>
+              {tariffSchedule.rates?.length > 0 && (
+                <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-primary/10 text-[9.5px]">
+                  {tariffSchedule.rates.map((r: any) => (
+                    <div
+                      key={r.category}
+                      className="flex items-center justify-between bg-card/80 px-2 py-1 rounded-lg border border-line/60"
+                    >
+                      <span className="font-bold text-foreground">{r.category}</span>
+                      <span className="font-mono text-primary font-bold">
+                        {r.usd > 0 ? `R$ ${r.brl.toFixed(3)}` : "GRÁTIS"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Real-time Meta API Billing Logs Table */}
+        <div className="bg-card rounded-2xl border border-line shadow-soft overflow-hidden flex flex-col">
+          <div className="p-3.5 border-b border-line flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
+                <Activity className="h-3.5 w-3.5 text-primary" />
+                Logs de Tarifação & Disparos Meta Oficial API em Tempo Real
+              </h3>
+              <p className="text-[10px] text-muted-foreground">
+                Auditoria individual de cada mensagem enviada, template utilizado, janela 24h e tarifa aplicada
+              </p>
+            </div>
+
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Filtrar contato, template, regra..."
+                value={metaSearchQuery}
+                onChange={(e) => setMetaSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1 bg-muted/40 border border-line rounded-xl text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary w-60 transition"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-muted/30 border-b border-line text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                <tr>
+                  <th className="py-2 px-3.5">Horário</th>
+                  <th className="py-2 px-3.5">Destinatário / Origem</th>
+                  <th className="py-2 px-3.5">Categoria Meta</th>
+                  <th className="py-2 px-3.5">Tipo / Template</th>
+                  <th className="py-2 px-3.5">Regra de Cobrança / Bônus</th>
+                  <th className="py-2 px-3.5">Custo USD</th>
+                  <th className="py-2 px-3.5">Custo BRL</th>
+                  <th className="py-2 px-3.5 text-center">Entrega</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/50">
+                {metaLogs.length > 0 ? (
+                  metaLogs.map((log: any) => {
+                    const dateFormatted = log.sentAt
+                      ? new Date(log.sentAt).toLocaleTimeString("pt-BR", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })
+                      : "--";
+                    const dateDay = log.sentAt
+                      ? new Date(log.sentAt).toLocaleDateString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                        })
+                      : "";
+
+                    return (
+                      <tr key={log.id} className="hover:bg-muted/20 transition">
+                        <td className="py-2 px-3.5 font-mono text-[11px] text-foreground whitespace-nowrap">
+                          <span className="font-bold">{dateFormatted}</span>
+                          <span className="text-[9px] text-muted-foreground ml-1.5">{dateDay}</span>
+                        </td>
+                        <td className="py-2 px-3.5">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-[11px] text-foreground truncate max-w-[170px]">
+                              {log.contactName}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                              <span className="font-mono">{log.contactPhone}</span>
+                              <span>•</span>
+                              <span className="font-semibold text-primary">{log.originLabel}</span>
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3.5">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                              log.category === "MARKETING" || log.category === "AUTHENTICATION"
+                                ? "bg-primary/10 text-primary border border-primary/20"
+                                : "bg-muted/60 text-foreground border border-border"
+                            }`}
+                          >
+                            {log.category}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3.5">
+                          <div className="flex flex-col max-w-[220px]">
+                            <span className="font-semibold text-[11px] text-foreground truncate">
+                              {log.isTemplate
+                                ? `Template: ${log.templateName}`
+                                : log.messageFormatLabel}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground truncate">
+                              {log.contentPreview}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                              log.billable
+                                ? "bg-muted text-foreground border border-border"
+                                : "bg-primary/10 text-primary border border-primary/20"
+                            }`}
+                          >
+                            {log.billingRuleLabel}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3.5 font-mono text-[11px] font-semibold text-foreground whitespace-nowrap">
+                          $ {Number(log.costUsd || 0).toFixed(4)}
+                        </td>
+                        <td className="py-2 px-3.5 font-mono text-[11px] font-bold whitespace-nowrap">
+                          {log.billable ? (
+                            <span className="text-foreground">
+                              R$ {Number(log.costBrl || 0).toFixed(4)}
+                            </span>
+                          ) : (
+                            <span className="text-primary">
+                              GRÁTIS{" "}
+                              {log.savedBrl > 0 ? (
+                                <span className="text-[9px] text-muted-foreground font-normal">
+                                  (-R$ {Number(log.savedBrl).toFixed(3)})
+                                </span>
+                              ) : null}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3.5 text-center whitespace-nowrap">
+                          {!log.isFailed ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-extrabold">
+                              <CheckCircle2 className="h-3 w-3" /> {log.statusLabel}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/30 text-[10px] font-extrabold">
+                              <XCircle className="h-3 w-3" /> FALHA
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={8} className="py-6 text-center text-xs text-muted-foreground">
+                      Nenhum disparo da Meta Oficial API encontrado para os filtros selecionados
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MODO 1 (PADRÃO): PAINEL DE CUSTOS & TELEMETRIA VERTEX AI
+  // ═══════════════════════════════════════════════════════════════════════════
   if (loading && !data) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 py-20 text-muted-foreground gap-3">
@@ -3151,8 +3977,10 @@ export function CostsTab({ tenant }: { tenant: string }) {
   const logs = (data?.logs || []).filter((log: any) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
+    const label = formatAiFeatureBadgeLabel(log.feature, tenant).toLowerCase();
     return (
       log.feature?.toLowerCase().includes(q) ||
+      label.includes(q) ||
       log.model?.toLowerCase().includes(q) ||
       log.status?.toLowerCase().includes(q)
     );
@@ -3191,6 +4019,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center bg-card rounded-xl p-1 border border-line shadow-xs">
             <button
+              type="button"
               onClick={() => setPeriod("today")}
               className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
                 period === "today" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
@@ -3199,6 +4028,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
               Hoje
             </button>
             <button
+              type="button"
               onClick={() => setPeriod("7d")}
               className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
                 period === "7d" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
@@ -3207,12 +4037,22 @@ export function CostsTab({ tenant }: { tenant: string }) {
               7 Dias
             </button>
             <button
+              type="button"
               onClick={() => setPeriod("30d")}
               className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
                 period === "30d" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               30 Dias
+            </button>
+            <button
+              type="button"
+              onClick={() => setPeriod("month")}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                period === "month" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Mês Atual
             </button>
           </div>
 
@@ -3222,15 +4062,21 @@ export function CostsTab({ tenant }: { tenant: string }) {
             </SelectTrigger>
             <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
               <SelectItem value="all" className="cursor-pointer text-xs">Todas Funcionalidades</SelectItem>
-              <SelectItem value="sdr_agent" className="cursor-pointer text-xs">SDR Bot (Triagem)</SelectItem>
-              <SelectItem value="conversation_audit" className="cursor-pointer text-xs">Auditoria QA</SelectItem>
-              <SelectItem value="supervisor_chat" className="cursor-pointer text-xs">Supervisor Chat</SelectItem>
+              <SelectItem value="sdr_agent" className="cursor-pointer text-xs">SDR Bot (Triagem de Leads)</SelectItem>
               {tenant === "tecfag" ? (
-                <SelectItem value="fagner_chat" className="cursor-pointer text-xs">Fagner Chat</SelectItem>
+                <SelectItem value="fagner_chat" className="cursor-pointer text-xs">Fagner Chat do Operador</SelectItem>
               ) : (
-                <SelectItem value="valentina_chat" className="cursor-pointer text-xs">Valentina Chat</SelectItem>
+                <SelectItem value="valentina_chat" className="cursor-pointer text-xs">Valentina Chat do Operador</SelectItem>
               )}
-              <SelectItem value="sla_advisor" className="cursor-pointer text-xs">Análise SLA</SelectItem>
+              <SelectItem value="operator_assistant" className="cursor-pointer text-xs">Assistente Inline (Gramática / Resposta / Resumo)</SelectItem>
+              <SelectItem value="supervisor_chat" className="cursor-pointer text-xs">Supervisor Chat (Gestão)</SelectItem>
+              <SelectItem value="conversation_audit" className="cursor-pointer text-xs">Auditoria de Atendimento QA</SelectItem>
+              <SelectItem value="sla_advisor" className="cursor-pointer text-xs">Análise SLA & Alertas</SelectItem>
+              <SelectItem value="executive_reports" className="cursor-pointer text-xs">Relatórios Executivos IA</SelectItem>
+              <SelectItem value="crm_ai_priority" className="cursor-pointer text-xs">Priorização IA de Negócios (CRM)</SelectItem>
+              <SelectItem value="call_transcription" className="cursor-pointer text-xs">Transcrição de Áudio & Ligações</SelectItem>
+              <SelectItem value="sentiment_analysis" className="cursor-pointer text-xs">Análise de Sentimento (Clientes)</SelectItem>
+              <SelectItem value="knowledge_rag" className="cursor-pointer text-xs">Base de Conhecimento RAG</SelectItem>
             </SelectContent>
           </Select>
 
@@ -3241,17 +4087,21 @@ export function CostsTab({ tenant }: { tenant: string }) {
             <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
               <SelectItem value="all" className="cursor-pointer text-xs">Todos os Modelos</SelectItem>
               <SelectItem value="gemini-2.5-pro" className="cursor-pointer text-xs">Gemini 2.5 Pro</SelectItem>
+              <SelectItem value="gemini-2.5-flash" className="cursor-pointer text-xs">Gemini 2.5 Flash</SelectItem>
+              <SelectItem value="gemini-2.0-flash" className="cursor-pointer text-xs">Gemini 2.0 Flash</SelectItem>
               <SelectItem value="gemini-1.5-flash" className="cursor-pointer text-xs">Gemini 1.5 Flash</SelectItem>
             </SelectContent>
           </Select>
 
-          <button
-            onClick={fetchCosts}
-            className="p-1.5 bg-card border border-line rounded-xl text-muted-foreground hover:text-primary transition cursor-pointer"
-            title="Atualizar custos"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          </button>
+          <SystemTooltip content="Atualizar custos" side="bottom">
+            <button
+              type="button"
+              onClick={fetchCosts}
+              className="p-1.5 bg-card border border-line rounded-xl text-muted-foreground hover:text-primary transition cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </SystemTooltip>
         </div>
       </div>
 
@@ -3417,7 +4267,7 @@ export function CostsTab({ tenant }: { tenant: string }) {
             <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
             <div>
               <span className="font-extrabold text-foreground block">Otimização Recorrente:</span>
-              Garante transparência nos custos por triagem, auditoria de qualidade e supervisão.
+              Garante transparência nos custos por triagem, assistente do operador, CRM, voz e supervisão.
             </div>
           </div>
         </div>
@@ -3478,16 +4328,14 @@ export function CostsTab({ tenant }: { tenant: string }) {
                       </td>
                       <td className="py-2 px-3.5">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                          log.feature === "supervisor_chat" || log.feature === "valentina_chat" || log.feature === "fagner_chat"
+                          log.feature === "supervisor_chat" ||
+                          log.feature === "valentina_chat" ||
+                          log.feature === "fagner_chat" ||
+                          log.feature === "operator_assistant"
                             ? "bg-primary/10 text-primary border border-primary/20"
                             : "bg-muted/60 text-foreground border border-border"
                         }`}>
-                          {log.feature === "sdr_agent" ? "SDR Bot" :
-                           log.feature === "conversation_audit" ? "Auditoria QA" :
-                           log.feature === "supervisor_chat" ? "Supervisor Chat" :
-                           log.feature === "valentina_chat" ? "Valentina Chat" :
-                           log.feature === "fagner_chat" ? "Fagner Chat" :
-                           log.feature === "sla_advisor" ? "Análise SLA" : log.feature}
+                          {formatAiFeatureBadgeLabel(log.feature, tenant)}
                         </span>
                       </td>
                       <td className="py-2 px-3.5 font-semibold text-[11px] text-foreground">

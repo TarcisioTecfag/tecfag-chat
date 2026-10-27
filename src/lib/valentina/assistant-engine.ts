@@ -13,7 +13,10 @@ import {
   crmCustomFieldDefinitions,
   agentFlowStates,
 } from "../../db/schema";
-import { eq, and, desc, isNull, asc } from "drizzle-orm";
+import { eq, and, desc, isNull, asc, inArray, sql } from "drizzle-orm";
+import type { AuthSessionContext } from "../auth-session";
+import { conversationReadCondition } from "../access-control/conversation-access";
+import { getAllowedPipelineIds } from "../rbac";
 import { getAiPersona } from "../ai-persona";
 import { getKnowledgeBaseContext } from "./knowledge-service";
 import {
@@ -82,19 +85,23 @@ export interface ConversationRichContext {
 }
 
 export async function loadConversationRichContext(params: {
-  tenantId: string;
+  session: AuthSessionContext;
   conversationId?: string;
   clientMessages?: any[];
   contactName?: string;
   maxMessages?: number;
 }): Promise<ConversationRichContext> {
   const {
-    tenantId,
+    session,
     conversationId,
     clientMessages = [],
     contactName = "",
     maxMessages = 30,
   } = params;
+  const tenantId = session.tenantId;
+  const canReadCrm = session.permissions?.views?.crm === true &&
+    (session.operator.role === "admin" || session.permissions?.crm?.canViewCrm === true);
+  const allowedPipelines = getAllowedPipelineIds(session);
 
   let normalizedMsgs: Array<{
     role: "client" | "consultant" | "internal" | "system";
@@ -122,11 +129,12 @@ export async function loadConversationRichContext(params: {
           accountId: contacts.accountId,
         })
         .from(conversations)
-        .innerJoin(contacts, eq(contacts.id, conversations.contactId))
+        .innerJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, tenantId)))
         .where(
           and(
             eq(conversations.id, conversationId),
             eq(conversations.tenantId, tenantId),
+            conversationReadCondition(session),
           ),
         )
         .limit(1);
@@ -165,7 +173,7 @@ export async function loadConversationRichContext(params: {
             .orderBy(desc(messages.sentAt))
             .limit(maxMessages),
 
-          convRow.accountId
+          canReadCrm && convRow.accountId
             ? db
                 .select({
                   name: crmAccounts.name,
@@ -224,6 +232,11 @@ export async function loadConversationRichContext(params: {
                 eq(crmConversationDeals.tenantId, tenantId),
                 eq(crmConversationDeals.conversationId, conversationId),
                 eq(crmConversationDeals.isActive, true),
+                canReadCrm ? undefined : sql`false`,
+                allowedPipelines === null ? undefined : allowedPipelines.length
+                  ? inArray(crmDeals.pipelineId, allowedPipelines) : sql`false`,
+                session.operator.role === "admin" || session.permissions?.crm?.canViewAllDeals === true
+                  ? undefined : eq(crmDeals.operatorId, session.operator.id),
               ),
             )
             .orderBy(desc(crmDeals.updatedAt))
@@ -231,8 +244,8 @@ export async function loadConversationRichContext(params: {
 
           db
             .select({
-              extractedData: agentFlowStates.extractedData,
-              currentStage: agentFlowStates.currentStage,
+              extractedData: agentFlowStates.collectedData,
+              currentStage: agentFlowStates.currentStep,
             })
             .from(agentFlowStates)
             .where(
@@ -241,7 +254,7 @@ export async function loadConversationRichContext(params: {
                 eq(agentFlowStates.conversationId, conversationId),
               ),
             )
-            .orderBy(desc(agentFlowStates.updatedAt))
+            .orderBy(desc(agentFlowStates.lastInteractionAt))
             .limit(1),
         ]);
 
@@ -268,7 +281,7 @@ export async function loadConversationRichContext(params: {
                 name: crmDealProducts.name,
                 quantity: crmDealProducts.quantity,
                 unitPrice: crmDealProducts.unitPrice,
-                totalPrice: crmDealProducts.total,
+                totalPrice: crmDealProducts.totalPrice,
               })
               .from(crmDealProducts)
               .where(
@@ -302,7 +315,7 @@ export async function loadConversationRichContext(params: {
               .where(
                 and(
                   eq(crmCustomFieldDefinitions.tenantId, tenantId),
-                  eq(crmCustomFieldDefinitions.entity, "deal"),
+                  eq(crmCustomFieldDefinitions.entityType, "deal"),
                   isNull(crmCustomFieldDefinitions.archivedAt),
                 ),
               )

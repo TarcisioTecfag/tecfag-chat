@@ -356,7 +356,7 @@ Gere 2-3 highlights, 2-3 gaps e 2-3 actions baseados nos dados reais. Seja espec
 
     const result = await vertexAi.generateText(prompt, "gemini-2.5-pro", undefined, {
       tenantId,
-      feature: "sla_advisor",
+      feature: "executive_reports",
       metadata: { period, type },
     });
 

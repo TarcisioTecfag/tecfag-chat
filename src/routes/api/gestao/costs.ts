@@ -51,6 +51,8 @@ export const Route = createFileRoute("/api/gestao/costs")({
             startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
           } else if (period === "7d") {
             startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          } else if (period === "month") {
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
           } else if (period === "30d") {
             startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
           }
@@ -60,13 +62,13 @@ export const Route = createFileRoute("/api/gestao/costs")({
           if (selectedModel && selectedModel !== "all") filters.push(eq(aiUsageLogs.model, selectedModel));
           if (startDate) filters.push(gte(aiUsageLogs.createdAt, startDate));
 
-          // ── Somente dados reais — sem mock ──────────────────────────────────────
+          // ── Somente dados reais — sem truncar a agregação financeira do período ──
           const logs = await db
             .select()
             .from(aiUsageLogs)
             .where(and(...filters))
             .orderBy(desc(aiUsageLogs.createdAt))
-            .limit(500);
+            .limit(10000);
 
           // Cálculos agregados
           let totalCostUsd = 0, totalCostBrl = 0, totalTokens = 0;
@@ -170,7 +172,7 @@ export const Route = createFileRoute("/api/gestao/costs")({
               modelBreakdown,
               tenantMap,
               timeline,
-              logs: logs.slice(0, 100),
+              logs: logs.slice(0, 150),
             }),
             { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
@@ -191,11 +193,14 @@ function getFeatureLabel(feature: string, tenantId?: string): string {
     case "sdr_agent":           return "SDR Bot (Triagem de Leads)";
     case "conversation_audit":  return "Auditoria de Atendimento QA";
     case "sla_advisor":         return "Análise SLA & Alertas";
+    case "executive_reports":   return "Relatórios Executivos IA";
     case "supervisor_chat":     return tenantId === "tecfag" ? "Fagner Supervisor (Chat Interno)" : "Valentina Supervisor (Chat Interno)";
     case "valentina_chat":      return "Valentina Chat do Operador";
     case "fagner_chat":         return "Fagner Chat do Operador";
+    case "operator_assistant":  return "Assistente Inline (Gramática, Resposta & Resumo)";
+    case "crm_ai_priority":     return "Priorização IA de Negócios (CRM)";
     case "sentiment_analysis":  return "Análise de Sentimento (Clientes)";
-    case "call_transcription":  return "Transcrição de Ligações";
+    case "call_transcription":  return "Transcrição de Áudio & Ligações";
     case "knowledge_rag":       return "Base de Conhecimento RAG";
     default: return feature || "Uso Geral Vertex AI";
   }

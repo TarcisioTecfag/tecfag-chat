@@ -6759,7 +6759,7 @@ export class CrmService {
         level: "baixa" | "media" | "alta" | "critica";
         reason: string;
       }>(prompt, undefined, undefined, {
-        feature: "sdr_agent", // Compatível com o mapa de custos atual
+        feature: "crm_ai_priority",
         tenantId,
         metadata: { dealId, dealTitle: deal.title },
       });

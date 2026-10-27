@@ -6,7 +6,7 @@ import {
   sectors,
   contacts
 } from "../../../db/schema";
-import { eq, and, exists, gte, lte, isNotNull, count, avg } from "drizzle-orm";
+import { eq, and, exists, gte, lte, isNotNull, count, avg, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 
@@ -172,7 +172,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
             .from(sectors)
             .where(eq(sectors.tenantId, tenantId));
 
-          let sectorMetrics: { name: string; completed: number; avgResponse: number; slaPct: number }[] = [];
+          let sectorMetrics: { name: string; completed: number; avgResponse: number | null; slaPct: number | null }[] = [];
 
           if (allSectors.length > 0) {
             sectorMetrics = await Promise.all(
@@ -192,7 +192,8 @@ export const Route = createFileRoute("/api/gestao/performance")({
                   db
                     .select({
                       avgSeconds: avg(responseTimeLogs.responseTimeSeconds),
-                      isOverdue: responseTimeLogs.isOverdue,
+                      sampleCount: count(),
+                      overdueCount: sql<number>`count(*) filter (where ${responseTimeLogs.isOverdue} = true)`.mapWith(Number),
                     })
                     .from(responseTimeLogs)
                     .innerJoin(conversations, and(eq(responseTimeLogs.conversationId, conversations.id), eq(conversations.tenantId, tenantId)))
@@ -207,43 +208,17 @@ export const Route = createFileRoute("/api/gestao/performance")({
                 ]);
 
                 const completed = Number(closedRes[0]?.count ?? 0);
-                const validLogs = slaLogs.filter((l) => l.avgSeconds !== null);
-                const avgResponse = validLogs.length > 0
-                  ? Math.round(validLogs.reduce((acc, curr) => acc + Number(curr.avgSeconds || 0), 0) / validLogs.length)
-                  : 0;
-
-                const totalSla = slaLogs.length;
-                const overdueSla = slaLogs.filter((l) => l.isOverdue).length;
-                const slaPct = totalSla > 0 ? Math.round(((totalSla - overdueSla) / totalSla) * 100) : 100;
+                const sample = slaLogs[0];
+                const avgResponse = sample?.avgSeconds != null ? Math.round(Number(sample.avgSeconds)) : null;
+                const totalSla = Number(sample?.sampleCount ?? 0);
+                const overdueSla = Number(sample?.overdueCount ?? 0);
+                const slaPct = totalSla > 0 ? Math.round(((totalSla - overdueSla) / totalSla) * 100) : null;
 
                 return {
                   name: sec.name,
                   completed,
                   avgResponse,
                   slaPct,
-                };
-              })
-            );
-          } else {
-            // Fallback: Se a tabela sectors ainda não possui cadastros no tenant, exibe setores padrão com totais reais
-            const defaultSectorNames = ["Comercial", "Suporte", "Financeiro", "Triagem"];
-            sectorMetrics = await Promise.all(
-              defaultSectorNames.map(async (name) => {
-                const [closedRes] = await db
-                  .select({ count: count() })
-                  .from(conversations)
-                  .where(
-                    and(
-                      eq(conversations.tenantId, tenantId),
-                      readScope,
-                      eq(conversations.queueState, "finalizados")
-                    )
-                  );
-                return {
-                  name,
-                  completed: name === "Comercial" ? Number(closedRes?.count ?? 0) : 0,
-                  avgResponse: 0,
-                  slaPct: 100,
                 };
               })
             );
@@ -263,12 +238,11 @@ export const Route = createFileRoute("/api/gestao/performance")({
           console.error("[gestao/performance] Erro GET:", e);
           return new Response(
             JSON.stringify({
-              volumes: [],
-              channels: [],
-              sectors: [],
+              error: "Não foi possível carregar os indicadores de desempenho.",
+              code: "PERFORMANCE_UNAVAILABLE",
             }),
             {
-              status: 200,
+              status: 503,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             }
           );

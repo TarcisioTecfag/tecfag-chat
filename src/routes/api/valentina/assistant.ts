@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { vertexAi } from "../../../lib/vertex-ai";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
+import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 import {
   expandPtBrAbbreviationsAndAccents,
   validateGrammarFidelity,
@@ -27,27 +28,43 @@ export const Route = createFileRoute("/api/valentina/assistant")({
         if ("response" in auth) return auth.response;
         const { session } = auth;
         const tenantId = session.tenantId;
+        if (session.permissions?.views?.valentina !== true || session.permissions?.valentina?.canAccessChat !== true) {
+          return Response.json({ error: "Permissão insuficiente para usar o assistente.", code: "FORBIDDEN" }, { status: 403 });
+        }
 
         try {
-          const body = await request.json();
+          const body = await request.json().catch(() => null);
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            return Response.json({ error: "Requisição inválida." }, { status: 400 });
+          }
           const {
             action,
             conversationId,
             currentText = "",
             messages: clientMessages = [],
             contactName = "",
-            operatorName = session.operator.name || "Consultor",
           } = body;
+          const operatorName = session.operator.name || "Consultor";
 
-          if (!action) {
-            return new Response(JSON.stringify({ error: "Parâmetro 'action' é obrigatório" }), {
+          if (!["grammar_fix", "best_response", "lead_summary"].includes(action) ||
+              typeof currentText !== "string" || typeof contactName !== "string" ||
+              (conversationId !== undefined && (typeof conversationId !== "string" || !conversationId.trim() || conversationId.length > 160))) {
+            return new Response(JSON.stringify({ error: "Ação ou parâmetros inválidos." }), {
               status: 400,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
+          const hasConversation = typeof conversationId === "string" && conversationId !== "valentina";
+          if (action !== "grammar_fix" && !hasConversation) {
+            return Response.json({ error: "Selecione um atendimento para consultar seu contexto." }, { status: 400 });
+          }
+          if (hasConversation) {
+            const denied = await requireConversationAccess(session, conversationId);
+            if (denied) return denied;
+          }
 
           const persona = getAiPersona(tenantId);
-          const featureKey = persona.chatFeatureKey;
+          const featureKey = "operator_assistant";
 
           // ─── AÇÃO 1: CORRETOR GRAMATICAL & ORTOGRÁFICO (ULTRA-RÁPIDO & FIEL) ─────────
           if (action === "grammar_fix") {
@@ -131,7 +148,7 @@ export const Route = createFileRoute("/api/valentina/assistant")({
           // ─── AÇÃO 2: MELHOR RESPOSTA (CONTEXTUALIZADA COM HISTÓRICO, CRM E CATÁLOGO) ──
           if (action === "best_response") {
             const richContext = await loadConversationRichContext({
-              tenantId,
+              session,
               conversationId,
               clientMessages,
               contactName,
@@ -185,7 +202,7 @@ export const Route = createFileRoute("/api/valentina/assistant")({
           // ─── AÇÃO 3: RESUMO DO ATENDIMENTO / LEAD (HISTÓRICO COMPLETO + CRM) ──────────
           if (action === "lead_summary") {
             const richContext = await loadConversationRichContext({
-              tenantId,
+              session,
               conversationId,
               clientMessages,
               contactName,
@@ -236,7 +253,7 @@ export const Route = createFileRoute("/api/valentina/assistant")({
         } catch (error: any) {
           console.error("[assistant.ts] Erro ao processar assistente de IA:", error);
           return new Response(
-            JSON.stringify({ error: error.message || "Falha no processamento de IA" }),
+            JSON.stringify({ error: "Não foi possível processar o assistente agora." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
           );
         }
