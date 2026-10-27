@@ -5,12 +5,11 @@ import {
   CheckCircle2,
   XCircle,
   PauseCircle,
-  PlayCircle,
   type LucideIcon,
 } from "lucide-react";
 
 export type DealStatus = "open" | "won" | "lost" | "paused";
-export type CrmStatusFilter = "all" | DealStatus | "not_paused";
+export type CrmStatusFilter = "all" | DealStatus;
 
 export interface DealStatusMeta {
   value: CrmStatusFilter;
@@ -62,13 +61,6 @@ export const CRM_STATUS_FILTER_MAP: Record<CrmStatusFilter, DealStatusMeta> = {
     badgeColor:
       "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30",
   },
-  not_paused: {
-    value: "not_paused",
-    label: "Não pausado",
-    icon: PlayCircle,
-    iconColor: "text-sky-600 dark:text-sky-400",
-    badgeColor: "text-sky-700 dark:text-sky-400 bg-sky-500/10 border-sky-500/30",
-  },
 };
 
 export const DEAL_STATUS_MAP: Record<DealStatus, DealStatusMeta> = {
@@ -84,7 +76,6 @@ export const CRM_STATUS_FILTER_OPTIONS: DealStatusMeta[] = [
   CRM_STATUS_FILTER_MAP.won,
   CRM_STATUS_FILTER_MAP.lost,
   CRM_STATUS_FILTER_MAP.paused,
-  CRM_STATUS_FILTER_MAP.not_paused,
 ];
 
 export const DEAL_STATUS_OPTIONS: DealStatusMeta[] = [
