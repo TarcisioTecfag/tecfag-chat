@@ -38,9 +38,13 @@ interface IndexedKnowledgeDoc {
 export interface MatchedCatalogPhoto {
   fileId: string;
   name: string;
+  fileName: string;
   displayName: string;
   modelCode: string;
+  modelDisplay: string;
   compactModel: string;
+  normalizedModelKey: string;
+  aliasKeys: string[];
   rawImageUrl: string;
   mediaUrl: string;
   category: string;
@@ -54,6 +58,7 @@ interface IndexedCatalogPhotoItem {
   normalizedDisplayName: string;
   sku: string;
   compactModel: string;
+  aliasKeys: string[];
   category: string;
   mediaUrl: string;
   rawImageUrl: string;
@@ -720,7 +725,7 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
         }
       }
 
-      const seenPhotoKeys = new Set<string>();
+      const seenPhotoByKey = new Map<string, IndexedCatalogPhotoItem>();
       const realMediaItems: CachedKnowledgeData["realMediaItems"] = [];
 
       for (const f of files) {
@@ -736,10 +741,17 @@ export async function getKnowledgeBaseContext(tenantId: string, queryHint?: stri
         const category = f.folderId ? folderMap.get(f.folderId) || "Geral" : "Geral";
         const indexedPhoto = buildIndexedCatalogPhotoItem(f.id, f.name, category, mediaUrl);
         const dedupKey = indexedPhoto.compactModel || indexedPhoto.normalizedDisplayName || f.id;
-        if (seenPhotoKeys.has(dedupKey)) continue;
-        seenPhotoKeys.add(dedupKey);
+        const existingPhoto = seenPhotoByKey.get(dedupKey);
+        if (existingPhoto) {
+          existingPhoto.aliasKeys = Array.from(
+            new Set([...existingPhoto.aliasKeys, f.id, mediaUrl, ...indexedPhoto.aliasKeys])
+          );
+          continue;
+        }
+        seenPhotoByKey.set(dedupKey, indexedPhoto);
         realMediaItems.push(indexedPhoto);
       }
+      enrichCatalogPhotoAliasKeys(realMediaItems);
 
       cached = {
         timestamp: Date.now(),
@@ -1004,19 +1016,33 @@ export function extractPhotoModelMetadata(fileName: string): {
   displayName: string;
   primaryModel: string;
   compactModel: string;
+  normalizedModelKey: string;
   isAccessoryForOtherModel: boolean;
 } {
   const displayName = (fileName || "").replace(/\.(jpg|jpeg|png|webp|gif)$/i, "").trim();
   const isAccessoryForOtherModel = /\bpara\s+[A-Z0-9-]+$/i.test(displayName);
 
+  // Ignora IDs internos de arquivo de mídia (ex: kf-1791988358053-6veo3) para não confundir o sufixo aleatório com modelo
+  if (/^kf-\d+-[a-z0-9]+$/i.test(displayName)) {
+    return {
+      displayName,
+      primaryModel: "",
+      compactModel: "",
+      normalizedModelKey: "",
+      isAccessoryForOtherModel: false,
+    };
+  }
+
   // 1. SKU numérico entre colchetes ou no início
   const numericSkuMatch = displayName.match(/^\[?(\d{4,8})\]?/);
   if (numericSkuMatch) {
     const primaryModel = numericSkuMatch[1];
+    const compactModel = primaryModel.toLowerCase();
     return {
       displayName,
       primaryModel,
-      compactModel: primaryModel.toLowerCase(),
+      compactModel,
+      normalizedModelKey: compactModel,
       isAccessoryForOtherModel,
     };
   }
@@ -1039,20 +1065,24 @@ export function extractPhotoModelMetadata(fileName: string): {
         /^[A-Z0-9\s.+/-]{2,18}$/.test(candidate) ||
         /^(?:Pratic\s+Seal|Luxury)$/i.test(candidate))
     ) {
+      const compactModel = normalizeSearchText(candidate).replace(/[^a-z0-9+]/g, "");
       return {
         displayName,
         primaryModel: candidate,
-        compactModel: normalizeSearchText(candidate).replace(/[^a-z0-9+]/g, ""),
+        compactModel,
+        normalizedModelKey: compactModel,
         isAccessoryForOtherModel,
       };
     }
     const firstCode = dashParts[0].match(/\b([A-Z]{2,5}\s?\d{1,4}[A-Z0-9-]*)\b/);
     if (firstCode) {
       const primaryModel = firstCode[1].trim();
+      const compactModel = normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, "");
       return {
         displayName,
         primaryModel,
-        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        compactModel,
+        normalizedModelKey: compactModel,
         isAccessoryForOtherModel,
       };
     }
@@ -1065,10 +1095,12 @@ export function extractPhotoModelMetadata(fileName: string): {
     );
     if (seriesMatch && seriesMatch[1].trim().length >= 3) {
       const primaryModel = seriesMatch[1].trim();
+      const compactModel = normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, "");
       return {
         displayName,
         primaryModel,
-        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        compactModel,
+        normalizedModelKey: compactModel,
         isAccessoryForOtherModel,
       };
     }
@@ -1078,10 +1110,12 @@ export function extractPhotoModelMetadata(fileName: string): {
     );
     if (embeddedCipherOrSeries) {
       const primaryModel = embeddedCipherOrSeries[1].trim();
+      const compactModel = normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, "");
       return {
         displayName,
         primaryModel,
-        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        compactModel,
+        normalizedModelKey: compactModel,
         isAccessoryForOtherModel,
       };
     }
@@ -1094,10 +1128,12 @@ export function extractPhotoModelMetadata(fileName: string): {
       !/^(?:INOX\s*304|\d+\s*(?:ML|CM|M|L|KG|W|BICOS|CABECAS))$/i.test(tailCode[1].trim())
     ) {
       const primaryModel = tailCode[1].trim();
+      const compactModel = normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, "");
       return {
         displayName,
         primaryModel,
-        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        compactModel,
+        normalizedModelKey: compactModel,
         isAccessoryForOtherModel,
       };
     }
@@ -1105,10 +1141,12 @@ export function extractPhotoModelMetadata(fileName: string): {
     const endUpper = displayName.match(/\s([A-Z]{3,6})$/);
     if (endUpper && !/^(?:INOX|MANUAL|VACUO|VÁCUO)$/i.test(endUpper[1])) {
       const primaryModel = endUpper[1].trim();
+      const compactModel = normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, "");
       return {
         displayName,
         primaryModel,
-        compactModel: normalizeSearchText(primaryModel).replace(/[^a-z0-9]/g, ""),
+        compactModel,
+        normalizedModelKey: compactModel,
         isAccessoryForOtherModel,
       };
     }
@@ -1118,6 +1156,7 @@ export function extractPhotoModelMetadata(fileName: string): {
     displayName,
     primaryModel: "",
     compactModel: "",
+    normalizedModelKey: "",
     isAccessoryForOtherModel,
   };
 }
@@ -1169,6 +1208,7 @@ function buildIndexedCatalogPhotoItem(
   const photoKey =
     compactModel || normalizedDisplayName.replace(/[^a-z0-9]/g, "") || id;
   const modelRegex = primaryModel ? buildModelBoundaryRegex(primaryModel) : null;
+  const aliasKeys = Array.from(new Set([compactModel, photoKey].filter(Boolean)));
 
   return {
     id,
@@ -1177,6 +1217,7 @@ function buildIndexedCatalogPhotoItem(
     normalizedDisplayName,
     sku: primaryModel,
     compactModel,
+    aliasKeys,
     category,
     mediaUrl,
     rawImageUrl,
@@ -1187,8 +1228,35 @@ function buildIndexedCatalogPhotoItem(
 }
 
 /**
+ * Vincula aliases cruzados de fotos que representam o mesmo equipamento físico
+ * (ex: "Seladora Contínua Pratic Seal - TC-20" [tc20] e "Seladora Portátil de Embalagens Bivolt - Pratic Seal" [praticseal]),
+ * evitando envio duplicado no mesmo turno e garantindo que o controle de anti-repetição (24h) reconheça ambos.
+ */
+function enrichCatalogPhotoAliasKeys(items: IndexedCatalogPhotoItem[]): void {
+  for (const itemA of items) {
+    if (!itemA.compactModel || itemA.isAccessoryForOtherModel) continue;
+    for (const itemB of items) {
+      if (itemA.id === itemB.id || !itemB.compactModel || itemB.isAccessoryForOtherModel) continue;
+      const aMentionsB =
+        itemB.modelRegex && itemB.compactModel.length >= 4
+          ? itemB.modelRegex.test(itemA.normalizedDisplayName)
+          : false;
+      const bMentionsA =
+        itemA.modelRegex && itemA.compactModel.length >= 4
+          ? itemA.modelRegex.test(itemB.normalizedDisplayName)
+          : false;
+      if (aMentionsB || bMentionsA) {
+        const merged = Array.from(new Set([...itemA.aliasKeys, ...itemB.aliasKeys]));
+        itemA.aliasKeys = merged;
+        itemB.aliasKeys = merged;
+      }
+    }
+  }
+}
+
+/**
  * Detecta se a mensagem do usuário é uma solicitação direta de foto/imagem da máquina.
- * Ex: "me manda uma foto dela", "tem foto?", "mostra uma imagem da vsf 30s", "manda foto".
+ * Ex: "me manda uma foto dela", "cosnegue me mandar uma foto dela", "tem foto?", "mostra uma imagem da vsf 30s".
  */
 export function isExplicitMachinePhotoRequest(
   text: string,
@@ -1198,7 +1266,7 @@ export function isExplicitMachinePhotoRequest(
   const q = normalizeSearchText(text || "");
   if (!q) return false;
   return (
-    /\b(?:manda|mandar|mande|envia|enviar|envie|mostra|mostrar|mostre|tem|ter|quero\s+ver|ver|qual|cade|puxa|puxe|separa|separe|consegue|pode|teria)\b[\s\S]{0,42}\b(?:foto|fotos|imagem|imagens|fotografia)\b/i.test(
+    /\b(?:manda|mandar|mande|envia|enviar|envie|mostra|mostrar|mostre|tem|ter|quero\s+ver|ver|qual|cade|puxa|puxe|separa|separe|consegue|cosnegue|conseguir|pode|teria|passa|passar|passe|arruma|arrumar)\b[\s\S]{0,42}\b(?:foto|fotos|imagem|imagens|fotografia)\b/i.test(
       q
     ) ||
     /\b(?:foto|fotos|imagem|imagens)\b[\s\S]{0,28}\b(?:dela|dele|dessa|desse|da\s+maquina|do\s+equipamento|do\s+modelo|da\s+[a-z0-9]|do\s+[a-z0-9])/i.test(
@@ -1310,7 +1378,7 @@ async function getIndexedCatalogPhotosFast(tenantId: string): Promise<IndexedCat
     const folderMap = new Map<string, string>();
     folders.forEach((f) => folderMap.set(f.id, f.name));
 
-    const seenKeys = new Set<string>();
+    const seenByKey = new Map<string, IndexedCatalogPhotoItem>();
     const items: IndexedCatalogPhotoItem[] = [];
     for (const f of rows) {
       const isImageFile =
@@ -1325,10 +1393,17 @@ async function getIndexedCatalogPhotosFast(tenantId: string): Promise<IndexedCat
       const category = f.folderId ? folderMap.get(f.folderId) || "Geral" : "Geral";
       const indexed = buildIndexedCatalogPhotoItem(f.id, f.name, category, mediaUrl);
       const dedupKey = indexed.compactModel || indexed.normalizedDisplayName || f.id;
-      if (seenKeys.has(dedupKey)) continue;
-      seenKeys.add(dedupKey);
+      const existing = seenByKey.get(dedupKey);
+      if (existing) {
+        existing.aliasKeys = Array.from(
+          new Set([...existing.aliasKeys, f.id, mediaUrl, ...indexed.aliasKeys])
+        );
+        continue;
+      }
+      seenByKey.set(dedupKey, indexed);
       items.push(indexed);
     }
+    enrichCatalogPhotoAliasKeys(items);
     fastPhotoCacheByTenant.set(tenantId, { timestamp: Date.now(), items });
     return items;
   } catch {
@@ -1336,34 +1411,63 @@ async function getIndexedCatalogPhotosFast(tenantId: string): Promise<IndexedCat
   }
 }
 
-/**
- * Resolve as fotos cadastradas no Catálogo / Base de Conhecimento para envio pelo Fagner:
- * - Modo Proativo ("de prontidão"): Pareia o modelo/nome da máquina consultada ou explicada e retorna a foto
- *   SE E SOMENTE SE ela ainda não tiver sido enviada na janela atual de 24h (`alreadySentPhotoKeysInWindow`).
- *   Outras máquinas que ainda não foram enviadas na janela continuam liberadas normalmente.
- * - Modo Sob Solicitação (`isExplicitPhotoRequest = true`): Quando o próprio usuário pede a foto diretamente
- *   (ex: "me manda uma foto dela"), ignora o bloqueio de repetição e busca na pergunta atual ou no turno mais recente da conversa.
- */
-export async function resolveMatchingCatalogPhotos(params: {
-  tenantId: string;
+function toMatchedCatalogPhoto(photo: IndexedCatalogPhotoItem): MatchedCatalogPhoto {
+  return {
+    fileId: photo.id,
+    name: photo.name,
+    fileName: photo.name,
+    displayName: photo.displayName,
+    modelCode: photo.sku || photo.displayName,
+    modelDisplay: photo.sku || photo.displayName,
+    compactModel: photo.compactModel,
+    normalizedModelKey: photo.compactModel || photo.photoKey,
+    aliasKeys: photo.aliasKeys,
+    rawImageUrl: photo.rawImageUrl,
+    mediaUrl: photo.mediaUrl,
+    category: photo.category,
+    photoKey: photo.photoKey,
+  };
+}
+
+export interface ResolveCatalogPhotosOptions {
+  tenantId?: string;
   userQuery?: string;
+  userText?: string;
   attachedFileName?: string;
   aiReplyText?: string;
   recentHistoryMessages?: string[];
   isExplicitPhotoRequest?: boolean;
+  isExplicitRequest?: boolean;
   alreadySentPhotoKeysInWindow?: Set<string> | string[];
   maxPhotos?: number;
-}): Promise<MatchedCatalogPhoto[]> {
-  const {
-    tenantId,
-    userQuery = "",
-    attachedFileName = "",
-    aiReplyText = "",
-    recentHistoryMessages = [],
-    isExplicitPhotoRequest = false,
-    alreadySentPhotoKeysInWindow,
-    maxPhotos = 1,
-  } = params;
+}
+
+/**
+ * Resolve as fotos cadastradas no Catálogo / Base de Conhecimento para envio pelo Fagner:
+ * - Suporta tanto `resolveMatchingCatalogPhotos(tenantId, options)` quanto `resolveMatchingCatalogPhotos({ tenantId, ...options })`.
+ * - Modo Proativo ("de prontidão"): Pareia o modelo/nome da máquina consultada ou explicada e retorna a foto
+ *   SE E SOMENTE SE ela (ou um alias do mesmo equipamento, ex: Pratic Seal <-> TC-20) ainda não tiver sido enviada na janela atual de 24h.
+ * - Modo Sob Solicitação (`isExplicitPhotoRequest` / `isExplicitRequest` = true): Quando o próprio usuário pede a foto diretamente
+ *   (ex: "me manda uma foto dela"), ignora o bloqueio de repetição e busca na pergunta atual ou no turno mais recente da conversa.
+ */
+export async function resolveMatchingCatalogPhotos(
+  tenantIdOrParams: string | ResolveCatalogPhotosOptions,
+  maybeOptions?: ResolveCatalogPhotosOptions
+): Promise<MatchedCatalogPhoto[]> {
+  const normalizedParams: ResolveCatalogPhotosOptions =
+    typeof tenantIdOrParams === "string"
+      ? { ...(maybeOptions || {}), tenantId: tenantIdOrParams }
+      : tenantIdOrParams || {};
+
+  const tenantId = normalizedParams.tenantId || "";
+  const userQuery = normalizedParams.userQuery ?? normalizedParams.userText ?? "";
+  const attachedFileName = normalizedParams.attachedFileName ?? "";
+  const aiReplyText = normalizedParams.aiReplyText ?? "";
+  const recentHistoryMessages = normalizedParams.recentHistoryMessages ?? [];
+  const isExplicitPhotoRequest =
+    normalizedParams.isExplicitPhotoRequest ?? normalizedParams.isExplicitRequest ?? false;
+  const alreadySentPhotoKeysInWindow = normalizedParams.alreadySentPhotoKeysInWindow;
+  const maxPhotos = normalizedParams.maxPhotos ?? 1;
 
   if (!tenantId) return [];
 
@@ -1377,9 +1481,35 @@ export async function resolveMatchingCatalogPhotos(params: {
       : Array.from(alreadySentPhotoKeysInWindow);
     for (const k of items) {
       if (!k) continue;
-      const clean = normalizeSearchText(String(k)).replace(/[^a-z0-9]/g, "");
+      const raw = String(k).trim();
+      sentSet.add(raw);
+      const clean = normalizeSearchText(raw).replace(/[^a-z0-9]/g, "");
       if (clean) sentSet.add(clean);
-      sentSet.add(String(k).trim());
+      const kfMatch = raw.match(/(kf-\d+-[a-z0-9]+)/i);
+      if (kfMatch) sentSet.add(kfMatch[1]);
+    }
+  }
+
+  // Propaga os aliases equivalentes das fotos já enviadas (ex: se enviou Pratic Seal, marca TC-20 como já enviada também)
+  if (sentSet.size > 0) {
+    for (const photo of allPhotos) {
+      const normFile = normalizeSearchText(photo.displayName).replace(/[^a-z0-9]/g, "");
+      const matchedSent =
+        sentSet.has(photo.id) ||
+        sentSet.has(photo.photoKey) ||
+        sentSet.has(photo.mediaUrl) ||
+        sentSet.has(photo.rawImageUrl) ||
+        (photo.compactModel && sentSet.has(photo.compactModel)) ||
+        (normFile && sentSet.has(normFile)) ||
+        photo.aliasKeys.some((ak) => ak && sentSet.has(ak));
+      if (matchedSent) {
+        sentSet.add(photo.id);
+        sentSet.add(photo.photoKey);
+        if (photo.compactModel) sentSet.add(photo.compactModel);
+        for (const ak of photo.aliasKeys) {
+          if (ak) sentSet.add(ak);
+        }
+      }
     }
   }
 
@@ -1387,6 +1517,7 @@ export async function resolveMatchingCatalogPhotos(params: {
     if (sentSet.size === 0) return false;
     if (sentSet.has(photo.id) || sentSet.has(photo.photoKey)) return true;
     if (photo.compactModel && sentSet.has(photo.compactModel)) return true;
+    if (photo.aliasKeys.some((ak) => ak && sentSet.has(ak))) return true;
     const normFile = normalizeSearchText(photo.displayName).replace(/[^a-z0-9]/g, "");
     if (normFile && sentSet.has(normFile)) return true;
     return false;
@@ -1427,24 +1558,59 @@ export async function resolveMatchingCatalogPhotos(params: {
     : candidates.filter((photo) => !isAlreadySent(photo));
 
   const seenIds = new Set<string>();
+  const seenAliasKeys = new Set<string>();
   const result: MatchedCatalogPhoto[] = [];
   for (const photo of filtered) {
     if (seenIds.has(photo.id)) continue;
+    if (photo.aliasKeys.some((ak) => ak && seenAliasKeys.has(ak))) continue;
     seenIds.add(photo.id);
-    result.push({
-      fileId: photo.id,
-      name: photo.name,
-      displayName: photo.displayName,
-      modelCode: photo.sku || photo.displayName,
-      compactModel: photo.compactModel,
-      rawImageUrl: photo.rawImageUrl,
-      mediaUrl: photo.mediaUrl,
-      category: photo.category,
-      photoKey: photo.photoKey,
-    });
+    for (const ak of photo.aliasKeys) {
+      if (ak) seenAliasKeys.add(ak);
+    }
+    result.push(toMatchedCatalogPhoto(photo));
     if (result.length >= maxPhotos) break;
   }
 
   return result;
 }
+
+/**
+ * Resolve URLs do tipo `/knowledge-media/kf-...png` ou IDs de arquivo `kf-...` emitidos em tags `[SEND_IMAGE:...]`
+ * para os objetos `MatchedCatalogPhoto` correspondentes do tenant.
+ */
+export async function resolveCatalogPhotosByMediaUrls(
+  tenantId: string,
+  urlsOrIds: string[]
+): Promise<MatchedCatalogPhoto[]> {
+  if (!tenantId || !Array.isArray(urlsOrIds) || urlsOrIds.length === 0) return [];
+  const allPhotos = await getIndexedCatalogPhotosFast(tenantId);
+  if (allPhotos.length === 0) return [];
+
+  const result: MatchedCatalogPhoto[] = [];
+  const seenIds = new Set<string>();
+
+  for (const raw of urlsOrIds) {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) continue;
+    const kfMatch = trimmed.match(/(kf-[a-z0-9-]+)/i);
+    const targetId = kfMatch ? kfMatch[1] : trimmed.replace(/^\/knowledge-media\//i, "").replace(/\.[a-z0-9]+$/i, "");
+
+    const found = allPhotos.find(
+      (p) =>
+        p.id === targetId ||
+        p.mediaUrl === trimmed ||
+        p.rawImageUrl === trimmed ||
+        p.mediaUrl.includes(targetId) ||
+        p.aliasKeys.includes(targetId) ||
+        p.aliasKeys.includes(trimmed)
+    );
+    if (found && !seenIds.has(found.id)) {
+      seenIds.add(found.id);
+      result.push(toMatchedCatalogPhoto(found));
+    }
+  }
+
+  return result;
+}
+
 

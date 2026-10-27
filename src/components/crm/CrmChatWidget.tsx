@@ -44,6 +44,7 @@ import {
   Users,
   Video as VideoIcon,
   X,
+  CircleHelp,
 } from "lucide-react";
 import {
   InstagramLogo,
@@ -421,9 +422,18 @@ function MiniMediaRenderer({
   isMe: boolean;
   onImageClick?: (url: string) => void;
 }) {
-  const newlineIndex = text.indexOf("\n");
-  const mediaTag = newlineIndex !== -1 ? text.slice(0, newlineIndex).trim() : text.trim();
-  const captionText = newlineIndex !== -1 ? text.slice(newlineIndex + 1).trim() : "";
+  const normalizedText = text.replace(/\[SEND_IMAGE:([^\]]+)\]/gi, (_m, rawUrl: string) => {
+    const trimmed = String(rawUrl || "").trim();
+    const kfMatch = trimmed.match(/(kf-[a-z0-9-]+)(?:\.([a-z0-9]+))?/i);
+    const resolvedUrl = kfMatch
+      ? `/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(kfMatch[1])}`
+      : trimmed;
+    const fName = kfMatch ? `${kfMatch[1]}.${kfMatch[2] || "png"}` : "equipamento.png";
+    return `[LOCAL_MEDIA:image:${resolvedUrl}:${fName}]`;
+  });
+  const newlineIndex = normalizedText.indexOf("\n");
+  const mediaTag = newlineIndex !== -1 ? normalizedText.slice(0, newlineIndex).trim() : normalizedText.trim();
+  const captionText = newlineIndex !== -1 ? normalizedText.slice(newlineIndex + 1).trim() : "";
 
   // 1) Local Media
   if (mediaTag.startsWith("[LOCAL_MEDIA:")) {
@@ -1014,6 +1024,7 @@ export function CrmChatWidget() {
   const [sending, setSending] = useState(false);
   const [metaWindowOpen, setMetaWindowOpen] = useState<boolean | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [openedChatIds, setOpenedChatIds] = useState<string[]>([]);
   const [resolvingThread, setResolvingThread] = useState<{
     conversationId?: string;
@@ -2479,6 +2490,33 @@ export function CrmChatWidget() {
                         </div>
 
                       <div className="flex items-center gap-1">
+                        {selected.id !== "valentina" && (
+                          <SystemTooltip
+                            content={
+                              showSystemInfo
+                                ? "Ocultar informações do sistema"
+                                : "Mostrar informações do sistema"
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setShowSystemInfo((v) => !v)}
+                              aria-pressed={showSystemInfo}
+                              aria-label={
+                                showSystemInfo
+                                  ? "Ocultar informações do sistema"
+                                  : "Mostrar informações do sistema"
+                              }
+                              className={`rounded-lg p-1.5 transition-colors cursor-pointer ${
+                                showSystemInfo
+                                  ? "bg-primary/15 text-primary"
+                                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                              }`}
+                            >
+                              <CircleHelp className="h-4 w-4" />
+                            </button>
+                          </SystemTooltip>
+                        )}
                         <SystemTooltip content="Abrir no Chat completo">
                           <button
                             type="button"
@@ -2603,8 +2641,11 @@ export function CrmChatWidget() {
                             const isSystem =
                               message.author === "Sistema" || message.senderType === "system";
 
-                            // Mensagem de Sistema (oculta por padrão no ícone ? discreto, agrupada quando em sequência)
+                            // Mensagem de Sistema (oculta por padrão quando o botão ? está desativado, agrupada quando em sequência)
                             if (isSystem) {
+                              if (!showSystemInfo) {
+                                return null;
+                              }
                               const prevMsg = i > 0 ? threadMessages[i - 1] : null;
                               const prevIsSystem = Boolean(
                                 prevMsg &&

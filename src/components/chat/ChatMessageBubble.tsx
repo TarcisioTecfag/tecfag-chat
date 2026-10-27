@@ -221,7 +221,10 @@ function ChatMessageBubbleComponent({
   }
 
   const isSticker = m.text.startsWith("[MEDIA:sticker]") || m.text.startsWith("[LOCAL_MEDIA:sticker]");
-  const isMedia = m.text.startsWith("[MEDIA:") || m.text.startsWith("[LOCAL_MEDIA:");
+  const isMedia =
+    m.text.startsWith("[MEDIA:") ||
+    m.text.startsWith("[LOCAL_MEDIA:") ||
+    m.text.startsWith("[SEND_IMAGE:");
   const hasCaption = isMedia && m.text.includes("\n") && m.text.split("\n").slice(1).join("\n").trim().length > 0;
   const isAudioOrDoc =
     m.text.startsWith("[MEDIA:audio]") ||

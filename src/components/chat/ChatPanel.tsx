@@ -62,6 +62,7 @@ import {
   Package,
   Bookmark,
   LayoutTemplate,
+  CircleHelp,
 } from "lucide-react";
 import {
   Dialog,
@@ -435,9 +436,18 @@ export function renderMessageContent(
   clientName?: string,
 ) {
   // Separar a tag de mídia da legenda (se enviada com a mídia)
-  const newlineIndex = text.indexOf("\n");
-  const mediaTag = newlineIndex !== -1 ? text.slice(0, newlineIndex).trim() : text.trim();
-  const captionText = newlineIndex !== -1 ? text.slice(newlineIndex + 1).trim() : "";
+  const normalizedMediaInput = text.replace(/\[SEND_IMAGE:([^\]]+)\]/gi, (_m, rawUrl: string) => {
+    const trimmed = String(rawUrl || "").trim();
+    const kfMatch = trimmed.match(/(kf-[a-z0-9-]+)(?:\.([a-z0-9]+))?/i);
+    const resolvedUrl = kfMatch
+      ? `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(kfMatch[1])}`
+      : trimmed;
+    const fName = kfMatch ? `${kfMatch[1]}.${kfMatch[2] || "png"}` : "equipamento.png";
+    return `[LOCAL_MEDIA:image:${resolvedUrl}:${fName}]`;
+  });
+  const newlineIndex = normalizedMediaInput.indexOf("\n");
+  const mediaTag = newlineIndex !== -1 ? normalizedMediaInput.slice(0, newlineIndex).trim() : normalizedMediaInput.trim();
+  const captionText = newlineIndex !== -1 ? normalizedMediaInput.slice(newlineIndex + 1).trim() : "";
 
   const wrapMediaWithCaption = (mediaNode: React.ReactNode) => {
     if (!captionText) return mediaNode;
@@ -947,6 +957,7 @@ interface TransientChatPanelState {
   noteScope: "current" | "general";
   msgSearch: string;
   showMsgSearch: boolean;
+  showSystemInfo?: boolean;
 }
 
 const transientChatPanelCache = new Map<string, TransientChatPanelState>();
@@ -1255,6 +1266,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [isDragging, setIsDragging] = useState(false);
   const [msgSearch, setMsgSearch] = useState(initialTransientState?.msgSearch ?? "");
   const [showMsgSearch, setShowMsgSearch] = useState(initialTransientState?.showMsgSearch ?? false);
+  const [showSystemInfo, setShowSystemInfo] = useState(initialTransientState?.showSystemInfo ?? false);
   const [searchMatchIndex, setSearchMatchIndex] = useState<number>(0);
 
   const prevTransientChatIdRef = useRef<string | undefined>(activeChat?.id);
@@ -1269,6 +1281,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       setNoteScope(cached?.noteScope ?? "current");
       setMsgSearch(cached?.msgSearch ?? "");
       setShowMsgSearch(cached?.showMsgSearch ?? false);
+      setShowSystemInfo(cached?.showSystemInfo ?? false);
       draftContextVersion.current = undefined;
       setShowValentinaModal(false);
       setIsCatalogOpen(false);
@@ -1285,8 +1298,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       noteScope,
       msgSearch,
       showMsgSearch,
+      showSystemInfo,
     });
-  }, [activeChat?.id, text, replyingTo, attachments, msgMode, noteScope, msgSearch, showMsgSearch]);
+  }, [activeChat?.id, text, replyingTo, attachments, msgMode, noteScope, msgSearch, showMsgSearch, showSystemInfo]);
   const [showValWarnings, setShowValWarnings] = useState(true);
   const [showValResponses, setShowValResponses] = useState(true);
   const [currentBrtDateStr, setCurrentBrtDateStr] = useState<string>(() => getBrtTodayDateStr());
@@ -1588,10 +1602,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         } else {
           if (!showValResponses) return false;
         }
+      } else if (!showSystemInfo) {
+        if (m.author === "Sistema" || m.senderType === "system") return false;
       }
       return m.text.toLowerCase().includes(msgSearch.toLowerCase());
     });
-  }, [msgSearch, activeChat, allMessages, showValWarnings, showValResponses]);
+  }, [msgSearch, activeChat, allMessages, showValWarnings, showValResponses, showSystemInfo]);
 
   useEffect(() => {
     setSearchMatchIndex(0);
@@ -2578,6 +2594,34 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               </TooltipContent>
             </Tooltip>
           )}
+          {activeChat.id !== "valentina" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setShowSystemInfo((v) => !v)}
+                  aria-pressed={showSystemInfo}
+                  aria-label={
+                    showSystemInfo
+                      ? "Ocultar informações do sistema e número"
+                      : "Mostrar informações do sistema e número"
+                  }
+                  className={`grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border transition cursor-pointer ${
+                    showSystemInfo
+                      ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  <CircleHelp className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {showSystemInfo
+                  ? "Ocultar informações do sistema e número"
+                  : "Mostrar informações do sistema e número"}
+              </TooltipContent>
+            </Tooltip>
+          )}
           {activeChat.queue === "meus" ? (
             <>
               {/* Search button */}
@@ -3076,6 +3120,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               }
               return true;
             });
+          } else if (!showSystemInfo) {
+            displayed = displayed.filter(
+              (m) => !(m.author === "Sistema" || m.senderType === "system"),
+            );
           }
 
           if (displayed.length === 0) {
@@ -3199,8 +3247,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const dateA = getMessageDateStr(a);
             const dateB = getMessageDateStr(b);
             if (dateA && dateB && dateA !== dateB) return false;
-            const connA = resolveMessageConnectionInfo(a)?.key ?? null;
-            const connB = resolveMessageConnectionInfo(b)?.key ?? null;
+            const connA = showSystemInfo ? (resolveMessageConnectionInfo(a)?.key ?? null) : null;
+            const connB = showSystemInfo ? (resolveMessageConnectionInfo(b)?.key ?? null) : null;
             if (connA !== connB) return false;
             return (
               a.side === b.side &&
@@ -3283,7 +3331,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const dateLabel = showDateSeparator ? currDate : null;
 
             // ── Balão Centralizado de Conexão/Número (estilo Data: só exibe no início ou quando trocar de número) ──
-            const connInfo = resolveMessageConnectionInfo(m);
+            const connInfo = showSystemInfo ? resolveMessageConnectionInfo(m) : null;
             let connectionBanner: { label: string; foreignConversationId?: string | null } | null = null;
             if (connInfo) {
               if (connInfo.key !== lastRenderedConnectionKey) {

@@ -1718,17 +1718,31 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .trim();
         displayContent = cleanCaption ? `${mediaTag}\n${cleanCaption}` : mediaTag;
       } else if (!rawContent.startsWith("[LOCAL_MEDIA:")) {
-        const legacyImgMatch = rawContent
-          .trim()
-          .match(
-            /^\[(?:Arquivo|Imagem)\s+(?:anexad[oa]|enviad[oa])[^:]*:\s*([^\]]+\.(?:jpe?g|png|webp|gif|bmp))\](?:\s*\n?([\s\S]*))?$/i
-          );
-        if (legacyImgMatch) {
-          const fName = legacyImgMatch[1].trim();
-          const caption = (legacyImgMatch[2] || "").replace(/\[object Object\]/gi, "").trim();
-          const fallbackUrl = `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(fName)}`;
-          const mediaTag = `[LOCAL_MEDIA:image:${fallbackUrl}:${fName}]`;
-          displayContent = caption ? `${mediaTag}\n${caption}` : mediaTag;
+        const sendImageMatch = rawContent.match(/\[SEND_IMAGE:([^\]]+)\]/i);
+        if (sendImageMatch) {
+          const rawUrl = sendImageMatch[1].trim();
+          const kfMatch = rawUrl.match(/(kf-[a-z0-9-]+)(?:\.([a-z0-9]+))?/i);
+          const resolvedUrl = kfMatch
+            ? `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(kfMatch[1])}`
+            : rawUrl;
+          const fileName = kfMatch ? `${kfMatch[1]}.${kfMatch[2] || "png"}` : "equipamento.png";
+          const remainder = rawContent.replace(/\[SEND_IMAGE:[^\]]+\]/gi, "").trim();
+          displayContent = remainder
+            ? `[LOCAL_MEDIA:image:${resolvedUrl}:${fileName}]\n${remainder}`
+            : `[LOCAL_MEDIA:image:${resolvedUrl}:${fileName}]`;
+        } else {
+          const legacyImgMatch = rawContent
+            .trim()
+            .match(
+              /^\[(?:Arquivo|Imagem)\s+(?:anexad[oa]|enviad[oa])[^:]*:\s*([^\]]+\.(?:jpe?g|png|webp|gif|bmp))\](?:\s*\n?([\s\S]*))?$/i
+            );
+          if (legacyImgMatch) {
+            const fName = legacyImgMatch[1].trim();
+            const caption = (legacyImgMatch[2] || "").replace(/\[object Object\]/gi, "").trim();
+            const fallbackUrl = `${BACKEND_URL}/api/valentina/catalog-images?action=rawImage&fileName=${encodeURIComponent(fName)}`;
+            const mediaTag = `[LOCAL_MEDIA:image:${fallbackUrl}:${fName}]`;
+            displayContent = caption ? `${mediaTag}\n${caption}` : mediaTag;
+          }
         }
       }
 

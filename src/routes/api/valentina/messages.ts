@@ -37,6 +37,7 @@ import {
   getKnowledgeBaseContext,
   isExplicitMachinePhotoRequest,
   resolveMatchingCatalogPhotos,
+  resolveCatalogPhotosByMediaUrls,
   type MatchedCatalogPhoto,
 } from "../../../lib/valentina/knowledge-service";
 import { getDirectorBiContext } from "../../../lib/valentina/director-bi-context";
@@ -3266,12 +3267,99 @@ export const Route = createFileRoute("/api/valentina/messages")({
                   .catch(() => {});
               }
 
-              // Auto-repara mensagens em que o agente confirmou o envio da foto ("Claro, segue aí a foto da VSF-30S.") antes do pareamento visual estar ativo
+              // Auto-repara mensagens com tag bruta [SEND_IMAGE:/knowledge-media/...] vazada no chat do operador
+              if (
+                row.direction === "from_agent" &&
+                typeof row.content === "string" &&
+                /\[SEND_IMAGE:([^\]]+)\]/i.test(row.content)
+              ) {
+                try {
+                  const sendMatch = row.content.match(/\[SEND_IMAGE:([^\]]+)\]/i);
+                  const rawMediaUrl = sendMatch ? sendMatch[1].trim() : "";
+                  const resolvedByUrl = rawMediaUrl
+                    ? await resolveCatalogPhotosByMediaUrls(tenantId, [rawMediaUrl])
+                    : [];
+                  let photo = resolvedByUrl[0];
+                  if (!photo) {
+                    const fallbackFromHistory = await resolveMatchingCatalogPhotos(tenantId, {
+                      userText: row.content,
+                      recentHistoryMessages: msgs.map((m) => String(m.content || "")),
+                      isExplicitRequest: true,
+                      maxPhotos: 1,
+                    });
+                    photo = fallbackFromHistory[0];
+                  }
+                  const kfMatch = rawMediaUrl.match(/(kf-[a-z0-9-]+)/i);
+                  const fallbackFileId = kfMatch ? kfMatch[1] : "";
+                  const rawImageUrl =
+                    photo?.rawImageUrl ||
+                    (fallbackFileId
+                      ? `/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(fallbackFileId)}`
+                      : rawMediaUrl);
+                  const safeFileName = (photo?.fileName || `${fallbackFileId || "equipamento"}.png`).replace(
+                    /[:\]]/g,
+                    "_"
+                  );
+                  const remainderText = row.content
+                    .replace(/\[SEND_IMAGE:[^\]]+\]/gi, "")
+                    .replace(/\b[EÉ]\s+essa\s+que\s+voc[eê]\s+precisa\??/gi, "")
+                    .replace(/\bEsse\s+seria\s+o\s+modelo\s+que\s+voc[eê]\s+est[aá]\s+procurando\??/gi, "")
+                    .trim();
+                  const patchedContent = remainderText
+                    ? `[LOCAL_MEDIA:image:${rawImageUrl}:${safeFileName}]\n${remainderText}`
+                    : `[LOCAL_MEDIA:image:${rawImageUrl}:${safeFileName}]`;
+                  const patchedMeta = {
+                    ...meta,
+                    catalogPhoto: photo
+                      ? {
+                          fileId: photo.fileId,
+                          fileName: photo.fileName,
+                          modelKey: photo.normalizedModelKey,
+                          modelDisplay: photo.modelDisplay,
+                          aliasKeys: photo.aliasKeys,
+                          proactive: false,
+                        }
+                      : meta?.catalogPhoto,
+                  };
+                  row.content = patchedContent;
+                  row.metadata = patchedMeta;
+                  db.update(internalMessages)
+                    .set({ content: patchedContent, metadata: patchedMeta })
+                    .where(and(eq(internalMessages.tenantId, tenantId), eq(internalMessages.id, row.id)))
+                    .catch(() => {});
+                } catch {
+                  // Ignora falha silenciosa no auto-reparo
+                }
+              }
+
+              // Limpa pergunta de triagem de lead ("Consigo sim. É essa que você precisa?") em resposta a vendedor interno
+              if (
+                row.direction === "from_agent" &&
+                typeof row.content === "string" &&
+                /\bConsigo\s+sim\.\s*[EÉ]\s+essa\s+que\s+voc[eê]\s+precisa\??/i.test(row.content)
+              ) {
+                const patchedContent = row.content
+                  .replace(
+                    /\bConsigo\s+sim\.\s*[EÉ]\s+essa\s+que\s+voc[eê]\s+precisa\??/i,
+                    "Consigo sim, segue a foto oficial do equipamento."
+                  )
+                  .trim();
+                row.content = patchedContent;
+                db.update(internalMessages)
+                  .set({ content: patchedContent })
+                  .where(and(eq(internalMessages.tenantId, tenantId), eq(internalMessages.id, row.id)))
+                  .catch(() => {});
+              }
+
+              // Auto-repara mensagens em que o agente confirmou o envio da foto ou apresentou a Pratic Seal / máquina sem anexar a imagem
               if (
                 row.direction === "from_agent" &&
                 typeof row.content === "string" &&
                 !/^\[LOCAL_MEDIA:image:/i.test(row.content.trim()) &&
-                /\bsegue\s+(?:a[ií]\s+)?a\s+foto\s+d[ao]\s+([A-Za-z0-9-]+)/i.test(row.content)
+                (/\bsegue\s+(?:a[ií]\s+)?a\s+foto\s+d[ao]\s+([A-Za-z0-9-]+)/i.test(row.content) ||
+                  /^A\s+Pratic\s+Seal\s+[eé]\s+a\s+nossa\s+Seladora\s+Port[aá]til\s+TC-20/i.test(
+                    row.content.trim()
+                  ))
               ) {
                 try {
                   const matchedPhotos = await resolveMatchingCatalogPhotos(tenantId, {
@@ -3290,7 +3378,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
                         fileName: photo.fileName,
                         modelKey: photo.normalizedModelKey,
                         modelDisplay: photo.modelDisplay,
-                        proactive: false,
+                        aliasKeys: photo.aliasKeys,
+                        proactive: !/\bsegue\s+(?:a[ií]\s+)?a\s+foto/i.test(row.content),
                       },
                     };
                     row.content = patchedContent;
@@ -3753,6 +3842,11 @@ export const Route = createFileRoute("/api/valentina/messages")({
               if (typeof meta.catalogPhoto.modelKey === "string" && meta.catalogPhoto.modelKey) {
                 alreadySentPhotoKeysInWindow.add(meta.catalogPhoto.modelKey.toLowerCase());
               }
+              if (Array.isArray(meta.catalogPhoto.aliasKeys)) {
+                for (const ak of meta.catalogPhoto.aliasKeys) {
+                  if (typeof ak === "string" && ak) alreadySentPhotoKeysInWindow.add(ak.toLowerCase());
+                }
+              }
             }
             if (Array.isArray(meta?.catalogPhotos)) {
               for (const cp of meta.catalogPhotos) {
@@ -3761,6 +3855,11 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 }
                 if (typeof cp?.modelKey === "string" && cp.modelKey) {
                   alreadySentPhotoKeysInWindow.add(cp.modelKey.toLowerCase());
+                }
+                if (Array.isArray(cp?.aliasKeys)) {
+                  for (const ak of cp.aliasKeys) {
+                    if (typeof ak === "string" && ak) alreadySentPhotoKeysInWindow.add(ak.toLowerCase());
+                  }
                 }
               }
             }
@@ -4166,7 +4265,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 recentHistoryMessages: recentHistoryMessagesMostRecentFirst,
                 alreadySentPhotoKeysInWindow,
                 isExplicitRequest: isExplicitPhotoReq,
-                maxPhotos: 2,
+                maxPhotos: isExplicitPhotoReq ? 2 : 1,
               });
               if (matchedCatalogPhotos.length > 0) {
                 const photoListDesc = matchedCatalogPhotos
@@ -4175,9 +4274,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
                       `- Modelo ${p.modelDisplay}: arquivo "${p.fileName}" (foto oficial localizada na Base de Conhecimento e anexada automaticamente à sua resposta)`
                   )
                   .join("\n");
-                fileContext += `\n\n═══ FOTO OFICIAL DE CATÁLOGO PAREADA AUTOMATICAMENTE ═══\n${photoListDesc}\nREGRA DE ENTREGA DE FOTO: O sistema JÁ ANEXOU a imagem real renderizada desta máquina diretamente no balão da sua resposta. Portanto:\n1. NUNCA diga que não consegue enviar fotos ou imagens.\n2. Se o usuário pediu a foto diretamente, confirme de forma curta e natural (ex: "Claro, segue aí a foto da ${matchedCatalogPhotos[0].modelDisplay}." ou "Tá na mão a foto da ${matchedCatalogPhotos[0].modelDisplay}:").\n3. Se você está explicando as especificações da máquina e enviando a foto de prontidão, entregue a explicação técnica normalmente sabendo que a foto já acompanha sua mensagem.`;
+                fileContext += `\n\n═══ FOTO OFICIAL DE CATÁLOGO PAREADA AUTOMATICAMENTE ═══\n${photoListDesc}\nREGRA DE ENTREGA DE FOTO: O sistema JÁ ANEXOU a imagem real renderizada desta máquina diretamente no balão da sua resposta. Portanto:\n1. NUNCA diga que não consegue enviar fotos ou imagens.\n2. Se o usuário pediu a foto diretamente, confirme de forma curta e natural de colega (ex: "Claro, segue aí a foto da ${matchedCatalogPhotos[0].modelDisplay}." ou "Tá na mão a foto da ${matchedCatalogPhotos[0].modelDisplay}:").\n3. Se você está explicando as especificações da máquina e enviando a foto de prontidão, entregue a explicação técnica normalmente sabendo que a foto já acompanha sua mensagem.\n4. PROIBIDO escrever tags brutas como [SEND_IMAGE:...] no seu texto e PROIBIDO fazer perguntas de qualificação de lead como "É essa que você precisa?" ou "Esse seria o modelo que você está procurando?" para o vendedor interno.`;
               } else if (!isExplicitPhotoReq && alreadySentPhotoKeysInWindow.size > 0) {
-                fileContext += `\n\nNOTA DE CONTROLE DE FOTOS (JANELA 24H): Fotos de máquinas que já foram enviadas proativamente nesta janela de 24h NÃO são reenviadas automaticamente, a menos que o usuário peça a foto diretamente. Portanto, responda à dúvida técnica sem prometer um novo envio de foto.`;
+                fileContext += `\n\nNOTA DE CONTROLE DE FOTOS (JANELA 24H): Fotos de máquinas que já foram enviadas proativamente nesta janela de 24h NÃO são reenviadas automaticamente, a menos que o usuário peça a foto diretamente. Portanto, responda à dúvida técnica sem prometer um novo envio de foto e NUNCA escreva tags [SEND_IMAGE:...].`;
               }
             } catch (photoPreErr: any) {
               console.warn("[valentina/messages] Erro ao pré-parear foto de catálogo:", photoPreErr?.message);
@@ -4301,15 +4400,63 @@ export const Route = createFileRoute("/api/valentina/messages")({
           });
           broadcastLiveProgress(liveFinishedTitle);
 
-          // ── Fallback amigável quando a IA não responder ─────────────────────
+          // ── Captura e remove qualquer tag bruta [SEND_IMAGE:...] emitida pela IA ──
+          const extractedSendImageUrls: string[] = [];
+          fragments = fragments
+            .map((f) => {
+              let txt = f.text || "";
+              const sendImgRegex = /\[SEND_IMAGE:([^\]]+)\]/gi;
+              let sm: RegExpExecArray | null;
+              while ((sm = sendImgRegex.exec(txt)) !== null) {
+                if (sm[1]?.trim()) extractedSendImageUrls.push(sm[1].trim());
+              }
+              txt = txt.replace(/\[SEND_IMAGE:[^\]]+\]/gi, "").trim();
+              if (!useManagerContext && isExplicitPhotoReq) {
+                txt = txt
+                  .replace(/\b[EÉ]\s+essa\s+que\s+voc[eê]\s+precisa\??/gi, "")
+                  .replace(/\bEsse\s+seria\s+o\s+modelo\s+que\s+voc[eê]\s+est[aá]\s+procurando\??/gi, "")
+                  .trim();
+              }
+              return { ...f, text: txt };
+            })
+            .filter((f) => f.text.length > 0 || (f.blocks && f.blocks.length > 0));
+
+          if (
+            !effectiveImageBase64 &&
+            !effectiveAttachment &&
+            matchedCatalogPhotos.length === 0 &&
+            extractedSendImageUrls.length > 0
+          ) {
+            try {
+              const resolvedFromTag = await resolveCatalogPhotosByMediaUrls(
+                contextTenantId,
+                extractedSendImageUrls
+              );
+              if (resolvedFromTag.length > 0) {
+                matchedCatalogPhotos = resolvedFromTag.slice(0, isExplicitPhotoReq ? 2 : 1);
+              }
+            } catch {
+              // Ignora erro na resolução por URL
+            }
+          }
+
+          // ── Fallback amigável quando a IA não responder (ou se enviou apenas [SEND_IMAGE:...]) ──
           if (fragments.length === 0) {
-            fragments = [
-              {
-                text: useManagerContext
-                  ? `Estou com dificuldade para processar sua solicitação agora. Por favor, tente novamente em instantes. Se o problema persistir, verifique se o serviço de IA está configurado corretamente.`
-                  : `Deu uma oscilada rápida aqui na consulta. Pode me mandar de novo?`,
-              },
-            ];
+            if (matchedCatalogPhotos.length > 0) {
+              fragments = [
+                {
+                  text: `Claro, segue aí a foto oficial da ${matchedCatalogPhotos[0].modelDisplay}.`,
+                },
+              ];
+            } else {
+              fragments = [
+                {
+                  text: useManagerContext
+                    ? `Estou com dificuldade para processar sua solicitação agora. Por favor, tente novamente em instantes. Se o problema persistir, verifique se o serviço de IA está configurado corretamente.`
+                    : `Deu uma oscilada rápida aqui na consulta. Pode me mandar de novo?`,
+                },
+              ];
+            }
           }
 
           // ── Pós-processamento: fragmentação natural em balões curtos + cards interativos ──
@@ -4344,7 +4491,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 recentHistoryMessages: recentHistoryMessagesMostRecentFirst,
                 alreadySentPhotoKeysInWindow,
                 isExplicitRequest: isExplicitPhotoReq,
-                maxPhotos: 2,
+                maxPhotos: isExplicitPhotoReq ? 2 : 1,
               });
             } catch (photoPostErr: any) {
               console.warn("[valentina/messages] Erro ao pós-parear foto de catálogo:", photoPostErr?.message);
@@ -4366,6 +4513,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                     fileName: photo.fileName,
                     modelKey: photo.normalizedModelKey,
                     modelDisplay: photo.modelDisplay,
+                    aliasKeys: photo.aliasKeys,
                     proactive: !isExplicitPhotoReq,
                     sentAtISO: now.toISOString(),
                   },
@@ -4379,6 +4527,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                     fileName: photo.fileName,
                     modelKey: photo.normalizedModelKey,
                     modelDisplay: photo.modelDisplay,
+                    aliasKeys: photo.aliasKeys,
                     proactive: !isExplicitPhotoReq,
                     sentAtISO: now.toISOString(),
                   },

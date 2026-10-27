@@ -944,7 +944,18 @@ export function ValentinaChatTab() {
 
                         <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs sm:text-sm text-foreground space-y-2">
                           {(() => {
-                            const rawText = msg.content || "";
+                            const rawText = (msg.content || "").replace(
+                              /\[SEND_IMAGE:([^\]]+)\]/gi,
+                              (_m, rawUrl: string) => {
+                                const trimmed = String(rawUrl || "").trim();
+                                const kfMatch = trimmed.match(/(kf-[a-z0-9-]+)(?:\.([a-z0-9]+))?/i);
+                                const resolvedUrl = kfMatch
+                                  ? `/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(kfMatch[1])}`
+                                  : trimmed;
+                                const fName = kfMatch ? `${kfMatch[1]}.${kfMatch[2] || "png"}` : "equipamento.png";
+                                return `[LOCAL_MEDIA:image:${resolvedUrl}:${fName}]`;
+                              }
+                            );
                             const localImgMatch = rawText.match(
                               /^\[LOCAL_MEDIA:image:(.+?):([^\]]+)\]\n?([\s\S]*)$/
                             );
