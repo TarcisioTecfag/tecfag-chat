@@ -9,6 +9,7 @@ import {
   getDefaultPrimaryToken,
   getMcpTenantSettings,
   processMcpJsonRpcPayload,
+  revokeMcpSessions,
   saveMcpTenantSettings,
   type McpAccessContext,
   type McpAuditLogEntry,
@@ -185,6 +186,9 @@ export const Route = createFileRoute("/api/settings/mcp")({
 
         if (action === "toggle_enabled") {
           const enabled = Boolean(body.enabled);
+          if (!enabled) {
+            revokeMcpSessions(tenantId);
+          }
           const logEntry = buildConfigAuditEntry({
             operatorName,
             clientIp,
@@ -216,6 +220,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
         if (action === "rotate_primary_token") {
           const newToken = generateMcpTokenForTenant(tenantId);
           const nowIso = new Date().toISOString();
+          revokeMcpSessions(tenantId, "primary");
           const logEntry = buildConfigAuditEntry({
             operatorName,
             clientIp,
@@ -223,7 +228,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
             toolLabel: "Rotação do Link Único Principal",
             argumentsSummary: `Rotação de chave principal por ${operatorName}`,
             argumentsRaw: { action, rotatedBy: operatorName },
-            resultSummary: `Novo token principal gerado (${newToken.slice(0, 12)}...)`,
+            resultSummary: `Novo token principal gerado (${newToken.slice(0, 12)}...) · Link anterior revogado`,
             responsePreview: {
               action: "rotate_primary_token",
               operator: operatorName,
@@ -247,6 +252,7 @@ export const Route = createFileRoute("/api/settings/mcp")({
         if (action === "restore_default_token") {
           const defaultToken = getDefaultPrimaryToken(tenantId);
           const nowIso = new Date().toISOString();
+          revokeMcpSessions(tenantId, "primary");
           const logEntry = buildConfigAuditEntry({
             operatorName,
             clientIp,
@@ -324,6 +330,9 @@ export const Route = createFileRoute("/api/settings/mcp")({
         if (action === "toggle_named_key") {
           const keyId = String(body.keyId || "").trim();
           const active = Boolean(body.active);
+          if (!active && keyId) {
+            revokeMcpSessions(tenantId, keyId);
+          }
           const targetKey = current.namedKeys.find((k) => k.id === keyId);
           const updatedKeys = current.namedKeys.map((k) =>
             k.id === keyId ? { ...k, active } : k,
@@ -357,6 +366,9 @@ export const Route = createFileRoute("/api/settings/mcp")({
 
         if (action === "delete_named_key") {
           const keyId = String(body.keyId || "").trim();
+          if (keyId) {
+            revokeMcpSessions(tenantId, keyId);
+          }
           const targetKey = current.namedKeys.find((k) => k.id === keyId);
           const updatedKeys = current.namedKeys.filter((k) => k.id !== keyId);
           const logEntry = buildConfigAuditEntry({

@@ -196,7 +196,41 @@ export function pushMcpSseMessage(sessionId: string, payload: unknown): boolean 
 
 export function closeMcpSession(sessionId: string): void {
   if (!sessionId) return;
+  const existing = mcpSessions.get(sessionId);
+  if (existing?.sseController) {
+    try {
+      existing.sseController.close();
+    } catch {
+      // ignore
+    }
+  }
   mcpSessions.delete(sessionId);
+}
+
+/**
+ * Derruba imediatamente todas as sessões MCP / conexões SSE ativas em memória
+ * de um tenant (ou de uma chave específica `keyId` quando revogada/rotacionada).
+ */
+export function revokeMcpSessions(
+  tenantId: "tecfag" | "valem",
+  keyId?: string,
+): number {
+  let revokedCount = 0;
+  for (const [id, session] of mcpSessions.entries()) {
+    const sessionTenant = session.access.lockedTenantId || session.access.defaultTenantId;
+    if (sessionTenant !== tenantId) continue;
+    if (keyId && session.access.keyId !== keyId) continue;
+    if (session.sseController) {
+      try {
+        session.sseController.close();
+      } catch {
+        // ignore
+      }
+    }
+    mcpSessions.delete(id);
+    revokedCount += 1;
+  }
+  return revokedCount;
 }
 
 const TOOL_LABELS_PT: Record<string, string> = {
@@ -214,6 +248,7 @@ const TOOL_LABELS_PT: Record<string, string> = {
   mcp_tools_list: "Sincronização de Ferramentas (tools/list)",
   mcp_sse_connect: "Conexão SSE Aberta (Link Único)",
   mcp_http_inspect: "Verificação / Acesso ao Link Único (GET)",
+  mcp_auth_rejected: "Tentativa Bloqueada (Link Revogado / Inválido)",
   config_toggle_enabled: "Alteração de Status do Conector",
   config_rotate_primary_token: "Rotação do Link Único Principal",
   config_restore_default_token: "Restauração do Link Oficial Padrão",
@@ -714,7 +749,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
     if (tecfagSettings.enabled) {
       const tecfagPrimaryCandidates = [
         tecfagSettings.primaryToken,
-        process.env.MCP_TECFAG_TOKEN,
+        !tecfagSettings.primaryTokenUpdatedAt ? process.env.MCP_TECFAG_TOKEN : undefined,
       ].filter((t): t is string => Boolean(t && t.trim()));
 
       if (tecfagPrimaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
@@ -746,7 +781,7 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
     if (valemSettings.enabled) {
       const valemPrimaryCandidates = [
         valemSettings.primaryToken,
-        process.env.MCP_VALEM_TOKEN,
+        !valemSettings.primaryTokenUpdatedAt ? process.env.MCP_VALEM_TOKEN : undefined,
       ].filter((t): t is string => Boolean(t && t.trim()));
 
       if (valemPrimaryCandidates.some((expected) => safeCompareToken(candidateToken, expected))) {
@@ -774,12 +809,100 @@ export async function resolveMcpAccess(request: Request): Promise<McpAccessConte
         });
       }
     }
+
+    // Token fornecido não é mais válido (revogado, rotacionado, pausado ou incorreto):
+    // Registra tentativa bloqueada na auditoria para rastreabilidade de segurança.
+    const rejectedTenant: "tecfag" | "valem" = candidateToken.startsWith("mcp_vl_")
+      ? "valem"
+      : "tecfag";
+    const targetSettings = rejectedTenant === "valem" ? valemSettings : tecfagSettings;
+    const pausedKey = targetSettings.namedKeys.find(
+      (k) => !k.active && safeCompareToken(candidateToken, k.token),
+    );
+    const tokenPrefix = `${candidateToken.slice(0, 12)}...`;
+    await recordMcpToolAuditLog({
+      tenantId: rejectedTenant,
+      toolName: "mcp_auth_rejected",
+      toolLabel: "Tentativa Bloqueada (Link Revogado / Inválido)",
+      eventType: "connection",
+      toolArgs: {
+        tokenPrefix,
+        reason: !targetSettings.enabled
+          ? "connector_disabled"
+          : pausedKey
+            ? "named_key_paused"
+            : "token_revoked_or_invalid",
+      },
+      argumentsSummary: pausedKey
+        ? `Link pausado ("${pausedKey.label}") · Token ${tokenPrefix}`
+        : `Token revogado/antigo bloqueado (${tokenPrefix})`,
+      resultSummary: !targetSettings.enabled
+        ? "Acesso negado (401): Conector MCP está pausado"
+        : pausedKey
+          ? `Acesso negado (401): O link de "${pausedKey.label}" está pausado`
+          : "Acesso negado (401): Este link único já foi revogado/substituído",
+      status: "error",
+      latencyMs: 0,
+      transport: `${request.method} /api/mcp (Bloqueado)`,
+      clientName: effectiveClientName,
+      clientIp,
+      responseBytes: 0,
+      responsePreview: JSON.stringify(
+        {
+          blocked: true,
+          status: 401,
+          tokenPrefix,
+          clientName: effectiveClientName,
+          clientIp,
+          reason: !targetSettings.enabled
+            ? "Conector MCP desativado"
+            : pausedKey
+              ? `Link individual '${pausedKey.label}' pausado`
+              : "Token antigo/revogado após rotação de chave",
+        },
+        null,
+        2,
+      ),
+      access: {
+        authorized: false,
+        lockedTenantId: rejectedTenant,
+        defaultTenantId: rejectedTenant,
+        authMode: "none",
+        keyId: pausedKey?.id || "revoked",
+        keyLabel: pausedKey ? `${pausedKey.label} (Pausado)` : "Link Revogado / Antigo",
+      },
+    });
+
+    if (sessionId) {
+      closeMcpSession(sessionId);
+    }
+
+    return finalizeAccess({
+      authorized: false,
+      lockedTenantId: null,
+      defaultTenantId: rejectedTenant,
+      authMode: "none",
+    });
   }
 
   // Se o cliente já autenticou a sessão MCP (via GET SSE ou POST initialize com token)
-  // e enviou o sessionId nas chamadas seguintes:
+  // e enviou o sessionId nas chamadas seguintes, revalida se o conector/chave segue ativo:
   if (!candidateToken && existingSession?.access.authorized) {
-    return finalizeAccess(existingSession.access);
+    const sessionTenant =
+      existingSession.access.lockedTenantId || existingSession.access.defaultTenantId || "tecfag";
+    const liveSettings = await getMcpTenantSettings(sessionTenant);
+    const keyId = existingSession.access.keyId;
+    const isStillValid =
+      liveSettings.enabled &&
+      (keyId === "admin" ||
+        keyId === "session" ||
+        keyId === "primary" ||
+        liveSettings.namedKeys.some((k) => k.id === keyId && k.active));
+
+    if (isStillValid) {
+      return finalizeAccess(existingSession.access);
+    }
+    closeMcpSession(sessionId);
   }
 
   // Fallback: sessão autenticada de operador logado no navegador
