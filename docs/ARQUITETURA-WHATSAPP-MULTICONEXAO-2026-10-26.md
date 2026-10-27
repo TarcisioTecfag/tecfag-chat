@@ -235,3 +235,12 @@ Após capturar, o botão desaparece. Para trocar, é necessário finalizar e vol
 Nos números adicionais, mensagens de uma conta pareada não capturam o atendimento silenciosamente. Uma captura humana existente é preservada; uma nova mensagem de cliente pode reabrir um atendimento finalizado na fila, sem operador. Histórico importado e mensagens enviadas pelo dispositivo não reabrem automaticamente um atendimento finalizado. A conexão principal mantém as regras de roteamento existentes.
 
 Os testes executam o ciclo salvar → capturar → finalizar → escolher outro número, confirmam que o envio exige captura, preservam os históricos em suas conversas e rejeitam origem/destino em atendimento, versão desatualizada, número desconectado, outro tenant e falta de permissão. Falha na auditoria desfaz também a conversa em espera e a aprovação seletiva do contato.
+
+## Regra vigente: titular do celular e administrador master (27/10/2026)
+
+- O perfil de servidor `operator.role === "admin"` representa o administrador master. Nomes de grupos ou permissões de grupo não promovem um operador a master.
+- O cadastro do QR exige um nome e `ownerOperatorId`, validado no tenant da sessão. No seletor e na listagem de conexões, o operador recebe somente a conexão corporativa e os aparelhos vinculados ao seu usuário. O master recebe todos os números do próprio tenant.
+- A autorização de envio de conexões adicionais é exclusiva do titular e do master, inclusive em captura, transferência, envio e reações. Grants legados `canSend` não ampliam esse acesso. A API de grupos rejeita novas concessões de envio; o controle de acesso mantém somente consulta de histórico, independente da escolha de remetente.
+- O titular mantém o fluxo finalizar → escolher → salvar → capturar. Para o master, o botão permanece disponível durante o atendimento, sem exigir finalizar a conversa de origem.
+- A escolha do master abre a conversa separada do número escolhido. Se já estiver capturada, mantém o responsável e o estado; caso esteja pendente, exige a captura normal. Isso não reescreve o transporte das mensagens nem transfere automaticamente atendimentos de outro operador.
+- Nenhuma migração de dados ou nova credencial é necessária. Permissões de consulta de históricos existentes continuam sujeitas às regras de tenant, fila, canal e grupo.

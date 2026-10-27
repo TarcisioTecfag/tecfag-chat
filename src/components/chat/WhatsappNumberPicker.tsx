@@ -20,7 +20,8 @@ export function WhatsappNumberPicker({
   onChoosing: (choosing: boolean) => void;
 }) {
   const { tenant } = useChat();
-  const { enabled, connections, refresh } = useWhatsappConnections(tenant);
+  const { enabled, connections, refresh, canSwitchDuringAttendance } =
+    useWhatsappConnections(tenant);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(connectionId || "corporate");
   const [busy, setBusy] = useState(false);
@@ -82,8 +83,9 @@ export function WhatsappNumberPicker({
           </p>
         )}
         <p className="text-xs text-muted-foreground">
-          Salve a escolha e depois capture o atendimento. Para trocar durante um atendimento,
-          finalize-o primeiro.
+          {canSwitchDuringAttendance
+            ? "Como administrador master, você pode escolher outro número sem finalizar. Cada número mantém seu próprio atendimento e responsável."
+            : "Salve a escolha e depois capture o atendimento. Para trocar durante um atendimento, finalize-o primeiro."}
         </p>
         <div className="flex justify-end gap-2">
           <button
@@ -110,7 +112,11 @@ export function WhatsappNumberPicker({
                 await onPrepared(result.conversationId, result.queueState);
                 setOpen(false);
                 onChoosing(false);
-                toast.success("Número salvo. Capture o atendimento para iniciar.");
+                toast.success(
+                  result.queueState === "meus"
+                    ? "Conversa do número selecionado aberta."
+                    : "Número salvo. Capture o atendimento para iniciar.",
+                );
               } catch (cause) {
                 toast.error(
                   cause instanceof Error ? cause.message : "Não foi possível salvar o número.",

@@ -9,7 +9,7 @@ import {
 import { conversationReadRules } from "./conversation-policy";
 import type { ConversationPrincipal } from "./conversation-policy";
 
-/** Additional permission within the existing chat/channel/queue limits. Never grants pairing. */
+/** Groups may read history; only the linked owner or master may send. Existing chat limits still apply. */
 export function whatsappConnectionAccessCondition(
   session: ConversationPrincipal,
   permission: "read" | "send" = "read",
@@ -20,7 +20,7 @@ export function whatsappConnectionAccessCondition(
       ? undefined
       : or(
           eq(whatsappConnections.ownerOperatorId, session.operator.id),
-          session.operator.groupId
+          permission === "read" && session.operator.groupId
             ? exists(
                 db
                   .select({ id: whatsappConnectionGroupAccess.id })
@@ -31,9 +31,6 @@ export function whatsappConnectionAccessCondition(
                       eq(whatsappConnectionGroupAccess.connectionId, whatsappConnections.id),
                       eq(whatsappConnectionGroupAccess.groupId, session.operator.groupId),
                       eq(whatsappConnectionGroupAccess.canRead, true),
-                      permission === "send"
-                        ? eq(whatsappConnectionGroupAccess.canSend, true)
-                        : undefined,
                     ),
                   ),
               )
@@ -166,7 +163,8 @@ export async function requireConversationSendAccess(
     ? null
     : Response.json(
         {
-          error: "Seu grupo pode visualizar este número, mas não enviar mensagens por ele.",
+          error:
+            "Somente o titular do celular ou administrador master pode enviar por este número.",
           code: "CONNECTION_SEND_FORBIDDEN",
         },
         { status: 403 },

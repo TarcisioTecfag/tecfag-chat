@@ -900,7 +900,7 @@ test("group access separates read/send, remains per number and is revoked immedi
         orm.eq(schema.whatsappConnectionGroupAccess.id, "group-test-access"),
       ),
     );
-  assert.equal(await access.requireConversationWriteAccess(member, "group-thread"), null);
+  assert.equal((await access.requireConversationWriteAccess(member, "group-thread")).status, 403);
   assert.equal(
     await access
       .requireConversationWriteAccess(
@@ -1048,9 +1048,8 @@ test("admin can toggle group rights; a shared group cannot obtain QR, pair, mana
   };
   const memberList = await (await route.GET({ request: apiRequest(undefined, "GET") })).json();
   const shared = memberList.connections.find((c) => c.id === "number-4");
-  assert.equal(shared.canSend, false);
-  assert.equal(shared.canPair, false);
-  assert.equal(shared.groupAccess, undefined);
+  assert.equal(shared, undefined);
+  assert.deepEqual(memberList.connections.map((c) => c.id).sort(), ["corporate", "number-2"]);
   assert.deepEqual(memberList.accessGroups, []);
   assert.equal(
     (
@@ -1058,7 +1057,7 @@ test("admin can toggle group rights; a shared group cannot obtain QR, pair, mana
         request: apiRequest(undefined, "GET", "http://test.local/api?id=number-4"),
       })
     ).status,
-    403,
+    404,
   );
   for (const action of ["connect", "disconnect"])
     assert.equal(
@@ -1073,7 +1072,7 @@ test("admin can toggle group rights; a shared group cannot obtain QR, pair, mana
   who = session(); // Owning the number also does not grant permission to share it.
   assert.equal((await change()).status, 403);
   who = adminSession();
-  assert.equal((await change({ canSend: true })).status, 200);
+  assert.equal((await change({ canSend: true })).status, 403);
   who = {
     ...session("seller-b"),
     operator: { ...session("seller-b").operator, groupId: "post-sales" },
@@ -1201,7 +1200,8 @@ test("number permissions belong to access control, without requiring WhatsApp se
     });
   const granted = await submit({});
   assert.equal(granted.status, 200);
-  assert.equal((await submit({ canSend: true })).status, 409);
+  assert.equal((await submit({ canSend: true })).status, 403);
+  assert.equal((await submit({})).status, 409);
   const latest = (await (await read()).json()).connections.find((c) => c.id === number.id);
   assert.equal(latest.canSend, false);
   assert.equal(latest.canRead, true);
@@ -1288,7 +1288,7 @@ test("failed access audit rolls back number permissions instead of leaving a par
       groupId: "support",
       connectionId: "number-6",
       canRead: true,
-      canSend: true,
+      canSend: false,
       expectedRevision: groupRevision({ canRead: false, canSend: false }),
     }),
   });
@@ -1302,26 +1302,22 @@ test("failed access audit rolls back number permissions instead of leaving a par
 test("choose number, save, capture, finish and choose again preserve independent histories", async () => {
   const who = session();
   who.permissions.chat.canFinishChat = true;
-  await db
-    .insert(schema.contacts)
-    .values({
-      id: "workflow-customer",
-      tenantId: tenant,
-      name: "Workflow customer",
-      phone: "5511999995555",
-      mainChannel: "whatsapp",
-      responsibleName: "Unassigned",
-    });
-  await db
-    .insert(schema.conversations)
-    .values({
-      id: "workflow-company",
-      tenantId: tenant,
-      contactId: "workflow-customer",
-      queueState: "fila",
-      operatorId: null,
-      version: 1,
-    });
+  await db.insert(schema.contacts).values({
+    id: "workflow-customer",
+    tenantId: tenant,
+    name: "Workflow customer",
+    phone: "5511999995555",
+    mainChannel: "whatsapp",
+    responsibleName: "Unassigned",
+  });
+  await db.insert(schema.conversations).values({
+    id: "workflow-company",
+    tenantId: tenant,
+    contactId: "workflow-customer",
+    queueState: "fila",
+    operatorId: null,
+    version: 1,
+  });
   await db
     .update(schema.channelConfigs)
     .set({ connectionStatus: "connected" })
@@ -1512,15 +1508,13 @@ test("preparing a number rejects stale, offline, foreign and read-only choices w
     ...session("seller-b"),
     operator: { ...session("seller-b").operator, groupId: "support" },
   };
-  await db
-    .insert(schema.whatsappConnectionGroupAccess)
-    .values({
-      id: "workflow-read-only",
-      tenantId: tenant,
-      connectionId: "number-6",
-      groupId: "support",
-      canRead: true,
-    });
+  await db.insert(schema.whatsappConnectionGroupAccess).values({
+    id: "workflow-read-only",
+    tenantId: tenant,
+    connectionId: "number-6",
+    groupId: "support",
+    canRead: true,
+  });
   await assert.rejects(
     preparation.prepareWhatsappConversation(readOnly, input),
     (error) => error.code === "CONNECTION_SEND_FORBIDDEN",
@@ -1664,5 +1658,99 @@ test("a failed number-selection audit rolls back the waiting thread and selectiv
   assert.deepEqual(
     await db.select().from(schema.whatsappConnectionContacts).where(contactCondition),
     [],
+  );
+});
+
+test("master can select another number during attendance without rewriting or taking another operator's thread", async () => {
+  await db
+    .update(schema.whatsappConnections)
+    .set({
+      baileysSessionStatus: "connected",
+      leaseUntil: new Date(Date.now() + 120_000),
+    })
+    .where(
+      orm.and(
+        orm.eq(schema.whatsappConnections.tenantId, tenant),
+        orm.eq(schema.whatsappConnections.id, "number-2"),
+      ),
+    );
+  const read = async (id) =>
+    (
+      await db
+        .select()
+        .from(schema.conversations)
+        .where(
+          orm.and(
+            orm.eq(schema.conversations.tenantId, tenant),
+            orm.eq(schema.conversations.id, id),
+          ),
+        )
+    )[0];
+  const source = await read("official");
+  const target = await read("personal-b");
+  const chosen = await preparation.prepareWhatsappConversation(session("admin-a", "admin"), {
+    sourceConversationId: source.id,
+    expectedVersion: source.version,
+    connectionId: "number-2",
+  });
+  assert.equal(chosen.conversationId, target.id);
+  assert.equal(chosen.queueState, "meus");
+  assert.equal(chosen.operatorId, "seller-b");
+  assert.deepEqual(await read(source.id), source);
+  assert.deepEqual(await read(target.id), target);
+  const fakeMaster = {
+    ...session(),
+    accessGroup: { name: "Master", allowedChannels: ["whatsapp"] },
+  };
+  await assert.rejects(
+    preparation.prepareWhatsappConversation(fakeMaster, {
+      sourceConversationId: source.id,
+      expectedVersion: source.version,
+      connectionId: "number-2",
+    }),
+    (error) => error.code === "CONNECTION_SEND_FORBIDDEN",
+  );
+  await assert.rejects(
+    preparation.prepareWhatsappConversation(session(), {
+      sourceConversationId: source.id,
+      expectedVersion: source.version,
+      connectionId: null,
+    }),
+    (error) => error.code === "ATTENDANCE_NUMBER_LOCKED",
+  );
+});
+
+test("legacy group send grants cannot select another owner's number, while the owner retains access", async () => {
+  const who = {
+    ...session("seller-b"),
+    operator: { ...session("seller-b").operator, groupId: "support" },
+  };
+  await db.insert(schema.whatsappConnectionGroupAccess).values({
+    id: "legacy-send-owner-policy",
+    tenantId: tenant,
+    groupId: "support",
+    connectionId: "number-2",
+    canRead: true,
+    canSend: true,
+  });
+  assert.equal(await access.hasWhatsappConnectionAccess(who, "number-2", "send"), true);
+  const other = { ...session(), operator: { ...session().operator, groupId: "support" } };
+  assert.equal(await access.hasWhatsappConnectionAccess(other, "number-2", "read"), true);
+  assert.equal(await access.hasWhatsappConnectionAccess(other, "number-2", "send"), false);
+  await assert.rejects(
+    preparation.prepareWhatsappConversation(other, {
+      sourceConversationId: "workflow-company",
+      expectedVersion: 1,
+      connectionId: "number-2",
+    }),
+    (error) => error.code === "CONNECTION_SEND_FORBIDDEN",
+  );
+  assert.equal(
+    await access.hasWhatsappConnectionAccess(session("admin-a", "admin"), "number-2", "send"),
+    true,
+  );
+  assert.equal(
+    await access.hasWhatsappConnectionAccess({ ...who, tenantId: otherTenant }, "number-2", "send"),
+    false,
   );
 });

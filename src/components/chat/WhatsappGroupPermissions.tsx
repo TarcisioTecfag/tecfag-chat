@@ -123,9 +123,8 @@ export function WhatsappGroupPermissions({ groupId, search }: { groupId: string;
       </div>
       <div className="space-y-3 p-4">
         <p className="text-xs text-muted-foreground">
-          Escolha quais números este grupo pode consultar e usar para enviar mensagens. O titular e
-          os administradores autorizados mantêm acesso. As regras de filas e atendimento continuam
-          valendo; isso não permite parear ou desconectar aparelhos.
+          Escolha quais históricos este grupo pode consultar. Escolher um número e enviar mensagens
+          é exclusivo do usuário vinculado ao celular e dos administradores masters.
         </p>
         {error ? (
           <p role="alert" className="text-xs text-destructive">
@@ -160,31 +159,11 @@ export function WhatsappGroupPermissions({ groupId, search }: { groupId: string;
                     aria-label={`Visualizar histórico: ${connection.name}`}
                     checked={connection.canRead}
                     disabled={saving || loading}
-                    onCheckedChange={(checked) =>
-                      void save(
-                        connection,
-                        checked === true,
-                        checked === true && connection.canSend,
-                      )
-                    }
+                    onCheckedChange={(checked) => void save(connection, checked === true, false)}
                   />
                   Visualizar histórico
                 </label>
-                <label className="flex cursor-pointer items-center gap-2">
-                  <Checkbox
-                    aria-label={`Enviar mensagens: ${connection.name}`}
-                    checked={connection.canSend}
-                    disabled={saving || loading}
-                    onCheckedChange={(checked) =>
-                      void save(
-                        connection,
-                        checked === true || connection.canRead,
-                        checked === true,
-                      )
-                    }
-                  />
-                  Enviar mensagens
-                </label>
+                <span className="text-muted-foreground">Envio: titular e master</span>
               </div>
             </div>
           ))

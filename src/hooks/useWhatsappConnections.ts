@@ -18,6 +18,7 @@ export type WhatsappConnection = {
   groupAccess?: Array<{ groupId: string; canRead: boolean; canSend: boolean }>;
 };
 type ConnectionState = {
+  canSwitchDuringAttendance: boolean;
   enabled: boolean;
   canManage: boolean;
   encryptionReady: boolean;
@@ -25,6 +26,7 @@ type ConnectionState = {
   accessGroups: Array<{ id: string; name: string }>;
 };
 const empty: ConnectionState = {
+  canSwitchDuringAttendance: false,
   enabled: false,
   canManage: false,
   encryptionReady: false,

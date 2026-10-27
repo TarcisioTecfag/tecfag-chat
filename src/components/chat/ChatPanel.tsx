@@ -2534,8 +2534,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         <div className="flex items-center gap-1 md:gap-2 relative shrink-0">
           {activeChat.id !== "valentina" &&
             activeChat.channel === "whatsapp" &&
-            activeChat.queue !== "meus" &&
-            (activeChat.queue === "finalizados" || !activeChat.operatorId) &&
+            (connectionsState.canSwitchDuringAttendance ||
+              (activeChat.queue !== "meus" &&
+                (activeChat.queue === "finalizados" || !activeChat.operatorId))) &&
             canCapture && (
               <WhatsappNumberPicker
                 key={activeChat.id}
@@ -2544,7 +2545,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 connectionId={activeChat.whatsappConnectionId}
                 onPrepared={async (id, queueState) => {
                   await refreshConversations(id);
-                  setActiveQueue(queueState === "automacao" ? "automacao" : "fila");
+                  setActiveQueue(
+                    queueState === "meus" ? "todos" : queueState === "automacao" ? "automacao" : "fila",
+                  );
                   setSelectedChatId(id);
                 }}
                 onChoosing={setChoosingWhatsappNumber}

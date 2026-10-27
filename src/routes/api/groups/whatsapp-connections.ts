@@ -18,7 +18,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 function accessState(row?: typeof whatsappConnectionGroupAccess.$inferSelect) {
   return {
     canRead: row?.canRead ?? false,
-    canSend: row?.canSend ?? false,
+    canSend: false,
     revision: groupRevision(row ?? { canRead: false, canSend: false }),
   };
 }
@@ -110,6 +110,15 @@ export const Route = createFileRoute("/api/groups/whatsapp-connections")({
           return json(
             { error: "Informe grupo, número, permissões e revisão. Enviar exige visualizar." },
             400,
+          );
+        if (body.canSend)
+          return json(
+            {
+              error:
+                "Somente o titular do celular ou administrador master pode enviar por este número.",
+              code: "OWNER_ONLY_SEND",
+            },
+            403,
           );
         try {
           const result = await db.transaction(async (tx): Promise<SaveResult> => {

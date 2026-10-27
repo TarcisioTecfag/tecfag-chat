@@ -51,7 +51,7 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
           .where(
             and(
               eq(whatsappConnections.tenantId, session.tenantId),
-              whatsappConnectionAccessCondition(session),
+              whatsappConnectionAccessCondition(session, "send"),
             ),
           );
         if (requestedId) {
@@ -121,6 +121,7 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
         return Response.json(
           {
             enabled: true,
+            canSwitchDuringAttendance: session.operator.role === "admin",
             canManage,
             accessGroups: groups,
             encryptionReady: connectionEncryptionReady(),
@@ -150,15 +151,7 @@ export const Route = createFileRoute("/api/whatsapp/connections")({
                 capturePolicy: row.capturePolicy,
                 error: row.lastError,
                 corporate: false,
-                canSend:
-                  ownsConnection(session, row) ||
-                  grants.some(
-                    (g) =>
-                      g.connectionId === row.id &&
-                      g.groupId === session.operator.groupId &&
-                      g.canRead &&
-                      g.canSend,
-                  ),
+                canSend: ownsConnection(session, row),
                 canPair: row.ownerOperatorId === session.operator.id || canManage,
                 groupAccess: canManage
                   ? grants

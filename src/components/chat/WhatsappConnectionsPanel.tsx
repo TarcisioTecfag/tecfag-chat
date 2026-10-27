@@ -177,7 +177,8 @@ export function WhatsappConnectionsPanel({ compact = false }: { compact?: boolea
             </div>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
               Cada número funciona junto com o WhatsApp da empresa. O titular conecta a própria
-              conta pelo QR.
+              conta pelo QR. Somente o usuário vinculado e os administradores masters podem escolher
+              este número para enviar mensagens.
             </p>
           </div>
         </div>
