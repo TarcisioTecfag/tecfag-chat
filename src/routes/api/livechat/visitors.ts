@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getActiveVisitors } from "@/lib/livechat/livechatStorage";
+import { getActiveVisitors, getAllRecentVisitors } from "@/lib/livechat/livechatStorage";
 import { requireSession } from "@/lib/auth-session";
 import { canMonitorAllSiteVisitors } from "@/lib/access-control/channel-permissions";
 
@@ -23,7 +23,11 @@ export const Route = createFileRoute("/api/livechat/visitors")({
         if (!canMonitorAllSiteVisitors(session)) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
 
         try {
-          const visitors = await getActiveVisitors(tenantId);
+          const url = new URL(request.url, "http://localhost");
+          const includeRecent = url.searchParams.get("includeRecent") === "1";
+          const visitors = includeRecent
+            ? await getAllRecentVisitors(tenantId, 80)
+            : await getActiveVisitors(tenantId);
           return new Response(JSON.stringify({ visitors }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },

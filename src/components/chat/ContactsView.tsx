@@ -17,7 +17,8 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
-import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
+import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
+import { CustomerJourneyModal } from "./CustomerJourneyModal";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskPhone } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -42,6 +43,7 @@ import {
   Shield,
   Building2,
   Loader2,
+  MousePointerClick,
 } from "lucide-react";
 import { Channel, Conversation, QueueType } from "@/lib/mockData";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -89,6 +91,8 @@ type ContactListItem = {
   initialsBg?: string;
   tags: string[];
   channel: Channel | "livechat";
+  siteVisitorId?: string | null;
+  hasSiteJourney?: boolean;
   operatorId: string | null;
   walletOperatorId: string | null;
   responsibleName: string;
@@ -140,7 +144,7 @@ function ContactAvatar({ avatar, name, initials, initialsBg, size = "h-9 w-9" }:
 
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
-const CONTACT_CHANNEL_TABS = ["all", "whatsapp", "instagram", "messenger", "companies"] as const;
+const CONTACT_CHANNEL_TABS = ["all", "whatsapp", "instagram", "messenger", "livechat", "companies"] as const;
 type ContactsViewTab = (typeof CONTACT_CHANNEL_TABS)[number];
 
 export function ContactsView() {
@@ -167,7 +171,7 @@ export function ContactsView() {
   const isCompaniesView = channelFilter === "companies";
 
   const channelTabs: ContactsViewTab[] = useMemo(
-    () => ["all", "whatsapp", "instagram", "messenger", "companies"],
+    () => ["all", "whatsapp", "instagram", "messenger", "livechat", "companies"],
     [],
   );
 
@@ -191,6 +195,11 @@ export function ContactsView() {
   const [pendingDealContactId, setPendingDealContactId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactListItem | null>(null);
+  const [journeyTarget, setJourneyTarget] = useState<{
+    contactId: string;
+    visitorId?: string | null;
+    name: string;
+  } | null>(null);
   const [contactRows, setContactRows] = useState<ContactListItem[]>([]);
   const [totalContacts, setTotalContacts] = useState(0);
   const [loadingContacts, setLoadingContacts] = useState(false);
@@ -244,6 +253,8 @@ export function ContactsView() {
       avatar: item.avatar || null,
       tags: item.tags || [],
       channel: item.mainChannel || "whatsapp",
+      siteVisitorId: item.siteVisitorId || (item.id.startsWith("cont-lc-") ? item.id.slice("cont-lc-".length) : null),
+      hasSiteJourney: Boolean(item.hasSiteJourney || item.mainChannel === "livechat" || item.id.startsWith("cont-lc-")),
       operatorId: item.latestOperatorId || null,
       walletOperatorId: item.walletOperatorId || null,
       responsibleName: item.responsibleName || "Na Fila",
@@ -790,9 +801,30 @@ export function ContactsView() {
           <div className="flex items-center gap-1.5 self-end sm:self-auto">
             <span className="text-xs text-muted-foreground font-semibold mr-1">Canal:</span>
             <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("all")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${channelFilter === "all" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}>Todos</motion.button>
-            <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
-            <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
-            <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("whatsapp")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "whatsapp" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><WhatsappLogo className="h-4.5 w-4.5" /></motion.button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Apenas WhatsApp</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("instagram")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "instagram" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><InstagramLogo className="h-4.5 w-4.5" /></motion.button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Apenas Instagram</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("messenger")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "messenger" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><MessengerLogo className="h-4.5 w-4.5" /></motion.button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Apenas Messenger</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.button whileTap={{ scale: 0.92 }} onClick={() => setChannelFilter("livechat")} className={`grid h-8 w-8 place-items-center rounded-lg transition cursor-pointer ${channelFilter === "livechat" ? "bg-primary text-primary-foreground shadow-soft" : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"}`}><SiteLogo className="h-4.5 w-4.5" /></motion.button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Apenas Site (Live Chat)</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </div>
@@ -987,12 +1019,29 @@ export function ContactsView() {
                         </div>
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-white shadow-soft ${c.channel === "whatsapp" ? "bg-emerald-500" : c.channel === "instagram" ? "bg-gradient-to-tr from-yellow-500 to-purple-600" : "bg-blue-600"}`}>
-                          {c.channel === "whatsapp" && <><WhatsappLogo className="h-3 w-3" /> WhatsApp</>}
-                          {c.channel === "instagram" && <><InstagramLogo className="h-3 w-3" /> Instagram</>}
-                          {c.channel === "messenger" && <><MessengerLogo className="h-3 w-3" /> Messenger</>}
-                          {c.channel === "livechat" && <>Live Chat</>}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold text-white shadow-soft ${c.channel === "whatsapp" ? "bg-emerald-500" : c.channel === "instagram" ? "bg-gradient-to-tr from-yellow-500 to-purple-600" : c.channel === "livechat" ? "bg-sky-500" : "bg-blue-600"}`}>
+                            {c.channel === "whatsapp" && <><WhatsappLogo className="h-3 w-3" /> WhatsApp</>}
+                            {c.channel === "instagram" && <><InstagramLogo className="h-3 w-3" /> Instagram</>}
+                            {c.channel === "messenger" && <><MessengerLogo className="h-3 w-3" /> Messenger</>}
+                            {c.channel === "livechat" && <><SiteLogo className="h-3 w-3" /> Site</>}
+                          </span>
+                          {c.channel !== "livechat" && c.hasSiteJourney && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => setJourneyTarget({ contactId: c.id, visitorId: c.siteVisitorId, name: c.name })}
+                                  className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[9px] font-extrabold text-sky-600 dark:text-sky-400 hover:bg-sky-500/20 transition cursor-pointer"
+                                >
+                                  <SiteLogo className="h-2.5 w-2.5" />
+                                  Site
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Vínculo com Visitante do Site — Clique para ver Jornada</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 space-y-0.5">
                         <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -1049,6 +1098,21 @@ export function ContactsView() {
                       </td>
                       <td className="py-3.5 px-6 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {(c.hasSiteJourney || c.channel === "livechat") && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => setJourneyTarget({ contactId: c.id, visitorId: c.siteVisitorId, name: c.name })}
+                                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-primary/25 bg-primary/10 px-2.5 text-[11px] font-bold text-primary hover:bg-primary/20 transition cursor-pointer"
+                                >
+                                  <MousePointerClick className="h-3.5 w-3.5" />
+                                  Jornada
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Ver Jornada do Cliente no Site (Páginas, Cliques e Tempo)</TooltipContent>
+                            </Tooltip>
+                          )}
                           {canEditContact && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1181,11 +1245,12 @@ export function ContactsView() {
                       </span>
                     </div>
                   </div>
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white ${c.channel === "whatsapp" ? "bg-emerald-500" : c.channel === "instagram" ? "bg-gradient-to-tr from-yellow-500 to-purple-600" : "bg-blue-600"}`}>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold text-white ${c.channel === "whatsapp" ? "bg-emerald-500" : c.channel === "instagram" ? "bg-gradient-to-tr from-yellow-500 to-purple-600" : c.channel === "livechat" ? "bg-sky-500" : "bg-blue-600"}`}>
                     {c.channel === "whatsapp" && <WhatsappLogo className="h-3 w-3" />}
                     {c.channel === "instagram" && <InstagramLogo className="h-3 w-3" />}
                     {c.channel === "messenger" && <MessengerLogo className="h-3 w-3" />}
-                    <span className="capitalize">{c.channel}</span>
+                    {c.channel === "livechat" && <SiteLogo className="h-3 w-3" />}
+                    <span className="capitalize">{c.channel === "livechat" ? "Site" : c.channel}</span>
                   </span>
                 </div>
 
@@ -1224,6 +1289,16 @@ export function ContactsView() {
 
                 {/* Ações */}
                 <div className="flex items-center gap-2 pt-1 border-t border-border/60">
+                  {(c.hasSiteJourney || c.channel === "livechat") && (
+                    <button
+                      type="button"
+                      onClick={() => setJourneyTarget({ contactId: c.id, visitorId: c.siteVisitorId, name: c.name })}
+                      className="flex-1 py-2 px-3 rounded-xl border border-primary/25 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <MousePointerClick className="h-3.5 w-3.5" />
+                      <span>Jornada</span>
+                    </button>
+                  )}
                   {canEditContact && (
                     <button
                       onClick={() => startEditing(c)}
@@ -1849,6 +1924,36 @@ export function ContactsView() {
           {editingContact && (
             <form onSubmit={handleSaveEdit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
+                {(editingContact.hasSiteJourney || editingContact.channel === "livechat") && (
+                  <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/25 bg-primary/5 p-3.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
+                        <MousePointerClick className="h-4.5 w-4.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-extrabold text-foreground">Jornada do Cliente no Site</p>
+                        <p className="text-[10px] text-muted-foreground truncate">
+                          Páginas visitadas, tempo, rolagem e cliques rastreados
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setJourneyTarget({
+                          contactId: editingContact.id,
+                          visitorId: editingContact.siteVisitorId,
+                          name: editingContact.name,
+                        })
+                      }
+                      className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-[11px] font-bold text-primary-foreground shadow-soft hover:opacity-90 transition cursor-pointer"
+                    >
+                      <SiteLogo className="h-3.5 w-3.5" />
+                      Ver Jornada
+                    </button>
+                  </div>
+                )}
+
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Completo *</label>
                   <input
@@ -2325,6 +2430,21 @@ export function ContactsView() {
         }}
         onOpenChat={(conversationId) => {
           setSelectedAccountId(null);
+          setActiveQueue("todos");
+          setSelectedChatId(conversationId);
+          setActiveView("chat");
+        }}
+      />
+
+      {/* MODAL: JORNADA DO CLIENTE NO SITE (PÁGINAS, CLIQUES, TEMPO E ROLLAGEM) */}
+      <CustomerJourneyModal
+        open={journeyTarget !== null}
+        contactId={journeyTarget?.contactId}
+        visitorId={journeyTarget?.visitorId}
+        initialName={journeyTarget?.name}
+        onClose={() => setJourneyTarget(null)}
+        onOpenChat={(conversationId) => {
+          setJourneyTarget(null);
           setActiveQueue("todos");
           setSelectedChatId(conversationId);
           setActiveView("chat");

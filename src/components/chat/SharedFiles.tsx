@@ -22,7 +22,8 @@ import { ConversationDealsPanel } from "@/components/crm/ConversationDealsPanel"
 import { useConversationDealContext } from "@/components/crm/ConversationDealContext";
 import { AccountPicker } from "@/components/crm/AccountPicker";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
-import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
+import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
+import { CustomerJourneyModal } from "./CustomerJourneyModal";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
 import { formatSystemAnnotation } from "@/lib/triage/format-system-annotation";
 import { motion } from "framer-motion";
@@ -68,6 +69,8 @@ import {
   ChevronDown,
   Database,
   Paperclip,
+  MousePointerClick,
+  ExternalLink,
 } from "lucide-react";
 
 
@@ -82,11 +85,14 @@ export function SharedFiles() {
     connectBaileys,
     disconnectBaileys,
     setRightSidebarOpen,
+    setSelectedChatId,
   } = useChat();
 
   const { canEditClientInfo, canManageTags, canManageRdCrm, canChangeWalletOperator } = usePermissions();
 
   const [activeTab, setActiveTab] = useState<"details" | "files" | "events">("details");
+  const [showJourneyModal, setShowJourneyModal] = useState(false);
+  const [contactSiteVisitorId, setContactSiteVisitorId] = useState<string | null>(null);
   const [newTag, setNewTag] = useState(""); // mantido internamente para compatibilidade com updateTags
 
   // ── Estados do formulário de Tarefas ─────────────────────────────────────
@@ -285,6 +291,7 @@ export function SharedFiles() {
     const contactId = activeChat?.contactId;
     setLinkedAccount(null);
     setSelectedAccount(null);
+    setContactSiteVisitorId(null);
     setIsEditingInfo(false);
     isFirstCnpjRender.current = true;
     setCnpjDetails({});
@@ -298,6 +305,14 @@ export function SharedFiles() {
           const acc: CrmAccountDTO | null = contact?.account || null;
           setLinkedAccount(acc);
           setSelectedAccount(acc);
+          const cf = contact?.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
+          const svId =
+            typeof cf.siteVisitorId === "string" && cf.siteVisitorId.trim()
+              ? cf.siteVisitorId.trim()
+              : typeof contact?.id === "string" && contact.id.startsWith("cont-lc-")
+                ? contact.id.slice("cont-lc-".length)
+                : null;
+          setContactSiteVisitorId(svId);
           isFirstCnpjRender.current = true;
           setCnpjDetails(
             extractCnpjDetailsFromAccount(
@@ -918,6 +933,75 @@ export function SharedFiles() {
               </div>
             )}
           </div>
+
+          {/* ── Contexto & Jornada do Cliente no Site ───────────────────── */}
+          {(activeChat.channel === "livechat" ||
+            activeChat.hasSiteJourney ||
+            Boolean(activeChat.siteVisitorId) ||
+            Boolean(contactSiteVisitorId) ||
+            Boolean(activeChat.siteContext) ||
+            Boolean(activeChat.siteContinuityCode)) && (
+            <div className="space-y-2.5 rounded-2xl border border-primary/25 bg-primary/5 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+                    <SiteLogo className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block text-[10px] font-extrabold uppercase tracking-wider text-foreground">
+                      Jornada no Site
+                    </span>
+                    <span className="block text-[9px] text-muted-foreground truncate">
+                      {activeChat.channel === "livechat"
+                        ? "Atendimento direto pelo Widget do Site"
+                        : activeChat.siteContinuityCode
+                          ? `Vinculado do Site (Cód. #${activeChat.siteContinuityCode})`
+                          : "Visitante identificado no Site"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {activeChat.siteContext && (
+                <div className="space-y-1.5 rounded-xl border border-border/60 bg-card/80 p-2.5 text-[11px]">
+                  {activeChat.siteContext.inquiredProduct?.name && (
+                    <div>
+                      <span className="text-[9px] font-bold uppercase text-primary block">
+                        Produto Consultado
+                      </span>
+                      <span className="font-bold text-foreground block truncate">
+                        {activeChat.siteContext.inquiredProduct.name}
+                      </span>
+                      {activeChat.siteContext.inquiredProduct.category && (
+                        <span className="text-[10px] text-muted-foreground block truncate">
+                          {activeChat.siteContext.inquiredProduct.category}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {(activeChat.siteContext.currentPageTitle || activeChat.siteContext.currentPageUrl) && (
+                    <div>
+                      <span className="text-[9px] font-bold uppercase text-muted-foreground block">
+                        Página no Site
+                      </span>
+                      <span className="font-semibold text-foreground block truncate">
+                        {activeChat.siteContext.currentPageTitle || activeChat.siteContext.currentPageUrl}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowJourneyModal(true)}
+                className="w-full h-8 inline-flex items-center justify-center gap-1.5 rounded-xl bg-primary px-3 text-[11px] font-bold text-primary-foreground shadow-soft hover:opacity-90 transition cursor-pointer"
+              >
+                <MousePointerClick className="h-3.5 w-3.5" />
+                Ver Jornada Completa e Cliques
+              </button>
+            </div>
+          )}
 
           {/* ── Tarefas ────────────────────────────────────────────────── */}
           <div className="space-y-3">
@@ -1965,6 +2049,18 @@ export function SharedFiles() {
         /* TAB 3: EVENTOS */
         <AttendanceEvents key={`${tenant}:${activeChat.id}`} conversationId={activeChat.id} />
       )}
+
+      <CustomerJourneyModal
+        open={showJourneyModal}
+        contactId={activeChat.contactId || activeChat.id}
+        visitorId={activeChat.siteVisitorId || contactSiteVisitorId}
+        initialName={activeChat.name}
+        onClose={() => setShowJourneyModal(false)}
+        onOpenChat={(conversationId) => {
+          setShowJourneyModal(false);
+          setSelectedChatId(conversationId);
+        }}
+      />
     </aside>
   );
 }

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusWizardModal } from "./StatusWizardModal";
 import { ProfilePopover } from "./ProfileModal";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { usePermissions } from "@/hooks/usePermissions";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
 import { getConversationPreviewMessage } from "@/components/crm/CrmChatWidget";
@@ -70,6 +71,16 @@ export function MessengerLogo({ className = "h-4.5 w-4.5" }: { className?: strin
   return (
     <svg viewBox="0 0 28 28" className={className} fill="currentColor">
       <path d="M14 2C7.14 2 1.5 7.24 1.5 13.8c0 3.37 1.48 6.4 3.9 8.52a.85.85 0 0 1 .28.66l-.08 2.37a.85.85 0 0 0 1.25.79l2.76-1.57a.84.84 0 0 1 .53-.1c1.22.34 2.52.53 3.86.53 6.86 0 12.5-5.24 12.5-11.8S20.86 2 14 2zm1.68 15.06l-2.9-3.1-5.65 3.1 6.22-6.6 2.95 3.1 5.6-3.1-6.22 6.6z" />
+    </svg>
+  );
+}
+
+export function SiteLogo({ className = "h-4.5 w-4.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
     </svg>
   );
 }
@@ -361,43 +372,60 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
           Todos
         </button>
         {(!currentGroup || currentGroup.allowedChannels.includes("whatsapp")) && (
-          <button
-            onClick={() => setChannelFilter("whatsapp")}
-            className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
-              channelFilter === "whatsapp"
-                ? "bg-primary text-primary-foreground shadow-soft"
-                : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
-            }`}
-            title="WhatsApp Only"
-          >
-            <WhatsappLogo className="h-4 w-4" />
-          </button>
+          <SystemTooltip content="Apenas WhatsApp">
+            <button
+              onClick={() => setChannelFilter("whatsapp")}
+              className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
+                channelFilter === "whatsapp"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
+              }`}
+            >
+              <WhatsappLogo className="h-4 w-4" />
+            </button>
+          </SystemTooltip>
         )}
         {(!currentGroup || currentGroup.allowedChannels.includes("instagram")) && (
-          <button
-            onClick={() => setChannelFilter("instagram")}
-            className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
-              channelFilter === "instagram"
-                ? "bg-primary text-primary-foreground shadow-soft"
-                : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
-            }`}
-            title="Instagram Only"
-          >
-            <InstagramLogo className="h-4 w-4" />
-          </button>
+          <SystemTooltip content="Apenas Instagram">
+            <button
+              onClick={() => setChannelFilter("instagram")}
+              className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
+                channelFilter === "instagram"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
+              }`}
+            >
+              <InstagramLogo className="h-4 w-4" />
+            </button>
+          </SystemTooltip>
         )}
         {(!currentGroup || currentGroup.allowedChannels.includes("messenger")) && (
-          <button
-            onClick={() => setChannelFilter("messenger")}
-            className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
-              channelFilter === "messenger"
-                ? "bg-primary text-primary-foreground shadow-soft"
-                : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
-            }`}
-            title="Messenger Only"
-          >
-            <MessengerLogo className="h-4 w-4" />
-          </button>
+          <SystemTooltip content="Apenas Messenger">
+            <button
+              onClick={() => setChannelFilter("messenger")}
+              className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
+                channelFilter === "messenger"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
+              }`}
+            >
+              <MessengerLogo className="h-4 w-4" />
+            </button>
+          </SystemTooltip>
+        )}
+        {(!currentGroup || currentGroup.allowedChannels.includes("livechat")) && (
+          <SystemTooltip content="Apenas Site (Live Chat)">
+            <button
+              onClick={() => setChannelFilter("livechat")}
+              className={`grid h-7 w-7 place-items-center rounded-lg transition cursor-pointer ${
+                channelFilter === "livechat"
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "bg-muted text-muted-foreground hover:bg-border hover:text-primary"
+              }`}
+            >
+              <SiteLogo className="h-4 w-4" />
+            </button>
+          </SystemTooltip>
         )}
       </div>
 
@@ -582,6 +610,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                           {c.channel === "whatsapp" && <WhatsappLogo className="h-2 w-2" />}
                           {c.channel === "instagram" && <InstagramLogo className="h-2 w-2" />}
                           {c.channel === "messenger" && <MessengerLogo className="h-2 w-2" />}
+                          {c.channel === "livechat" && <SiteLogo className="h-2 w-2" />}
                         </span>
 
                         {/* Pin indicator */}

@@ -90,6 +90,7 @@ export const Route = createFileRoute("/api/contacts")({
               avatar: contacts.avatar, tags: contacts.tags,
               mainChannel: contacts.mainChannel, walletOperatorId: contacts.walletOperatorId,
               responsibleName: contacts.responsibleName,
+              customFields: contacts.customFields,
               latestConversationId: sql<string | null>`(
                 SELECT conv.id FROM conversations conv
                 WHERE conv.contact_id = ${contacts.id} AND conv.tenant_id = ${tenantId}
@@ -140,8 +141,28 @@ export const Route = createFileRoute("/api/contacts")({
 
           const enrichedItems = items.map((item) => {
             const linked = dealsByContact.get(item.id) || [];
+            const cf = ((item.customFields || {}) as Record<string, any>) || {};
+            const siteVisitorId =
+              typeof cf.siteVisitorId === "string" && cf.siteVisitorId
+                ? cf.siteVisitorId
+                : item.id.startsWith("cont-lc-")
+                  ? item.id.slice("cont-lc-".length)
+                  : Array.isArray(cf.linkedSiteContactIds) &&
+                      typeof cf.linkedSiteContactIds[0] === "string" &&
+                      cf.linkedSiteContactIds[0].startsWith("cont-lc-")
+                    ? cf.linkedSiteContactIds[0].slice("cont-lc-".length)
+                    : null;
+            const hasSiteJourney = Boolean(
+              siteVisitorId ||
+                item.mainChannel === "livechat" ||
+                cf.siteContext ||
+                cf.siteContinuityCode ||
+                (Array.isArray(cf.linkedSiteContactIds) && cf.linkedSiteContactIds.length > 0),
+            );
             return {
               ...item,
+              siteVisitorId,
+              hasSiteJourney,
               dealsCount: linked.length,
               linkedDeals: linked.slice(0, 5),
             };

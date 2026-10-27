@@ -342,6 +342,7 @@ export class ValemChatWidget {
   private reconnectAttempts = 0;
   private reconnectTimer: any = null;
   private pageviewInterval: any = null;
+  private currentPageviewId: string | null = null;
   private pillLoopTimer: any = null;
   private isHoveringFab = false;
   private pendingFile: File | null = null;
@@ -1010,7 +1011,20 @@ export class ValemChatWidget {
   }
 
   private openPanel() {
+    const wasOpen = this.isOpen;
     this.isOpen = true;
+    if (!wasOpen && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: "click_event",
+          url: location.href,
+          pageTitle: document.title,
+          elementId: "vlm-fab-button",
+          elementText: "Abrir chat do site",
+          clickType: "widget_open",
+        }),
+      );
+    }
     const panel = document.getElementById("vlm-panel");
     const fabWrapper = document.getElementById("vlm-fab-wrapper");
     const goldBadge = document.getElementById("vlm-fab-gold-badge");
@@ -1886,6 +1900,12 @@ export class ValemChatWidget {
 
   private handleIncomingPayload(payload: any) {
     const { type } = payload;
+    if (type === "pageview_recorded" || type === "PAGEVIEW_RECORDED" || type === "CONNECTED") {
+      if (payload.pageviewId) {
+        this.currentPageviewId = String(payload.pageviewId);
+      }
+      return;
+    }
     if (type === "message_ack") {
       void removeBrowserIntent(payload.messageId);
       return;
@@ -2016,14 +2036,49 @@ export class ValemChatWidget {
     }, delay);
   }
 
-  // ── Rastreamento de Pageviews ─────────────────────────────────────────────
+  // ── Rastreamento de Pageviews, Scroll, Tempo e Cliques ────────────────────
 
   private startPageviewTracking() {
     let lastUrl = location.href;
+    let pageEntryTime = Date.now();
+    let maxScrollDepth = 0;
+
+    const handleScroll = () => {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (docHeight > 0) {
+        const pct = Math.min(100, Math.round((scrollTop / docHeight) * 100));
+        if (pct > maxScrollDepth) maxScrollDepth = pct;
+      }
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    const sendPageviewUpdate = () => {
+      const timeSpent = Math.round((Date.now() - pageEntryTime) / 1000);
+      if (
+        (timeSpent > 0 || maxScrollDepth > 0) &&
+        this.ws &&
+        this.ws.readyState === WebSocket.OPEN
+      ) {
+        this.ws.send(
+          JSON.stringify({
+            type: "pageview_update",
+            pageviewId: this.currentPageviewId || undefined,
+            url: lastUrl,
+            timeOnPage: timeSpent,
+            scrollDepth: maxScrollDepth,
+          }),
+        );
+      }
+    };
 
     this.pageviewInterval = setInterval(() => {
       if (location.href !== lastUrl) {
+        sendPageviewUpdate();
         lastUrl = location.href;
+        pageEntryTime = Date.now();
+        maxScrollDepth = 0;
+        this.currentPageviewId = null;
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(
             JSON.stringify({
@@ -2037,5 +2092,69 @@ export class ValemChatWidget {
         }
       }
     }, 2000);
+
+    setInterval(() => {
+      sendPageviewUpdate();
+    }, 30000);
+
+    window.addEventListener("beforeunload", () => {
+      sendPageviewUpdate();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        sendPageviewUpdate();
+      }
+    });
+
+    document.addEventListener(
+      "click",
+      (e: MouseEvent) => {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        const widgetRoot = document.getElementById("valem-chat-widget-root");
+        if (widgetRoot && widgetRoot.contains(target)) return;
+
+        const anchor = target.closest(
+          "a, button, [role='button'], [data-cta], [data-tecfag-product-inquiry]",
+        ) as HTMLElement | null;
+        if (!anchor) return;
+
+        const href = (anchor as HTMLAnchorElement).href || "";
+        const text = (anchor.textContent || "").trim().slice(0, 120);
+        const id = anchor.id || anchor.getAttribute("data-cta") || "";
+        const classes = typeof anchor.className === "string" ? anchor.className : "";
+
+        let clickType: string | null = null;
+
+        if (anchor.hasAttribute("data-tecfag-product-inquiry")) {
+          clickType = "product_view";
+        } else if (href.includes("wa.me") || href.includes("whatsapp") || /whatsapp/i.test(text + id + classes)) {
+          clickType = "whatsapp_click";
+        } else if (href.startsWith("tel:") || /ligar|telefone/i.test(text + id)) {
+          clickType = "phone_click";
+        } else if (anchor.hasAttribute("data-cta")) {
+          clickType = anchor.getAttribute("data-cta") || "cta_click";
+        } else if (/comprar|carrinho|add.?to.?cart/i.test(text + id + classes)) {
+          clickType = "add_to_cart";
+        } else if (/or[cç]amento|solicitar|falar|consultar|cotar|especialista|atendimento/i.test(text + id + classes)) {
+          clickType = "cta_click";
+        }
+
+        if (clickType && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(
+            JSON.stringify({
+              type: "click_event",
+              url: location.href,
+              pageTitle: document.title,
+              elementId: id || undefined,
+              elementText: text || undefined,
+              clickType,
+            }),
+          );
+        }
+      },
+      { capture: true, passive: true },
+    );
   }
 }

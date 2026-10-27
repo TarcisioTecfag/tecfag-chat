@@ -1,4 +1,4 @@
-export type Channel = "whatsapp" | "instagram" | "messenger";
+export type Channel = "whatsapp" | "instagram" | "messenger" | "livechat";
 export type QueueType = "meus" | "todos" | "fila" | "automacao" | "finalizados";
 
 export type RelatedConversationItem = {
@@ -109,6 +109,10 @@ export type Conversation = {
   cnpjDetails?: Record<string, any>;
   tags: string[];
   channel: Channel;
+  siteVisitorId?: string | null;
+  hasSiteJourney?: boolean;
+  siteContext?: any;
+  siteContinuityCode?: string | null;
   queue: QueueType;
   messages: Message[];
   lastMessageTime: string;

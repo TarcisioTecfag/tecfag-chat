@@ -473,6 +473,26 @@ export const Route = createFileRoute("/api/chats")({
 
             const clientIso = lastClientTimeByConv.get(row.conversation.id);
             const fallbackIso = row.conversation.lastMessageTime.toISOString();
+            const cf = ((row.contact.customFields || {}) as Record<string, any>) || {};
+            const siteVisitorId =
+              typeof cf.siteVisitorId === "string" && cf.siteVisitorId
+                ? cf.siteVisitorId
+                : row.contact.id.startsWith("cont-lc-")
+                  ? row.contact.id.slice("cont-lc-".length)
+                  : row.conversation.id.startsWith("conv-lc-")
+                    ? row.conversation.id.slice("conv-lc-".length)
+                    : Array.isArray(cf.linkedSiteContactIds) &&
+                        typeof cf.linkedSiteContactIds[0] === "string" &&
+                        cf.linkedSiteContactIds[0].startsWith("cont-lc-")
+                      ? cf.linkedSiteContactIds[0].slice("cont-lc-".length)
+                      : null;
+            const hasSiteJourney = Boolean(
+              siteVisitorId ||
+                row.contact.mainChannel === "livechat" ||
+                cf.siteContext ||
+                cf.siteContinuityCode ||
+                (Array.isArray(cf.linkedSiteContactIds) && cf.linkedSiteContactIds.length > 0),
+            );
 
             return {
               id: row.conversation.id,
@@ -490,6 +510,10 @@ export const Route = createFileRoute("/api/chats")({
               cnpjDetails: (row.contact as any).cnpjDetails || {},
               tags: row.contact.tags || [],
               channel: row.conversation.whatsappConnectionId ? "whatsapp" : row.contact.mainChannel || "whatsapp",
+              siteVisitorId,
+              hasSiteJourney,
+              siteContext: cf.siteContext || null,
+              siteContinuityCode: cf.siteContinuityCode || null,
               queue: row.conversation.queueState || "fila",
               operatorId: row.conversation.operatorId || null,
               walletOperatorId: row.contact.walletOperatorId || null,

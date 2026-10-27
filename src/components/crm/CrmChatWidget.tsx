@@ -49,6 +49,7 @@ import {
 import {
   InstagramLogo,
   MessengerLogo,
+  SiteLogo,
   WhatsappLogo,
 } from "@/components/chat/ChatList";
 import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
@@ -319,7 +320,6 @@ function CustomerAvatar({
       {showChannel && (
         <span
           className={`absolute ${badgeSizes[size]} flex items-center justify-center rounded-full border border-card text-primary-foreground shadow-xs bg-primary`}
-          title={channel ? channel.toUpperCase() : "WhatsApp"}
         >
           {channel === "whatsapp" ? (
             <WhatsappLogo className={iconSizes[size]} />
@@ -327,6 +327,8 @@ function CustomerAvatar({
             <InstagramLogo className={iconSizes[size]} />
           ) : channel === "messenger" ? (
             <MessengerLogo className={iconSizes[size]} />
+          ) : channel === "livechat" ? (
+            <SiteLogo className={iconSizes[size]} />
           ) : (
             <MessageCircle className={iconSizes[size]} />
           )}

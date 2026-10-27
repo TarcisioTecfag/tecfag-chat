@@ -76,6 +76,7 @@ import { Route as ApiLivechatVtexConfigRouteImport } from './routes/api/livechat
 import { Route as ApiLivechatVisitorsRouteImport } from './routes/api/livechat/visitors'
 import { Route as ApiLivechatTrayConfigRouteImport } from './routes/api/livechat/tray-config'
 import { Route as ApiLivechatMetricsRouteImport } from './routes/api/livechat/metrics'
+import { Route as ApiLivechatJourneyRouteImport } from './routes/api/livechat/journey'
 import { Route as ApiGroupsWhatsappConnectionsRouteImport } from './routes/api/groups/whatsapp-connections'
 import { Route as ApiGestaoTasksRouteImport } from './routes/api/gestao/tasks'
 import { Route as ApiGestaoSlaRouteImport } from './routes/api/gestao/sla'
@@ -528,6 +529,11 @@ const ApiLivechatTrayConfigRoute = ApiLivechatTrayConfigRouteImport.update({
 const ApiLivechatMetricsRoute = ApiLivechatMetricsRouteImport.update({
   id: '/api/livechat/metrics',
   path: '/api/livechat/metrics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiLivechatJourneyRoute = ApiLivechatJourneyRouteImport.update({
+  id: '/api/livechat/journey',
+  path: '/api/livechat/journey',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGroupsWhatsappConnectionsRoute =
@@ -1228,6 +1234,7 @@ export interface FileRoutesByFullPath {
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
+  '/api/livechat/journey': typeof ApiLivechatJourneyRoute
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
@@ -1408,6 +1415,7 @@ export interface FileRoutesByTo {
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
+  '/api/livechat/journey': typeof ApiLivechatJourneyRoute
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
@@ -1589,6 +1597,7 @@ export interface FileRoutesById {
   '/api/gestao/sla': typeof ApiGestaoSlaRoute
   '/api/gestao/tasks': typeof ApiGestaoTasksRoute
   '/api/groups/whatsapp-connections': typeof ApiGroupsWhatsappConnectionsRoute
+  '/api/livechat/journey': typeof ApiLivechatJourneyRoute
   '/api/livechat/metrics': typeof ApiLivechatMetricsRoute
   '/api/livechat/tray-config': typeof ApiLivechatTrayConfigRoute
   '/api/livechat/visitors': typeof ApiLivechatVisitorsRoute
@@ -1771,6 +1780,7 @@ export interface FileRouteTypes {
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
     | '/api/groups/whatsapp-connections'
+    | '/api/livechat/journey'
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
@@ -1951,6 +1961,7 @@ export interface FileRouteTypes {
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
     | '/api/groups/whatsapp-connections'
+    | '/api/livechat/journey'
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
@@ -2131,6 +2142,7 @@ export interface FileRouteTypes {
     | '/api/gestao/sla'
     | '/api/gestao/tasks'
     | '/api/groups/whatsapp-connections'
+    | '/api/livechat/journey'
     | '/api/livechat/metrics'
     | '/api/livechat/tray-config'
     | '/api/livechat/visitors'
@@ -2303,6 +2315,7 @@ export interface RootRouteChildren {
   ApiGestaoReportsV2Route: typeof ApiGestaoReportsV2Route
   ApiGestaoSlaRoute: typeof ApiGestaoSlaRoute
   ApiGestaoTasksRoute: typeof ApiGestaoTasksRoute
+  ApiLivechatJourneyRoute: typeof ApiLivechatJourneyRoute
   ApiLivechatMetricsRoute: typeof ApiLivechatMetricsRoute
   ApiLivechatTrayConfigRoute: typeof ApiLivechatTrayConfigRoute
   ApiLivechatVisitorsRoute: typeof ApiLivechatVisitorsRoute
@@ -2812,6 +2825,13 @@ declare module '@tanstack/react-router' {
       path: '/api/livechat/metrics'
       fullPath: '/api/livechat/metrics'
       preLoaderRoute: typeof ApiLivechatMetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/livechat/journey': {
+      id: '/api/livechat/journey'
+      path: '/api/livechat/journey'
+      fullPath: '/api/livechat/journey'
+      preLoaderRoute: typeof ApiLivechatJourneyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/groups/whatsapp-connections': {
@@ -4028,6 +4048,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoReportsV2Route: ApiGestaoReportsV2Route,
   ApiGestaoSlaRoute: ApiGestaoSlaRoute,
   ApiGestaoTasksRoute: ApiGestaoTasksRoute,
+  ApiLivechatJourneyRoute: ApiLivechatJourneyRoute,
   ApiLivechatMetricsRoute: ApiLivechatMetricsRoute,
   ApiLivechatTrayConfigRoute: ApiLivechatTrayConfigRoute,
   ApiLivechatVisitorsRoute: ApiLivechatVisitorsRoute,

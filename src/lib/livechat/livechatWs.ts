@@ -18,6 +18,8 @@ import {
   getChatHistory,
   getVisitorAllMessages,
   recordPageview,
+  updatePageviewMetrics,
+  recordClickEvent,
   getActiveVisitors,
   getVisitorPageviews,
   getChatById,
@@ -195,6 +197,7 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
 
     let visitor: any;
     let chat: any;
+    let initialPageviewId: string | undefined;
 
     try {
       // Cria/atualiza visitante
@@ -213,7 +216,8 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
 
       // Registra pageview de entrada
       if (industrial ? siteContext : currentUrl) {
-        await recordPageview(tenantId, visitor.id, siteContext?.page.url || currentUrl, industrial ? siteContext!.page.title : currentTitle);
+        const pv = await recordPageview(tenantId, visitor.id, siteContext?.page.url || currentUrl, industrial ? siteContext!.page.title : currentTitle);
+        initialPageviewId = pv?.id;
       }
     } catch (e: any) {
       console.error("[LC WS] Erro ao criar visitante:", e?.message);
@@ -237,6 +241,10 @@ export function setupLiveChatWebSocket(wss: WebSocketServer) {
       : null;
 
     console.log(`[LC WS] Visitante ${visitor.id} conectado (tenant: ${tenantId})`);
+
+    if (initialPageviewId) {
+      send(ws, { type: "pageview_recorded", pageviewId: initialPageviewId });
+    }
 
     // Envia histórico unificado de todas as conversas/sessões anteriores do visitante
     try {
@@ -342,14 +350,28 @@ async function handleVisitorMessage(
   }
 
   if (type === "VISITOR_CONNECT") {
+    let connectPageviewId: string | undefined;
     if (conn.industrial && conn.siteContext) {
       await updateVisitorData(tenantId, visitor.id, {
         currentUrl: conn.siteContext.page.url,
         currentTitle: conn.siteContext.page.title,
       });
+      if (!visitor.currentUrl && conn.siteContext.page.url) {
+        const pv = await recordPageview(
+          tenantId,
+          visitor.id,
+          conn.siteContext.page.url,
+          conn.siteContext.page.title,
+        );
+        connectPageviewId = pv?.id;
+      }
       visitor.currentUrl = conn.siteContext.page.url;
       visitor.currentTitle = conn.siteContext.page.title;
     } else if (url) {
+      if (!visitor.currentUrl) {
+        const pv = await recordPageview(tenantId, visitor.id, url, title);
+        connectPageviewId = pv?.id;
+      }
       await updateVisitorData(tenantId, visitor.id, {
         currentUrl: url,
         currentTitle: title,
@@ -357,7 +379,12 @@ async function handleVisitorMessage(
       visitor.currentUrl = url;
       visitor.currentTitle = title;
     }
-    send(conn.ws, { type: "CONNECTED", visitorId: visitor.id, chatId: chat.id });
+    send(conn.ws, {
+      type: "CONNECTED",
+      visitorId: visitor.id,
+      chatId: chat.id,
+      pageviewId: connectPageviewId,
+    });
     try {
       const recent = await getVisitorAllMessages(tenantId, visitor.id, 40);
       for (const msg of recent) {
@@ -466,23 +493,38 @@ async function handleVisitorMessage(
     return;
   }
 
-  // Pageview update
+  // Pageview update (nova página visitada)
   if (type === "pageview" || type === "PAGE_UPDATE") {
     if (conn.industrial) {
       const current = capturedSiteContext?.page;
       if (current) {
-        await recordPageview(tenantId, visitor.id, current.url, current.title);
+        const pv = await recordPageview(tenantId, visitor.id, current.url, current.title);
         await updateVisitorData(tenantId, visitor.id, { currentUrl: current.url, currentTitle: current.title });
-        visitor.currentUrl = current.url; visitor.currentTitle = current.title;
+        visitor.currentUrl = current.url;
+        visitor.currentTitle = current.title;
+        if (pv?.id) {
+          send(conn.ws, { type: "PAGEVIEW_RECORDED", pageviewId: pv.id });
+          send(conn.ws, { type: "pageview_recorded", pageviewId: pv.id });
+        }
+        broadcastToOperators(tenantId, {
+          type: "visitor_updated",
+          visitorId: visitor.id,
+          currentUrl: current.url,
+          currentTitle: current.title,
+        });
       }
       return;
     }
     if (url) {
-      await recordPageview(tenantId, visitor.id, url, title);
+      const pv = await recordPageview(tenantId, visitor.id, url, title);
       await updateVisitorData(tenantId, visitor.id, {
         currentUrl: url,
         currentTitle: title,
       });
+      if (pv?.id) {
+        send(conn.ws, { type: "PAGEVIEW_RECORDED", pageviewId: pv.id });
+        send(conn.ws, { type: "pageview_recorded", pageviewId: pv.id });
+      }
       broadcastToOperators(tenantId, {
         type: "visitor_updated",
         visitorId: visitor.id,
@@ -490,6 +532,39 @@ async function handleVisitorMessage(
         currentTitle: title,
       });
     }
+    return;
+  }
+
+  // Métricas de tempo na página e rolagem (scroll depth)
+  if (type === "pageview_update" || type === "PAGEVIEW_UPDATE") {
+    await updatePageviewMetrics(tenantId, visitor.id, {
+      pageviewId: payload.pageviewId,
+      url: url || visitor.currentUrl,
+      timeOnPage: payload.timeOnPage,
+      scrollDepth: payload.scrollDepth,
+    });
+    return;
+  }
+
+  // Rastreamento de cliques em CTAs, botões, WhatsApp, etc.
+  if (type === "click_event" || type === "CLICK_EVENT") {
+    const clickEvt = await recordClickEvent(
+      tenantId,
+      visitor.id,
+      payload.clickType || payload.eventType || "cta_click",
+      {
+        url: url || visitor.currentUrl,
+        title: title || visitor.currentTitle,
+        elementId: payload.elementId,
+        elementText: payload.elementText,
+        clickType: payload.clickType || payload.eventType,
+      },
+    );
+    broadcastToOperators(tenantId, {
+      type: "visitor_click",
+      visitorId: visitor.id,
+      clickEvent: clickEvt,
+    });
     return;
   }
 

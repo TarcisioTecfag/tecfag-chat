@@ -145,14 +145,30 @@ export const ChatWidget: React.FC = () => {
   const chatWindowRef = useRef<HTMLDivElement>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const currentPageviewIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const isOpenRef = useRef(isOpen);
+  const prevOpenRef = useRef(isOpen);
   useEffect(() => {
+    const becameOpen = !prevOpenRef.current && isOpen;
+    prevOpenRef.current = isOpen;
     isOpenRef.current = isOpen;
+    if (becameOpen && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "CLICK_EVENT",
+          url: window.location.href,
+          pageTitle: document.title,
+          elementId: "tecfag-fab-button",
+          elementText: "Abrir chat do site",
+          clickType: "widget_open",
+        }),
+      );
+    }
   }, [isOpen]);
 
   const scrollToBottom = useCallback(() => {
@@ -291,6 +307,16 @@ export const ChatWidget: React.FC = () => {
 
           switch (data.type) {
             case "CONNECTED":
+              if (data.pageviewId) {
+                currentPageviewIdRef.current = data.pageviewId;
+              }
+              break;
+
+            case "PAGEVIEW_RECORDED":
+            case "pageview_recorded":
+              if (data.pageviewId) {
+                currentPageviewIdRef.current = data.pageviewId;
+              }
               break;
 
             case "TYPING_START":
@@ -428,9 +454,44 @@ export const ChatWidget: React.FC = () => {
     connectWebSocket();
 
     let currentUrl = window.location.href;
+    let pageEntryTime = Date.now();
+    let maxScrollDepth = 0;
+
+    const handleScroll = () => {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (docHeight > 0) {
+        const pct = Math.min(100, Math.round((scrollTop / docHeight) * 100));
+        if (pct > maxScrollDepth) maxScrollDepth = pct;
+      }
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    const sendPageviewUpdate = () => {
+      const timeSpent = Math.round((Date.now() - pageEntryTime) / 1000);
+      if (
+        (timeSpent > 0 || maxScrollDepth > 0) &&
+        wsRef.current?.readyState === WebSocket.OPEN
+      ) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "PAGEVIEW_UPDATE",
+            pageviewId: currentPageviewIdRef.current || undefined,
+            url: currentUrl,
+            timeOnPage: timeSpent,
+            scrollDepth: maxScrollDepth,
+          }),
+        );
+      }
+    };
+
     const urlCheckInterval = setInterval(() => {
       if (window.location.href !== currentUrl) {
+        sendPageviewUpdate();
         currentUrl = window.location.href;
+        pageEntryTime = Date.now();
+        maxScrollDepth = 0;
+        currentPageviewIdRef.current = null;
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(
             JSON.stringify({
@@ -443,8 +504,77 @@ export const ChatWidget: React.FC = () => {
       }
     }, 2000);
 
+    const periodicUpdateInterval = setInterval(() => {
+      sendPageviewUpdate();
+    }, 30000);
+
+    const handleBeforeUnload = () => {
+      sendPageviewUpdate();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        sendPageviewUpdate();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    const handleCtaClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const widgetRoot = document.getElementById("tecfag-chat-root");
+      if (widgetRoot && widgetRoot.contains(target)) return;
+
+      const anchor = target.closest(
+        "a, button, [role='button'], [data-cta], [data-tecfag-product-inquiry]",
+      ) as HTMLElement | null;
+      if (!anchor) return;
+
+      const href = (anchor as HTMLAnchorElement).href || "";
+      const text = (anchor.textContent || "").trim().slice(0, 120);
+      const id = anchor.id || anchor.getAttribute("data-cta") || "";
+      const classes = anchor.className || "";
+
+      let clickType: string | null = null;
+
+      if (anchor.hasAttribute("data-tecfag-product-inquiry")) {
+        clickType = "product_view";
+      } else if (href.includes("wa.me") || href.includes("whatsapp") || /whatsapp/i.test(text + id + classes)) {
+        clickType = "whatsapp_click";
+      } else if (href.startsWith("tel:") || /ligar|telefone/i.test(text + id)) {
+        clickType = "phone_click";
+      } else if (anchor.hasAttribute("data-cta")) {
+        clickType = anchor.getAttribute("data-cta") || "cta_click";
+      } else if (/comprar|carrinho|add.?to.?cart/i.test(text + id + classes)) {
+        clickType = "add_to_cart";
+      } else if (/or[cç]amento|solicitar|falar|consultar|cotar|especialista|atendimento/i.test(text + id + classes)) {
+        clickType = "cta_click";
+      }
+
+      if (clickType && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "CLICK_EVENT",
+            url: window.location.href,
+            pageTitle: document.title,
+            elementId: id || undefined,
+            elementText: text || undefined,
+            clickType,
+          }),
+        );
+      }
+    };
+    document.addEventListener("click", handleCtaClick, { capture: true, passive: true });
+
     return () => {
+      sendPageviewUpdate();
       clearInterval(urlCheckInterval);
+      clearInterval(periodicUpdateInterval);
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("click", handleCtaClick, { capture: true });
       if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       wsRef.current?.close();
