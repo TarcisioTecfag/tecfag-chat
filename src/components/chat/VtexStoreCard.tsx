@@ -177,7 +177,15 @@ export function VtexStoreCard({ backendUrl }: { backendUrl: string }) {
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const [intentPopoverOpen, setIntentPopoverOpen] = useState(false);
   const [credentialsExpanded, setCredentialsExpanded] = useState(false);
-  const [simulationRefDate, setSimulationRefDate] = useState<Date | undefined>(() => new Date());
+  const [simulationRefDate, setSimulationRefDate] = useState<string>(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(Math.floor(now.getMinutes() / 5) * 5).padStart(2, "0");
+    return `${y}-${m}-${d}T${hh}:${mm}`;
+  });
 
   useEffect(() => {
     if (sessionRole !== "admin") return;

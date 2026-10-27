@@ -43,7 +43,7 @@ function getRelativeDateYMD(daysOffset: number): string {
 }
 
 export interface SystemDateTimePickerProps {
-  value: string;
+  value?: string | Date | null;
   onChange: (nextValue: string) => void;
   mode?: "date" | "datetime";
   placeholder?: string;
@@ -78,7 +78,13 @@ export function SystemDateTimePicker({
   const [isTimeOpen, setIsTimeOpen] = useState(false);
 
   const parsed = useMemo(() => {
-    const raw = (value || "").trim();
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      const datePart = formatYMD(value);
+      const hh = String(value.getHours()).padStart(2, "0");
+      const mm = String(Math.floor(value.getMinutes() / 5) * 5).padStart(2, "0");
+      return { datePart, timePart: `${hh}:${mm}` };
+    }
+    const raw = typeof value === "string" ? value.trim() : "";
     if (!raw) {
       return { datePart: "", timePart: defaultTime };
     }
