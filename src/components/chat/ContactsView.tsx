@@ -519,7 +519,7 @@ export function ContactsView() {
         addForm.name,
         addForm.phone,
         addForm.email,
-        selectedDealMeta?.account?.id || newAccount?.id || null,
+        selectedDealMeta?.account?.id || dealSelection.newDeal?.accountId || newAccount?.id || null,
         addForm.channel,
         dealSelection,
         newContactCustomFields,
@@ -1014,7 +1014,7 @@ export function ContactsView() {
                     <tr
                       key={acc.id}
                       onClick={() => setSelectedAccountId(acc.id)}
-                      className="hover:bg-muted/10 transition text-xs font-semibold text-foreground/90 cursor-pointer"
+                      className="group/company-row hover:bg-muted/10 transition text-xs font-semibold text-foreground/90 cursor-pointer"
                     >
                       <td className="py-3.5 px-6">
                         <div className="flex items-center gap-3">
@@ -1022,7 +1022,7 @@ export function ContactsView() {
                             {acc.type === "company" ? <Building2 className="h-4.5 w-4.5" /> : <User className="h-4.5 w-4.5" />}
                           </div>
                           <div className="min-w-0">
-                            <span className="block font-bold text-foreground truncate max-w-[260px]">{acc.name}</span>
+                            <span className="block font-bold text-foreground truncate max-w-[260px] transition-colors group-hover/company-row:text-primary">{acc.name}</span>
                             <span className="text-[10px] text-muted-foreground font-medium block truncate max-w-[260px]">
                               {acc.tradeName ? `Fantasia: ${acc.tradeName}` : acc.type === "company" ? "Pessoa Jurídica" : "Pessoa Física"}
                             </span>
@@ -1205,13 +1205,42 @@ export function ContactsView() {
                       </td>
                       <td className="py-3.5 px-4">
                         {c.accountName ? (
-                          <div>
-                            <div className="flex items-center gap-1 text-foreground">
-                              <Building className="h-3 w-3 text-muted-foreground" />
-                              {c.accountName}
+                          c.accountId ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedAccountId(c.accountId)}
+                                  className="group/company text-left cursor-pointer focus:outline-none"
+                                >
+                                  <div className="flex items-center gap-1 text-foreground transition-colors group-hover/company:text-primary">
+                                    <Building className="h-3 w-3 text-muted-foreground transition-colors group-hover/company:text-primary shrink-0" />
+                                    <span className="transition-colors group-hover/company:text-primary">
+                                      {c.accountName}
+                                    </span>
+                                  </div>
+                                  {c.accountDocument && (
+                                    <span className="block text-[10px] text-muted-foreground font-mono">
+                                      {c.accountType === "company" ? formatCNPJ(c.accountDocument) : formatCPF(c.accountDocument)}
+                                    </span>
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Abrir ficha da empresa</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <div>
+                              <div className="flex items-center gap-1 text-foreground">
+                                <Building className="h-3 w-3 text-muted-foreground shrink-0" />
+                                {c.accountName}
+                              </div>
+                              {c.accountDocument && (
+                                <span className="block text-[10px] text-muted-foreground font-mono">
+                                  {c.accountType === "company" ? formatCNPJ(c.accountDocument) : formatCPF(c.accountDocument)}
+                                </span>
+                              )}
                             </div>
-                            {c.accountDocument && <span className="text-[10px] text-muted-foreground font-mono">{c.accountType === "company" ? formatCNPJ(c.accountDocument) : formatCPF(c.accountDocument)}</span>}
-                          </div>
+                          )
                         ) : (
                           <span className="text-muted-foreground italic font-medium">Nenhum</span>
                         )}

@@ -107,6 +107,7 @@ export const Route = createFileRoute("/api/contacts")({
 
           const contactIds = items.map((item) => item.id);
           const dealsByContact = new Map<string, Array<{ id: string; title: string; status: string; value: string | null; pipelineId: string; stageId: string }>>();
+          const fallbackAccountByContact = new Map<string, { accountId: string; accountName: string | null; accountDocument: string | null; accountType: string | null }>();
           if (contactIds.length > 0) {
             const dealLinks = await db
               .select({
@@ -117,9 +118,14 @@ export const Route = createFileRoute("/api/contacts")({
                 value: crmDeals.value,
                 pipelineId: crmDeals.pipelineId,
                 stageId: crmDeals.stageId,
+                accountId: crmDeals.accountId,
+                accountName: crmAccounts.name,
+                accountDocument: crmAccounts.document,
+                accountType: crmAccounts.type,
               })
               .from(crmDealContacts)
               .innerJoin(crmDeals, and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)))
+              .leftJoin(crmAccounts, and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)))
               .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.contactId, contactIds)))
               .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt));
 
@@ -136,11 +142,20 @@ export const Route = createFileRoute("/api/contacts")({
                 });
                 dealsByContact.set(link.contactId, existing);
               }
+              if (link.accountId && link.accountName && !fallbackAccountByContact.has(link.contactId)) {
+                fallbackAccountByContact.set(link.contactId, {
+                  accountId: link.accountId,
+                  accountName: link.accountName,
+                  accountDocument: link.accountDocument || null,
+                  accountType: link.accountType || null,
+                });
+              }
             }
           }
 
           const enrichedItems = items.map((item) => {
             const linked = dealsByContact.get(item.id) || [];
+            const fallbackAcc = !item.accountId ? fallbackAccountByContact.get(item.id) : undefined;
             const cf = ((item.customFields || {}) as Record<string, any>) || {};
             const siteVisitorId =
               typeof cf.siteVisitorId === "string" && cf.siteVisitorId
@@ -161,6 +176,10 @@ export const Route = createFileRoute("/api/contacts")({
             );
             return {
               ...item,
+              accountId: item.accountId || fallbackAcc?.accountId || null,
+              accountName: item.accountName || fallbackAcc?.accountName || null,
+              accountDocument: item.accountDocument || fallbackAcc?.accountDocument || null,
+              accountType: item.accountType || fallbackAcc?.accountType || null,
               siteVisitorId,
               hasSiteJourney,
               dealsCount: linked.length,
