@@ -8,6 +8,7 @@ import {
   crmDealEvents,
   messages,
   operators,
+  rdMarketingReceipts,
 } from "../../db/schema";
 import type { DealTransaction } from "./deal-associations";
 import { getContactDealRows } from "./contact-deals-query";
@@ -148,12 +149,55 @@ async function recordContextChange(
   reason: string,
 ) {
   const changeId = crypto.randomUUID();
+  const [actor] = operatorId
+    ? await tx
+        .select({ name: operators.name })
+        .from(operators)
+        .where(and(eq(operators.tenantId, tenantId), eq(operators.id, operatorId)))
+        .limit(1)
+    : [];
+  const operatorName = actor?.name?.trim() || null;
+  let isRdMarketingOrigin = false;
+  if (toDealId) {
+    const [rdReceipt] = await tx
+      .select({ id: rdMarketingReceipts.id })
+      .from(rdMarketingReceipts)
+      .where(
+        and(eq(rdMarketingReceipts.tenantId, tenantId), eq(rdMarketingReceipts.dealId, toDealId)),
+      )
+      .limit(1);
+    isRdMarketingOrigin = Boolean(rdReceipt);
+  }
+  const resolvedActorName =
+    reason === "automatic"
+      ? isRdMarketingOrigin
+        ? operatorName
+          ? `Automação RD Station Marketing (${operatorName})`
+          : "Automação RD Station Marketing"
+        : operatorName || "Automação CRM"
+      : operatorName || "Operador";
+
   if (reason === "automatic" && toDealId) {
-    const [deal] = await tx.select({ title: crmDeals.title }).from(crmDeals).where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, toDealId))).limit(1);
-    await tx.insert(messages).values({ id: `context-auto-${changeId}`, tenantId, conversationId,
-      senderType: "system", senderName: "Sistema", isInternalNote: true, direction: "outbound", status: "accepted",
+    const [deal] = await tx
+      .select({ title: crmDeals.title })
+      .from(crmDeals)
+      .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, toDealId)))
+      .limit(1);
+    await tx.insert(messages).values({
+      id: `context-auto-${changeId}`,
+      tenantId,
+      conversationId,
+      senderType: "system",
+      senderName: resolvedActorName,
+      isInternalNote: true,
+      direction: "outbound",
+      status: "accepted",
       content: `Negociação atual selecionada automaticamente: ${deal?.title || toDealId}.`,
-      metaDetails: { attendanceEventType: "attendance.context_selected" },
+      metaDetails: {
+        attendanceActor: { name: resolvedActorName, operatorId },
+        attendanceEventType: "attendance.context_selected",
+        dealId: toDealId,
+      },
     });
   }
   for (const dealId of new Set([fromDealId, toDealId].filter((id): id is string => Boolean(id)))) {
@@ -168,6 +212,7 @@ async function recordContextChange(
         fromDealId,
         toDealId,
         reason,
+        actorName: resolvedActorName,
         direction: dealId === toDealId ? "selected" : "released",
       },
     });

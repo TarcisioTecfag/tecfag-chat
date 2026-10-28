@@ -204,6 +204,10 @@ const migrations = [
     name: "0049_operator_onboarding",
     url: new URL("../src/db/migrations/0049_operator_onboarding.sql", import.meta.url),
   },
+  {
+    name: "0050_attendance_event_actors",
+    url: new URL("../src/db/migrations/0050_attendance_event_actors.sql", import.meta.url),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -259,6 +263,35 @@ if (!databaseUrl) {
       console.log(`[platform migration] ${tecfagZeroDayResetName} concluída e registrada com sucesso.`);
     } else {
       console.log(`[platform migration] ${tecfagZeroDayResetName} já aplicada anteriormente.`);
+    }
+
+    // 3. Backfill único de carteira (wallet_operator_id) para contatos já capturados/transferidos
+    const walletBackfillName = "backfill_wallet_operator_from_active_chats_2026_10_28";
+    const [appliedWalletBackfill] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${walletBackfillName}
+    `;
+    if (!appliedWalletBackfill) {
+      await sql.begin(async (tx) => {
+        const res = await tx`
+          UPDATE contacts c
+          SET wallet_operator_id = sub.operator_id
+          FROM (
+            SELECT DISTINCT ON (contact_id, tenant_id) contact_id, tenant_id, operator_id
+            FROM conversations
+            WHERE operator_id IS NOT NULL AND queue_state = 'meus'
+            ORDER BY contact_id, tenant_id, updated_at DESC
+          ) sub
+          WHERE c.id = sub.contact_id
+            AND c.tenant_id = sub.tenant_id
+            AND c.wallet_operator_id IS NULL
+        `;
+        await tx`
+          INSERT INTO app_deploy_migrations (name)
+          VALUES (${walletBackfillName})
+          ON CONFLICT (name) DO NOTHING
+        `;
+        console.log(`[platform migration] ${walletBackfillName} aplicada (${res.count ?? 0} contatos vinculados à carteira).`);
+      });
     }
   } catch (error) {
     console.error(

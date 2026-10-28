@@ -20,6 +20,7 @@ import { restartIndustrialCycle } from "../triage/industrial-cycle-restart";
 import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
+import { setAttendanceActor } from "../attendance-events";
 import crypto from "node:crypto";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -648,6 +649,7 @@ export class InboundProcessor {
             .orderBy(desc(conversations.lastMessageTime))
             .limit(1);
           if (existing) return existing;
+          await setAttendanceActor(tx, tenantId, "Automação WhatsApp", initialOperatorId);
           const [created] = await tx
             .insert(conversations)
             .values({

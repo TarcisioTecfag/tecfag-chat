@@ -3463,6 +3463,7 @@ export class CrmService {
           pipelineId: deal.pipelineId,
           stageId: deal.stageId,
           value: deal.value,
+          ...(data.marketingOrigin ? { actorName: "Automação RD Station Marketing" } : {}),
         },
         tx
       );

@@ -9,6 +9,7 @@ import { normalizeCanonicalPhone, buildPhoneSearchTerms, phoneRegistrationError,
 import { contactDealPermission, registerContactDeal } from "../../lib/crm/contact-registration";
 import { syncConversationDeals } from "../../lib/crm/deal-associations";
 import { listCustomFields, validateFieldValues } from "../../lib/crm/custom-fields";
+import { setAttendanceActor } from "../../lib/attendance-events";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -279,6 +280,7 @@ export const Route = createFileRoute("/api/contacts")({
               });
             }
             await registerContactDeal(tx, session, finalContactId, accountId || null, body);
+            await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
             await tx.insert(conversations).values({
               id: finalConversationId, tenantId, contactId: finalContactId,
               operatorId: requiresExplicitCapture ? null : session.operator.id,

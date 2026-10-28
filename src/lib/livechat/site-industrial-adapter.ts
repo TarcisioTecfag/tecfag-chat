@@ -16,6 +16,7 @@ import { SessionManager } from "../baileys/session-manager";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { reopenIndustrialSiteConversation } from "./site-conversation-store";
 import { readSiteContext, type SiteContext } from "./site-context";
+import { setAttendanceActor } from "../attendance-events";
 import {
   SITE_CHANNEL,
   SITE_PROVIDER,
@@ -67,6 +68,7 @@ export async function ensureSiteConversation(tenantId: string, visitor: LcVisito
       .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)))
       .for("update");
     if (existing) return existing;
+    await setAttendanceActor(tx, tenantId, "Automação Site (Chat Online)", null);
     const now = new Date();
     const [created] = await tx
       .insert(conversations)

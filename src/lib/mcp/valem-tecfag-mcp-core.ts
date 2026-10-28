@@ -1891,6 +1891,7 @@ export async function executeMcpTool(
         proposals,
         activities,
         linkedConversations,
+        recentEvents,
         fieldDefinitions,
       ] = await Promise.all([
         sql`
@@ -1920,11 +1921,34 @@ export async function executeMcpTool(
           LIMIT 30
         `,
         sql`
-          SELECT cd.conversation_id, cd.origin, cd.is_active, conv.queue_state, conv.last_message_text, conv.last_message_time
+          SELECT
+            cd.conversation_id,
+            cd.origin,
+            cd.is_active,
+            cd.created_by_operator_id,
+            op.name AS created_by_operator_name,
+            conv.queue_state,
+            conv.last_message_text,
+            conv.last_message_time
           FROM crm_conversation_deals cd
           JOIN conversations conv ON conv.id = cd.conversation_id AND conv.tenant_id = cd.tenant_id
+          LEFT JOIN operators op ON op.id = cd.created_by_operator_id AND op.tenant_id = cd.tenant_id
           WHERE cd.tenant_id = ${tenantId} AND cd.deal_id = ${dealId}
           ORDER BY cd.created_at DESC
+        `,
+        sql`
+          SELECT
+            de.id,
+            de.event_type,
+            de.operator_id,
+            op.name AS operator_name,
+            de.metadata,
+            de.created_at
+          FROM crm_deal_events de
+          LEFT JOIN operators op ON op.id = de.operator_id AND op.tenant_id = de.tenant_id
+          WHERE de.tenant_id = ${tenantId} AND de.deal_id = ${dealId}
+          ORDER BY de.created_at DESC
+          LIMIT 30
         `,
         sql`
           SELECT id, name, field_type
@@ -1998,6 +2022,7 @@ export async function executeMcpTool(
         })),
         proposals,
         recentActivities: activities,
+        recentEvents,
         linkedConversations,
       };
     }

@@ -17,6 +17,7 @@ import {
 } from "../access-control/conversation-access";
 import { conversationReadRules } from "../access-control/conversation-policy";
 import { lockContactDeals } from "../crm/deal-associations";
+import { setAttendanceActor } from "../attendance-events";
 import { conversationConnectionCondition } from "./connections";
 import { multiConnectionEnabled } from "./connection-policy";
 
@@ -171,6 +172,7 @@ export async function prepareWhatsappConversation(
       );
     let target = existing;
     if (!existing) {
+      await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
       [target] = await tx
         .insert(conversations)
         .values({
@@ -184,6 +186,7 @@ export async function prepareWhatsappConversation(
         })
         .returning();
     } else if (reopen) {
+      await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
       [target] = await tx
         .update(conversations)
         .set({

@@ -7,9 +7,10 @@ import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { db } from "../../../../../db";
-import { crmDeals, crmConversationDeals, crmDealContacts, crmAccounts, conversations, contacts, operators } from "../../../../../db/schema";
+import { crmDeals, crmConversationDeals, crmDealContacts, crmAccounts, conversations, contacts, operators, rdMarketingReceipts } from "../../../../../db/schema";
 import { isNull, eq, and, desc, asc, or, ilike, sql } from "drizzle-orm";
 import { buildPhoneSearchTerms } from "../../../../../lib/utils";
+import { setAttendanceActor } from "../../../../../lib/attendance-events";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -371,6 +372,16 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                 }
 
                 if (!targetConv) {
+                  const [rdReceipt] = await tx
+                    .select({ id: rdMarketingReceipts.id })
+                    .from(rdMarketingReceipts)
+                    .where(and(eq(rdMarketingReceipts.tenantId, tenantId), eq(rdMarketingReceipts.dealId, dealId)))
+                    .limit(1);
+                  const creationActorName =
+                    rdReceipt && !autoCapture
+                      ? `Automação RD Station Marketing (${session.operator.name})`
+                      : session.operator.name;
+                  await setAttendanceActor(tx, tenantId, creationActorName, session.operator.id);
                   const now = new Date();
                   const [insertedConv] = await tx
                     .insert(conversations)
@@ -399,22 +410,38 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                 if (!visible) throw Object.assign(new Error("Conversa não encontrada."), { statusCode: 404, code: "NOT_FOUND" });
                 if (
                   autoCapture &&
-                  !(targetConv.queueState === "meus" && targetConv.operatorId && targetConv.operatorId !== session.operator.id) &&
-                  (targetConv.queueState !== "meus" || !targetConv.operatorId)
+                  !(targetConv.queueState === "meus" && targetConv.operatorId && targetConv.operatorId !== session.operator.id)
                 ) {
-                  await tx
-                    .update(conversations)
-                    .set({
-                      queueState: "meus",
-                      operatorId: session.operator.id,
-                      updatedAt: new Date(),
-                    })
-                    .where(
-                      and(
-                        eq(conversations.id, targetConv.id),
-                        eq(conversations.tenantId, tenantId)
-                      )
-                    );
+                  if (targetConv.queueState !== "meus" || !targetConv.operatorId) {
+                    await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
+                    await tx
+                      .update(conversations)
+                      .set({
+                        queueState: "meus",
+                        operatorId: session.operator.id,
+                        updatedAt: new Date(),
+                      })
+                      .where(
+                        and(
+                          eq(conversations.id, targetConv.id),
+                          eq(conversations.tenantId, tenantId)
+                        )
+                      );
+                  }
+                  if (targetConv.contactId) {
+                    await tx
+                      .update(contacts)
+                      .set({
+                        walletOperatorId: session.operator.id,
+                        responsibleName: session.operator.name,
+                      })
+                      .where(
+                        and(
+                          eq(contacts.id, targetConv.contactId),
+                          eq(contacts.tenantId, tenantId)
+                        )
+                      );
+                  }
                 }
 
                 // Garante vínculo ativo em crm_conversation_deals

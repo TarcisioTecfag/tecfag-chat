@@ -10,11 +10,13 @@ import {
   crmConversationDeals,
   crmDealContacts,
   crmDeals,
+  rdMarketingReceipts,
 } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
 import { buildPhoneSearchTerms } from "../../../../lib/utils";
 import { conversationReadCondition } from "../../../../lib/access-control/conversation-access";
 import { canReadConversation } from "../../../../lib/access-control/conversation-policy";
+import { setAttendanceActor } from "../../../../lib/attendance-events";
 
 export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
   server: {
@@ -147,6 +149,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
 
               if (!shouldAssignToCurrentOperator) {
                 if (targetConv.queueState === "finalizados") {
+                  await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
                   await tx.update(conversations)
                     .set({ operatorId: null, queueState: "fila", updatedAt: now })
                     .where(and(eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId)));
@@ -163,6 +166,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
                 };
               }
 
+              await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
               await tx.update(conversations)
                 .set({
                   operatorId: session.operator.id,
@@ -174,7 +178,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
 
               await tx.update(contacts)
                 .set({
-                  walletOperatorId: contact.walletOperatorId || session.operator.id,
+                  walletOperatorId: session.operator.id,
                   responsibleName: session.operator.name,
                 })
                 .where(and(eq(contacts.id, targetConv.contactId), eq(contacts.tenantId, tenantId)));
@@ -188,6 +192,28 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
               queueState: assignNewConv ? "meus" : "fila", mainChannel: contact.mainChannel })) {
               throw Object.assign(new Error("Permissão insuficiente para iniciar este atendimento."), { statusCode: 403 });
             }
+            const [rdReceipt] = await tx
+              .select({ id: rdMarketingReceipts.id })
+              .from(crmDealContacts)
+              .innerJoin(
+                rdMarketingReceipts,
+                and(
+                  eq(rdMarketingReceipts.tenantId, tenantId),
+                  eq(rdMarketingReceipts.dealId, crmDealContacts.dealId),
+                ),
+              )
+              .where(
+                and(
+                  eq(crmDealContacts.tenantId, tenantId),
+                  eq(crmDealContacts.contactId, actualContactId),
+                ),
+              )
+              .limit(1);
+            const creationActorName =
+              rdReceipt && !assignNewConv
+                ? `Automação RD Station Marketing (${session.operator.name})`
+                : session.operator.name;
+            await setAttendanceActor(tx, tenantId, creationActorName, session.operator.id);
             const conversationId = `conv-${crypto.randomUUID()}`;
             await tx.insert(conversations).values({
               id: conversationId,
@@ -204,7 +230,7 @@ export const Route = createFileRoute("/api/contacts/$contactId/conversations")({
             if (assignNewConv) {
               await tx.update(contacts)
                 .set({
-                  walletOperatorId: contact.walletOperatorId || session.operator.id,
+                  walletOperatorId: session.operator.id,
                   responsibleName: session.operator.name,
                 })
                 .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
