@@ -595,9 +595,11 @@ html.dark.theme-voice {
 }
 
 /* Preserva isolamento visual multi-tenant para --primary-soft inline */
+html.dark.theme-voice[style*="#df3d3d"],
 html.dark.theme-voice [style*="#df3d3d"] {
   --primary-soft: #342326 !important;
 }
+html.dark.theme-voice[style*="#2dc4a0"],
 html.dark.theme-voice [style*="#2dc4a0"] {
   --primary-soft: #25372d !important;
 }

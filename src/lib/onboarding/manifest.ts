@@ -3198,6 +3198,8 @@ export const ONBOARDING_CHAPTERS: readonly TourChapter[] = CHAPTER_ORDER.map((en
   };
 });
 
+export const ONBOARDING_CHAPTER_META = ONBOARDING_CHAPTERS;
+
 export const ONBOARDING_CHAPTERS_BY_ID: ReadonlyMap<TourChapterId, TourChapter> = new Map(
   ONBOARDING_CHAPTERS.map((chapter) => [chapter.id, chapter]),
 );

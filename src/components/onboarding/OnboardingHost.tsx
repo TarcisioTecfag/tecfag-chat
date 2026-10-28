@@ -102,7 +102,7 @@ function OnboardingHostContent() {
             <button
               type="button"
               onClick={onboarding.openTourEntryModal}
-              className="flex items-center gap-2 rounded-full border border-primary/50 bg-slate-900/95 px-3.5 py-1.5 text-xs font-bold text-white shadow-xl backdrop-blur-md transition hover:border-primary hover:bg-slate-800"
+              className="flex items-center gap-2 rounded-full border border-primary/40 bg-card/95 px-3.5 py-1.5 text-xs font-bold text-foreground shadow-card backdrop-blur-md transition hover:border-primary hover:bg-muted cursor-pointer"
             >
               <Sparkles className="h-3.5 w-3.5 text-primary" />
               <span>

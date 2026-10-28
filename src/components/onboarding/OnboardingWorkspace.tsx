@@ -51,9 +51,9 @@ function WorkspaceSession({ onTargetChange }: { onTargetChange: (state: TourTarg
   useEffect(() => () => { bridge.current?.dispose(); handlers.current.onTargetChange({ element: null, rect: null, found: false }); }, []);
   const mobile = tour.currentStep?.id === "profile.mobile";
   return <section aria-label="Telas do sistema em treinamento" className="fixed inset-0 z-[10080] flex flex-col bg-background text-foreground">
-    <header className="flex min-h-9 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3 py-1 text-xs">
-      <span data-tour="welcome.dialog welcome.practice" className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" />{status}</span>
-      <button type="button" onClick={() => void tour.pauseTour()} className="rounded-lg border border-border px-3 py-1">Pausar treinamento</button>
+    <header className="flex min-h-9 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3 py-1 text-xs text-card-foreground">
+      <span data-tour="welcome.dialog welcome.practice" className="inline-flex items-center gap-2 font-medium text-foreground"><span className="h-2 w-2 rounded-full bg-emerald-500" />{status}</span>
+      <button type="button" onClick={() => void tour.pauseTour()} className="rounded-lg border border-border bg-muted/40 px-3 py-1 font-medium text-foreground transition hover:bg-muted cursor-pointer">Pausar treinamento</button>
     </header>
     <div className="flex min-h-0 flex-1 justify-center overflow-hidden bg-muted/20">
       <iframe ref={attach} data-onboarding-frame="true" title="Sistema com dados fictícios para treinamento"

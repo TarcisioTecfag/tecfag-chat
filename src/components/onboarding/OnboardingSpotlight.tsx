@@ -97,13 +97,20 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
   const isSimulated = currentStep.mode === "D" || currentStep.mode === "simulated";
 
   const modeBadge = isInteractive
-    ? { label: "Exercício Guiado", color: "bg-amber-500/20 text-amber-300 border-amber-500/40" }
+    ? {
+        label: "Exercício Guiado",
+        color:
+          "bg-amber-500/15 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-500/35",
+      }
     : isSimulated
       ? {
           label: "Simulação Segura",
-          color: "bg-purple-500/20 text-purple-300 border-purple-500/40",
+          color: "bg-primary-soft text-primary border-primary/30",
         }
-      : { label: "Explicação Guiada", color: "bg-sky-500/20 text-sky-300 border-sky-500/40" };
+      : {
+          label: "Explicação Guiada",
+          color: "bg-muted text-muted-foreground border-border",
+        };
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[10090]" aria-live="polite">
@@ -133,12 +140,12 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
           maxHeight: "calc(100dvh - 24px)",
           overflowY: "auto",
         }}
-        className="pointer-events-auto fixed z-[10095] rounded-2xl border border-slate-700 bg-slate-900 p-3 text-slate-100 shadow-2xl"
+        className="pointer-events-auto fixed z-[10095] rounded-2xl border border-border bg-card p-3.5 text-card-foreground shadow-card"
       >
         {/* Top bar: Persona + Chapter + Step counter */}
         <div className="mb-2.5 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-primary/50 bg-slate-800">
+            <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-primary/50 bg-muted">
               <img
                 src={persona.avatarUrl}
                 alt={persona.name}
@@ -150,14 +157,14 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-white">{persona.name}</span>
+                <span className="text-xs font-bold text-foreground">{persona.name}</span>
                 <span
                   className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${modeBadge.color}`}
                 >
                   {modeBadge.label}
                 </span>
               </div>
-              <p className="truncate text-[11px] text-slate-400">
+              <p className="truncate text-[11px] text-muted-foreground">
                 {currentChapter
                   ? `${currentChapter.order}. ${currentChapter.title}`
                   : "Tour Guiado"}
@@ -172,7 +179,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
                 data-tour="tour.controls finish.review"
                 aria-label="Capítulos e progresso do treinamento"
                 onClick={() => { setIsChapterDrawerOpen(true); if (currentStep.id === "welcome.controls" && progress?.runId) satisfyCurrentInteractiveStep(currentStep.id, progress.runId); }}
-                className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/90 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
+                className="flex items-center gap-1 rounded-lg border border-border bg-muted/60 px-2 py-1 text-[11px] font-semibold text-foreground transition hover:bg-muted cursor-pointer"
               >
                 <Layers className="h-3.5 w-3.5 text-primary" />
                 <span>
@@ -186,7 +193,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
                 type="button"
                 aria-label="Pausar treinamento"
                 onClick={() => void pauseTour()}
-                className="rounded-lg border border-slate-700 bg-slate-800/90 p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white"
+                className="rounded-lg border border-border bg-muted/60 p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground cursor-pointer"
               >
                 <Pause className="h-3.5 w-3.5" />
               </button>
@@ -195,9 +202,9 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
         </div>
 
         {/* Progress Bar */}
-        <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+        <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-400 transition-all duration-300"
+            className="h-full rounded-full bg-primary transition-all duration-300"
             style={{ width: `${Math.max(3, coverage.completionPct)}%` }}
           />
         </div>
@@ -205,15 +212,15 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
         {/* Step Title & Body */}
         <div className="mb-3 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-bold text-white leading-snug">{interpolated.title}</h3>
+            <h3 className="text-sm font-bold text-foreground leading-snug">{interpolated.title}</h3>
           </div>
-          <p className="text-xs leading-relaxed text-slate-300">{interpolated.body}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{interpolated.body}</p>
         </div>
 
         {/* Target status indicator when in Demo Fallback */}
         {!hasRect && !isBoundary && !interactiveReady && (
-          <div className="mb-3 flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-2.5 py-1.5 text-[11px] text-sky-200">
-            <Compass className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 dark:bg-amber-950/40 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+            <Compass className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <span>O controle ainda não apareceu. Aguarde a preparação da tela ou pause o treinamento.</span>
           </div>
         )}
@@ -224,7 +231,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
             type="button"
             onClick={() => void prevStep()}
             disabled={currentStepIndex <= 0}
-            className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 disabled:opacity-40"
+            className="flex items-center gap-1 rounded-xl border border-border bg-muted/60 px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted disabled:opacity-40 cursor-pointer"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             <span>Anterior</span>
@@ -232,7 +239,14 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
 
           <div className="flex items-center gap-1.5">
             {isInteractive && (
-              <span role="status" className="text-xs">
+              <span
+                role="status"
+                className={`text-xs font-medium ${
+                  interactiveReady
+                    ? "text-emerald-600 dark:text-emerald-400 font-semibold"
+                    : "text-muted-foreground"
+                }`}
+              >
                 {interactiveReady ? "Exercício validado" : "Pratique no painel"}
               </span>
             )}
@@ -241,7 +255,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
               type="button"
               onClick={() => void nextStep()}
               disabled={isSaving || (!isBoundary && !found && !interactiveReady) || (isInteractive && !interactiveReady)}
-              className="flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground shadow-lg transition hover:opacity-95"
+              className="flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground shadow-soft transition hover:opacity-95 disabled:opacity-40 cursor-pointer"
             >
               <span>
                 {currentStepIndex >= applicableSteps.length - 1 ? "Finalizar Tour" : "Próximo"}

@@ -45,6 +45,8 @@ export type ExcludedDevFeature = (typeof EXCLUDED_DEV_FEATURES)[number];
 export type TourChapterId =
   "welcome" | "home" | "chat" | "crm" | "tasks" | "contacts" | "wallet" | "profile";
 
+export type OnboardingChapterId = TourChapterId;
+
 /**
  * O = Observar interface sem mutação
  * D = Abrir automaticamente estado demonstrativo

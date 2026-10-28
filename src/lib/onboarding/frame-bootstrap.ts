@@ -13,6 +13,19 @@ export function installTrainingFrame(win: Window, config: TrainingFrameConfig) {
   const trainingStyles = doc.createElement("style");
   trainingStyles.textContent = '[data-training-installed] [data-training-action="true"] { opacity: 1 !important; pointer-events: auto !important; } [data-training-installed]:not([data-training-mini="true"]) [data-crm-chat-widget] { display: none !important; }';
   doc.head.append(trainingStyles);
+  let initialTheme = "system", initialDensity = "auto";
+  try {
+    const parentWin = win.parent && win.parent !== win ? win.parent : null;
+    initialTheme = parentWin?.localStorage?.getItem("chat_theme_mode") || win.localStorage?.getItem("chat_theme_mode") || "";
+    initialDensity = parentWin?.localStorage?.getItem("chat_ui_density") || win.localStorage?.getItem("chat_ui_density") || "auto";
+    if (!initialTheme && parentWin?.document?.documentElement) {
+      const parentRoot = parentWin.document.documentElement;
+      if (parentRoot.classList.contains("theme-voice") || parentRoot.getAttribute("data-theme") === "voice") initialTheme = "voice";
+      else if (parentRoot.classList.contains("dark")) initialTheme = "dark";
+      else initialTheme = "light";
+    }
+  } catch {}
+  if (!initialTheme) initialTheme = "system";
   // Replacing a child Window property does not change the parent Window or its Storage.
   const memoryStorage = () => {
     const values = new Map<string, string>();
@@ -25,6 +38,21 @@ export function installTrainingFrame(win: Window, config: TrainingFrameConfig) {
   local.setItem("chat_selected_id", config.store.conversations[0].id);
   local.setItem("chat_active_queue", "meus"); local.setItem("rbac_current_operator_id", config.operatorId);
   local.setItem("push_notification_dismissed", "true");
+  local.setItem("chat_theme_mode", initialTheme);
+  local.setItem("chat_ui_density", initialDensity);
+  const applyDocTheme = (mode: string) => {
+    const root = doc.documentElement;
+    const isSysDark = typeof win.matchMedia === "function" && win.matchMedia("(prefers-color-scheme: dark)").matches;
+    const isVoice = mode === "voice";
+    const isDark = mode === "dark" || isVoice || ((mode === "system" || !mode) && isSysDark);
+    root.classList.toggle("dark", isDark);
+    root.classList.toggle("theme-voice", isVoice);
+    if (isVoice) root.setAttribute("data-theme", "voice");
+    else root.removeAttribute("data-theme");
+  };
+  applyDocTheme(initialTheme);
+  if (initialDensity && initialDensity !== "auto") doc.documentElement.setAttribute("data-density", initialDensity);
+  else doc.documentElement.removeAttribute("data-density");
   Object.defineProperty(win, "localStorage", { value: local, configurable: true });
   Object.defineProperty(win, "sessionStorage", { value: session, configurable: true });
   Object.defineProperty(win, "indexedDB", { value: undefined, configurable: true });
