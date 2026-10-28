@@ -4,17 +4,11 @@ export const OPERATOR_TOUR_KEY = "operator-first-login" as const;
 export const ONBOARDING_TOUR_KEY = OPERATOR_TOUR_KEY;
 export type OperatorTourKey = typeof OPERATOR_TOUR_KEY;
 
-export const ONBOARDING_CONTENT_VERSION = 1 as const;
+export const ONBOARDING_CONTENT_VERSION = 2 as const;
 export const OPERATOR_TOUR_CONTENT_VERSION = ONBOARDING_CONTENT_VERSION;
 export const ONBOARDING_TOUR_VERSION = ONBOARDING_CONTENT_VERSION;
 
-export type OperatorTourView =
-  | "commercialHome"
-  | "chat"
-  | "crm"
-  | "tasks"
-  | "contacts"
-  | "wallet";
+export type OperatorTourView = "commercialHome" | "chat" | "crm" | "tasks" | "contacts" | "wallet";
 
 export const PRIMARY_OPERATOR_VIEWS: readonly OperatorTourView[] = [
   "commercialHome",
@@ -44,23 +38,12 @@ export const EXCLUDED_DEV_FEATURES = [
   "emails",
 ] as const;
 
-export const EXCLUDED_TOUR_FEATURES = [
-  "proposals",
-  "questionnaires",
-  "emails",
-] as const;
+export const EXCLUDED_TOUR_FEATURES = ["proposals", "questionnaires", "emails"] as const;
 
 export type ExcludedDevFeature = (typeof EXCLUDED_DEV_FEATURES)[number];
 
 export type TourChapterId =
-  | "welcome"
-  | "home"
-  | "chat"
-  | "crm"
-  | "tasks"
-  | "contacts"
-  | "wallet"
-  | "profile";
+  "welcome" | "home" | "chat" | "crm" | "tasks" | "contacts" | "wallet" | "profile";
 
 /**
  * O = Observar interface sem mutação
@@ -69,22 +52,10 @@ export type TourChapterId =
  * X = Explicar limite sem acionar controle
  */
 export type TourStepMode =
-  | "O"
-  | "D"
-  | "I"
-  | "X"
-  | "observe"
-  | "simulated"
-  | "interactive_demo"
-  | "informational_boundary";
+  "O" | "D" | "I" | "X" | "observe" | "simulated" | "interactive_demo" | "informational_boundary";
 
 export type OnboardingRunStatus =
-  | "not_started"
-  | "in_progress"
-  | "active"
-  | "paused"
-  | "deferred"
-  | "completed";
+  "not_started" | "in_progress" | "active" | "paused" | "deferred" | "completed";
 
 export type OnboardingStatus = OnboardingRunStatus;
 
@@ -440,6 +411,13 @@ export interface OnboardingProgressDTO {
   eligibleViews: OperatorTourView[];
   eligibleStepIds: string[];
   completionPct: number;
+  capabilities: Pick<
+    OnboardingEligibilityContext,
+    | "isCommercialConsultant"
+    | "allowedChannels"
+    | "hasPersonalWhatsappConnection"
+    | "canPairPersonalWhatsapp"
+  >;
 }
 
 export type OnboardingActionType =
@@ -449,6 +427,7 @@ export type OnboardingActionType =
   | "defer"
   | "resume"
   | "restart"
+  | "complete_chapter"
   | "complete";
 
 export type OnboardingAction = OnboardingActionType;
@@ -461,6 +440,7 @@ export interface OnboardingPatchInput {
   expectedRevision?: number;
   currentStepId?: string | null;
   stepId?: string | null;
+  chapterId?: TourChapterId;
   visitedStepIds?: string[];
   completedStepIds?: string[];
   unavailableSteps?: UnavailableStepRecord[];

@@ -9,7 +9,7 @@ import { eq, and } from "drizzle-orm";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
-import { SITE_CHANNEL } from "../../../lib/livechat/site-channel-policy";
+import { SITE_CHANNEL, SITE_PROVIDER } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import { requireConversationWriteAccess, requireConversationAccess } from "../../../lib/access-control/conversation-access";
@@ -17,6 +17,7 @@ import fs from "fs";
 import path from "path";
 import { resolveConversationConnection } from "../../../lib/whatsapp/connections";
 import { connectionPeerJid } from "../../../lib/whatsapp/connection-contacts";
+import { randomUUID } from "node:crypto";
 
 export const Route = createFileRoute("/api/whatsapp/send")({
   server: {
@@ -53,7 +54,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
 
             const file = formData.get("file") as File | null;
             if (file) {
-              const fileId = `media-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+              const fileId = `media-${randomUUID()}`;
               let mime = file.type || "application/octet-stream";
               fileName = file.name || "arquivo";
               const arrayBuffer = await file.arrayBuffer();
@@ -186,8 +187,11 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             const [existing] = await db.select().from(messages).where(and(eq(messages.tenantId, session.tenantId), eq(messages.idempotencyKey, clientMessageId)));
             if (existing) {
               if (existing.conversationId !== conversationId) return Response.json({ error: "Chave já utilizada em outra conversa." }, { status: 409 });
-              const result = storedResult(existing);
-              return Response.json({ ...result, ...(templateName ? {renderedText: existing.content} : {}) }, { status: result.success ? 200 : 400 });
+              // Site retries must verify/repair the widget history before returning success.
+              if (existing.provider !== SITE_PROVIDER) {
+                const result = storedResult(existing);
+                return Response.json({ ...result, ...(templateName ? {renderedText: existing.content} : {}) }, { status: result.success ? 200 : 400 });
+              }
             }
           }
 
@@ -210,6 +214,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               const siteResult = await sendSiteOperatorText({
                 tenantId: session.tenantId,
                 conversationId: conv.id,
+                operatorId: session.operator.id,
                 text: siteText,
                 operatorName: session.operator.name,
                 idempotencyKey: clientMessageId,
@@ -219,33 +224,18 @@ export const Route = createFileRoute("/api/whatsapp/send")({
           }
           if (pendingFile) {
             try {
-              const [existingMedia] = await db
-                .select({ id: mediaFiles.id })
-                .from(mediaFiles)
-                .where(
-                  and(
-                    eq(mediaFiles.tenantId, session.tenantId),
-                    eq(mediaFiles.fileName, pendingFile.name),
-                    eq(mediaFiles.fileSize, pendingFile.buffer.length)
-                  )
-                )
-                .limit(1);
-
-              if (existingMedia?.id) {
-                pendingFile.id = existingMedia.id;
-                mediaUrl = `/api/baileys/media?messageId=${existingMedia.id}`;
-              } else {
-                await db.insert(mediaFiles).values({
-                  id: pendingFile.id,
-                  tenantId: session.tenantId,
-                  conversationId,
-                  fileName: pendingFile.name,
-                  mimeType: pendingFile.mime,
-                  fileSize: pendingFile.buffer.length,
-                  base64Data: pendingFile.buffer.toString("base64"),
-                  createdAt: new Date(),
-                }).onConflictDoNothing();
-              }
+              // Nome e tamanho não identificam conteúdo. Cada upload autorizado
+              // recebe identidade própria; retries de mensagem são tratados acima.
+              await db.insert(mediaFiles).values({
+                id: pendingFile.id,
+                tenantId: session.tenantId,
+                conversationId,
+                fileName: pendingFile.name,
+                mimeType: pendingFile.mime,
+                fileSize: pendingFile.buffer.length,
+                base64Data: pendingFile.buffer.toString("base64"),
+                createdAt: new Date(),
+              });
             } catch (dbErr) {
               console.error("[WhatsApp Send] Erro ao persistir mídia no banco:", dbErr);
               return Response.json(

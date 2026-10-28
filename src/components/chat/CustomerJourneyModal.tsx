@@ -26,6 +26,7 @@ import {
   Link2,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 
 export interface CustomerJourneyModalProps {
   open: boolean;
@@ -300,6 +301,11 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "pages" | "journey">("pages");
   const [tabKey, setTabKey] = useState(0);
+  useTrainingSurface("journey", (step) => {
+    if (loading || !data) return false;
+    setActiveTab(step.id === "chat.journey-client" ? "info" : step.id === "chat.journey-timeline" ? "journey" : "pages");
+    return true;
+  });
 
   const loadJourney = useCallback(async () => {
     if (!visitorId && !contactId) return;
@@ -369,7 +375,7 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-fade-in"
+      data-tour="journey.dialog" className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-fade-in"
       style={{
         backgroundColor: "rgba(9, 13, 22, 0.62)",
         backdropFilter: "blur(6px)",
@@ -597,7 +603,7 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
             const isActive = activeTab === tab.id;
             return (
               <button
-                key={tab.id}
+                data-tour={`journey.${tab.id === "journey" ? "timeline" : tab.id}`} key={tab.id}
                 type="button"
                 onClick={() => handleTabChange(tab.id)}
                 className={`relative px-3.5 py-2 text-xs font-semibold rounded-t-lg transition-colors duration-150 flex items-center gap-1.5 cursor-pointer ${

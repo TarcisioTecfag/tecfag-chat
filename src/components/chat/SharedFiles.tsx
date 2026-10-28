@@ -272,6 +272,14 @@ export function SharedFiles() {
   const [linkedAccount, setLinkedAccount] = useState<CrmAccountDTO | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<CrmAccountDTO | null>(null);
   const [savingInfo, setSavingInfo] = useState(false);
+  useTrainingSurface("chat.details-panel", (step) => {
+    if (!activeChat) return false;
+    setActiveTab(step.id === "chat.shared-files" ? "files" : step.id === "chat.events" ? "events" : "details");
+    setIsEditingInfo(step.id === "chat.contact-edit");
+    setShowJourneyModal(step.surface === "chat.journey-modal");
+    return true;
+  });
+  useTrainingSurface("chat.journey-modal", (step) => { setShowJourneyModal(true); return Boolean(activeChat); });
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -792,7 +800,7 @@ export function SharedFiles() {
       </div>
 
       {/* Header Tabs (3 segments for Details, Shared Files and Channel Integration) */}
-      <div className="flex rounded-xl bg-muted p-1 relative">
+      <div data-tour="details.tabs" className="flex rounded-xl bg-muted p-1 relative">
         <button
           onClick={() => handleTabChange("details")}
           className={`relative flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition-colors duration-200 cursor-pointer z-10 ${
@@ -814,7 +822,7 @@ export function SharedFiles() {
           </span>
         </button>
         <button
-          onClick={() => handleTabChange("files")}
+          data-tour="details.files" onClick={() => handleTabChange("files")}
           className={`relative flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition-colors duration-200 cursor-pointer z-10 ${
             activeTab === "files"
               ? "text-foreground"
@@ -834,7 +842,7 @@ export function SharedFiles() {
           </span>
         </button>
         <button
-          onClick={() => handleTabChange("events")}
+          data-tour="details.events" onClick={() => handleTabChange("events")}
           className={`relative flex-1 rounded-lg py-1.5 text-center text-[10px] font-bold transition-colors duration-200 cursor-pointer z-10 ${
             activeTab === "events"
               ? "text-foreground"
@@ -870,7 +878,7 @@ export function SharedFiles() {
               </span>
               {canEditClientInfo && (
                 <button
-                  onClick={isEditingInfo ? handleSaveInfo : startEditing}
+                  data-tour="details.contact-editor" data-training-save="true" onClick={isEditingInfo ? handleSaveInfo : startEditing}
                   disabled={savingInfo}
                   className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
                 >
@@ -941,7 +949,7 @@ export function SharedFiles() {
             Boolean(contactSiteVisitorId) ||
             Boolean(activeChat.siteContext) ||
             Boolean(activeChat.siteContinuityCode)) && (
-            <div className="space-y-2.5 rounded-2xl border border-primary/25 bg-primary/5 p-3">
+            <div data-tour="details.site-context" className="space-y-2.5 rounded-2xl border border-primary/25 bg-primary/5 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
@@ -1035,7 +1043,7 @@ export function SharedFiles() {
             </div>
 
             {/* Formulário de nova tarefa */}
-            <form onSubmit={handleCreateTask} className="space-y-2">
+            <form data-tour="details.task-create" onSubmit={handleCreateTask} className="space-y-2">
               {/* Nome da tarefa */}
               <input
                 type="text"
@@ -2064,3 +2072,4 @@ export function SharedFiles() {
     </aside>
   );
 }
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";

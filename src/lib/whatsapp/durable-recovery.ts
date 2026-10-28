@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lt, lte, or, sql, inArray } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, lte, ne, or, sql, inArray } from "drizzle-orm";
 import { db } from "../../db";
 import { channelConfigs, messages, pendingInbounds } from "../../db/schema";
 import { runtimeSingleton } from "../runtime-singleton";
@@ -53,6 +53,7 @@ export class WhatsAppRecoveryService {
             and(
               eq(messages.tenantId, tenantId),
               eq(messages.direction, "outbound"),
+              or(isNull(messages.provider), ne(messages.provider, "livechat")),
               eq(messages.status, "sending"),
               lt(messages.updatedAt, threshold),
               or(isNull(messages.leaseUntil), lte(messages.leaseUntil, now)),
@@ -67,6 +68,7 @@ export class WhatsAppRecoveryService {
             and(
               eq(messages.tenantId, tenantId),
               eq(messages.direction, "outbound"),
+              or(isNull(messages.provider), ne(messages.provider, "livechat")),
               eq(messages.status, "pending"),
               or(isNull(messages.nextRetryAt), lte(messages.nextRetryAt, now)),
             ),

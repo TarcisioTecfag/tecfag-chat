@@ -242,7 +242,7 @@ export function CrmQuickCreateDialog({
               {kind ? headings[kind] : "Criar"}
             </SheetTitle>
           </SheetHeader>
-          <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+          <form data-tour={kind === "company" ? "crm.quick-company" : "crm.quick-contact"} onSubmit={submit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
               {kind === "contact" && existingContact && (
                 <SelectedExistingContactBanner

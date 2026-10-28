@@ -15,6 +15,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import type { QuickResponse, OperatorTemplate } from "@/lib/mockData";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 
 interface QuickResponsesPopoverProps {
   isOpen: boolean;
@@ -68,6 +69,12 @@ export function QuickResponsesPopover({
   const [formDescription, setFormDescription] = useState("");
   const [formText, setFormText] = useState("");
   const [saving, setSaving] = useState(false);
+  useTrainingSurface("quick", (step) => {
+    setFormMode(step.id === "chat.quick-personal" ? "create" : "idle");
+    setFormScope("personal");
+    setActiveTab(step.id === "chat.quick-global" ? "global" : "all");
+    return isOpen;
+  });
 
   // Fechar ao clicar fora (ignorando o próprio botão gatilho de Respostas Rápidas)
   useEffect(() => {
@@ -297,7 +304,7 @@ export function QuickResponsesPopover({
 
       {formMode !== "idle" ? (
         /* ── FORMULÁRIO INLINE DE CRIAÇÃO / EDIÇÃO ── */
-        <form onSubmit={handleSaveForm} className="p-4 space-y-3 overflow-y-auto scrollbar-thin">
+        <form data-tour="quick.personal-editor" onSubmit={handleSaveForm} className="p-4 space-y-3 overflow-y-auto scrollbar-thin">
           {canManageGlobalTemplates && formMode === "create" && (
             <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-muted/60 border border-border">
               <button
@@ -453,6 +460,7 @@ export function QuickResponsesPopover({
               <button
                 type="button"
                 onClick={() => setActiveTab("global")}
+                data-tour="quick.global"
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
                   activeTab === "global"
                     ? "bg-primary text-primary-foreground"
@@ -512,7 +520,7 @@ export function QuickResponsesPopover({
                     {filteredQrs.map((qr) => (
                       <div
                         key={qr.id || qr.shortcut}
-                        onClick={() => onSelectResponse(qr.text)}
+                        data-tour="quick.insert" onClick={() => onSelectResponse(qr.text)}
                         className="group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left hover:bg-muted/80 border border-transparent hover:border-border/70 transition cursor-pointer"
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -565,7 +573,7 @@ export function QuickResponsesPopover({
                     {filteredTpls.map((tpl) => (
                       <div
                         key={tpl.id}
-                        onClick={() => onSelectResponse(tpl.text)}
+                        data-tour="quick.insert" onClick={() => onSelectResponse(tpl.text)}
                         className="group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left hover:bg-muted/80 border border-transparent hover:border-border/70 transition cursor-pointer"
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">

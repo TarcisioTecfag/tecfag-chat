@@ -1,7 +1,7 @@
 import { isSdrTenant, getAiPersona } from "../ai-persona";
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, messages, contacts } from "../../db/schema";
-import { eq, and, gte, desc, isNull, ne, sql } from "drizzle-orm";
+import { agentConfigs, agentFlowStates, conversations, messages, contacts, tenants } from "../../db/schema";
+import { eq, and, gte, desc, isNull, ne, sql, or, inArray } from "drizzle-orm";
 import { SdrEngine } from "./sdr-engine";
 import { SdrDebouncer, type QueuedMessageItem } from "./sdr-debouncer";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
@@ -24,15 +24,14 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
   let recoveredCount = 0;
 
   try {
-    const enabledConfigs = await db
-      .select({ tenantId: agentConfigs.tenantId, enabled: agentConfigs.enabled })
-      .from(agentConfigs)
-      .where(and(eq(agentConfigs.agentType, "sdr"), eq(agentConfigs.enabled, 1)));
-
-    for (const cfg of enabledConfigs) {
-      const tenantId = cfg.tenantId;
+    const companies = await db.select({ id: tenants.id }).from(tenants);
+    for (const { id: tenantId } of companies) {
       if (!isSdrTenant(tenantId)) continue;
       if (getAiPersona(tenantId).triagePolicy !== "industrial") continue;
+      const [enabled] = await db.select({ id: agentConfigs.id }).from(agentConfigs).where(and(
+        eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.agentType, "sdr"), eq(agentConfigs.enabled, 1),
+      )).limit(1);
+      if (!enabled) continue;
 
       const candidateConvs = await db
         .select({
@@ -79,12 +78,23 @@ export async function recoverIndustrialInterruptedTurns(nowOverride?: Date): Pro
                 eq(messages.tenantId, tenantId),
                 eq(messages.conversationId, conv.id),
                 ne(messages.content, "!reset"),
+                or(ne(messages.senderType, "bot"), inArray(messages.status, ["sent", "accepted", "delivered", "read"])),
                 ...(flow?.startedAt ? [gte(messages.sentAt, flow.startedAt)] : []),
               ),
             )
             .orderBy(desc(messages.sentAt), desc(messages.id))
             .limit(20);
 
+          const latestClient = rawRecentMsgs.find((row) => row.senderType === "client");
+          if (latestClient && flow) {
+            const [pendingDelivery] = await db.select({ id: messages.id }).from(messages).where(and(
+              eq(messages.tenantId, tenantId), eq(messages.conversationId, conv.id), eq(messages.senderType, "bot"),
+              inArray(messages.status, ["pending", "sending", "unknown", "failed"]),
+              sql`${messages.metaDetails}->'industrialDelivery'->>'triggerId' = ${latestClient.id}`,
+              sql`${messages.metaDetails}->'industrialDelivery'->>'cycle' = ${flow.startedAt.toISOString()}`,
+            )).limit(1);
+            if (pendingDelivery) continue;
+          }
           const cycleMsgs = selectRecentCycleMessages(rawRecentMsgs, flow?.startedAt || null, 20);
 
           const decision = evaluateIndustrialTurnRecovery({

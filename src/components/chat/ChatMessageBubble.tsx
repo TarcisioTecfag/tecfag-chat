@@ -1,4 +1,5 @@
 import React, { memo } from "react";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import {
@@ -56,6 +57,7 @@ export function MessageKnowledgeSourceButton({
   compact?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
+  useTrainingSurface("source", step => { setOpen(step.id === "chat.message-source-states"); return true; });
   const sources = Array.isArray(message.knowledgeSources) ? message.knowledgeSources : [];
   const status: KnowledgeSourceStatus =
     message.knowledgeSourceStatus ||
@@ -184,6 +186,7 @@ export function MessageKnowledgeSourceButton({
         <PopoverTrigger asChild>
           <button
             type="button"
+            data-tour="message.source" data-training-action="true"
             onClick={(e) => e.stopPropagation()}
             onMouseLeave={(e) => e.currentTarget.blur()}
             className={`${
@@ -205,6 +208,7 @@ export function MessageKnowledgeSourceButton({
         </PopoverTrigger>
       </SystemTooltip>
       <PopoverContent
+        data-tour="message.source-panel"
         align="end"
         side="top"
         sideOffset={8}
@@ -569,6 +573,7 @@ function ChatMessageBubbleComponent({
             <SystemTooltip content="Reagir">
               <button
                 type="button"
+                data-tour="message.react" data-training-action="true"
                 onClick={() => onSetReactingMsgId(reactingMsgId === m.id ? null : m.id)}
                 onMouseLeave={(e) => e.currentTarget.blur()}
                 className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
@@ -582,7 +587,8 @@ function ChatMessageBubbleComponent({
               <SystemTooltip content="Marcar como evidência do negócio">
                 <button
                   type="button"
-                  onClick={() =>
+                  data-tour="message.evidence" data-training-action="true"
+                onClick={() =>
                     onSetMarkingEvidenceMsg({
                       id: m.id,
                       text: m.text,
@@ -602,6 +608,7 @@ function ChatMessageBubbleComponent({
             <SystemTooltip content="Responder">
               <button
                 type="button"
+                data-tour="message.reply" data-training-action="true"
                 onClick={() => onSetReplyingTo(m)}
                 onMouseLeave={(e) => e.currentTarget.blur()}
                 className={`opacity-0 group-hover:opacity-100 p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-all duration-150 cursor-pointer shrink-0 ${
@@ -1430,6 +1437,7 @@ function ChatMessageBubbleComponent({
             <SystemTooltip content="Responder">
               <button
                 type="button"
+                data-tour="message.reply" data-training-action="true"
                 onClick={() => onSetReplyingTo(m)}
                 onMouseLeave={(e) => e.currentTarget.blur()}
                 className="opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-opacity duration-150 cursor-pointer shrink-0"
@@ -1440,6 +1448,7 @@ function ChatMessageBubbleComponent({
             <SystemTooltip content="Reagir">
               <button
                 type="button"
+                data-tour="message.react" data-training-action="true"
                 onClick={() => onSetReactingMsgId(reactingMsgId === m.id ? null : m.id)}
                 onMouseLeave={(e) => e.currentTarget.blur()}
                 className={`opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto p-1.5 rounded-full hover:bg-muted text-muted-foreground transition-opacity duration-150 cursor-pointer shrink-0 ${
@@ -1463,7 +1472,8 @@ function ChatMessageBubbleComponent({
               <SystemTooltip content="Marcar como evidência do negócio">
                 <button
                   type="button"
-                  onClick={() =>
+                  data-tour="message.evidence" data-training-action="true"
+                onClick={() =>
                     onSetMarkingEvidenceMsg({
                       id: m.id,
                       text: m.text,
@@ -1497,7 +1507,7 @@ function ChatMessageBubbleComponent({
 
           {/* Sugestões dinâmicas para mensagem de boas-vindas da IA */}
           {m.id === "val_welcome" && (
-            <div className="mt-2.5 flex flex-col gap-1.5 max-w-sm">
+            <div data-tour="chat.assistant-suggestions" className="mt-2.5 flex flex-col gap-1.5 max-w-sm">
               {[
                 "Como está minha meta do mês e meu ritmo hoje?",
                 "Quais são minhas tarefas e ligações agendadas para hoje?",

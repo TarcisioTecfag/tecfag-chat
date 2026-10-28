@@ -2,8 +2,8 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "../../db";
 import { crmCustomFieldDefinitions } from "../../db/schema";
 
-export type CustomFieldEntity = "deal" | "company" | "contact" | "product";
-export type CustomFieldType = "text" | "date" | "single" | "multiple" | "number" | "url";
+import { normalizePipelineId, type CustomFieldEntity } from "./custom-field-common";
+export { normalizePipelineId, type CustomFieldEntity, type CustomFieldType } from "./custom-field-common";
 export type CustomFieldValues = Record<string, unknown>;
 export type CustomFieldDefinition = typeof crmCustomFieldDefinitions.$inferSelect;
 
@@ -95,15 +95,6 @@ export async function listCustomFields(
     options: parseJsonArray<{ id: string; label: string }>(row.options),
     pipelineIds: parseJsonArray<string>(row.pipelineIds),
   }));
-}
-
-export function normalizePipelineId(id?: string | null): string {
-  if (!id) return "";
-  return id
-    .toLowerCase()
-    .trim()
-    .replace(/-2-0$/, "")
-    .replace(/^pipe-(tecfag-)?/, "");
 }
 
 export function fieldAppliesToPipeline(field: CustomFieldDefinition, pipelineId?: string | null) {

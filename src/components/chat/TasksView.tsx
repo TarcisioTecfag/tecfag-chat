@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -31,6 +32,7 @@ import {
 } from "lucide-react";
 import { CreateTaskModal } from "../crm/CreateTaskModal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -258,6 +260,15 @@ export function TasksView() {
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date>(today);
+  useTrainingSurface("tasks", (step) => {
+    if (loading) return false;
+    setIsCreateTaskModalOpen(step.surface === "tasks.create-modal");
+    setIsAllTasksModalOpen(step.id === "tasks.all");
+    if (["tasks.item", "tasks.chat", "tasks.day-filters", "tasks.day"].includes(step.id)) setViewMode("day");
+    else if (step.id === "tasks.week") setViewMode("week");
+    else if (step.id === "tasks.month") setViewMode("month");
+    return true;
+  });
 
   const days = getDaysInMonth(currentYear, currentMonth);
   const weekDays = getWeekDays(selectedDate);
@@ -315,22 +326,27 @@ export function TasksView() {
 
   // ─── Task completion toggle ─────────────────────────────────────────────
   const toggleTaskStatus = async (task: TaskData) => {
-    const newStatus = task.status === "done" ? "pending" : "done";
+    const newStatus = task.status === "done" || task.status === "completed" ? "pending" : "done";
     // Optimistic update
     setTasks((prev) =>
       prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t))
     );
     try {
-      await fetch("/api/tasks", {
+      const response = await fetch("/api/tasks", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenantId: tenant, taskId: task.id, status: newStatus }),
       });
-    } catch {
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || "Não foi possível atualizar a tarefa.");
+      }
+    } catch (error) {
       // Revert on error
       setTasks((prev) =>
         prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t))
       );
+      toast.error(error instanceof Error ? error.message : "Não foi possível atualizar a tarefa.");
     }
   };
 
@@ -453,6 +469,7 @@ export function TasksView() {
     return (
       <div
         key={task.id}
+        data-tour="tasks.item"
         className={`rounded-2xl border p-4 transition-all hover:shadow-xs flex flex-col justify-between ${
           isDone
             ? "border-border/60 bg-muted/20 opacity-70"
@@ -732,7 +749,7 @@ export function TasksView() {
             </div>
 
             {/* Grade de Dias do Mês */}
-            <div className="grid grid-cols-7 gap-1 md:gap-1.5 flex-1">
+            <div data-tour="tasks.month-grid" className="grid grid-cols-7 gap-1 md:gap-1.5 flex-1">
               {days.map((date, i) => {
                 const isCurrentMonth = date.getMonth() === currentMonth;
                 const isToday = isSameDay(date, today);
@@ -1229,7 +1246,7 @@ export function TasksView() {
 
       {/* Visão Semana (7 Colunas com Scroll Vertical) */}
       {viewMode === "week" && (
-        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5 p-3 md:p-4 overflow-y-auto lg:overflow-hidden bg-muted/10">
+        <div data-tour="tasks.week-grid" className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5 p-3 md:p-4 overflow-y-auto lg:overflow-hidden bg-muted/10">
           {weekDays.map((wDate, idx) => {
             const isColToday = isSameDay(wDate, today);
             const isColSelected = isSameDay(wDate, selectedDate);
@@ -1399,7 +1416,7 @@ export function TasksView() {
 
       {/* Visão Dia (Agenda por Blocos de Horário) */}
       {viewMode === "day" && (
-        <div className="flex-1 flex flex-col overflow-y-auto p-6 bg-muted/10 space-y-6">
+        <div data-tour="tasks.day-agenda" className="flex-1 flex flex-col overflow-y-auto p-6 bg-muted/10 space-y-6">
           {(() => {
             const dayTasks = getTasksForDate(selectedDate);
             const blocks = groupTasksByTimeBlock(dayTasks);
@@ -1541,6 +1558,7 @@ export function TasksView() {
       <AnimatePresence>
         {isAllTasksModalOpen && (
           <motion.div
+            data-tour="tasks.all-dialog"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

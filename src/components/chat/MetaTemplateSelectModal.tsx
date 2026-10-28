@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import {
   Search,
   X,
@@ -66,6 +67,12 @@ export function MetaTemplateSelectModal({
   const [selectedTemplate, setSelectedTemplate] = useState<ApprovedMetaTemplate | null>(null);
   const [parameters, setParameters] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
+  useTrainingSurface("meta", (step) => {
+    if (!isOpen || loading || !templates.length) return false;
+    if (["chat.meta-preview", "chat.meta-send", "crm.mini-meta"].includes(step.id)) { setSelectedTemplate(templates[0]); setParameters([]); }
+    else setSelectedTemplate(null);
+    return true;
+  });
 
   // Primeiro nome com inicial maiúscula e sem @
   const formattedCustomerName = useMemo(
@@ -217,6 +224,7 @@ export function MetaTemplateSelectModal({
           <div className="relative shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
+              data-tour="meta.templates"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Pesquisar por nome, texto da mensagem ou grupo (ex: Assistência Técnica, Pós-Venda)..."
@@ -374,7 +382,7 @@ export function MetaTemplateSelectModal({
         </div>
       ) : (
         /* ── CONFIGURAÇÃO E CONFIRMAÇÃO DO TEMPLATE SELECIONADO ── */
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden p-4 space-y-3.5">
+        <div data-tour="meta.template-preview mini.templates" className="flex flex-col flex-1 min-h-0 overflow-hidden p-4 space-y-3.5">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1 min-h-0 overflow-y-auto pr-1">
             {/* Coluna Esquerda: Variáveis a preencher */}
             <div className="md:col-span-6 space-y-3">
@@ -493,6 +501,7 @@ export function MetaTemplateSelectModal({
                   parameters.some((p) => !p.trim())
                 }
                 onClick={handleConfirmSend}
+                data-tour="meta.template-send"
                 className="inline-flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-all cursor-pointer shadow-soft"
               >
                 <Send className="h-3.5 w-3.5" />
@@ -534,7 +543,7 @@ interface Meta24hInfoModalProps {
 export function Meta24hInfoModal({ isOpen, onClose }: Meta24hInfoModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-lg p-6 bg-card border-border shadow-2xl rounded-2xl">
+      <DialogContent data-tour="meta.info" className="max-w-lg p-6 bg-card border-border shadow-2xl rounded-2xl">
         <DialogHeader className="space-y-2">
           <div className="flex items-center gap-2.5">
             <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">

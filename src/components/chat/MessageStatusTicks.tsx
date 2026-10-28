@@ -62,7 +62,7 @@ export function MessageStatusTicks({ status, error }: { status?: string | null; 
 
   return (
     <SystemTooltip content={content}>
-      <span className="inline-flex items-center select-none" aria-label={content}>
+      <span data-tour="message.status" className="inline-flex items-center select-none" aria-label={content}>
         {icon}
       </span>
     </SystemTooltip>

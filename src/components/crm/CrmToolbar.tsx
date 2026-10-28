@@ -236,6 +236,7 @@ export function CrmToolbar({
       onValueChange={(value) => onStatusFilterChange(value as CrmStatusFilter)}
     >
       <SelectTrigger
+        data-tour="crm.status"
         aria-label="Status da negociação"
         className="h-9 w-full gap-2 rounded-lg bg-background px-3 text-sm shadow-none"
       >
@@ -268,6 +269,7 @@ export function CrmToolbar({
         <button
           type="button"
           aria-label={`Ordenar negociações: ${selectedSort.label}`}
+          data-tour="crm.sort"
           className="flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ArrowUpDown className="h-4 w-4 shrink-0" />

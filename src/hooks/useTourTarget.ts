@@ -12,52 +12,35 @@ export interface TourTargetRect {
 export interface TourTargetState {
   element: HTMLElement | null;
   rect: TourTargetRect | null;
+  avoidRect?: TourTargetRect | null;
   found: boolean;
 }
 
 function isElementVisible(el: HTMLElement): boolean {
   const style = window.getComputedStyle(el);
-  if (
-    style.display === "none" ||
-    style.visibility === "hidden" ||
-    Number(style.opacity) === 0
-  ) {
+  if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
     return false;
   }
   const rect = el.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
 }
 
-function findVisibleTourElement(selectorKey: string | null): HTMLElement | null {
+function findVisibleTourElement(selectorKey: string | null, scope: ParentNode): HTMLElement | null {
   if (!selectorKey || typeof document === "undefined") return null;
-  const unwrapped = selectorKey
-    .replace(/^\[data-tour=["']?/, "")
-    .replace(/["']?\]$/, "");
+  const unwrapped = selectorKey.replace(/^\[data-tour=["']?/, "").replace(/["']?\]$/, "");
   const escaped =
     typeof CSS !== "undefined" && typeof CSS.escape === "function"
       ? CSS.escape(unwrapped)
       : unwrapped.replace(/"/g, '\\"');
-  const candidates = Array.from(
-    document.querySelectorAll<HTMLElement>(`[data-tour="${escaped}"]`),
-  );
-  // 1. Prefer visible live elements outside the fallback demo stage
-  for (let i = candidates.length - 1; i >= 0; i -= 1) {
-    const candidate = candidates[i];
-    if (
-      !candidate.closest('[data-tour-fallback-stage="true"]') &&
-      isElementVisible(candidate)
-    ) {
-      return candidate;
-    }
-  }
-  // 2. Otherwise use the visible element inside the interactive demo stage
+  const candidates = Array.from(scope.querySelectorAll<HTMLElement>(`[data-tour~="${escaped}"]`));
+  // Only controls inside the isolated exercise are eligible targets.
   for (let i = candidates.length - 1; i >= 0; i -= 1) {
     const candidate = candidates[i];
     if (isElementVisible(candidate)) {
       return candidate;
     }
   }
-  return candidates[0] ?? null;
+  return null;
 }
 
 /**
@@ -67,6 +50,7 @@ function findVisibleTourElement(selectorKey: string | null): HTMLElement | null 
 export function useTourTarget(
   targetSelector: string | null,
   active: boolean,
+  scope: HTMLElement | null,
 ): TourTargetState {
   const [state, setState] = useState<TourTargetState>({
     element: null,
@@ -75,7 +59,7 @@ export function useTourTarget(
   });
 
   useEffect(() => {
-    if (!active || !targetSelector || typeof window === "undefined") {
+    if (!active || !targetSelector || !scope || typeof window === "undefined") {
       setState({ element: null, rect: null, found: false });
       return;
     }
@@ -84,12 +68,10 @@ export function useTourTarget(
     let scrolledIntoViewForSelector = false;
 
     const measure = () => {
-      const el = findVisibleTourElement(targetSelector);
+      const el = findVisibleTourElement(targetSelector, scope);
       if (!el) {
         setState((prev) =>
-          prev.found || prev.element !== null
-            ? { element: null, rect: null, found: false }
-            : prev,
+          prev.found || prev.element !== null ? { element: null, rect: null, found: false } : prev,
         );
         return;
       }
@@ -154,7 +136,7 @@ export function useTourTarget(
     });
 
     const mutationObserver = new MutationObserver(scheduleMeasure);
-    mutationObserver.observe(document.body, {
+    mutationObserver.observe(scope, {
       childList: true,
       subtree: true,
       attributes: true,
@@ -169,7 +151,7 @@ export function useTourTarget(
       window.removeEventListener("scroll", scheduleMeasure, true);
       mutationObserver.disconnect();
     };
-  }, [targetSelector, active]);
+  }, [targetSelector, active, scope]);
 
   return state;
 }

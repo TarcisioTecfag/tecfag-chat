@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/hooks/useChatState";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CommercialEvidenceDialog } from "./CommercialEvidenceDialog";
 import { CommercialHomeSkeleton } from "./CommercialHomeSkeleton";
@@ -249,6 +250,13 @@ export function CommercialHomeView({
     CommercialHome["directives"][number] | null
   >(null);
   const [isAgendaModalOpen, setIsAgendaModalOpen] = useState(false);
+  useTrainingSurface("home", (step) => {
+    if (loading || !data) return false;
+    setIsAgendaModalOpen(step.id === "home.agenda-modal");
+    setSelectedDirective(step.surface === "home.evidence-dialog" ? data.directives[0] || null : null);
+    setFilter(step.id === "home.overdue" ? "Atrasadas" : "Todas");
+    return true;
+  });
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -548,7 +556,7 @@ export function CommercialHomeView({
                 whileHover={{ scale: 1.1, rotate: overdueActionsCount > 0 ? [0, -8, 8, -4, 0] : 0 }}
                 whileTap={{ scale: 0.9 }}
                 transition={{ duration: 0.25 }}
-                onClick={() => setFilter("Atrasadas")}
+                data-tour="home.overdue" onClick={() => setFilter("Atrasadas")}
                 className={`relative border p-2 text-muted-foreground hover:border-border hover:text-foreground cursor-pointer rounded-[4px] transition-colors dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-400 dark:hover:text-zinc-50 shadow-sm ${
                   overdueActionsCount > 0
                     ? "border-red-600/80 bg-red-50 text-red-600 dark:border-red-600/80 dark:bg-red-950/40 dark:text-red-300"
@@ -751,7 +759,7 @@ export function CommercialHomeView({
               {/* BLOCO 2: PROGRESSO DA META & AGENDA DE HOJE */}
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,.7fr)]">
                 {/* PROGRESSO DA META */}
-                <motion.section
+                <motion.section data-tour="home.goal"
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.2, ease: "easeOut" }}
@@ -903,6 +911,7 @@ export function CommercialHomeView({
 
               {/* BLOCO 3: DIRETRIZES DO GESTOR ("O que move o ponteiro hoje") */}
               <motion.section
+                data-tour="home.directives"
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.45, delay: 0.3, ease: "easeOut" }}
@@ -923,7 +932,7 @@ export function CommercialHomeView({
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div data-tour="home.directive-filters" className="flex flex-wrap items-center gap-1.5">
                       <ListFilter size={15} className="text-muted-foreground dark:text-zinc-500 mr-1" />
                       {directiveTabs.map((item) => {
                         const isActive = filter === item;
@@ -1079,7 +1088,7 @@ export function CommercialHomeView({
                                       whileHover={{ scale: 1.04, y: -1 }}
                                       whileTap={{ scale: 0.96 }}
                                       transition={{ duration: 0.15 }}
-                                      onClick={() => setSelectedDirective(item)}
+                                      data-tour="home.directive-actions" onClick={() => setSelectedDirective(item)}
                                       className="flex items-center gap-1.5 bg-[#00a868] hover:bg-[#00965d] active:bg-[#008f57] px-4 py-2 text-xs sm:text-[13px] font-bold text-white cursor-pointer rounded-[4px] shadow-sm transition-all"
                                     >
                                       <Check size={14} strokeWidth={2.8} />
@@ -1137,6 +1146,7 @@ export function CommercialHomeView({
             <div className="space-y-4">
               {/* CARD 1: CALENDÁRIO COMERCIAL INTERATIVO COM HOVER EM TODOS OS DIAS */}
               <motion.section
+                data-tour="home.calendar"
                 initial={{ opacity: 0, x: 18 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.4, delay: 0.15, ease: "easeOut" }}
@@ -1270,6 +1280,7 @@ export function CommercialHomeView({
 
               {/* CARD 2: DOSSIÊ DO DIA SELECIONADO */}
               <motion.section
+                data-tour="home.day-dossier"
                 initial={{ opacity: 0, x: 18 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.4, delay: 0.25, ease: "easeOut" }}
@@ -1446,7 +1457,7 @@ export function CommercialHomeView({
       {/* MODAL DE AGENDA COMPLETA DO DIA COM FRAMER-MOTION */}
       <AnimatePresence>
         {isAgendaModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div data-tour="home.agenda-dialog" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}

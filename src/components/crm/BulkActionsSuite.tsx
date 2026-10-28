@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import {
   Dialog,
   DialogContent,
@@ -172,6 +173,16 @@ export function BulkActionsSuite({
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteCountInput, setDeleteCountInput] = useState("");
   const [deleteConfirmCheckbox, setDeleteConfirmCheckbox] = useState(false);
+  useTrainingSurface("crm.bulk-suite", (step) => {
+    setTransferOpen(step.id === "crm.bulk-transfer");
+    setStatusOpen(step.id === "crm.bulk-status");
+    setRatingModalOpen(step.id === "crm.bulk-fields");
+    setIsCreateTaskModalOpen(step.id === "crm.bulk-create");
+    setIsMoveSheetOpen(step.id === "crm.bulk-move");
+    setIsExportSheetOpen(step.id === "crm.bulk-export");
+    setIsDeleteModalOpen(step.id === "crm.bulk-delete");
+    return effectiveCount > 0;
+  });
 
   // Inicializa o pipeline de destino no Sheet de Mover
   useEffect(() => {
@@ -673,6 +684,7 @@ export function BulkActionsSuite({
               </button>
             </PopoverTrigger>
             <PopoverContent
+              data-tour="bulk.transfer"
               align="end"
               className="w-64 p-2 shadow-2xl rounded-xl border border-border bg-popover text-popover-foreground animate-in fade-in-50 zoom-in-95 duration-150"
             >
@@ -699,7 +711,7 @@ export function BulkActionsSuite({
                       <button
                         key={op.id}
                         type="button"
-                        onClick={() => handleExecuteTransfer(op.id, op.name)}
+                        data-training-save="true" onClick={() => handleExecuteTransfer(op.id, op.name)}
                         className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-accent text-xs font-medium text-foreground transition truncate cursor-pointer flex items-center justify-between"
                       >
                         <span className="truncate">{op.name}</span>
@@ -721,7 +733,7 @@ export function BulkActionsSuite({
                 Alterar status
               </button>
             </PopoverTrigger>
-            <PopoverContent
+            <PopoverContent data-tour="bulk.status"
               align="end"
               className="w-56 p-2 shadow-2xl rounded-xl border border-border bg-popover text-popover-foreground animate-in fade-in-50 zoom-in-95 duration-150"
             >
@@ -735,7 +747,7 @@ export function BulkActionsSuite({
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => handleExecuteStatus(opt.value as "open" | "won" | "lost" | "paused")}
+                      data-training-save="true" onClick={() => handleExecuteStatus(opt.value as "open" | "won" | "lost" | "paused")}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent text-xs font-semibold text-foreground transition cursor-pointer group"
                     >
                       <OptionIcon className={`h-4 w-4 shrink-0 transition-colors ${opt.iconColor}`} />
@@ -905,7 +917,7 @@ export function BulkActionsSuite({
           DRAWER / SHEET 1: MOVER NEGOCIAÇÕES (SCREENSHOTS 7 & 8)
           ────────────────────────────────────────────────────────────────────────── */}
       <Sheet open={isMoveSheetOpen} onOpenChange={setIsMoveSheetOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col justify-between">
+        <SheetContent data-tour="bulk.move" side="right" className="w-full sm:max-w-md flex flex-col justify-between">
           <div>
             <SheetHeader className="pb-4 border-b border-border">
               <SheetTitle className="text-base font-bold text-foreground">
@@ -983,7 +995,7 @@ export function BulkActionsSuite({
             <Button
               type="button"
               size="sm"
-              onClick={handleExecuteMove}
+              data-training-save="true" onClick={handleExecuteMove}
               disabled={loading || !targetMoveStageId}
               className="text-xs font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer"
             >
@@ -1004,7 +1016,7 @@ export function BulkActionsSuite({
           DRAWER / SHEET 2: EXPORTAR DADOS (SCREENSHOT 9)
           ────────────────────────────────────────────────────────────────────────── */}
       <Sheet open={isExportSheetOpen} onOpenChange={setIsExportSheetOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col justify-between">
+        <SheetContent data-tour="bulk.export" side="right" className="w-full sm:max-w-md flex flex-col justify-between">
           <div>
             <SheetHeader className="pb-4 border-b border-border">
               <SheetTitle className="text-base font-bold text-foreground">
@@ -1126,7 +1138,7 @@ export function BulkActionsSuite({
           MODAL 2: EXCLUSÃO DE NEGOCIAÇÕES (LIXEIRA VS PERMANENTE) (SCREENSHOT 10)
           ────────────────────────────────────────────────────────────────────────── */}
       <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent data-tour="bulk.delete" className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground">
               Deseja excluir as negociações?
@@ -1280,7 +1292,7 @@ export function BulkActionsSuite({
           MODAL 4: QUALIFICAÇÃO (ESTRELAS)
           ────────────────────────────────────────────────────────────────────────── */}
       <Dialog open={ratingModalOpen} onOpenChange={setRatingModalOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent data-tour="bulk.fields" className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <Star className="h-4 w-4 fill-primary text-primary" />
@@ -1524,7 +1536,7 @@ export function BulkActionsSuite({
           ────────────────────────────────────────────────────────────────────────── */}
       <Sheet open={isCreateTaskModalOpen} onOpenChange={setIsCreateTaskModalOpen}>
         <SheetContent
-          side="right"
+ data-tour="bulk.create"          side="right"
           className="flex h-full w-full max-w-[460px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[460px] shadow-2xl border-l border-border"
         >
           {/* Cabeçalho do Drawer (o ícone X padrão já é renderizado pelo SheetContent) */}
@@ -1802,7 +1814,7 @@ export function BulkActionsSuite({
               <Button
                 type="button"
                 size="sm"
-                onClick={handleExecuteCreateTask}
+                data-training-save="true" onClick={handleExecuteCreateTask}
                 disabled={loading || !taskTitle.trim()}
                 className="text-xs font-bold bg-primary text-primary-foreground cursor-pointer"
               >

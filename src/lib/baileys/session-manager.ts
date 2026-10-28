@@ -104,6 +104,9 @@ export class SessionManager {
   private leaseToken: string | null = null;
   private notifications = new AsyncLocalStorage<{ tenantId: string; events: SessionEvent[]; active: boolean }>();
   private leaseTimer: ReturnType<typeof setInterval> | null = null;
+  private leaseCheckRunning = false;
+  private leaseRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  private leaseRecoveryVersion = 0;
   private static extraManagers = runtimeSingleton("WhatsappExtraSessionManagers", () => new Map<string, SessionManager>());
   private constructor(private readonly connectionId: string | null = null) {}
 
@@ -134,9 +137,55 @@ export class SessionManager {
     }
   }
 
+  private cancelLeaseRecovery() {
+    this.leaseRecoveryVersion++;
+    if (this.leaseRecoveryTimer) clearTimeout(this.leaseRecoveryTimer);
+    this.leaseRecoveryTimer = null;
+  }
+
+  private scheduleLeaseRecovery(tenantId: string) {
+    if (!this.connectionId || this.isShuttingDown || this.leaseRecoveryTimer || !multiConnectionEnabled(tenantId)) return;
+    const version = this.leaseRecoveryVersion;
+    const attempt = (this.reconnectAttempts.get(tenantId) ?? 0) + 1;
+    this.reconnectAttempts.set(tenantId, attempt);
+    const delay = Math.min(3000 * 2 ** Math.min(attempt - 1, 6), 120_000) + Math.floor(Math.random() * 1000);
+    this.leaseRecoveryTimer = setTimeout(async () => {
+      this.leaseRecoveryTimer = null;
+      if (this.isShuttingDown || version !== this.leaseRecoveryVersion || !multiConnectionEnabled(tenantId)) return;
+      let attemptVersion = version;
+      try {
+        const [config] = await db.select({ enabled: whatsappConnections.enabled, provider: whatsappConnections.provider, authEncrypted: whatsappConnections.authEncrypted })
+          .from(whatsappConnections).where(and(eq(whatsappConnections.tenantId, tenantId), eq(whatsappConnections.id, this.connectionId!))).limit(1);
+        if (version !== this.leaseRecoveryVersion || this.isShuttingDown || !config?.enabled || config.provider !== "baileys" || !config.authEncrypted) return;
+        const starting = this.initSession(tenantId); // Reacquires/fences the lease before opening a socket.
+        attemptVersion = this.leaseRecoveryVersion;
+        await starting;
+      } catch {
+        if (attemptVersion === this.leaseRecoveryVersion && !this.isShuttingDown) this.scheduleLeaseRecovery(tenantId);
+      }
+    }, delay);
+    this.leaseRecoveryTimer.unref();
+  }
+
+  private async checkConnectionLease(tenantId: string) {
+    if (!this.connectionId || !this.leaseToken || this.leaseCheckRunning || this.isShuttingDown) return;
+    const token = this.leaseToken;
+    const version = this.leaseRecoveryVersion;
+    this.leaseCheckRunning = true;
+    try {
+      let owned = false;
+      try { owned = await renewConnectionLease(tenantId, this.connectionId, token); } catch { /* fail closed */ }
+      if (owned || token !== this.leaseToken || version !== this.leaseRecoveryVersion || this.isShuttingDown) return;
+      await this.pauseSession(tenantId, "ownership-loss");
+      await this.stopLease(tenantId);
+      if (version === this.leaseRecoveryVersion && !this.isShuttingDown) this.scheduleLeaseRecovery(tenantId);
+    } finally { this.leaseCheckRunning = false; }
+  }
+
   public async shutdown(): Promise<void> {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
+    this.cancelLeaseRecovery();
     if (!this.connectionId) await Promise.allSettled([...SessionManager.extraManagers.values()].map((m) => m.shutdown()));
     console.log("[SessionManager] Recebido sinal de encerramento do processo (SIGTERM/SIGINT). Fechando sockets Baileys com segurança...");
 
@@ -373,6 +422,7 @@ export class SessionManager {
    * Usa mutex por tenant para evitar inicializações concorrentes.
    */
   public async initSession(tenantId: string): Promise<WASocket> {
+    this.cancelLeaseRecovery();
     // Se já há uma sessão ativa (conectada ou aguardando QR), reutilizar
     const existingStatus = this.sessionStatuses.get(tenantId);
     if (this.sessions.has(tenantId) && existingStatus && existingStatus !== "disconnected") {
@@ -388,7 +438,7 @@ export class SessionManager {
     }
 
     const initPromise = this._doInitSession(tenantId).catch(async (error) => {
-      if (this.connectionId) { await this.pauseSession(tenantId); await this.stopLease(tenantId); }
+      if (this.connectionId) { await this.pauseSession(tenantId, "ownership-loss"); await this.stopLease(tenantId); }
       throw error;
     });
     this.initMutex.set(tenantId, initPromise);
@@ -419,10 +469,7 @@ export class SessionManager {
       if (!this.leaseToken) this.leaseToken = await acquireConnectionLease(tenantId, this.connectionId);
       if (!this.leaseTimer) {
         this.leaseTimer = setInterval(() => {
-          if (!this.leaseToken) return;
-          void renewConnectionLease(tenantId, this.connectionId!, this.leaseToken).then(async (owned) => {
-            if (!owned) { await this.pauseSession(tenantId); await this.stopLease(tenantId); }
-          }).catch(async () => { await this.pauseSession(tenantId); await this.stopLease(tenantId); });
+          void this.checkConnectionLease(tenantId).catch(() => console.error("[WhatsApp] Falha na recuperação de posse; sessão será reavaliada."));
         }, 25_000);
         this.leaseTimer.unref();
       }
@@ -795,7 +842,8 @@ export class SessionManager {
    * Pausa a sessão Baileys (fecha socket) SEM dar logout e SEM limpar as credenciais/chaves do banco.
    * Usado na troca de canal para Meta, permitindo retorno posterior a Baileys sem re-leitura de QR Code.
    */
-  public async pauseSession(tenantId: string) {
+  public async pauseSession(tenantId: string, reason: "manual" | "ownership-loss" = "manual") {
+    if (reason === "manual") this.cancelLeaseRecovery();
     const sock = this.sessions.get(tenantId);
     if (sock) {
       this.sessions.delete(tenantId);
@@ -821,6 +869,7 @@ export class SessionManager {
   }
 
   public async disconnectSession(tenantId: string) {
+    this.cancelLeaseRecovery();
     const sock = this.sessions.get(tenantId);
     if (sock) {
       this.sessions.delete(tenantId);

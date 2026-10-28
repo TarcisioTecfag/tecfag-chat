@@ -2,10 +2,10 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
   hooks: { hook: (name: string, handler: () => void) => void };
 }) {
   let stopped = false;
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let stopWorker: (() => void) | undefined;
   nitroApp.hooks.hook("close", () => {
     stopped = true;
-    if (timer) clearInterval(timer);
+    stopWorker?.();
   });
   void (async () => {
     const { db } = await import("../../src/db/index");
@@ -24,14 +24,15 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
     const { recoverIndustrialInterruptedTurns } =
       await import("../../src/lib/valentina/sdr-recovery");
     const { SessionManager } = await import("../../src/lib/baileys/session-manager");
+    const { SdrFollowupEngine } = await import("../../src/lib/valentina/sdr-followup-engine");
+    const { recoverIndustrialBotOutbounds } = await import("../../src/lib/valentina/industrial-outbound");
+    const { startPeriodicWorker } = await import("../../src/lib/periodic-worker");
     const { notifyOperatorLeadTransferred } =
       await import("../../src/lib/valentina/operator-notifications");
     if (stopped) return;
     const store = createIndustrialHandoffStore(db, ensureLocalCrmDealBeforeTransfer);
-    let running = false;
     const run = async () => {
-      if (stopped || running) return;
-      running = true;
+      if (stopped) return;
       try {
         await recoverIndustrialHandoffs({
           database: db,
@@ -97,18 +98,17 @@ export default function industrialTriageRecoveryPlugin(nitroApp: {
               },
             }),
         });
+        await recoverIndustrialBotOutbounds();
         await recoverIndustrialInterruptedTurns();
+        await SdrFollowupEngine.getInstance().runIndustrialFollowupCycle();
       } catch {
         console.error(
           "[IndustrialRecovery] Falha ao recuperar encaminhamentos; checkpoints preservados.",
         );
-      } finally {
-        running = false;
+        throw new Error("Recuperação industrial incompleta.");
       }
     };
-    void run();
-    timer = setInterval(() => void run(), 30_000);
-    timer.unref();
+    stopWorker = startPeriodicWorker("industrial-triage-recovery", run, 30_000);
   })().catch(() =>
     console.error("[IndustrialRecovery] Falha ao iniciar recuperação de encaminhamentos."),
   );

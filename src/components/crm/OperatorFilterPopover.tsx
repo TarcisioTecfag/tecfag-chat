@@ -106,6 +106,7 @@ export function OperatorFilterPopover({
           type="button"
           disabled={disabled}
           aria-label={`Responsável: ${triggerLabel}`}
+          data-tour="crm.owner"
           className={`flex h-9 w-full min-w-max items-center justify-between gap-2 whitespace-nowrap rounded-lg border px-3.5 text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             selectedOperatorIds.length > 0
               ? "border-primary bg-primary/10 text-primary font-bold"

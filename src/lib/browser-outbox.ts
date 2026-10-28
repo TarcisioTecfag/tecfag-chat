@@ -38,12 +38,18 @@ async function operate<T>(
     database.close();
   }
 }
-export const saveBrowserIntent = (intent: BrowserIntent) =>
-  operate("readwrite", (store) => store.put(intent));
-export const removeBrowserIntent = (id: string) =>
-  operate("readwrite", (store) => store.delete(id));
+const trainingIntents = new Map<string, BrowserIntent>();
+const inTrainingFrame = () => typeof document !== "undefined" && Boolean(document.documentElement.dataset.trainingInstalled);
+export const saveBrowserIntent = (intent: BrowserIntent) => {
+  if (inTrainingFrame()) { trainingIntents.set(intent.id, intent); return Promise.resolve<IDBValidKey>(intent.id); }
+  return operate("readwrite", (store) => store.put(intent));
+};
+export const removeBrowserIntent = (id: string) => {
+  if (inTrainingFrame()) { trainingIntents.delete(id); return Promise.resolve(); }
+  return operate("readwrite", (store) => store.delete(id));
+};
 export async function readBrowserIntents(tenantId: string, operatorId: string) {
-  const rows = (await operate("readonly", (store) => store.getAll())) as BrowserIntent[];
+  const rows = inTrainingFrame() ? [...trainingIntents.values()] : (await operate("readonly", (store) => store.getAll())) as BrowserIntent[];
   return rows
     .filter((row) => row.tenantId === tenantId && row.operatorId === operatorId)
     .sort((a, b) => a.createdAt - b.createdAt);

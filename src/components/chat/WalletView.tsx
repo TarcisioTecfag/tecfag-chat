@@ -88,6 +88,16 @@ export function WalletView() {
 
   const [confirmRemoveClient, setConfirmRemoveClient] = useState<Conversation | null>(null);
   const [confirmDeleteTemplateId, setConfirmDeleteTemplateId] = useState<string | null>(null);
+  useTrainingSurface("wallet", (step) => {
+    const templateStep = step.id.startsWith("wallet.template");
+    setActiveTab(templateStep ? "templates" : "wallet");
+    const editor = ["wallet.template-edit", "wallet.template-vars"].includes(step.id);
+    setShowModal(editor);
+    if (editor && templates[0]) { setModalMode("edit"); setEditingTemplate(templates[0]); setTemplateForm({ title: templates[0].title, text: templates[0].text }); }
+    setConfirmRemoveClient(step.id === "wallet.remove" ? conversations.find((c) => c.id.startsWith("demo:")) || null : null);
+    setConfirmDeleteTemplateId(step.id === "wallet.template-delete" ? templates[0]?.id || null : null);
+    return !templateStep || templates.length > 0;
+  });
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -708,7 +718,7 @@ export function WalletView() {
 
         {/* ── MODAL SISTEMA: Confirmação de Remoção de Cliente ─────────────────── */}
         {confirmRemoveClient && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fadeIn">
+          <div data-tour="wallet.remove-dialog" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fadeIn">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -737,7 +747,7 @@ export function WalletView() {
                 >
                   Cancelar
                 </button>
-                <button
+                <button data-training-save="true"
                   onClick={async () => {
                     const client = confirmRemoveClient;
                     setConfirmRemoveClient(null);
@@ -758,7 +768,7 @@ export function WalletView() {
 
         {/* ── MODAL SISTEMA: Confirmação de Exclusão de Template ───────────────── */}
         {confirmDeleteTemplateId && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fadeIn">
+          <div data-tour="wallet.template-delete" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fadeIn">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -783,7 +793,7 @@ export function WalletView() {
                 >
                   Cancelar
                 </button>
-                <button
+                <button data-training-save="true"
                   onClick={async () => {
                     const id = confirmDeleteTemplateId;
                     setConfirmDeleteTemplateId(null);
@@ -817,7 +827,7 @@ export function WalletView() {
                 </button>
               </div>
 
-              <form onSubmit={handleSaveTemplate} className="space-y-4">
+              <form data-tour="wallet.template-editor" onSubmit={handleSaveTemplate} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-foreground mb-1.5">
                     Título do Template
@@ -867,6 +877,7 @@ export function WalletView() {
 
                   <textarea
                     ref={textareaRef}
+                    data-tour="wallet.template-variables"
                     rows={5}
                     placeholder="Digite o texto do template aqui..."
                     value={templateForm.text}
@@ -899,3 +910,4 @@ export function WalletView() {
     </TooltipProvider>
   );
 }
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";

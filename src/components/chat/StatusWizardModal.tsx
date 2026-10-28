@@ -47,7 +47,7 @@ export function StatusWizardModal({ isOpen, onClose }: StatusWizardModalProps) {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+      <div data-tour="profile.status-help" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
       {/* Backdrop click */}
       <div className="fixed inset-0" onClick={onClose} />
 

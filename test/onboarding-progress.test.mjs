@@ -257,7 +257,7 @@ test("state machine transitions: start -> checkpoint -> pause -> resume -> defer
   assert.equal(completed.ok, true);
   record = completed.record;
   assert.equal(record.status, "completed");
-  assert.equal(record.lastCompletedVersion, 1);
+  assert.equal(record.lastCompletedVersion, 2);
   assert.ok(record.lastCompletedAt instanceof Date);
 
   // 7. Restart preserves lastCompletedVersion/lastCompletedAt and creates a new run
@@ -265,7 +265,7 @@ test("state machine transitions: start -> checkpoint -> pause -> resume -> defer
     record,
     payload: {
       action: "restart",
-      runId: "run_beta_002",
+      runId: record.runId,
       revision: record.revision,
     },
     eligibleViews,
@@ -275,9 +275,9 @@ test("state machine transitions: start -> checkpoint -> pause -> resume -> defer
   assert.equal(restarted.ok, true);
   record = restarted.record;
   assert.equal(record.status, "in_progress");
-  assert.equal(record.runId, "run_beta_002");
+  assert.notEqual(record.runId, "run_alpha_001");
   assert.equal(record.completedSteps.length, 0);
-  assert.equal(record.lastCompletedVersion, 1);
+  assert.equal(record.lastCompletedVersion, 2);
   assert.ok(record.lastCompletedAt instanceof Date);
 });
 

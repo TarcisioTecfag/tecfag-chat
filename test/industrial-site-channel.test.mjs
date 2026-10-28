@@ -133,7 +133,7 @@ describe("canal Site — contratos de integração (inspeção de código)", () 
 
   it("SdrEngine e presença desviam para o widget somente em conversas do site", () => {
     assert.match(engine, /isSiteConversationId\(conversationId\) && getAiPersona\(tenantId\)\.triagePolicy === "industrial"/);
-    assert.match(engine, /private async sendSiteBotMessages/);
+    assert.match(engine, /sendIndustrialBotBatch/);
     assert.match(sender, /if \(isSiteConversationId\(conversationId\)\) \{\s*await pushSiteTyping/);
   });
 

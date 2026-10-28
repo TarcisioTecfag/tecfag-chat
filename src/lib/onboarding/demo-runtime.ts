@@ -1,8 +1,6 @@
-import {
-  createOnboardingDemoFixtures,
-  type KnowledgeSourceStatusDemo,
-} from "./fixtures";
+import { createOnboardingDemoFixtures, type KnowledgeSourceStatusDemo } from "./fixtures";
 import type { TourCommand } from "./types";
+import { SUPPORTED_TOUR_COMMANDS } from "./command-names";
 
 export function isDemoIdentifier(value: unknown): boolean {
   return typeof value === "string" && value.trim().startsWith("demo:");
@@ -113,7 +111,8 @@ export interface OnboardingDemoRuntimeState {
     terminalDialogOpen: boolean;
     terminalDialogKind: "won" | "lost";
     listSelectionMode: "none" | "page" | "allFiltered";
-    bulkDialogKind: "transfer" | "status" | "fields" | "create" | "move" | "export" | "delete" | null;
+    bulkDialogKind:
+      "transfer" | "status" | "fields" | "create" | "move" | "export" | "delete" | null;
     dealDetailOpen: boolean;
     dealDetailId: string;
     dealDetailTab: "tasks" | "history" | "conversations" | "evidence" | "products" | "files";
@@ -353,6 +352,8 @@ export function applyTourCommandToDemoState(
 ): OnboardingDemoRuntimeState {
   if (!command) return prev;
   const cmdName = command.name ?? command.type ?? command.command ?? "noop";
+  if (!SUPPORTED_TOUR_COMMANDS.has(cmdName))
+    throw Error(`Comando de demonstração não implementado: ${cmdName}`);
   const params = (command.params ?? command.payload ?? {}) as Record<string, any>;
   const next: OnboardingDemoRuntimeState = structuredClone(prev);
   next.lastSimulatedNote = `Comando simulado: ${cmdName}`;
@@ -364,7 +365,8 @@ export function applyTourCommandToDemoState(
 
     case "setHomeFilter":
       if (typeof params.filter === "string") {
-        next.home.activeFilter = params.filter as OnboardingDemoRuntimeState["home"]["activeFilter"];
+        next.home.activeFilter =
+          params.filter as OnboardingDemoRuntimeState["home"]["activeFilter"];
       }
       break;
 
@@ -395,11 +397,7 @@ export function applyTourCommandToDemoState(
       next.home.evidenceDialogOpen = true;
       next.home.evidenceStep = 2;
       next.home.outcomeType =
-        params.outcome === "won"
-          ? "won"
-          : params.outcome === "lost"
-            ? "lost"
-            : "continue";
+        params.outcome === "won" ? "won" : params.outcome === "lost" ? "lost" : "continue";
       break;
 
     case "selectHomeCalendarDay":
@@ -455,11 +453,7 @@ export function applyTourCommandToDemoState(
       next.chat.selectedConversationId =
         typeof params.conversationId === "string" ? params.conversationId : "demo:conv-1";
       next.chat.ownershipMode =
-        params.owner === "colleague"
-          ? "colleague"
-          : params.owner === "none"
-            ? "none"
-            : "self";
+        params.owner === "colleague" ? "colleague" : params.owner === "none" ? "none" : "self";
       next.chat.mobilePane = "thread";
       break;
 
@@ -476,11 +470,7 @@ export function applyTourCommandToDemoState(
     case "setPersonalWhatsappDemoState":
       next.chat.personalWhatsappOpen = true;
       next.chat.personalWhatsappView =
-        params.view === "policy"
-          ? "policy"
-          : params.view === "qr_demo"
-            ? "qr_demo"
-            : "connected";
+        params.view === "policy" ? "policy" : params.view === "qr_demo" ? "qr_demo" : "connected";
       break;
 
     case "toggleRightDetailsPanel":
@@ -504,11 +494,7 @@ export function applyTourCommandToDemoState(
 
     case "setDemoAttendanceOwnership":
       next.chat.ownershipMode =
-        params.owner === "colleague"
-          ? "colleague"
-          : params.owner === "none"
-            ? "none"
-            : "self";
+        params.owner === "colleague" ? "colleague" : params.owner === "none" ? "none" : "self";
       if (params.queueState === "fila") next.chat.activeQueue = "fila";
       if (params.queueState === "finalizados") next.chat.activeQueue = "finalizados";
       break;
@@ -551,8 +537,7 @@ export function applyTourCommandToDemoState(
     case "cycleMessageSourceState":
       next.chat.selectedConversationId = "valentina";
       next.chat.sourceInspectorOpen = Boolean(params.open ?? true);
-      next.chat.sourceInspectorState =
-        (params.state as KnowledgeSourceStatusDemo) || "verified";
+      next.chat.sourceInspectorState = (params.state as KnowledgeSourceStatusDemo) || "verified";
       break;
 
     case "openMediaPreviewDemo":
@@ -626,11 +611,7 @@ export function applyTourCommandToDemoState(
     case "setMetaWindowState":
       next.chat.catalogPickerOpen = false;
       next.chat.metaWindowState =
-        params.state === "closed"
-          ? "closed"
-          : params.state === "checking"
-            ? "checking"
-            : "open";
+        params.state === "closed" ? "closed" : params.state === "checking" ? "checking" : "open";
       break;
 
     case "openMeta24hHelpDemo":
@@ -655,11 +636,7 @@ export function applyTourCommandToDemoState(
       next.chat.rightDetailsOpen = Boolean(params.open ?? true);
       next.chat.mobilePane = "details";
       next.chat.rightDetailsTab =
-        params.tab === "files"
-          ? "files"
-          : params.tab === "events"
-            ? "events"
-            : "details";
+        params.tab === "files" ? "files" : params.tab === "events" ? "events" : "details";
       break;
 
     case "openContactEditorInDetails":
@@ -682,11 +659,7 @@ export function applyTourCommandToDemoState(
     case "openJourneyTab":
       next.chat.journeyModalOpen = true;
       next.chat.journeyActiveTab =
-        params.tab === "pages"
-          ? "pages"
-          : params.tab === "journey"
-            ? "journey"
-            : "info";
+        params.tab === "pages" ? "pages" : params.tab === "journey" ? "journey" : "info";
       break;
 
     case "openDetailsTaskCreator":
@@ -775,8 +748,7 @@ export function applyTourCommandToDemoState(
 
     case "openDealCardMenu":
       next.crm.quickCreateKind = null;
-      next.crm.cardMenuDealId =
-        typeof params.dealId === "string" ? params.dealId : "demo:deal-1";
+      next.crm.cardMenuDealId = typeof params.dealId === "string" ? params.dealId : "demo:deal-1";
       break;
 
     case "openTerminalStageDialog":
@@ -788,11 +760,7 @@ export function applyTourCommandToDemoState(
     case "setDealListSelectionDemo":
       next.crm.activeView = "list";
       next.crm.listSelectionMode =
-        params.mode === "allFiltered"
-          ? "allFiltered"
-          : params.mode === "page"
-            ? "page"
-            : "none";
+        params.mode === "allFiltered" ? "allFiltered" : params.mode === "page" ? "page" : "none";
       break;
 
     case "openBulkActionDialog":
@@ -805,8 +773,7 @@ export function applyTourCommandToDemoState(
     case "openDemoDealDetail":
       next.crm.bulkDialogKind = null;
       next.crm.dealDetailOpen = true;
-      next.crm.dealDetailId =
-        typeof params.dealId === "string" ? params.dealId : "demo:deal-1";
+      next.crm.dealDetailId = typeof params.dealId === "string" ? params.dealId : "demo:deal-1";
       next.crm.dealDetailTab =
         (params.tab as OnboardingDemoRuntimeState["crm"]["dealDetailTab"]) || "tasks";
       break;
@@ -818,8 +785,7 @@ export function applyTourCommandToDemoState(
       next.crm.dealDetailTab =
         (params.tab as OnboardingDemoRuntimeState["crm"]["dealDetailTab"]) || "tasks";
       next.crm.dealNoteEditorOpen = Boolean(params.openNoteEditor);
-      next.crm.dealHistoryFilter =
-        params.historyFilter === "rd_marketing" ? "rd_marketing" : "all";
+      next.crm.dealHistoryFilter = params.historyFilter === "rd_marketing" ? "rd_marketing" : "all";
       break;
 
     case "openDealParticipantsDrawer":
@@ -972,8 +938,7 @@ export function applyTourCommandToDemoState(
     case "openStatusHelpWizard":
       next.profile.surfaceOpen = false;
       next.profile.statusHelpOpen = Boolean(params.open);
-      next.profile.statusHelpPage =
-        params.page === 1 ? 1 : params.page === 2 ? 2 : 0;
+      next.profile.statusHelpPage = params.page === 1 ? 1 : params.page === 2 ? 2 : 0;
       break;
 
     case "openNotificationsPromptDemo":
@@ -1017,7 +982,8 @@ export function applyTourCommandToDemoState(
     }
 
     case "simulateWhatsappStatus": {
-      const status = (params.status ?? "connected") as OnboardingDemoRuntimeState["personalWhatsappStatus"];
+      const status = (params.status ??
+        "connected") as OnboardingDemoRuntimeState["personalWhatsappStatus"];
       next.personalWhatsappStatus = status;
       next.personalWhatsappConnection.status = status;
       break;

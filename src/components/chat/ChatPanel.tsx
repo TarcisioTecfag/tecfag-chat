@@ -7,6 +7,7 @@ import {
   type BrowserIntent,
 } from "@/lib/browser-outbox";
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
 import { MessageReactionPicker } from "./MessageReactionPicker";
@@ -1005,8 +1006,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     toggleReaction,
   } = useChat();
 
-  const activeProvider = activeChat?.whatsappConnectionId ? "baileys" : tenantActiveProvider;
   const connectionsState = useWhatsappConnections(tenant);
+  const activeProvider = connectionsState.connections.find(connection => connection.id === activeChat?.whatsappConnectionId)?.provider || tenantActiveProvider;
   const [showAllNumbers] = useState(true);
   const [choosingWhatsappNumber, setChoosingWhatsappNumber] = useState(false);
   const unifiedHistory = useContactWhatsappHistory(tenant, activeChat?.id, connectionsState.enabled && showAllNumbers && activeChat?.channel === "whatsapp" && activeChat.id !== "valentina");
@@ -1628,6 +1629,27 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [activeMedia, setActiveMedia] = useState<{ type: "image" | "video"; url: string } | null>(
     null,
   );
+  useTrainingSurface("chat", (step) => {
+    if (!activeChat) return false;
+    const id = step.id;
+    setChoosingWhatsappNumber(["chat.sender", "chat.sender-history"].includes(id));
+    setShowMsgSearch(id === "chat.search-thread");
+    setShowSystemInfo(["chat.system-toggle", "chat.system-details"].includes(id));
+    setShowTransferModal(id === "chat.transfer");
+    setShowFinishConfirmModal(id === "chat.finish");
+    setShowEmojiPicker(id === "chat.emoji");
+    setShowQuickMenu(id.startsWith("chat.quick-"));
+    setShowValentinaModal(id.startsWith("chat.inline-"));
+    setIsCatalogOpen(["chat.catalog", "chat.catalog-attach"].includes(id));
+    setShowMetaTemplateModal(["chat.meta-search", "chat.meta-preview", "chat.meta-send"].includes(id));
+    setShow24hInfoModal(id === "chat.meta-help");
+    if (id === "chat.inline-grammar") setText("ola posso confirmar os detalhes do equipamento");
+    if (id === "chat.internal-note") setMsgMode("internal");
+    else if (id === "chat.composer") setMsgMode("client");
+    setMarkingEvidenceMsg(id === "chat.message-evidence" ? activeChat.messages.find((m) => !m.isInternalNote) || null : null);
+    setExpandedMsgId(id === "chat.system-details" ? activeChat.messages.find((m) => m.isInternalNote)?.id || null : null);
+    return true;
+  });
 
   const handleMediaClick = useCallback((type: "image" | "video", url: string) => {
     setActiveMedia({ type, url });
@@ -2427,7 +2449,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-chat-panel border border-border shadow-soft relative"
     >
       {/* Header — flutuante com fundo sólido e sombra para melhor harmonia */}
-      <header className="flex items-center justify-between gap-1.5 md:gap-2 px-2.5 md:px-6 py-2 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[52px]">
+      <header data-tour="chat.header" className="flex items-center justify-between gap-1.5 md:gap-2 px-2.5 md:px-6 py-2 md:py-3.5 border-b border-border/50 bg-card shadow-sm rounded-t-3xl z-10 shrink-0 min-h-[52px]">
         <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
           <button
             type="button"
@@ -2574,7 +2596,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+                  data-tour="chat.info-toggle" onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
                   className={`grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border transition cursor-pointer ${
                     rightSidebarOpen
                       ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
@@ -2600,7 +2622,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => setShowSystemInfo((v) => !v)}
+                  data-tour="chat.system-toggle" onClick={() => setShowSystemInfo((v) => !v)}
                   aria-pressed={showSystemInfo}
                   aria-label={
                     showSystemInfo
@@ -3050,7 +3072,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       )}
       {/* Messages Window */}
       <div
-        ref={messagesContainerRef}
+        data-tour="chat.message-list" ref={messagesContainerRef}
         onScroll={handleMessagesContainerScroll}
         onWheel={handleMessagesWheel}
         onTouchStart={handleMessagesTouchStart}
@@ -3833,7 +3855,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               {/* ── 1. Aviso de Janela Meta 24h (Posicionado no topo para perfeita simetria — oculto no chat interno de Fagner/Valentina) ── */}
               {isMetaWhatsappChat &&
                 msgMode !== "internal" && (
-                  <div className="mb-2.5 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-3.5 py-2 text-xs backdrop-blur-xs shadow-2xs">
+                  <div data-tour="meta.window" className="mb-2.5 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-3.5 py-2 text-xs backdrop-blur-xs shadow-2xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -3907,7 +3929,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
+                  data-tour="inline.open" onClick={() => {
                     const next = !showValentinaModal;
                     setIsCatalogOpen(false);
                     setShowMetaTemplateModal(false);
@@ -4195,6 +4217,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       <>
                         <textarea
                           ref={inputRef}
+                          data-tour="composer.text"
                           placeholder={
                             msgMode === "internal"
                               ? "Escreva uma nota interna (visível apenas para vendedores)..."
@@ -4214,7 +4237,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             <TooltipTrigger asChild>
                               <motion.button
                                 type="button"
-                                data-quick-responses-trigger="true"
+                                data-tour="quick.open" data-quick-responses-trigger="true"
                                 onClick={() => setShowQuickMenu((prev) => !prev)}
                                 whileHover={{ scale: 1.15 }}
                                 whileTap={{ scale: 0.88 }}
@@ -4237,7 +4260,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <motion.button
-                                  onClick={() => setShowEmojiPicker((v) => !v)}
+                                  data-tour="composer.emoji" onClick={() => setShowEmojiPicker((v) => !v)}
                                   whileHover={{ scale: 1.15 }}
                                   whileTap={{ scale: 0.88 }}
                                   animate={{ rotate: showEmojiPicker ? 15 : 0 }}
@@ -4265,7 +4288,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <motion.button
-                                onClick={() => fileInputRef.current?.click()}
+                                data-tour="composer.attachments" onClick={() => fileInputRef.current?.click()}
                                 whileHover={{ scale: 1.15 }}
                                 whileTap={{ scale: 0.88 }}
                                 className={`cursor-pointer transition relative ${
@@ -4288,7 +4311,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <motion.button
-                                onClick={startRecording}
+                                data-tour="composer.record" onClick={startRecording}
                                 whileHover={{ scale: 1.15 }}
                                 whileTap={{ scale: 0.88 }}
                                 className="text-muted-foreground hover:text-primary transition cursor-pointer"
@@ -4435,7 +4458,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       <AnimatePresence>
         {showFinishConfirmModal && activeChat && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 select-none animate-in fade-in duration-150"
+            data-tour="chat.finish-confirm" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 select-none animate-in fade-in duration-150"
             onClick={() => setShowFinishConfirmModal(false)}
           >
             <motion.div
@@ -4507,7 +4530,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           if (!isOpen) setTransferModalSearch("");
         }}
       >
-        <DialogContent className="max-w-md p-5 bg-card text-foreground border border-border shadow-2xl">
+        <DialogContent data-tour="chat.transfer" className="max-w-md p-5 bg-card text-foreground border border-border shadow-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm font-bold">
               <ArrowRightLeft className="h-4 w-4 text-primary" />

@@ -1,4 +1,5 @@
 import React from "react";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { getAiPersona } from "@/lib/ai-persona";
@@ -128,6 +129,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
 
   const [showStatusDropdown, setShowStatusDropdown] = React.useState(false);
   const [showStatusWizard, setShowStatusWizard] = React.useState(false);
+  useTrainingSurface("profile.status-wizard", () => { setShowStatusWizard(true); return true; });
+  useTrainingSurface("chat.main", (step) => {
+    if (["profile.quick-status", "profile.status-help"].includes(step.id)) setShowStatusDropdown(true);
+    const conversation = conversations.find(c => c.id !== "valentina" && c.operatorId === currentOperatorId);
+    setContextMenu(step.id === "chat.row-menu" && conversation ? { chatId: conversation.id, x: 170, y: 180 } : null);
+    return true;
+  });
   const [contextMenu, setContextMenu] = React.useState<{ chatId: string; x: number; y: number } | null>(null);
   const onboarding = useOptionalOnboarding();
 
@@ -722,7 +730,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.1 }}
-            className="fixed z-[9999] min-w-[180px] rounded-xl bg-card border border-border shadow-card p-1"
+            data-tour="chat.row-menu" className="fixed z-[9999] min-w-[180px] rounded-xl bg-card border border-border shadow-card p-1"
             style={{ top: contextMenu.y, left: contextMenu.x }}
             onClick={(e) => e.stopPropagation()}
           >

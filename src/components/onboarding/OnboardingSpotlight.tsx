@@ -1,11 +1,10 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   Compass,
   Layers,
   Pause,
-  Play,
   RotateCcw,
   Sparkles,
   CheckCircle2,
@@ -15,13 +14,15 @@ import { useOnboarding } from "@/hooks/useOnboarding";
 import type { TourTargetRect } from "@/hooks/useTourTarget";
 import { interpolateOnboardingCopy } from "@/lib/onboarding/copy.pt-BR";
 import { getAiPersona } from "@/lib/ai-persona";
+import { placeTourCard } from "@/lib/onboarding/spotlight-layout";
 
 interface OnboardingSpotlightProps {
   rect: TourTargetRect | null;
   found: boolean;
+  avoidRect?: TourTargetRect | null;
 }
 
-export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
+export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotlightProps) {
   const {
     isRunnerActive,
     currentStep,
@@ -36,8 +37,10 @@ export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
     prevStep,
     pauseTour,
     setIsChapterDrawerOpen,
+    interactiveReady,
+    isSaving,
     satisfyCurrentInteractiveStep,
-    dispatchCommand,
+    progress,
   } = useOnboarding();
 
   const persona = getAiPersona(eligibilityContext.tenantId);
@@ -56,74 +59,54 @@ export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
     };
   }, [currentStep, operatorFirstName, personaName]);
 
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [cardHeight, setCardHeight] = useState(280);
+  const [viewport, setViewport] = useState({ width: typeof window === "undefined" ? 1280 : window.innerWidth, height: typeof window === "undefined" ? 800 : window.innerHeight });
+  useEffect(() => { const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight }); window.addEventListener("resize", resize); return () => window.removeEventListener("resize", resize); }, []);
+  useLayoutEffect(() => {
+    const element = cardRef.current; if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setCardHeight(element.getBoundingClientRect().height)); observer.observe(element); return () => observer.disconnect();
+  }, [isRunnerActive, currentStep?.id]);
+
   if (!isRunnerActive || !currentStep) return null;
 
   const pad = 8;
-  const hasRect = Boolean(found && rect && rect.width > 0 && rect.height > 0);
-  const box = hasRect && rect
-    ? {
-        top: Math.max(4, rect.top - pad),
-        left: Math.max(4, rect.left - pad),
-        width: rect.width + pad * 2,
-        height: rect.height + pad * 2,
-      }
-    : null;
+  const isBoundary = ["X", "informational_boundary"].includes(currentStep.mode);
+  const hasRect = Boolean(!isBoundary && found && rect && rect.width > 0 && rect.height > 0);
+  const box =
+    hasRect && rect
+      ? {
+          top: Math.max(4, rect.top - pad),
+          left: Math.max(4, rect.left - pad),
+          width: rect.width + pad * 2,
+          height: rect.height + pad * 2,
+        }
+      : null;
 
-  const viewportW = typeof window !== "undefined" ? window.innerWidth : 1280;
-  const viewportH = typeof window !== "undefined" ? window.innerHeight : 800;
+  const cardWidth = Math.min(320, viewport.width - 24);
+  const selfTarget = ["welcome.controls", "finish.review"].includes(currentStep.id);
+  const placement = placeTourCard(selfTarget ? null : box, viewport, { width: cardWidth, height: cardHeight }, avoidRect);
+  const arrow = box && !selfTarget ? {
+    startX: Math.max(placement.left + 12, Math.min(box.left + box.width / 2, placement.left + placement.width - 12)),
+    startY: Math.max(placement.top + 12, Math.min(box.top + box.height / 2, placement.top + placement.height - 12)),
+    endX: Math.max(box.left, Math.min(placement.left + placement.width / 2, box.left + box.width)),
+    endY: Math.max(box.top, Math.min(placement.top + placement.height / 2, box.top + box.height)),
+  } : null;
 
-  // Position speech card near the target when possible, or dock cleanly at bottom-right
-  const cardWidth = Math.min(440, viewportW - 24);
-  let cardTop = Math.max(16, viewportH - 310);
-  let cardLeft = Math.max(12, viewportW - cardWidth - 20);
-
-  if (box) {
-    const spaceBelow = viewportH - (box.top + box.height);
-    const spaceAbove = box.top;
-    if (spaceBelow >= 275) {
-      cardTop = Math.min(viewportH - 270, box.top + box.height + 14);
-      cardLeft = Math.min(
-        Math.max(12, box.left),
-        Math.max(12, viewportW - cardWidth - 16),
-      );
-    } else if (spaceAbove >= 275) {
-      cardTop = Math.max(12, box.top - 260);
-      cardLeft = Math.min(
-        Math.max(12, box.left),
-        Math.max(12, viewportW - cardWidth - 16),
-      );
-    }
-  }
-
-  const isInteractive =
-    currentStep.mode === "I" || currentStep.mode === "interactive_demo";
-  const isSimulated =
-    currentStep.mode === "D" || currentStep.mode === "simulated";
+  const isInteractive = currentStep.mode === "I" || currentStep.mode === "interactive_demo";
+  const isSimulated = currentStep.mode === "D" || currentStep.mode === "simulated";
 
   const modeBadge = isInteractive
     ? { label: "Exercício Guiado", color: "bg-amber-500/20 text-amber-300 border-amber-500/40" }
     : isSimulated
-      ? { label: "Simulação Segura", color: "bg-purple-500/20 text-purple-300 border-purple-500/40" }
+      ? {
+          label: "Simulação Segura",
+          color: "bg-purple-500/20 text-purple-300 border-purple-500/40",
+        }
       : { label: "Explicação Guiada", color: "bg-sky-500/20 text-sky-300 border-sky-500/40" };
 
-  const handleSimulateExercise = async () => {
-    if (currentStep.completion.demoAction) {
-      await dispatchCommand({
-        surface: currentStep.surface,
-        name: currentStep.completion.demoAction,
-        command: currentStep.completion.demoAction,
-        params: currentStep.completion.demoPayload ?? { stepId: currentStep.id },
-      });
-    }
-    satisfyCurrentInteractiveStep();
-    await nextStep();
-  };
-
   return (
-    <div
-      className="pointer-events-none fixed inset-0 z-[10090]"
-      aria-live="polite"
-    >
+    <div className="pointer-events-none fixed inset-0 z-[10090]" aria-live="polite">
       {/* Highlight frame over the target element */}
       {box && (
         <div
@@ -133,23 +116,24 @@ export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
             width: `${box.width}px`,
             height: `${box.height}px`,
           }}
-          className="pointer-events-none fixed z-[10091] rounded-2xl border-2 border-primary ring-4 ring-primary/30 transition-all duration-200 ease-out shadow-[0_0_0_9999px_rgba(2,6,23,0.58)]"
+          className="pointer-events-none fixed z-[10091] rounded-xl border-2 border-primary ring-4 ring-primary/20 transition-all duration-150"
         />
       )}
 
-      {!box && (
-        <div className="pointer-events-none fixed inset-0 z-[10091] bg-slate-950/45 backdrop-blur-[1px]" />
-      )}
+      {arrow && <svg aria-hidden="true" className="pointer-events-none fixed inset-0 z-[10092] h-full w-full overflow-visible text-primary"><defs><marker id="onboarding-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="currentColor" /></marker></defs><path d={`M${arrow.startX},${arrow.startY} L${arrow.endX},${arrow.endY}`} fill="none" stroke="currentColor" strokeWidth="2" markerEnd="url(#onboarding-arrow)" /></svg>}
 
       {/* Floating Fagner/Valentina Assistant Card */}
       <div
+        ref={cardRef}
         data-tour="onboarding.spotlight-card"
         style={{
-          top: `${cardTop}px`,
-          left: `${cardLeft}px`,
+          top: placement.top,
+          left: placement.left,
           width: `${cardWidth}px`,
+          maxHeight: "calc(100dvh - 24px)",
+          overflowY: "auto",
         }}
-        className="pointer-events-auto fixed z-[10095] rounded-2xl border border-slate-700/80 bg-slate-900/95 p-4 text-slate-100 shadow-2xl backdrop-blur-xl transition-all duration-200"
+        className="pointer-events-auto fixed z-[10095] rounded-2xl border border-slate-700 bg-slate-900 p-3 text-slate-100 shadow-2xl"
       >
         {/* Top bar: Persona + Chapter + Step counter */}
         <div className="mb-2.5 flex items-center justify-between gap-2">
@@ -174,7 +158,9 @@ export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
                 </span>
               </div>
               <p className="truncate text-[11px] text-slate-400">
-                {currentChapter ? `${currentChapter.order}. ${currentChapter.title}` : "Tour Guiado"}
+                {currentChapter
+                  ? `${currentChapter.order}. ${currentChapter.title}`
+                  : "Tour Guiado"}
               </p>
             </div>
           </div>
@@ -183,12 +169,14 @@ export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
             <SystemTooltip content="Ver capítulos e progresso completo">
               <button
                 type="button"
-                onClick={() => setIsChapterDrawerOpen(true)}
+                data-tour="tour.controls finish.review"
+                aria-label="Capítulos e progresso do treinamento"
+                onClick={() => { setIsChapterDrawerOpen(true); if (currentStep.id === "welcome.controls" && progress?.runId) satisfyCurrentInteractiveStep(currentStep.id, progress.runId); }}
                 className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/90 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
               >
                 <Layers className="h-3.5 w-3.5 text-primary" />
                 <span>
-                  {currentStepIndex + 1}/{ Math.max(1, applicableSteps.length) }
+                  {currentStepIndex + 1}/{Math.max(1, applicableSteps.length)}
                 </span>
               </button>
             </SystemTooltip>
@@ -196,6 +184,7 @@ export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
             <SystemTooltip content="Pausar e continuar depois">
               <button
                 type="button"
+                aria-label="Pausar treinamento"
                 onClick={() => void pauseTour()}
                 className="rounded-lg border border-slate-700 bg-slate-800/90 p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white"
               >
@@ -216,25 +205,16 @@ export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
         {/* Step Title & Body */}
         <div className="mb-3 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-bold text-white leading-snug">
-              {interpolated.title}
-            </h3>
-            <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
-              {currentStep.id}
-            </span>
+            <h3 className="text-sm font-bold text-white leading-snug">{interpolated.title}</h3>
           </div>
-          <p className="text-xs leading-relaxed text-slate-300">
-            {interpolated.body}
-          </p>
+          <p className="text-xs leading-relaxed text-slate-300">{interpolated.body}</p>
         </div>
 
         {/* Target status indicator when in Demo Fallback */}
-        {!hasRect && (
+        {!hasRect && !isBoundary && !interactiveReady && (
           <div className="mb-3 flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-2.5 py-1.5 text-[11px] text-sky-200">
             <Compass className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-            <span>
-              Superfície demonstrativa sincronizada no painel de treino abaixo.
-            </span>
+            <span>O controle ainda não apareceu. Aguarde a preparação da tela ou pause o treinamento.</span>
           </div>
         )}
 
@@ -252,27 +232,19 @@ export function OnboardingSpotlight({ rect, found }: OnboardingSpotlightProps) {
 
           <div className="flex items-center gap-1.5">
             {isInteractive && (
-              <SystemTooltip content="Executar demonstração guiada deste comando e avançar">
-                <button
-                  type="button"
-                  onClick={() => void handleSimulateExercise()}
-                  className="flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/30"
-                >
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                  <span>Praticar Ação</span>
-                </button>
-              </SystemTooltip>
+              <span role="status" className="text-xs">
+                {interactiveReady ? "Exercício validado" : "Pratique no painel"}
+              </span>
             )}
 
             <button
               type="button"
               onClick={() => void nextStep()}
+              disabled={isSaving || (!isBoundary && !found && !interactiveReady) || (isInteractive && !interactiveReady)}
               className="flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground shadow-lg transition hover:opacity-95"
             >
               <span>
-                {currentStepIndex >= applicableSteps.length - 1
-                  ? "Finalizar Tour"
-                  : "Próximo"}
+                {currentStepIndex >= applicableSteps.length - 1 ? "Finalizar Tour" : "Próximo"}
               </span>
               {currentStepIndex >= applicableSteps.length - 1 ? (
                 <CheckCircle2 className="h-3.5 w-3.5" />

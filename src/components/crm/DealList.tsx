@@ -147,6 +147,7 @@ export function DealList({
 
   // Seleção global de todo o filtro (além da página atual)
   const [isAllFilterSelected, setIsAllFilterSelected] = useState(false);
+  useTrainingSurface("crm.selection", () => { if (!deals.length) return false; setSelectedIds(new Set(deals.slice(0, 2).map((d) => d.id))); return true; });
 
   const currentPage = Math.floor(offset / limit) + 1;
   const totalPages = Math.ceil(total / limit) || 1;
@@ -827,3 +828,4 @@ export function DealList({
     </div>
   );
 }
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";

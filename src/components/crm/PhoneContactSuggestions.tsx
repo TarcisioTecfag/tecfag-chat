@@ -64,6 +64,7 @@ export function SelectedExistingContactBanner({
 
   return (
     <div
+      data-tour="contact-create.duplicate"
       className="rounded-2xl border border-emerald-500/40 bg-emerald-500/[0.06] dark:bg-emerald-500/[0.08] p-3.5 shadow-xs space-y-2.5 animate-in fade-in duration-150"
       role="status"
     >

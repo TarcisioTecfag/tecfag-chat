@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { expandPtBrAbbreviationsAndAccents } from "@/lib/valentina/grammar-corrector";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 
 interface ValentinaAssistantModalProps {
   isOpen: boolean;
@@ -97,6 +98,12 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
   const [copied, setCopied] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const userEditedResultRef = useRef(false);
+  useTrainingSurface("inline", (step) => {
+    if (!isOpen) return false;
+    if (step.id === "chat.inline-result" && !generatedText && !isLoading) void handleExecute("best_response");
+    else if (step.id !== "chat.inline-result") setSelectedAction(null);
+    return step.id !== "chat.inline-result" || Boolean(generatedText);
+  });
 
   // Reseta o estado ao alternar entre conversas diferentes
   useEffect(() => {
@@ -300,6 +307,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
                 return (
                   <div
                     key={card.id}
+                    data-tour={`inline.${card.id}`}
                     onClick={() => {
                       if (!isGrammarDisabled) void handleExecute(card.id);
                     }}
@@ -462,6 +470,7 @@ export const ValentinaAssistantModal: React.FC<ValentinaAssistantModalProps> = (
             <div className="rounded-xl border border-border bg-background p-3 shadow-2xs">
               <textarea
                 value={generatedText}
+                data-tour="inline.result"
                 onChange={(e) => {
                   userEditedResultRef.current = true;
                   setGeneratedText(e.target.value);

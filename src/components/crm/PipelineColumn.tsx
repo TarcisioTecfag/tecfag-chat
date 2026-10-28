@@ -127,7 +127,7 @@ export const PipelineColumn = React.memo(function PipelineColumn({
 
   return (
     <div
-      data-stage-column={stage.id}
+      data-tour="crm.stage-summary" data-stage-column={stage.id}
       style={COLUMN_CONTAIN_STYLE}
       className="group/column flex flex-col h-full min-w-[85vw] sm:min-w-[310px] md:min-w-[330px] max-w-[92vw] sm:max-w-[360px] flex-1 rounded-t-2xl rounded-b-none border border-b-0 transition-colors duration-100 border-border/80 bg-muted/65 dark:bg-muted/25 shadow-xs data-[is-target=true]:border-primary data-[is-target=true]:ring-2 data-[is-target=true]:ring-primary/45 data-[is-target=true]:bg-primary/[0.04]"
     >
@@ -155,7 +155,7 @@ export const PipelineColumn = React.memo(function PipelineColumn({
                   onNewDealAtStage(stage.id);
                 }}
                 type="button"
-                aria-label={`Nova negociação em ${stage.name}`}
+                data-tour="crm.stage-create" aria-label={`Nova negociação em ${stage.name}`}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Plus className="h-3.5 w-3.5" />

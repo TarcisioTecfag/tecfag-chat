@@ -1,3 +1,4 @@
+import "@/lib/onboarding/frame-bootstrap";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -33,6 +34,7 @@ import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { isAppShellPath, isKnownStandalonePath } from "@/lib/app-routes";
 import { OnboardingProvider } from "@/components/onboarding/OnboardingProvider";
 import { OnboardingHost } from "@/components/onboarding/OnboardingHost";
+import { TrainingNavigation } from "@/components/onboarding/TrainingNavigation";
 import { Index } from "./index";
 
 installAssetRecovery();
@@ -342,6 +344,7 @@ function RootComponent() {
       <TooltipProvider delayDuration={300}>
         <ChatProvider>
           <OnboardingProvider>
+            <TrainingNavigation />
             <PersistentAppShell />
             {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
             <Outlet />

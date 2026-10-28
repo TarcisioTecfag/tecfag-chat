@@ -1,51 +1,32 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import {
   OnboardingContext,
   setGlobalTourRunnerActive,
   type OnboardingContextValue,
-  type OnboardingPreTourSnapshot,
 } from "@/hooks/useOnboarding";
 import { getAiPersona } from "@/lib/ai-persona";
 import {
   applyTourCommandToDemoState,
   createInitialDemoRuntimeState,
-  type OnboardingDemoRuntimeState,
 } from "@/lib/onboarding/demo-runtime";
-import {
-  ONBOARDING_CHAPTERS,
-  ONBOARDING_STEPS,
-  ONBOARDING_STEPS_BY_ID,
-} from "@/lib/onboarding/manifest";
+import { ONBOARDING_CHAPTERS, ONBOARDING_STEPS } from "@/lib/onboarding/manifest";
 import {
   computeOnboardingCoverage,
   evaluateStepEligibility,
-  resolveNextApplicableStepId,
-  sanitizeTourActiveView,
   type OnboardingEligibilityContext,
 } from "@/lib/onboarding/policy";
 import { onboardingRegistry } from "@/lib/onboarding/registry";
+import { SUPPORTED_TOUR_COMMANDS } from "@/lib/onboarding/command-names";
 import type {
   OnboardingPatchInput,
   OnboardingProgressDTO,
-  OnboardingUnavailableStepRecord,
   TourChapterId,
   TourCommand,
-  TourStep,
 } from "@/lib/onboarding/types";
 
-export function OnboardingProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const {
     isAuthenticated,
     isRestoringSession,
@@ -54,732 +35,331 @@ export function OnboardingProvider({
     operatorProfile,
     sessionRole,
     sessionPermissions,
-    activeView,
-    setActiveView,
-    selectedChatId,
-    setSelectedChatId,
-    activeQueue,
-    setActiveQueue,
-    channelFilter,
-    setChannelFilter,
-    searchQuery,
-    setSearchQuery,
-    rightSidebarOpen,
-    setRightSidebarOpen,
-    isProfileModalOpen,
-    setIsProfileModalOpen,
+    isCommercialConsultant,
   } = useChat();
-
   const [progress, setProgress] = useState<OnboardingProgressDTO | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isRunnerActive, setIsRunnerActive] = useState(false);
-  const [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
-  const [isCompletionOpen, setIsCompletionOpen] = useState(false);
-  const [isChapterDrawerOpen, setIsChapterDrawerOpen] = useState(false);
-  const [demoState, setDemoState] = useState<OnboardingDemoRuntimeState>(() =>
-    createInitialDemoRuntimeState(),
+  const [isLoading, setIsLoading] = useState(false),
+    [isSaving, setIsSaving] = useState(false);
+  const [isRunnerActive, setIsRunnerActive] = useState(false),
+    [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
+  const [isCompletionOpen, setIsCompletionOpen] = useState(false),
+    [isChapterDrawerOpen, setIsChapterDrawerOpen] = useState(false);
+  const [demoState, setDemoState] = useState(() =>
+    createInitialDemoRuntimeState(tenant, operatorProfile?.name),
   );
-
-  const preTourSnapshotRef = useRef<OnboardingPreTourSnapshot | null>(null);
-  const autoPromptedForOperatorRef = useRef<string | null>(null);
-  const progressRef = useRef<OnboardingProgressDTO | null>(null);
+  const [readyInteraction, setReadyInteraction] = useState<string | null>(null);
+  const [targetNotFoundReason, setTargetNotFoundReason] = useState<string | null>(null);
+  const progressRef = useRef(progress);
   progressRef.current = progress;
-
+  const readyRef = useRef<string | null>(null),
+    savingRef = useRef(false);
+  const identity = JSON.stringify([tenant, currentOperatorId]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const prompted = useRef<string | null>(null);
+  const updateProgress = useCallback((dto: OnboardingProgressDTO) => {
+    if (JSON.stringify([dto.tenantId, dto.operatorId]) !== identityRef.current) return;
+    progressRef.current = dto;
+    setProgress(dto);
+  }, []);
   useEffect(() => {
     setGlobalTourRunnerActive(isRunnerActive);
-    return () => {
-      setGlobalTourRunnerActive(false);
-    };
+    return () => setGlobalTourRunnerActive(false);
   }, [isRunnerActive]);
-
+  useEffect(() => {
+    setIsRunnerActive(false);
+    setProgress(null);
+    progressRef.current = null;
+    setIsWelcomeOpen(false);
+    setIsCompletionOpen(false);
+    readyRef.current = null;
+    setReadyInteraction(null);
+    setIsLoading(false);
+    if (!isAuthenticated || isRestoringSession || !tenant || !currentOperatorId) return;
+    const controller = new AbortController();
+    setIsLoading(true);
+    void fetch("/api/operators/onboarding", { signal: controller.signal, cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const dto: OnboardingProgressDTO = await res.json();
+        if (controller.signal.aborted || identity !== identityRef.current) return;
+        updateProgress(dto);
+        if (
+          dto.enabled &&
+          prompted.current !== identity &&
+          (!dto.deferredUntil || Date.parse(dto.deferredUntil) <= Date.now()) &&
+          dto.status !== "completed"
+        ) {
+          prompted.current = identity;
+          setIsWelcomeOpen(true);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) toast.error("Não foi possível carregar o treinamento.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
+  }, [identity, isAuthenticated, isRestoringSession, tenant, currentOperatorId, updateProgress]);
   const eligibilityContext = useMemo<OnboardingEligibilityContext>(
     () => ({
-      tenantId: tenant || "tecfag",
-      operatorId: currentOperatorId || "operator",
-      role: sessionRole,
-      permissions: sessionPermissions,
-      hasPersonalWhatsappConnections: true,
-      canPairPersonalWhatsapp: true,
+      tenantId: tenant || "",
+      operatorId: currentOperatorId || "",
+      role: sessionRole || undefined,
+      permissions:
+        sessionPermissions ?? ({ views: {} } as OnboardingEligibilityContext["permissions"]),
+      isCommercialConsultant:
+        progress?.capabilities?.isCommercialConsultant ?? isCommercialConsultant,
+      allowedChannels: progress?.capabilities?.allowedChannels ?? [],
+      hasPersonalWhatsappConnection: progress?.capabilities?.hasPersonalWhatsappConnection ?? false,
+      canPairPersonalWhatsapp: progress?.capabilities?.canPairPersonalWhatsapp ?? false,
     }),
-    [tenant, currentOperatorId, sessionRole, sessionPermissions],
-  );
-
-  const coverage = useMemo(
-    () =>
-      computeOnboardingCoverage(
-        eligibilityContext,
-        progress?.completedStepIds ?? [],
-        progress?.unavailableSteps ?? [],
-      ),
     [
-      eligibilityContext,
-      progress?.completedStepIds,
-      progress?.unavailableSteps,
+      tenant,
+      currentOperatorId,
+      sessionRole,
+      sessionPermissions,
+      progress?.capabilities,
+      isCommercialConsultant,
     ],
   );
-
-  const applicableSteps = useMemo<TourStep[]>(() => {
-    return ONBOARDING_STEPS.filter(
-      (step) => evaluateStepEligibility(step, eligibilityContext).eligible,
-    );
-  }, [eligibilityContext]);
-
-  const currentStep = useMemo<TourStep | null>(() => {
-    const stepId = progress?.currentStepId;
-    if (stepId) {
-      const candidate = ONBOARDING_STEPS_BY_ID.get(stepId);
-      if (candidate && evaluateStepEligibility(candidate, eligibilityContext).eligible) {
-        return candidate;
-      }
-    }
-    return applicableSteps[0] ?? null;
-  }, [progress?.currentStepId, eligibilityContext, applicableSteps]);
-
-  const currentStepIndex = useMemo(() => {
-    if (!currentStep) return 0;
-    const idx = applicableSteps.findIndex((s) => s.id === currentStep.id);
-    return idx >= 0 ? idx : 0;
-  }, [applicableSteps, currentStep]);
-
-  const currentChapter = useMemo(() => {
-    if (!currentStep) return ONBOARDING_CHAPTERS[0] ?? null;
-    return (
-      ONBOARDING_CHAPTERS.find((c) => c.id === currentStep.chapterId) ?? null
-    );
-  }, [currentStep]);
-
-  const persona = useMemo(() => getAiPersona(tenant || "tecfag"), [tenant]);
-  const operatorFirstName = useMemo(() => {
-    const raw = operatorProfile?.name?.trim() || "Operador";
-    return raw.split(/\s+/)[0] || "Operador";
-  }, [operatorProfile?.name]);
-
-  const capturePreTourSnapshot = useCallback(() => {
-    if (preTourSnapshotRef.current) return;
-    const isLight =
-      typeof document !== "undefined" &&
-      document.documentElement.classList.contains("light");
-    preTourSnapshotRef.current = {
-      activeView: sanitizeTourActiveView(activeView, "commercialHome"),
-      selectedChatId,
-      activeQueue,
-      channelFilter,
-      searchQuery,
-      rightSidebarOpen,
-      isProfileModalOpen,
-      themeClass: isLight ? "light" : "dark",
-      urlHref: typeof window !== "undefined" ? window.location.href : "/",
-    };
-  }, [
-    activeView,
-    selectedChatId,
-    activeQueue,
-    channelFilter,
-    searchQuery,
-    rightSidebarOpen,
-    isProfileModalOpen,
-  ]);
-
-  const restorePreTourSnapshot = useCallback(() => {
-    const snap = preTourSnapshotRef.current;
-    if (!snap) return;
-    preTourSnapshotRef.current = null;
-    setActiveView(snap.activeView);
-    setSelectedChatId(snap.selectedChatId);
-    setActiveQueue(snap.activeQueue as any);
-    setChannelFilter(snap.channelFilter as any);
-    setSearchQuery(snap.searchQuery);
-    setRightSidebarOpen(snap.rightSidebarOpen);
-    setIsProfileModalOpen(snap.isProfileModalOpen);
-  }, [
-    setActiveView,
-    setSelectedChatId,
-    setActiveQueue,
-    setChannelFilter,
-    setSearchQuery,
-    setRightSidebarOpen,
-    setIsProfileModalOpen,
-  ]);
-
+  const applicableSteps = useMemo(
+    () =>
+      ONBOARDING_STEPS.filter((step) => evaluateStepEligibility(step, eligibilityContext).eligible),
+    [eligibilityContext],
+  );
+  const currentStep =
+    applicableSteps.find((step) => step.id === progress?.currentStepId) ??
+    applicableSteps[0] ??
+    null;
+  const currentStepIndex = currentStep ? applicableSteps.indexOf(currentStep) : 0;
+  const currentChapter =
+    ONBOARDING_CHAPTERS.find((chapter) => chapter.id === currentStep?.chapterId) ?? null;
+  const coverage = useMemo(
+    () => computeOnboardingCoverage(eligibilityContext, progress?.completedStepIds ?? []),
+    [eligibilityContext, progress?.completedStepIds],
+  );
+  const persona = tenant ? getAiPersona(tenant) : { name: "Assistente" };
   const sendPatch = useCallback(
-    async (input: OnboardingPatchInput): Promise<OnboardingProgressDTO | null> => {
+    async (input: OnboardingPatchInput) => {
+      if (savingRef.current || !progressRef.current || identityRef.current !== identity)
+        return null;
+      const previous = progressRef.current;
+      savingRef.current = true;
       setIsSaving(true);
       try {
-        const res = await fetch("/api/operators/onboarding", {
+        const response = await fetch("/api/operators/onboarding", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...input,
-            runId: input.runId ?? progressRef.current?.runId,
-            revision: input.revision ?? progressRef.current?.revision,
-          }),
+          body: JSON.stringify({ ...input, revision: previous.revision, runId: previous.runId }),
         });
-        const data = await res.json();
-        if (res.status === 409 && data?.state) {
-          setProgress(data.state);
-          return data.state as OnboardingProgressDTO;
-        }
-        if (res.status === 422) {
-          if (data?.state) setProgress(data.state);
-          toast.error(data?.error || "Ainda há etapas pendentes no tour.");
+        const data = await response.json();
+        if (identityRef.current !== identity) return null;
+        if (!response.ok) {
+          if (data.state) updateProgress(data.state);
+          if (response.status === 409) {
+            readyRef.current = null;
+            setReadyInteraction(null);
+          }
+          toast.error(data.error || "Não foi possível salvar o progresso. Tente novamente.");
           return null;
         }
-        if (!res.ok) {
-          return null;
-        }
-        setProgress(data as OnboardingProgressDTO);
+        updateProgress(data);
         return data as OnboardingProgressDTO;
-      } catch (err) {
-        console.warn("[onboarding] Falha ao sincronizar progresso:", err);
+      } catch {
+        toast.error("Progresso não salvo. Verifique a conexão e tente novamente.");
         return null;
       } finally {
+        savingRef.current = false;
         setIsSaving(false);
       }
     },
-    [],
+    [identity, updateProgress],
   );
-
-  // Initial load on operator session ready
-  useEffect(() => {
-    if (!isAuthenticated || isRestoringSession || !currentOperatorId) {
-      setProgress(null);
-      setIsRunnerActive(false);
+  const resetExercise = useCallback(() => {
+    readyRef.current = null;
+    setReadyInteraction(null);
+    setTargetNotFoundReason(null);
+  }, []);
+  const activate = useCallback(
+    async (action: "start" | "resume" | "restart") => {
+      if (!progressRef.current?.enabled || !applicableSteps.length) return;
+      const dto = await sendPatch({
+        action,
+        ...(action === "restart" || progressRef.current.status === "not_started"
+          ? { currentStepId: applicableSteps[0]?.id }
+          : {}),
+      });
+      if (!dto) return;
+      resetExercise();
+      setDemoState(createInitialDemoRuntimeState(tenant, operatorProfile?.name));
       setIsWelcomeOpen(false);
       setIsCompletionOpen(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsLoading(true);
-
-    fetch("/api/operators/onboarding", {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        return (await res.json()) as OnboardingProgressDTO;
-      })
-      .then((dto) => {
-        if (cancelled || !dto) return;
-        setProgress(dto);
-
-        const operatorKey = `${dto.tenantId}::${dto.operatorId}`;
-        if (
-          dto.enabled &&
-          autoPromptedForOperatorRef.current !== operatorKey
-        ) {
-          autoPromptedForOperatorRef.current = operatorKey;
-          const deferredUntilMs = dto.deferredUntil
-            ? new Date(dto.deferredUntil).getTime()
-            : 0;
-          const isDeferredActive = deferredUntilMs > Date.now();
-
-          if (
-            !isDeferredActive &&
-            (dto.status === "not_started" || dto.status === "in_progress")
-          ) {
-            setIsWelcomeOpen(true);
-          }
-        }
-      })
-      .catch((err) => {
-        console.warn("[onboarding] Erro ao carregar onboarding:", err);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, isRestoringSession, currentOperatorId, tenant]);
-
-  const dispatchCommand = useCallback(
-    async (command: TourCommand) => {
-      setDemoState((prev) => applyTourCommandToDemoState(prev, command));
-      const p = progressRef.current;
-      if (p) {
-        await onboardingRegistry.dispatch(
-          {
-            tenantId: p.tenantId,
-            operatorId: p.operatorId,
-            runId: p.runId,
-          },
-          command,
-        );
-      }
+      setIsChapterDrawerOpen(false);
+      setIsRunnerActive(true);
     },
-    [],
+    [sendPatch, applicableSteps, resetExercise, tenant, operatorProfile?.name],
   );
-
-  // Synchronize view & run enterCommands when active step changes
-  useEffect(() => {
-    if (!isRunnerActive || !currentStep) return;
-
-    const safeView = sanitizeTourActiveView(currentStep.view, "commercialHome");
-    if (activeView !== safeView) {
-      setActiveView(safeView);
-    }
-
-    // Open or close real ProfileModal when entering/leaving profile steps
-    if (
-      (currentStep.surface === "profileModal" ||
-        currentStep.surface === "profile.modal") &&
-      currentStep.id !== "profile.entry"
-    ) {
-      if (!isProfileModalOpen) {
-        setIsProfileModalOpen(true);
-      }
-    } else if (isProfileModalOpen && currentStep.chapterId !== "profile") {
-      setIsProfileModalOpen(false);
-    }
-
-    if (currentStep.enterCommands && currentStep.enterCommands.length > 0) {
-      for (const cmd of currentStep.enterCommands) {
-        void dispatchCommand(cmd);
-      }
-    }
-  }, [
-    isRunnerActive,
-    currentStep,
-    activeView,
-    setActiveView,
-    isProfileModalOpen,
-    setIsProfileModalOpen,
-    dispatchCommand,
-  ]);
-
-  const buildUnavailableIneligibleRecords = useCallback((): OnboardingUnavailableStepRecord[] => {
-    const nowIso = new Date().toISOString();
-    const list: OnboardingUnavailableStepRecord[] = [];
-    for (const step of ONBOARDING_STEPS) {
-      const ev = evaluateStepEligibility(step, eligibilityContext);
-      if (!ev.eligible && ev.reason) {
-        list.push({
-          stepId: step.id,
-          reason: ev.reason,
-          recordedAt: nowIso,
-        });
-      }
-    }
-    return list;
-  }, [eligibilityContext]);
-
-  const startTour = useCallback(async () => {
-    capturePreTourSnapshot();
-    setDemoState(createInitialDemoRuntimeState());
-    setIsWelcomeOpen(false);
-    setIsCompletionOpen(false);
-
-    const firstStep = applicableSteps[0]?.id ?? "welcome.start";
-    const unavailable = buildUnavailableIneligibleRecords();
-
-    setProgress((prev) =>
-      prev
-        ? {
-            ...prev,
-            status: "in_progress",
-            currentStepId: firstStep,
-            visitedStepIds: Array.from(
-              new Set([...prev.visitedStepIds, "welcome.start", firstStep]),
-            ),
-            completedStepIds: Array.from(
-              new Set([
-                ...prev.completedStepIds,
-                "welcome.start",
-              ]),
-            ),
-            unavailableSteps: unavailable,
-          }
-        : prev,
-    );
-    setIsRunnerActive(true);
-
-    await sendPatch({
-      action: "start",
-      currentStepId: firstStep,
-      visitedStepIds: [
-        "welcome.start",
-        firstStep,
-      ],
-      completedStepIds: [
-        "welcome.start",
-      ],
-      unavailableSteps: unavailable,
-    });
-  }, [
-    applicableSteps,
-    buildUnavailableIneligibleRecords,
-    capturePreTourSnapshot,
-    sendPatch,
-  ]);
-
-  const resumeTour = useCallback(async () => {
-    capturePreTourSnapshot();
-    setIsWelcomeOpen(false);
-    setIsCompletionOpen(false);
-    const unavailable = buildUnavailableIneligibleRecords();
-    const nextStepId =
-      progressRef.current?.currentStepId ??
-      resolveNextApplicableStepId(
-        eligibilityContext,
-        progressRef.current?.completedStepIds ?? [],
-        unavailable,
-      ) ??
-      "welcome.start";
-
-    setProgress((prev) =>
-      prev
-        ? {
-            ...prev,
-            status: "in_progress",
-            currentStepId: nextStepId,
-            unavailableSteps: unavailable,
-          }
-        : prev,
-    );
-    setIsRunnerActive(true);
-
-    await sendPatch({
-      action: "resume",
-      currentStepId: nextStepId,
-      unavailableSteps: unavailable,
-    });
-  }, [
-    buildUnavailableIneligibleRecords,
-    capturePreTourSnapshot,
-    eligibilityContext,
-    sendPatch,
-  ]);
-
+  const startTour = useCallback(() => activate("start"), [activate]);
+  const resumeTour = useCallback(() => activate("resume"), [activate]);
+  const restartTour = useCallback(() => activate("restart"), [activate]);
   const pauseTour = useCallback(async () => {
-    setIsRunnerActive(false);
-    setIsChapterDrawerOpen(false);
-    restorePreTourSnapshot();
-    await sendPatch({
-      action: "pause",
-      currentStepId: currentStep?.id ?? null,
-    });
-    toast.info("Tour pausado. Você pode retomar a qualquer momento.");
-  }, [currentStep?.id, restorePreTourSnapshot, sendPatch]);
-
+    const dto = await sendPatch({ action: "pause", currentStepId: currentStep?.id });
+    if (dto) {
+      setIsRunnerActive(false);
+      setIsChapterDrawerOpen(false);
+      resetExercise();
+    }
+  }, [sendPatch, currentStep?.id, resetExercise]);
   const deferTour = useCallback(
     async (minutes = 240) => {
-      setIsWelcomeOpen(false);
-      setIsRunnerActive(false);
-      await sendPatch({
-        action: "defer",
-        deferMinutes: minutes,
-      });
+      if (await sendPatch({ action: "defer", deferMinutes: minutes })) {
+        setIsRunnerActive(false);
+        setIsWelcomeOpen(false);
+        resetExercise();
+      }
     },
-    [sendPatch],
+    [sendPatch, resetExercise],
   );
-
-  const restartTour = useCallback(async () => {
-    capturePreTourSnapshot();
-    setDemoState(createInitialDemoRuntimeState());
-    setIsWelcomeOpen(false);
-    setIsCompletionOpen(false);
-    setIsChapterDrawerOpen(false);
-    const unavailable = buildUnavailableIneligibleRecords();
-    const firstStep = applicableSteps[0]?.id ?? "welcome.start";
-
-    setIsRunnerActive(true);
-    await sendPatch({
-      action: "restart",
-      currentStepId: firstStep,
-      visitedStepIds: ["welcome.start", firstStep],
-      completedStepIds: ["welcome.start"],
-      unavailableSteps: unavailable,
-    });
-  }, [
-    applicableSteps,
-    buildUnavailableIneligibleRecords,
-    capturePreTourSnapshot,
-    sendPatch,
-  ]);
-
-  const satisfyCurrentInteractiveStep = useCallback(() => {
-    if (!currentStep) return;
-    setProgress((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        visitedStepIds: Array.from(new Set([...prev.visitedStepIds, currentStep.id])),
-        completedStepIds: Array.from(
-          new Set([...prev.completedStepIds, currentStep.id]),
-        ),
-      };
-    });
-  }, [currentStep]);
-
+  const dispatchCommand = useCallback(async (command: TourCommand) => {
+    const p = progressRef.current;
+    if (!p?.runId) return false;
+    return onboardingRegistry.dispatch(
+      { tenantId: p.tenantId, operatorId: p.operatorId, runId: p.runId },
+      command,
+    );
+  }, []);
+  const applyDemoCommand = useCallback((command: TourCommand) => {
+    if (!SUPPORTED_TOUR_COMMANDS.has(command.name ?? command.type ?? command.command ?? ""))
+      throw Error("Comando de demonstração não implementado.");
+    setDemoState((state) => applyTourCommandToDemoState(state, command));
+  }, []);
+  const satisfyCurrentInteractiveStep = useCallback(
+    (stepId: string, runId: string) => {
+      const p = progressRef.current;
+      if (!isRunnerActive || !currentStep || currentStep.id !== stepId || p?.runId !== runId)
+        return;
+      readyRef.current = JSON.stringify([runId, stepId]);
+      setReadyInteraction(readyRef.current);
+    },
+    [isRunnerActive, currentStep],
+  );
   const goToStep = useCallback(
     async (stepId: string) => {
-      const targetStep = ONBOARDING_STEPS_BY_ID.get(stepId);
-      if (!targetStep) return;
-
-      if (!isRunnerActive) {
-        capturePreTourSnapshot();
-        setIsRunnerActive(true);
-      }
-
-      const newlyCompleted = currentStep ? [currentStep.id] : [];
-      const visited = Array.from(
-        new Set([
-          ...(progressRef.current?.visitedStepIds ?? []),
-          ...newlyCompleted,
-          stepId,
-        ]),
-      );
-      const completed = Array.from(
-        new Set([
-          ...(progressRef.current?.completedStepIds ?? []),
-          ...newlyCompleted,
-        ]),
-      );
-
-      setProgress((prev) =>
-        prev
-          ? {
-              ...prev,
-              currentStepId: stepId,
-              visitedStepIds: visited,
-              completedStepIds: completed,
-            }
-          : prev,
-      );
-
-      await sendPatch({
+      if (!applicableSteps.some((step) => step.id === stepId)) return;
+      const dto = await sendPatch({
         action: "checkpoint",
         currentStepId: stepId,
-        visitedStepIds: visited,
-        completedStepIds: completed,
+        visitedStepIds: [stepId],
       });
+      if (dto) {
+        resetExercise();
+        setIsRunnerActive(true);
+      }
     },
-    [capturePreTourSnapshot, currentStep, isRunnerActive, sendPatch],
+    [sendPatch, applicableSteps, resetExercise],
   );
-
   const nextStep = useCallback(async () => {
-    if (!currentStep) return;
-
+    const p = progressRef.current;
+    if (!currentStep || !p) return;
     if (
-      currentStep.completion.type === "demo_interaction" &&
-      currentStep.completion.demoAction
+      (currentStep.mode === "I" || currentStep.mode === "interactive_demo") &&
+      readyRef.current !== JSON.stringify([p.runId, currentStep.id])
     ) {
-      await dispatchCommand({
-        surface: currentStep.surface,
-        name: currentStep.completion.demoAction,
-        command: currentStep.completion.demoAction,
-        params: currentStep.completion.demoPayload ?? { stepId: currentStep.id },
-      });
-    }
-
-    const nextIdx = currentStepIndex + 1;
-    const completed = Array.from(
-      new Set([
-        ...(progressRef.current?.completedStepIds ?? []),
-        currentStep.id,
-      ]),
-    );
-
-    if (nextIdx >= applicableSteps.length) {
-      const visited = Array.from(
-        new Set([
-          ...(progressRef.current?.visitedStepIds ?? []),
-          currentStep.id,
-          "finish.complete",
-        ]),
-      );
-      const allCompleted = Array.from(
-        new Set([...completed, "finish.complete"]),
-      );
-      setProgress((prev) =>
-        prev
-          ? {
-              ...prev,
-              visitedStepIds: visited,
-              completedStepIds: allCompleted,
-              currentStepId: "finish.complete",
-            }
-          : prev,
-      );
-      await sendPatch({
-        action: "checkpoint",
-        currentStepId: "finish.complete",
-        visitedStepIds: visited,
-        completedStepIds: allCompleted,
-      });
-      setIsCompletionOpen(true);
+      toast.info("Execute o exercício antes de avançar.");
       return;
     }
-
-    const nextTarget = applicableSteps[nextIdx];
-    const visited = Array.from(
-      new Set([
-        ...(progressRef.current?.visitedStepIds ?? []),
-        currentStep.id,
-        nextTarget.id,
-      ]),
-    );
-
-    setProgress((prev) =>
-      prev
-        ? {
-            ...prev,
-            currentStepId: nextTarget.id,
-            visitedStepIds: visited,
-            completedStepIds: completed,
-          }
-        : prev,
-    );
-
-    await sendPatch({
+    if (targetNotFoundReason && !["X", "informational_boundary"].includes(currentStep.mode) && readyRef.current !== JSON.stringify([p.runId, currentStep.id])) {
+      toast.error(targetNotFoundReason);
+      return;
+    }
+    const next = applicableSteps[currentStepIndex + 1];
+    const dto = await sendPatch({
       action: "checkpoint",
-      currentStepId: nextTarget.id,
-      visitedStepIds: visited,
-      completedStepIds: completed,
+      currentStepId: next?.id ?? currentStep.id,
+      visitedStepIds: [currentStep.id, ...(next ? [next.id] : [])],
+      completedStepIds: [currentStep.id],
     });
+    if (!dto) return;
+    resetExercise();
+    if (!next) setIsCompletionOpen(true);
   }, [
+    currentStep,
+    currentStepIndex,
+    applicableSteps,
+    sendPatch,
+    resetExercise,
+    targetNotFoundReason,
+  ]);
+  const prevStep = useCallback(async () => {
+    if (currentStepIndex > 0) await goToStep(applicableSteps[currentStepIndex - 1].id);
+  }, [currentStepIndex, goToStep, applicableSteps]);
+  const goToChapter = useCallback(
+    async (id: TourChapterId) => {
+      const step = applicableSteps.find((s) => s.chapterId === id);
+      if (step) await goToStep(step.id);
+    },
+    [goToStep, applicableSteps],
+  );
+  const completeTour = useCallback(async () => {
+    if (!coverage.canComplete) {
+      toast.error("Conclua todos os exercícios aplicáveis.");
+      return false;
+    }
+    const dto = await sendPatch({ action: "complete" });
+    if (dto && currentStep?.id === "finish.complete") {
+      readyRef.current = JSON.stringify([dto.runId, currentStep.id]); setReadyInteraction(readyRef.current);
+    }
+    return Boolean(dto);
+  }, [coverage.canComplete, sendPatch, currentStep]);
+  const returnToRealOperation = useCallback(() => {
+    setIsRunnerActive(false);
+    setIsCompletionOpen(false);
+    setIsChapterDrawerOpen(false);
+    resetExercise();
+  }, [resetExercise]);
+  const value: OnboardingContextValue = {
+    enabled: Boolean(progress?.enabled),
+    isLoading,
+    isSaving,
+    isRunnerActive,
+    isDemoMode: isRunnerActive,
+    isWelcomeOpen,
+    setIsWelcomeOpen,
+    isCompletionOpen,
+    setIsCompletionOpen,
+    isChapterDrawerOpen,
+    setIsChapterDrawerOpen,
+    progress,
+    eligibilityContext,
+    coverage,
+    chapters: ONBOARDING_CHAPTERS,
     applicableSteps,
     currentStep,
     currentStepIndex,
+    currentChapter,
+    demoState,
+    personaName: persona.name,
+    operatorFirstName: operatorProfile?.name?.split(/\s+/)[0] || "Operador",
+    targetNotFoundReason,
+    setTargetNotFoundReason,
+    interactiveReady: readyInteraction === JSON.stringify([progress?.runId, currentStep?.id]),
+    startTour,
+    resumeTour,
+    pauseTour,
+    deferTour,
+    restartTour,
+    completeTour,
+    returnToRealOperation,
+    openTourEntryModal: () => setIsWelcomeOpen(true),
+    nextStep,
+    prevStep,
+    goToStep,
+    goToChapter,
     dispatchCommand,
-    sendPatch,
-  ]);
-
-  const prevStep = useCallback(async () => {
-    if (currentStepIndex <= 0) return;
-    const prevTarget = applicableSteps[currentStepIndex - 1];
-    if (!prevTarget) return;
-    await goToStep(prevTarget.id);
-  }, [applicableSteps, currentStepIndex, goToStep]);
-
-  const goToChapter = useCallback(
-    async (chapterId: TourChapterId) => {
-      const firstInChapter = applicableSteps.find(
-        (s) => s.chapterId === chapterId,
-      );
-      if (firstInChapter) {
-        await goToStep(firstInChapter.id);
-      }
-    },
-    [applicableSteps, goToStep],
-  );
-
-  const completeTour = useCallback(async (): Promise<boolean> => {
-    const unavailable = buildUnavailableIneligibleRecords();
-    const updated = await sendPatch({
-      action: "complete",
-      visitedStepIds: [
-        ...(progressRef.current?.visitedStepIds ?? []),
-        "finish.complete",
-        "finish.return",
-      ],
-      completedStepIds: [
-        ...(progressRef.current?.completedStepIds ?? []),
-        "finish.complete",
-      ],
-      unavailableSteps: unavailable,
-    });
-
-    if (!updated || updated.status !== "completed") {
-      return false;
-    }
-
-    toast.success(`Treinamento com ${persona.name} concluído com sucesso!`);
-    return true;
-  }, [buildUnavailableIneligibleRecords, persona.name, sendPatch]);
-
-  const returnToRealOperation = useCallback(() => {
-    setIsCompletionOpen(false);
-    setIsRunnerActive(false);
-    setIsChapterDrawerOpen(false);
-    restorePreTourSnapshot();
-  }, [restorePreTourSnapshot]);
-
-  const openTourEntryModal = useCallback(() => {
-    setIsWelcomeOpen(true);
-  }, []);
-
-  const value = useMemo<OnboardingContextValue>(
-    () => ({
-      enabled: Boolean(progress?.enabled),
-      isLoading,
-      isSaving,
-      isRunnerActive,
-      isDemoMode: isRunnerActive,
-      isWelcomeOpen,
-      setIsWelcomeOpen,
-      isCompletionOpen,
-      setIsCompletionOpen,
-      isChapterDrawerOpen,
-      setIsChapterDrawerOpen,
-      progress,
-      eligibilityContext,
-      coverage,
-      chapters: ONBOARDING_CHAPTERS,
-      applicableSteps,
-      currentStep,
-      currentStepIndex,
-      currentChapter,
-      demoState,
-      personaName: persona.name,
-      operatorFirstName,
-      targetNotFoundReason: null,
-      startTour,
-      resumeTour,
-      pauseTour,
-      deferTour,
-      restartTour,
-      completeTour,
-      returnToRealOperation,
-      openTourEntryModal,
-      nextStep,
-      prevStep,
-      goToStep,
-      goToChapter,
-      dispatchCommand,
-      satisfyCurrentInteractiveStep,
-    }),
-    [
-      progress,
-      isLoading,
-      isSaving,
-      isRunnerActive,
-      isWelcomeOpen,
-      isCompletionOpen,
-      isChapterDrawerOpen,
-      eligibilityContext,
-      coverage,
-      applicableSteps,
-      currentStep,
-      currentStepIndex,
-      currentChapter,
-      demoState,
-      persona.name,
-      operatorFirstName,
-      startTour,
-      resumeTour,
-      pauseTour,
-      deferTour,
-      restartTour,
-      completeTour,
-      returnToRealOperation,
-      openTourEntryModal,
-      nextStep,
-      prevStep,
-      goToStep,
-      goToChapter,
-      dispatchCommand,
-      satisfyCurrentInteractiveStep,
-    ],
-  );
-
-  return (
-    <OnboardingContext.Provider value={value}>
-      {children}
-    </OnboardingContext.Provider>
-  );
+    applyDemoCommand,
+    satisfyCurrentInteractiveStep,
+  };
+  return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;
 }

@@ -34,9 +34,7 @@ export function OnboardingWelcomeDialog() {
   const persona = getAiPersona(eligibilityContext.tenantId);
   const status = progress?.status ?? "not_started";
   const hasProgress =
-    status === "in_progress" ||
-    status === "paused" ||
-    (progress?.completedStepIds.length ?? 0) > 0;
+    status === "in_progress" || status === "paused" || (progress?.completedStepIds.length ?? 0) > 0;
 
   return (
     <div className="fixed inset-0 z-[10110] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
@@ -72,10 +70,12 @@ export function OnboardingWelcomeDialog() {
                   )}
                 </div>
                 <h2 className="mt-1 text-xl font-bold text-white">
-                  Olá, {operatorFirstName}! Eu sou {personaName === "Valentina" ? "a Valentina" : "o Fagner"}.
+                  Olá, {operatorFirstName}! Eu sou {persona.gender === "female" ? "a" : "o"}{" "}
+                  {personaName}.
                 </h2>
                 <p className="text-xs text-slate-300">
-                  Vou guiar você passo a passo por cada tela, botão, card e fluxo da sua rotina comercial e de atendimento.
+                  Vamos praticar sua rotina comercial e de atendimento em exercícios separados, com
+                  dados fictícios.
                 </p>
               </div>
             </div>
@@ -105,7 +105,8 @@ export function OnboardingWelcomeDialog() {
                 <span>Mapa dos {chapters.length} Capítulos da Sua Rotina</span>
               </div>
               <span className="text-xs font-semibold text-slate-400">
-                {coverage.completedEligibleCount}/{coverage.totalEligibleCount} etapas ({coverage.completionPct}%)
+                {coverage.satisfiedInstructionalStepIds.length}/{coverage.eligibleStepIds.length}{" "}
+                etapas ({coverage.completionPct}%)
               </span>
             </div>
 
@@ -119,12 +120,8 @@ export function OnboardingWelcomeDialog() {
                     {chapter.order}
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-bold text-slate-100">
-                      {chapter.title}
-                    </p>
-                    <p className="line-clamp-1 text-[11px] text-slate-400">
-                      {chapter.subtitle}
-                    </p>
+                    <p className="truncate text-xs font-bold text-slate-100">{chapter.title}</p>
+                    <p className="line-clamp-1 text-[11px] text-slate-400">{chapter.subtitle}</p>
                   </div>
                 </div>
               ))}
@@ -142,7 +139,10 @@ export function OnboardingWelcomeDialog() {
                 Ambiente de Demonstração 100% Seguro e Isolado
               </p>
               <p className="text-emerald-200/90 leading-relaxed">
-                Durante o treinamento, todas as interações acontecem em dados de demonstração em memória. Nenhuma mensagem real será enviada para clientes, nenhum negócio ou tarefa real será sujado no banco de dados e seu atendimento atual será restaurado exatamente onde estava ao finalizar ou pausar.
+                Durante o treinamento, todas as interações acontecem em dados de demonstração em
+                memória. Nenhuma mensagem real será enviada para clientes, nenhum negócio ou tarefa
+                real será sujado no banco de dados e seu atendimento atual será restaurado
+                exatamente onde estava ao finalizar ou pausar.
               </p>
             </div>
           </div>
@@ -190,9 +190,7 @@ export function OnboardingWelcomeDialog() {
                 className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow-lg transition hover:opacity-95"
               >
                 <Play className="h-3.5 w-3.5 fill-current" />
-                <span>
-                  {status === "completed" ? "Refazer Tour Guiado" : "Iniciar Tour Agora"}
-                </span>
+                <span>{status === "completed" ? "Refazer Tour Guiado" : "Iniciar Tour Agora"}</span>
               </button>
             )}
           </div>

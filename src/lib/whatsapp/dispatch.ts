@@ -82,7 +82,7 @@ export async function dispatchStored(
       })
       .where(owned)
       .returning();
-    if (updated)
+    if (updated) try {
       SessionManager.getInstance().notifyPublic(tenantId, {
         type: "message_status",
         conversationId: msg.conversationId,
@@ -90,6 +90,7 @@ export async function dispatchStored(
         status,
         error: errorMessage,
       });
+    } catch { console.error("[Outbound] Status persistido; notificação indisponível."); }
     return updated ? storedResult(updated) : null;
   };
   let dispatched = false;
@@ -115,6 +116,13 @@ export async function dispatchStored(
       );
     if (target.status === "switching")
       return finish("pending", "Canal em transição; aguardando.", true);
+    if (msg.senderType === "bot" && msg.metaDetails.industrialDelivery) {
+      const { validateIndustrialDelivery } = await import("../valentina/industrial-delivery-context");
+      const validation = await validateIndustrialDelivery(msg);
+      if (validation.decision !== "send") return finish(
+        validation.decision === "defer" ? "pending" : "failed", validation.reason, validation.decision === "defer",
+      );
+    }
     const [contact] = await db
       .select()
       .from(contacts)

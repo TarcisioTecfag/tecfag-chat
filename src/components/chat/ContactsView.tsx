@@ -320,6 +320,19 @@ export function ContactsView() {
   // ── Global Conversation Search ──────────────────────────────────────────
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
+  useTrainingSurface("contacts", (step) => {
+    const company = step.surface.startsWith("contacts.account") || step.surface === "contacts.company-create" || step.id === "contacts.companies";
+    setChannelFilter(company ? "companies" : "all");
+    setShowAddModal(step.surface === "contacts.create-drawer" || step.surface === "contacts.deal-picker");
+    setShowAddCompanyDrawer(step.surface === "contacts.company-create");
+    setShowSearchModal(step.id === "contacts.conversation-search");
+    if (step.id === "contacts.edit" && contactRows[0]) startEditing(contactRows[0]);
+    else setEditingContact(null);
+    setSelectedAccountId(step.surface === "contacts.account-detail" ? companyRows[0]?.id || null : null);
+    if (step.id === "contacts.journey" && contactRows[0]) setJourneyTarget({ contactId: contactRows[0].id, name: contactRows[0].name, visitorId: contactRows[0].siteVisitorId });
+    else setJourneyTarget(null);
+    return company ? companyRows.length > 0 : contactRows.length > 0;
+  });
   const [searchConversations, setSearchConversations] = useState<Conversation[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const globalSearchRef = useRef<HTMLInputElement>(null);
@@ -622,6 +635,7 @@ export function ContactsView() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Não foi possível cadastrar a empresa.");
       const createdAcc: CrmAccountDTO = data.account;
+      if (showAddModal) setNewAccount(createdAcc);
       setShowAddCompanyDrawer(false);
       setStandaloneCompanyForm({
         name: "",
@@ -1536,7 +1550,7 @@ export function ContactsView() {
             </SheetTitle>
           </SheetHeader>
 
-          <form onSubmit={handleCreateContact} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+          <form data-tour="contact-create.form" onSubmit={handleCreateContact} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
               {existingContact && (
                 <SelectedExistingContactBanner
@@ -1553,6 +1567,7 @@ export function ContactsView() {
                   type="text"
                   required
                   placeholder="Ex: João da Silva"
+                  data-tour="contact-create.core"
                   disabled={!!existingContact}
                   value={addForm.name}
                   onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
@@ -1588,6 +1603,23 @@ export function ContactsView() {
                     }));
                   }}
                 />
+              )}
+
+              {!existingContact && (
+                <div data-tour="contact-create.account" className="space-y-1.5">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
+                  <AccountPicker
+                    value={newAccount?.id || null}
+                    selectedAccount={newAccount}
+                    onSelectAccount={setNewAccount}
+                    lookupUrl="/api/contacts/account-options"
+                    placeholder="Buscar empresa por nome ou CNPJ..."
+                    onAddNew={(query) => {
+                      setStandaloneCompanyForm({ name: query || "", tradeName: "", document: "", type: "company", phone: "", email: "", website: "", notes: "" });
+                      setShowAddCompanyDrawer(true);
+                    }}
+                  />
+                </div>
               )}
 
               <ContactDealPicker
@@ -1664,6 +1696,7 @@ export function ContactsView() {
               <button
                 type="submit"
                 disabled={savingContact || creatingCompany}
+                data-tour="contact-create.save"
                 className="h-10 rounded-xl bg-primary px-6 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft disabled:opacity-50 flex items-center gap-2"
               >
                 {savingContact && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -1727,7 +1760,7 @@ export function ContactsView() {
           </SheetHeader>
 
           {editingContact && (
-            <form onSubmit={handleSaveEdit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+            <form data-tour="contacts.editor" onSubmit={handleSaveEdit} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
                 {(editingContact.hasSiteJourney || editingContact.channel === "livechat") && (
                   <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/25 bg-primary/5 p-3.5">
@@ -2055,7 +2088,7 @@ export function ContactsView() {
             </SheetTitle>
           </SheetHeader>
 
-          <form onSubmit={handleCreateStandaloneCompany} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+          <form data-tour="account-create.form" onSubmit={handleCreateStandaloneCompany} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Tipo de Cadastro</label>
@@ -2259,3 +2292,4 @@ export function ContactsView() {
     </section>
   );
 }
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";

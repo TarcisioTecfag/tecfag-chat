@@ -172,12 +172,15 @@ function senderHarness({
   metaFailed = false,
   baileysConfirmed = true,
   site = false,
+  industrial = false,
+  durableResult = { sent: false, reason: "pending" },
 } = {}) {
   const conversationId = site ? "conv-lc-fixture" : "conv";
   const filters = [],
     sent = [],
     saved = [],
-    siteDeliveries = [];
+    siteDeliveries = [],
+    durableCalls = [];
   const tables = Object.fromEntries(
     ["messages", "conversations", "contacts", "channelConfigs", "mediaFiles"].map((name) => [
       name,
@@ -248,7 +251,8 @@ function senderHarness({
       resetMetaTypingThrottle() {},
       sendMetaConversationPresence: async () => {},
     },
-    "../ai-persona": { getAiPersona: () => ({ name: "Assistente", triagePolicy: "industrial" }) },
+    "../ai-persona": { getAiPersona: () => ({ name: "Assistente", ...(industrial ? { triagePolicy: "industrial" } : {}) }) },
+    "./industrial-outbound": { sendIndustrialBotBatch: async (params) => { durableCalls.push(params); return durableResult; } },
     "../livechat/site-channel-policy": { isSiteConversationId: () => site },
     "../livechat/site-delivery": {
       pushSiteTyping() {},
@@ -277,6 +281,7 @@ function senderHarness({
     saved,
     filters,
     siteDeliveries,
+    durableCalls,
     send: () =>
       module.exports.sendSdrChannelText({
         tenantId: "fixture",
@@ -287,7 +292,7 @@ function senderHarness({
       }),
   };
 }
-describe("despachante real com transporte e banco isolados", () => {
+describe("despachante legado preservado e roteamento industrial duravel", () => {
   it("mensagem pendente não comprova envio; busca de idempotência inclui tenant e conversa", async () => {
     const service = senderHarness({
       existing: { id: "stable-id", status: "pending", externalId: null, provider: "meta" },
@@ -321,5 +326,13 @@ describe("despachante real com transporte e banco isolados", () => {
     const service = senderHarness({ site: true });
     assert.equal((await service.send()).sent, true);
     assert.equal(service.siteDeliveries[0].idempotencyMessageId, "stable-id");
+  });
+  it("perfil industrial delega chave e posse para fila duravel sem despacho direto", async () => {
+    const service = senderHarness({ industrial: true });
+    assert.equal((await service.send()).reason, "pending");
+    assert.equal(service.sent.length, 0); assert.equal(service.saved.length, 0);
+    assert.equal(service.durableCalls[0].idempotencyMessageId, "stable-id");
+    assert.equal(service.durableCalls[0].expectedOperatorId, "op");
+    assert.deepEqual(JSON.parse(JSON.stringify(service.durableCalls[0].items)), [{ text: "Confirmação" }]);
   });
 });

@@ -88,6 +88,10 @@ export function AccountDetailModal({
   onOpenChat,
 }: AccountDetailModalProps) {
   const [activeTab, setActiveTab] = useState<"details" | "contacts" | "deals" | "conversations" | "history">("details");
+  useTrainingSurface("contacts.account-detail", (step) => {
+    const tab = step.id === "contacts.account-contacts" ? "contacts" : step.id === "contacts.account-deals" ? "deals" : step.id === "contacts.account-chats" ? "conversations" : step.id === "contacts.account-history" ? "history" : "details";
+    setActiveTab(tab); return true;
+  });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [accountData, setAccountData] = useState<CrmAccountDetailDTO | null>(null);
@@ -172,17 +176,21 @@ export function AccountDetailModal({
     setIsSearchingCnpj(true);
     try {
       const info = await fetchCnpjInfo(cleanDigits);
-      if (!info.found) {
-        toast.warning("CNPJ não encontrado na Receita Federal. Preencha manualmente.");
+      if (!info.valid || !info.details) {
+        toast.warning(info.erro || "Não foi possível consultar os dados deste CNPJ. Preencha manualmente.");
         return;
       }
       if (info.razaoSocial) setName(info.razaoSocial);
       if (info.nomeFantasia) setTradeName(info.nomeFantasia);
-      if (info.telefone && !phone) setPhone(maskPhone(info.telefone));
-      if (info.email && !email) setEmail(info.email);
+      if (info.details.telefone && !phone) setPhone(maskPhone(info.details.telefone));
+      if (info.details.email && !email) setEmail(info.details.email);
       setCnpjDetails((prev) => ({
         ...prev,
-        ...info,
+        ...info.details,
+        razaoSocial: info.razaoSocial,
+        nomeFantasia: info.nomeFantasia,
+        cleanCnpj: info.cleanCnpj,
+        cnpjFormatted: info.cnpjFormatted,
         consultedAt: new Date().toISOString(),
       }));
       toast.success(
@@ -235,9 +243,9 @@ export function AccountDetailModal({
                     telefone: phone ? phone.replace(/\D/g, "") : undefined,
                     email: email.trim() || undefined,
                   },
-                  accountData?.account?.address as Record<string, unknown> | undefined
+                  accountData?.address
                 )
-              : (accountData?.account?.address as Record<string, unknown> | undefined),
+              : accountData?.address,
           customFields: changedCustomFieldValues(originalCustomFields, customFields),
         }),
       });
@@ -401,6 +409,7 @@ export function AccountDetailModal({
               <button
                 key={t.id}
                 type="button"
+                data-tour={`account.${t.id === "details" ? "details-tab" : t.id}`}
                 onClick={() => setActiveTab(t.id)}
                 className={`py-3 flex items-center gap-2 border-b-2 text-xs transition-colors whitespace-nowrap cursor-pointer ${
                   isActive
@@ -439,7 +448,7 @@ export function AccountDetailModal({
             <>
               {/* ABA 1: DADOS CADASTRAIS */}
               {activeTab === "details" && (
-                <form id="account-detail-form" onSubmit={handleSave} className="w-full space-y-4">
+                <form data-tour="account.details" id="account-detail-form" onSubmit={handleSave} className="w-full space-y-4">
                   {/* Bloco 1: Dados Principais & Canais de Contato */}
                   <div className="rounded-[10px] border border-slate-200/90 dark:border-slate-800 bg-card p-4 shadow-2xs space-y-4">
                     {/* Barra de Seção + Seletor Tipo PF/PJ */}
@@ -778,14 +787,11 @@ export function AccountDetailModal({
                         <label className={UNIFORM_LABEL_CLASS}>Atividades Secundárias</label>
                         <textarea
                           rows={2}
-                          value={(cnpjDetails.atividadesSecundarias || []).join("\n")}
+                          value={cnpjDetails.atividadesSecundarias || ""}
                           onChange={(e) =>
                             setCnpjDetails((prev) => ({
                               ...prev,
-                              atividadesSecundarias: e.target.value
-                                .split("\n")
-                                .map((s) => s.trim())
-                                .filter(Boolean),
+                              atividadesSecundarias: e.target.value,
                             }))
                           }
                           placeholder="Uma atividade secundária por linha"
@@ -921,14 +927,11 @@ export function AccountDetailModal({
                         </label>
                         <textarea
                           rows={2}
-                          value={(cnpjDetails.qsa || []).join("\n")}
+                          value={cnpjDetails.qsa || ""}
                           onChange={(e) =>
                             setCnpjDetails((prev) => ({
                               ...prev,
-                              qsa: e.target.value
-                                .split("\n")
-                                .map((s) => s.trim())
-                                .filter(Boolean),
+                              qsa: e.target.value,
                             }))
                           }
                           placeholder="Um sócio/administrador por linha"
@@ -1232,3 +1235,4 @@ export function AccountDetailModal({
   );
 }
 
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";

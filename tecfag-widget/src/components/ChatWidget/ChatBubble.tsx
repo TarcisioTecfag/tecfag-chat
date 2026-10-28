@@ -7,11 +7,13 @@ export interface Message {
   content: string;
   sender: "visitor" | "ai" | "agent" | "system";
   timestamp: string;
+  deliveryState?: "pending" | "confirmed" | "failed";
 }
 
 interface ChatBubbleProps {
   message: Message;
   onSelectOption?: (option: string) => void;
+  onRetry?: (id: string) => void;
 }
 
 function extractAttachments(text: string): { cleanText: string; attachments: string[] } {
@@ -426,7 +428,7 @@ function renderFormattedText(text: string, isVisitor: boolean): React.ReactNode 
   });
 }
 
-export const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onSelectOption }) => {
+export const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onSelectOption, onRetry }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const isVisitor = message.sender === "visitor";
@@ -572,7 +574,9 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onSelectOption 
 
             <div className={`flex items-center justify-end gap-1 mt-1.5 ${isVisitor ? "text-red-100" : "text-slate-400"}`}>
               <span className="text-[10px] font-medium leading-none">{timeString}</span>
-              {isVisitor && <CheckCheck className="w-3 h-3 opacity-80" />}
+              {isVisitor && message.deliveryState === "confirmed" && <CheckCheck className="w-3 h-3 opacity-80" />}
+              {isVisitor && message.deliveryState === "pending" && <span role="status" className="text-[10px]">Aguardando confirmação</span>}
+              {isVisitor && message.deliveryState === "failed" && <button type="button" onClick={() => onRetry?.(message.id)} className="text-[10px] underline">Tentar enviar novamente</button>}
             </div>
           </div>
         </div>

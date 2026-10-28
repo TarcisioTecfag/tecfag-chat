@@ -189,6 +189,7 @@ export function CrmSearchModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        data-tour="crm.search-dialog"
         className="flex h-[min(76vh,680px)] w-[calc(100vw-2rem)] max-w-[580px] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:w-full"
         onOpenAutoFocus={(event) => {
           event.preventDefault();

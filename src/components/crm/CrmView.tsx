@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useChat } from "@/hooks/useChatState";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { CrmToolbar, PipelineOption, CrmStatusFilter } from "./CrmToolbar";
@@ -224,6 +225,19 @@ export function CrmView() {
   const [createAtStageId, setCreateAtStageId] = useState<string | undefined>(undefined);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskModalDeal, setTaskModalDeal] = useState<DealCardData | null>(null);
+  useTrainingSurface("crm", (step) => {
+    if (loading || !pipelines.length) return false;
+    const id = step.id;
+    setIsCreateDialogOpen(id.startsWith("crm.new-deal-"));
+    setIsAdvancedFiltersOpen(id.startsWith("crm.advanced-"));
+    setIsSearchOpen(id === "crm.global-search");
+    setQuickCreateKind(id === "crm.quick-company" ? "company" : id === "crm.quick-contact" ? "contact" : null);
+    setIsTaskModalOpen(id === "crm.card-task");
+    if (id === "crm.card-task") setTaskModalDeal(deals[0] || null);
+    if (step.surface === "crm.list" || step.surface === "crm.bulk-suite") setViewMode("list");
+    else if (step.surface === "crm.board" && id !== "crm.views") setViewMode("kanban");
+    return true;
+  });
 
   // Mapas para consulta rápida (referência estabilizada para não invalidar React.memo a cada heartbeat SSE)
   const prevOperatorsMapRef = useRef<Map<string, string>>(new Map());

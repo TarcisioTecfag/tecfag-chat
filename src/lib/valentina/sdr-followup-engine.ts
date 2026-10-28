@@ -1,7 +1,7 @@
 import { runtimeSingleton } from "../runtime-singleton";
 import { db } from "../../db";
-import { agentConfigs, agentFlowStates, conversations, messages, contacts } from "../../db/schema";
-import { eq, and, asc, desc, gte, ne, isNull, sql } from "drizzle-orm";
+import { agentConfigs, agentFlowStates, conversations, messages, contacts, tenants } from "../../db/schema";
+import { eq, and, asc, desc, gte, ne, isNull, sql, inArray, or } from "drizzle-orm";
 import { vertexAi } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
 import { resolveTenantActiveProvider, sendBotPresence, sendSdrChannelText } from "./sdr-channel-sender";
@@ -80,6 +80,22 @@ export class SdrFollowupEngine {
     }
   }
 
+  /** Runtime industrial: never starts or changes the legacy tenant's follow-up loop. */
+  public async runIndustrialFollowupCycle(): Promise<void> {
+    if (this.isRunning) return;
+    this.isRunning = true;
+    try {
+      const companies = await db.select({ id: tenants.id }).from(tenants);
+      for (const { id: tenantId } of companies) {
+        if (getAiPersona(tenantId).triagePolicy !== "industrial") continue;
+        const [config] = await db.select().from(agentConfigs).where(and(
+          eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.agentType, "sdr"), eq(agentConfigs.enabled, 1),
+        )).limit(1);
+        if (config) await this.runIndustrialSilenceCycle(tenantId, (config.config as Record<string, any>) || {});
+      }
+    } finally { this.isRunning = false; }
+  }
+
   /**
    * Ciclo de silêncio industrial (Fagner / tenants com triagePolicy === "industrial")
    */
@@ -138,12 +154,23 @@ export class SdrFollowupEngine {
               eq(messages.conversationId, flow.conversationId),
               ne(messages.content, "!reset"),
               eq(messages.isInternalNote, false),
+              or(ne(messages.senderType, "bot"), inArray(messages.status, ["sent", "accepted", "delivered", "read"])),
               ...(flow.startedAt ? [gte(messages.sentAt, flow.startedAt)] : []),
             ),
           )
           .orderBy(desc(messages.sentAt), desc(messages.id))
           .limit(40);
 
+        const latestClient = rawCycleMsgs.find((row) => row.senderType === "client");
+        if (latestClient) {
+          const [blockedDelivery] = await db.select({ id: messages.id }).from(messages).where(and(
+            eq(messages.tenantId, tenantId), eq(messages.conversationId, flow.conversationId), eq(messages.senderType, "bot"),
+            inArray(messages.status, ["pending", "sending", "unknown", "failed"]),
+            sql`${messages.metaDetails}->'industrialDelivery'->>'triggerId' = ${latestClient.id}`,
+            sql`${messages.metaDetails}->'industrialDelivery'->>'cycle' = ${flow.startedAt.toISOString()}`,
+          )).limit(1);
+          if (blockedDelivery) continue;
+        }
         const cycleMsgs = selectRecentCycleMessages(rawCycleMsgs, flow.startedAt || null, 40);
         const collectedData = (flow.collectedData as Record<string, any>) || {};
         const meta = (flow.metadata as Record<string, any>) || {};
@@ -275,6 +302,8 @@ export class SdrFollowupEngine {
                 eq(agentFlowStates.tenantId, tenantId),
                 eq(agentFlowStates.outcome, "in_progress"),
                 isNull(agentFlowStates.completedAt),
+                eq(agentFlowStates.lastInteractionAt, flow.lastInteractionAt),
+                sql`COALESCE(${agentFlowStates.metadata}, '{}'::jsonb) = ${JSON.stringify(meta)}::jsonb`,
                 sql`COALESCE((${agentFlowStates.metadata}->>'followUpStage')::int, 0) = ${prevStage}`,
               ),
             )
@@ -304,6 +333,8 @@ export class SdrFollowupEngine {
             text: followUpText,
             idempotencyMessageId: msgId,
             expectedOperatorId: null,
+            deliveryContext: { flowId: flow.id, cycle: cycleIso, triggerId: latestClient?.id },
+            scheduleOnly: true,
           });
 
           if (!sendResult.sent) {
@@ -318,7 +349,9 @@ export class SdrFollowupEngine {
                 },
                 lastInteractionAt: flow.lastInteractionAt,
               })
-              .where(and(eq(agentFlowStates.id, flow.id), eq(agentFlowStates.tenantId, tenantId)));
+              .where(and(eq(agentFlowStates.id, flow.id), eq(agentFlowStates.tenantId, tenantId),
+                eq(agentFlowStates.startedAt, flow.startedAt), eq(agentFlowStates.lastInteractionAt, now),
+                sql`${agentFlowStates.metadata} = ${JSON.stringify(nextMeta)}::jsonb`));
           }
           continue;
         }

@@ -470,6 +470,7 @@ export function DealAddContactDrawer({
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
+        data-tour="deal.participants"
         side="right"
         className="w-full sm:max-w-[460px] p-0 flex flex-col bg-card border-l border-border text-foreground"
       >

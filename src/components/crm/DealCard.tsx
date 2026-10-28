@@ -346,6 +346,7 @@ export const DealCard = React.memo(function DealCard({
   return (
     <div
       data-deal-card={deal.id}
+      data-tour="crm.deal-card"
       data-stage-id={deal.stageId}
       onPointerDown={handlePointerDown}
       onClick={handleCardClick}

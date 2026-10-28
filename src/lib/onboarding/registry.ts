@@ -1,8 +1,6 @@
 import type { TourCommand, TourSurfaceId } from "./types";
 
-export type OnboardingSurfaceHandler = (
-  command: TourCommand,
-) => Promise<void> | void;
+export type OnboardingSurfaceHandler = (command: TourCommand) => Promise<void> | void;
 
 export interface OnboardingAdapterScope {
   tenantId: string;
@@ -58,12 +56,7 @@ export class OnboardingSurfaceRegistry {
           ready: handleOrScope.ready ?? true,
         };
 
-    const key = makeAdapterKey(
-      handle.tenantId,
-      handle.operatorId,
-      handle.runId,
-      handle.surface,
-    );
+    const key = makeAdapterKey(handle.tenantId, handle.operatorId, handle.runId, handle.surface);
     this.adapters.set(key, handle);
     this.notify();
 
@@ -107,20 +100,21 @@ export class OnboardingSurfaceRegistry {
       surface?: TourSurfaceId | string;
     },
     command: TourCommand,
-  ): boolean {
+  ): boolean | Promise<boolean> {
     const targetSurface = scope.surface ?? command.surface;
     if (!targetSurface) return false;
-    const handle = this.getAdapter(
-      scope.tenantId,
-      scope.operatorId,
-      scope.runId,
-      targetSurface,
-    );
+    const handle = this.getAdapter(scope.tenantId, scope.operatorId, scope.runId, targetSurface);
     if (!handle) return false;
     const fn = handle.onCommand ?? handle.handler ?? handle.prepare;
     if (!fn) return false;
     try {
-      void fn(command);
+      const res = fn(command);
+      if (res && typeof (res as Promise<void>).then === "function") {
+        return (res as Promise<void>).then(
+          () => true,
+          () => false,
+        );
+      }
       return true;
     } catch {
       return false;

@@ -9,7 +9,8 @@ import {
   requestNotificationPermission,
   showBrowserNotification,
 } from "./notifications";
-import { AVATAR_URL, BACKEND_URL, buildLiveChatWsUrl } from "../../config";
+import { AVATAR_URL, BACKEND_URL, TENANT_ID, buildLiveChatWsUrl } from "../../config";
+import { WidgetMessageOutbox, type PendingWidgetMessage } from "../../lib/message-outbox";
 
 const COOKIE_KEY = "tecfag_visitor_id";
 const STORAGE_KEY_MESSAGES = "tecfag_chat_messages";
@@ -145,6 +146,34 @@ export const ChatWidget: React.FC = () => {
   const chatWindowRef = useRef<HTMLDivElement>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const mountedRef = useRef(true);
+  const outboxRef = useRef<WidgetMessageOutbox | null>(null);
+  const unpersistedRef = useRef(new Map<string, Omit<PendingWidgetMessage, "state">>());
+  const getOutbox = useCallback(() => {
+    if (!outboxRef.current) outboxRef.current = new WidgetMessageOutbox(localStorage,
+      JSON.stringify(["site-message-outbox-v1", BACKEND_URL, TENANT_ID, getOrCreateCookieId()]));
+    return outboxRef.current;
+  }, []);
+  const syncPendingMessages = useCallback(() => {
+    const entries = getOutbox().snapshot();
+    setMessages((previous) => {
+      const updated = previous.map((message) => {
+        const entry = entries.find((item) => item.id === message.id);
+        return entry && message.deliveryState !== entry.state ? { ...message, deliveryState: entry.state } : message;
+      });
+      const missing: Message[] = entries.filter((entry) => !updated.some((message) => message.id === entry.id))
+        .map((entry) => ({ id: entry.id, content: entry.displayText, sender: "visitor", timestamp: new Date(entry.createdAt).toISOString(), deliveryState: entry.state }));
+      return !missing.length && updated.every((message, index) => message === previous[index]) ? previous : [...updated, ...missing];
+    });
+  }, [getOutbox]);
+  const flushOutbox = useCallback((force = false) => {
+    const socket = wsRef.current;
+    if (!mountedRef.current || socket?.readyState !== WebSocket.OPEN) return;
+    try {
+      getOutbox().sendNext((payload) => socket.send(JSON.stringify(payload)), Date.now(), force);
+      syncPendingMessages();
+    } catch { /* Persistent queue remains visible; never claim delivery from socket state. */ }
+  }, [getOutbox, syncPendingMessages]);
   const currentPageviewIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -263,6 +292,7 @@ export const ChatWidget: React.FC = () => {
   }, [messages.length]);
 
   const connectWebSocket = useCallback(() => {
+    if (!mountedRef.current) return;
     if (
       wsRef.current?.readyState === WebSocket.OPEN ||
       wsRef.current?.readyState === WebSocket.CONNECTING
@@ -278,6 +308,7 @@ export const ChatWidget: React.FC = () => {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws || !mountedRef.current) return;
         setIsConnected(true);
         const urlParams = new URLSearchParams(window.location.search);
         ws.send(
@@ -292,6 +323,7 @@ export const ChatWidget: React.FC = () => {
             utmCampaign: urlParams.get("utm_campaign") || undefined,
           }),
         );
+        flushOutbox(true);
 
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = setInterval(() => {
@@ -302,10 +334,26 @@ export const ChatWidget: React.FC = () => {
       };
 
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws || !mountedRef.current) return;
         try {
           const data = JSON.parse(event.data);
 
           switch (data.type) {
+            case "message_ack": {
+              if (typeof data.messageId === "string" && getOutbox().acknowledge(data.messageId)) {
+                setMessages((previous) => previous.map((message) => message.id === data.messageId
+                  ? { ...message, deliveryState: "confirmed" } : message));
+                flushOutbox(true);
+              }
+              break;
+            }
+            case "product_inquiry_rejected": {
+              if (typeof data.messageId === "string") {
+                getOutbox().fail(data.messageId);
+                syncPendingMessages();
+              }
+              break;
+            }
             case "CONNECTED":
               if (data.pageviewId) {
                 currentPageviewIdRef.current = data.pageviewId;
@@ -339,6 +387,7 @@ export const ChatWidget: React.FC = () => {
                 content: data.content,
                 sender: data.sender || "ai",
                 timestamp: data.timestamp || new Date().toISOString(),
+                ...(data.sender === "visitor" && data.fromHistory ? { deliveryState: "confirmed" as const } : {}),
               };
 
               if (data.fromHistory) {
@@ -435,6 +484,7 @@ export const ChatWidget: React.FC = () => {
       };
 
       ws.onclose = () => {
+        if (wsRef.current !== ws || !mountedRef.current) return;
         setIsConnected(false);
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
@@ -448,10 +498,13 @@ export const ChatWidget: React.FC = () => {
     } catch (error) {
       console.error("[TecfagChat] Failed to establish WebSocket connection:", error);
     }
-  }, []);
+  }, [flushOutbox, getOutbox, syncPendingMessages]);
 
   useEffect(() => {
+    mountedRef.current = true;
+    try { syncPendingMessages(); } catch { /* Storage error is reported on send. */ }
     connectWebSocket();
+    const outboxTimer = setInterval(() => flushOutbox(), 5_000);
 
     let currentUrl = window.location.href;
     let pageEntryTime = Date.now();
@@ -568,6 +621,8 @@ export const ChatWidget: React.FC = () => {
     document.addEventListener("click", handleCtaClick, { capture: true, passive: true });
 
     return () => {
+      mountedRef.current = false;
+      clearInterval(outboxTimer);
       sendPageviewUpdate();
       clearInterval(urlCheckInterval);
       clearInterval(periodicUpdateInterval);
@@ -577,9 +632,45 @@ export const ChatWidget: React.FC = () => {
       document.removeEventListener("click", handleCtaClick, { capture: true });
       if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      wsRef.current?.close();
+      const socket = wsRef.current;
+      wsRef.current = null;
+      socket?.close();
     };
-  }, [connectWebSocket]);
+  }, [connectWebSocket, flushOutbox, syncPendingMessages]);
+
+  const queueVisitorMessage = useCallback((displayText: string, payload: Omit<PendingWidgetMessage["payload"], "messageId">) => {
+    const id = `usr_${crypto.randomUUID()}`;
+    const intent = { id, createdAt: Date.now(), displayText,
+      payload: { ...payload, type: payload.type as "CHAT_MESSAGE" | "PRODUCT_INQUIRY", messageId: id } };
+    try {
+      getOutbox().enqueue(intent);
+      syncPendingMessages();
+      flushOutbox();
+      connectWebSocket();
+      return true;
+    } catch {
+      unpersistedRef.current.set(id, intent);
+      setMessages((previous) => [...previous, { id, content: displayText, sender: "visitor",
+        timestamp: new Date().toISOString(), deliveryState: "failed" }]);
+      return false;
+    }
+  }, [getOutbox, syncPendingMessages, flushOutbox, connectWebSocket]);
+
+  const retryMessage = useCallback((id: string) => {
+    try {
+      const entry = getOutbox().snapshot().find((item) => item.id === id);
+      if (entry) getOutbox().retry(id);
+      else {
+        const intent = unpersistedRef.current.get(id);
+        if (!intent) return;
+        getOutbox().enqueue(intent);
+        unpersistedRef.current.delete(id);
+      }
+      syncPendingMessages();
+      flushOutbox(true);
+      connectWebSocket();
+    } catch { /* Keep failed state and content available to the visitor. */ }
+  }, [getOutbox, syncPendingMessages, flushOutbox, connectWebSocket]);
 
   const sendProductInquiry = useCallback(
     (productSlug: string, productUrl: string, visitorMessage?: string, productName?: string) => {
@@ -597,46 +688,16 @@ export const ChatWidget: React.FC = () => {
           .replace(/-/g, " ")
           .replace(/\b\w/g, (c) => c.toUpperCase());
 
-      const userMsg: Message = {
-        id: "usr_" + Date.now(),
-        content: visitorMessage || `Gostaria de informações sobre: **${displaySlug}**`,
-        sender: "visitor",
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, userMsg]);
+      queueVisitorMessage(visitorMessage || `Gostaria de informações sobre: **${displaySlug}**`, {
+        type: "PRODUCT_INQUIRY", productSlug, productName: displaySlug,
+        productUrl: productUrl || window.location.href, visitorMessage,
+        currentPage: window.location.href, pageTitle: document.title,
+      });
       setHasSelectedModule(true);
       sessionStorage.setItem(STORAGE_KEY_MODULE_SELECTED, "true");
 
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: "PRODUCT_INQUIRY",
-            messageId: "inq_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
-            productSlug,
-            productName: displaySlug,
-            productUrl: productUrl || window.location.href,
-            visitorMessage,
-          }),
-        );
-      } else {
-        connectWebSocket();
-        setTimeout(() => {
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(
-              JSON.stringify({
-                type: "PRODUCT_INQUIRY",
-                messageId: "inq_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
-                productSlug,
-                productName: displaySlug,
-                productUrl: productUrl || window.location.href,
-                visitorMessage,
-              }),
-            );
-          }
-        }, 1200);
-      }
     },
-    [nameConfirmed, connectWebSocket],
+    [nameConfirmed, queueVisitorMessage],
   );
 
   useEffect(() => {
@@ -766,50 +827,11 @@ export const ChatWidget: React.FC = () => {
 
     if (!finalContent.trim()) return;
 
-    const newMsg: Message = {
-      id: "usr_" + Date.now(),
-      content: finalContent,
-      sender: "visitor",
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
+    queueVisitorMessage(finalContent, { type: "CHAT_MESSAGE", content: finalContent,
+      currentPage: window.location.href, pageTitle: document.title });
     setHasSelectedModule(true);
     sessionStorage.setItem(STORAGE_KEY_MODULE_SELECTED, "true");
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "CHAT_MESSAGE",
-          messageId: newMsg.id,
-          content: finalContent,
-        }),
-      );
-    } else {
-      connectWebSocket();
-      setTimeout(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: "CHAT_MESSAGE",
-              messageId: newMsg.id,
-              content: finalContent,
-            }),
-          );
-        } else {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: "err_" + Date.now(),
-              content:
-                "⚠️ Sem conexão com o servidor no momento. Tentando reconectar...",
-              sender: "system",
-              timestamp: new Date().toISOString(),
-            },
-          ]);
-        }
-      }, 1000);
-    }
   };
 
   const handleRestartChat = () => {
@@ -817,6 +839,8 @@ export const ChatWidget: React.FC = () => {
   };
 
   const confirmRestartChat = () => {
+    try { getOutbox().clear(); } catch { return; }
+    unpersistedRef.current.clear();
     setShowRestartConfirm(false);
     const freshWelcome: Message = {
       id: "welcome-msg-" + Date.now(),
@@ -1003,6 +1027,7 @@ export const ChatWidget: React.FC = () => {
                   <ChatBubble
                     key={msg.id}
                     message={msg}
+                    onRetry={retryMessage}
                     onSelectOption={(opt) => handleSendMessage(opt)}
                   />
                 ))}

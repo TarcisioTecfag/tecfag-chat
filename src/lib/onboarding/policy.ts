@@ -46,14 +46,11 @@ export function isForbiddenSecondaryView(viewId: string | null | undefined): boo
 
 export function isPrimaryViewAuthorized(
   viewId: OperatorTourView,
-  ctx: Pick<
-    OnboardingEligibilityContext,
-    "tenantId" | "isCommercialConsultant" | "permissions"
-  >,
+  ctx: Pick<OnboardingEligibilityContext, "tenantId" | "isCommercialConsultant" | "permissions">,
 ): boolean {
   if (!isOperatorTourView(viewId)) return false;
   if (viewId === "commercialHome") {
-    const isConsultant = ctx.isCommercialConsultant ?? true;
+    const isConsultant = ctx.isCommercialConsultant === true;
     return Boolean(isConsultant) && Boolean(ctx.permissions?.views?.commercialHome);
   }
   return Boolean(ctx.permissions?.views?.[viewId]);
@@ -66,7 +63,7 @@ export function resolveEligiblePrimaryViews(
     | null
     | undefined,
 ): OperatorTourView[] {
-  if (!ctxOrAllowedModules) return [...PRIMARY_OPERATOR_VIEWS];
+  if (!ctxOrAllowedModules) return [];
   if (Array.isArray(ctxOrAllowedModules)) {
     const allowedSet = new Set(ctxOrAllowedModules);
     return PRIMARY_OPERATOR_VIEWS.filter((v) => allowedSet.has(v));
@@ -76,16 +73,13 @@ export function resolveEligiblePrimaryViews(
     "tenantId" | "isCommercialConsultant" | "permissions"
   >;
   if (!ctx.permissions?.views) {
-    return [...PRIMARY_OPERATOR_VIEWS];
+    return [];
   }
   return PRIMARY_OPERATOR_VIEWS.filter((viewId) => isPrimaryViewAuthorized(viewId, ctx));
 }
 
 export function resolveFirstEligiblePrimaryView(
-  ctx: Pick<
-    OnboardingEligibilityContext,
-    "tenantId" | "isCommercialConsultant" | "permissions"
-  >,
+  ctx: Pick<OnboardingEligibilityContext, "tenantId" | "isCommercialConsultant" | "permissions">,
 ): OperatorTourView | null {
   const views = resolveEligiblePrimaryViews(ctx);
   return views[0] ?? null;
@@ -97,7 +91,7 @@ export function hasTourCapability(
 ): { allowed: boolean; reason?: UnavailableReason } {
   const permissions = ctx.permissions;
   if (!permissions || !permissions.views) {
-    return { allowed: true };
+    return { allowed: false, reason: "permission_denied" };
   }
   switch (capability) {
     case "view:commercialHome":
@@ -105,7 +99,7 @@ export function hasTourCapability(
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "consultant:commercialHome":
-      return (ctx.isCommercialConsultant ?? true)
+      return ctx.isCommercialConsultant === true
         ? { allowed: true }
         : { allowed: false, reason: "not_commercial_consultant" };
     case "view:chat":
@@ -113,7 +107,7 @@ export function hasTourCapability(
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "view:crm":
-      return permissions.views?.crm && permissions.crm?.canViewCrm !== false
+      return permissions.views?.crm && permissions.crm?.canViewCrm === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "view:tasks":
@@ -129,7 +123,7 @@ export function hasTourCapability(
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:queueMine":
-      return permissions.chat?.canViewQueueMine !== false
+      return permissions.chat?.canViewQueueMine === true
         ? { allowed: true }
         : { allowed: false, reason: "queue_not_allowed" };
     case "chat:queueAll":
@@ -137,105 +131,101 @@ export function hasTourCapability(
         ? { allowed: true }
         : { allowed: false, reason: "queue_not_allowed" };
     case "chat:queueWaiting":
-      return permissions.chat?.canViewQueueWaiting !== false
+      return permissions.chat?.canViewQueueWaiting === true
         ? { allowed: true }
         : { allowed: false, reason: "queue_not_allowed" };
     case "chat:queueBot":
-      return permissions.chat?.canViewQueueBot !== false
+      return permissions.chat?.canViewQueueBot === true
         ? { allowed: true }
         : { allowed: false, reason: "queue_not_allowed" };
     case "chat:queueClosed":
-      return permissions.chat?.canViewQueueClosed !== false
+      return permissions.chat?.canViewQueueClosed === true
         ? { allowed: true }
         : { allowed: false, reason: "queue_not_allowed" };
     case "chat:capture":
-      return permissions.chat?.canCaptureChat !== false
+      return permissions.chat?.canCaptureChat === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:transfer":
-      return permissions.chat?.canTransferChat !== false
+      return permissions.chat?.canTransferChat === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:finish":
-      return permissions.chat?.canFinishChat !== false
+      return permissions.chat?.canFinishChat === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:override":
-      return permissions.chat?.canOverrideChat !== false
+      return permissions.chat?.canOverrideChat === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:internalNotes":
-      return permissions.chat?.canSendInternalNotes !== false
+      return permissions.chat?.canSendInternalNotes === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:editClientInfo":
-      return permissions.chat?.canEditClientInfo !== false
+      return permissions.chat?.canEditClientInfo === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:manageTags":
-      return permissions.chat?.canManageTags !== false
+      return permissions.chat?.canManageTags === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:manageRdCrm":
-      return permissions.chat?.canManageRdCrm !== false
+      return permissions.chat?.canManageRdCrm === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:inlineAssistant":
-      return permissions.valentina?.canAccessChat !== false
+      return permissions.valentina?.canAccessChat === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "chat:globalTemplates":
-      return permissions.security?.canManageGlobalTemplates !== false
+      return permissions.security?.canManageGlobalTemplates === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "whatsapp:personalConnection":
-      return (ctx.hasPersonalWhatsappConnection ?? ctx.hasPersonalWhatsappConnections) !== false
+      return (ctx.hasPersonalWhatsappConnection ?? ctx.hasPersonalWhatsappConnections) === true
         ? { allowed: true }
         : { allowed: false, reason: "capability_disabled" };
     case "whatsapp:personalPair":
-      return ctx.canPairPersonalWhatsapp !== false
+      return ctx.canPairPersonalWhatsapp === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "crm:createDeals":
-      return permissions.crm?.canCreateDeals !== false
+      return permissions.crm?.canCreateDeals === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "crm:editDeals":
-      return permissions.crm?.canEditDeals !== false
+      return permissions.crm?.canEditDeals === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "crm:moveStages":
-      return permissions.crm?.canMoveStages !== false
+      return permissions.crm?.canMoveStages === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "crm:closeDeals":
-      return permissions.crm?.canCloseDeals !== false
+      return permissions.crm?.canCloseDeals === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "crm:exportDeals":
-      return permissions.crm?.canExportDeals !== false
+      return permissions.crm?.canExportDeals === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "crm:deleteDeals":
-      return permissions.crm?.canDeleteDeals !== false
+      return permissions.crm?.canDeleteDeals === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "contacts:create":
-      return permissions.contacts?.canCreateContact !== false
+      return permissions.contacts?.canCreateContact === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "contacts:edit":
-      return permissions.contacts?.canEditContact !== false
+      return permissions.contacts?.canEditContact === true
         ? { allowed: true }
         : { allowed: false, reason: "permission_denied" };
     case "device:mobile":
-      return ctx.isMobile
-        ? { allowed: true }
-        : { allowed: false, reason: "mobile_only" };
+      return ctx.isMobile ? { allowed: true } : { allowed: false, reason: "mobile_only" };
     case "device:desktop":
-      return !ctx.isMobile
-        ? { allowed: true }
-        : { allowed: false, reason: "desktop_only" };
+      return !ctx.isMobile ? { allowed: true } : { allowed: false, reason: "desktop_only" };
     default:
       return { allowed: false, reason: "capability_disabled" };
   }
@@ -251,6 +241,13 @@ export function evaluateStepEligibility(
   }
   if (!eligibleViews.includes(step.view)) {
     return { eligible: false, reason: "permission_denied" };
+  }
+
+  if (
+    (step.id === "chat.channels" || step.id === "contacts.channels") &&
+    !ctx.allowedChannels?.length
+  ) {
+    return { eligible: false, reason: "channel_not_allowed" };
   }
 
   for (const cap of step.requiredCapabilities) {
@@ -329,7 +326,6 @@ export function computeOnboardingCoverage(
 
     const isSatisfied =
       completedSet.has(step.id) ||
-      isExplicitlyUnavailable ||
       (step.mode === "O" || step.mode === "X" || step.mode === "D"
         ? visitedSet.has(step.id) || completedSet.has(step.id)
         : completedSet.has(step.id));
@@ -350,9 +346,7 @@ export function computeOnboardingCoverage(
     });
     if (
       chapterInstructionalSteps.length > 0 &&
-      chapterInstructionalSteps.every((stepId) =>
-        satisfiedInstructionalStepIds.includes(stepId),
-      )
+      chapterInstructionalSteps.every((stepId) => satisfiedInstructionalStepIds.includes(stepId))
     ) {
       completedChapterIds.push(chapter.id);
     }
@@ -362,13 +356,9 @@ export function computeOnboardingCoverage(
   const progressPercent =
     totalApplicable === 0
       ? 0
-      : Math.min(
-          100,
-          Math.round((satisfiedInstructionalStepIds.length / totalApplicable) * 100),
-        );
+      : Math.min(100, Math.round((satisfiedInstructionalStepIds.length / totalApplicable) * 100));
 
-  const canCompleteTour =
-    totalApplicable > 0 && missingInstructionalStepIds.length === 0;
+  const canCompleteTour = totalApplicable > 0 && missingInstructionalStepIds.length === 0;
 
   return {
     applicableInstructionalStepIds,
@@ -408,8 +398,7 @@ export function resolveNextApplicableStepId(
 
   const currentStepId = firstArg as string | null | undefined;
   const ctx = secondArg as OnboardingEligibilityContext;
-  const direction: "forward" | "backward" =
-    thirdArg === "backward" ? "backward" : "forward";
+  const direction: "forward" | "backward" = thirdArg === "backward" ? "backward" : "forward";
 
   const eligibleSteps = ONBOARDING_STEPS.filter(
     (step) => evaluateStepEligibility(step, ctx).eligible,
@@ -428,9 +417,7 @@ export function resolveNextApplicableStepId(
       const nextAfter = eligibleSteps.find((s) => s.orderIndex > rawStep.orderIndex);
       return nextAfter?.id ?? eligibleSteps[eligibleSteps.length - 1].id;
     }
-    const prevBefore = [...eligibleSteps]
-      .reverse()
-      .find((s) => s.orderIndex < rawStep.orderIndex);
+    const prevBefore = [...eligibleSteps].reverse().find((s) => s.orderIndex < rawStep.orderIndex);
     return prevBefore?.id ?? eligibleSteps[0].id;
   }
 

@@ -44,7 +44,7 @@ export function WhatsappNumberPicker({
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label="Escolher número de WhatsApp"
+            data-tour="chat.sender" aria-label="Escolher número de WhatsApp"
             className="grid h-8 w-8 md:h-9 md:w-9 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
           >
             <Smartphone className="h-4 w-4" />

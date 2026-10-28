@@ -262,7 +262,7 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
             <QuickResponsesPopover
               isOpen={showQuickTemplates}
               onClose={() => setShowQuickTemplates(false)}
-              onSelect={(rawResponse) => {
+              onSelectResponse={(rawResponse) => {
                 let parsedText = rawResponse;
                 if (parsedText.includes("<<1>>")) {
                   parsedText = parsedText.replaceAll("<<1>>", operatorProfile.name);
@@ -281,14 +281,16 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
               }}
               quickResponses={quickResponses}
               templates={templates || []}
-              slashQuery={text.startsWith("/") ? text.slice(1) : ""}
+              slashFilterText={text.startsWith("/") ? text.slice(1) : ""}
               canManageGlobalTemplates={canManageGlobalTemplates}
-              onCreateTemplate={createTemplate}
-              onUpdateTemplate={updateTemplate}
-              onDeleteTemplate={deleteTemplate}
-              onCreateQuickResponse={createQuickResponse}
-              onUpdateQuickResponse={updateQuickResponse}
-              onDeleteQuickResponse={deleteQuickResponse}
+              operatorName={operatorProfile.name}
+              customerName={activeChat?.name || "Cliente"}
+              onCreateIndividual={createTemplate}
+              onUpdateIndividual={updateTemplate}
+              onDeleteIndividual={deleteTemplate}
+              onCreateGlobal={async (response) => { await createQuickResponse({ ...response, description: response.description ?? "" }); }}
+              onUpdateGlobal={async (id, fields) => { await updateQuickResponse(id, fields); }}
+              onDeleteGlobal={async (id) => { await deleteQuickResponse(id); }}
               onOpenFullManager={() => {
                 setShowQuickTemplates(false);
                 const targetView = canManageGlobalTemplates ? "groups" : "wallet";

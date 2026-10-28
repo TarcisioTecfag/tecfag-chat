@@ -1,13 +1,5 @@
 import React from "react";
-import {
-  CheckCircle2,
-  Circle,
-  Layers,
-  Pause,
-  Play,
-  RotateCcw,
-  X,
-} from "lucide-react";
+import { CheckCircle2, Circle, Layers, Pause, Play, RotateCcw, X } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { useOnboarding } from "@/hooks/useOnboarding";
 
@@ -38,11 +30,10 @@ export function OnboardingControls() {
           <div className="flex items-center gap-2.5">
             <Layers className="h-5 w-5 text-primary" />
             <div>
-              <h3 className="text-sm font-bold text-white">
-                Capítulos & Etapas do Tour
-              </h3>
+              <h3 className="text-sm font-bold text-white">Capítulos & Etapas do Tour</h3>
               <p className="text-[11px] text-slate-400">
-                {coverage.completedEligibleCount} de {coverage.totalEligibleCount} etapas concluídas ({coverage.completionPct}%)
+                {coverage.satisfiedInstructionalStepIds.length} de {coverage.eligibleStepIds.length}{" "}
+                etapas concluídas ({coverage.completionPct}%)
               </p>
             </div>
           </div>
@@ -60,12 +51,8 @@ export function OnboardingControls() {
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           {chapters.map((chapter) => {
-            const chapterSteps = applicableSteps.filter(
-              (s) => s.chapterId === chapter.id,
-            );
-            const completedCount = chapterSteps.filter((s) =>
-              completedSet.has(s.id),
-            ).length;
+            const chapterSteps = applicableSteps.filter((s) => s.chapterId === chapter.id);
+            const completedCount = chapterSteps.filter((s) => completedSet.has(s.id)).length;
             const isCurrentChapter = currentStep?.chapterId === chapter.id;
 
             return (
@@ -89,9 +76,7 @@ export function OnboardingControls() {
                     <span className="text-xs font-bold text-white hover:text-primary">
                       {chapter.order}. {chapter.title}
                     </span>
-                    <p className="text-[11px] text-slate-400">
-                      {chapter.subtitle}
-                    </p>
+                    <p className="text-[11px] text-slate-400">{chapter.subtitle}</p>
                   </button>
                   <span className="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
                     {completedCount}/{chapterSteps.length}

@@ -1,8 +1,10 @@
 import { runtimeSingleton } from "../runtime-singleton";
+import type { IndustrialDeliveryContext } from "./industrial-delivery-context";
+import type { IndustrialBotItem } from "./industrial-outbound";
 
 import { db } from "../../db";
 import { agentConfigs, agentFlowStates, conversations, messages, internalMessages, contacts, crmAccounts, operators } from "../../db/schema";
-import { eq, asc, desc, and, gte, ne, sql, isNull } from "drizzle-orm";
+import { eq, asc, desc, and, gte, ne, sql, isNull, or, inArray } from "drizzle-orm";
 import { buildAccountUpdatePayloadFromCnpjDetails } from "../crm/cnpj-account-mapper";
 import { vertexAi, MultimodalPart } from "../vertex-ai";
 import { SessionManager, resolveRealJid } from "../baileys/session-manager";
@@ -72,7 +74,7 @@ import {
 } from "./sdr-channel-sender";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
-import { deliverSiteBotFragment, deliverSiteCatalogImage, pushSiteTyping } from "../livechat/site-delivery";
+import { pushSiteTyping } from "../livechat/site-delivery";
 import { triggerOutboundCallInternal } from "../voice/outbound-call-service";
 import { generateDynamicPttAudio } from "../voice/elevenlabs-dynamic-tts";
 import path from "node:path";
@@ -409,6 +411,7 @@ export class SdrEngine {
             eq(messages.conversationId, conversationId),
             ne(messages.content, "!reset"),
             ...(industrialTriage ? [eq(messages.isInternalNote, false)] : []),
+            ...(industrialTriage ? [or(ne(messages.senderType, "bot"), inArray(messages.status, ["sent", "accepted", "delivered", "read"]))] : []),
             ...(flowState?.startedAt ? [gte(messages.sentAt, flowState.startedAt)] : [])
           )
         )
@@ -1772,6 +1775,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               eq(messages.tenantId, tenantId),
               eq(messages.conversationId, conversationId),
               eq(messages.senderType, "bot"),
+              ...(industrialTriage ? [inArray(messages.status, ["sent", "accepted", "delivered", "read"])] : []),
               ...(flowState?.startedAt ? [gte(messages.sentAt, flowState.startedAt)] : [])
             )
           )
@@ -1814,6 +1818,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
       }
 
       const dynamicAudioFinal = dynamicAudio;
+      const deliveryTurnContext: IndustrialDeliveryContext | undefined = flowState ? {
+        flowId: flowState.id, cycle: flowState.startedAt.toISOString(), triggerIds: batchItems.map((item) => item.messageId).filter((id): id is string => Boolean(id)),
+      } : undefined;
+      const industrialImageItems: IndustrialBotItem[] = [];
+      let industrialGreetingMessages: string[] = [];
 
       if (dynamicAudio && dynamicAudio.position === "before_text" && !signal?.aborted) {
         await this.sendDynamicPttAudio(
@@ -1834,7 +1843,11 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           `Eu sou ${aiPersonaForGreeting.gender === "female" ? "a" : "o"} ${aiPersonaForGreeting.name}, ${greetingPrep} ${aiPersonaForGreeting.company} 😊`,
         ];
         console.log(`[SdrEngine] 👋 Injetando greeting via código (isFirstMessage=true): ${JSON.stringify(greetingMessages)}`);
-        await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal, null, null, allocatedOp?.id || null);
+        if (industrialTriage && industrialHandoff?.status !== "transferred" &&
+          (!dynamicAudio || dynamicAudio.position !== "only_audio") && aiResult.messagesToSend.length > 0) {
+          industrialGreetingMessages = greetingMessages; // Persist greeting, answer and photos as one turn.
+        } else await this.sendHumanizedBotMessages(tenantId, conversationId, contactPhone, greetingMessages, signal, null, null, allocatedOp?.id || null,
+          deliveryTurnContext ? { ...deliveryTurnContext, scope: "greeting" } : undefined);
       }
 
       if ((!dynamicAudio || dynamicAudio.position !== "only_audio") && aiResult.messagesToSend.length > 0 && !signal?.aborted) {
@@ -1966,20 +1979,9 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
               }
 
-              if (isSiteConversationId(conversationId) && getAiPersona(tenantId).triagePolicy === "industrial") {
-                await pushSiteTyping(tenantId, conversationId, true);
-                await new Promise(r => setTimeout(r, 600));
-                await deliverSiteCatalogImage({
-                  tenantId,
-                  conversationId,
-                  publicUrl: imageRelUrl,
-                  imgBuffer,
-                  mimeType,
-                  fileName,
-                  senderName: `${getAiPersona(tenantId).name} (SDR)`,
-                });
-                await pushSiteTyping(tenantId, conversationId, false);
-                await new Promise(r => setTimeout(r, 400));
+              if (industrialTriage) {
+                industrialImageItems.push({ text: "", image: { buffer: imgBuffer, mimeType, fileName,
+                  ...(isSiteConversationId(conversationId) ? { publicUrl: imageRelUrl } : {}) } });
                 continue;
               }
               await sendBotPresence(tenantId, conversationId, contactPhone, "composing");
@@ -1992,6 +1994,8 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
                 mimeType,
                 fileName,
                 caption: "",
+                expectedOperatorId: allocatedOp?.id || null,
+                deliveryContext: deliveryTurnContext,
               });
               console.log(`[SdrEngine] ✅ Imagem enviada e registrada para ${contactPhone}`);
               await new Promise(r => setTimeout(r, 600));
@@ -1999,12 +2003,20 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
               if (!signal?.aborted) {
                 console.error(`[SdrEngine] ❌ Falha ao enviar imagem Formato Real:`, imgErr?.message || imgErr);
               }
+              if (industrialTriage) return false;
             }
           }
         }
         // ── FIM INTERCEPTAÇÃO DE IMAGENS ─────────────────────────────────────
 
         if (industrialHandoff?.status === "transferred" && industrialHandoffStoreRef && industrialHandoffKeyRef) {
+          if (industrialImageItems.length) {
+            const { sendIndustrialBotBatch } = await import("./industrial-outbound");
+            const result = await sendIndustrialBotBatch({ tenantId, conversationId, scope: "handoff-catalog", items: industrialImageItems,
+              expectedOperatorId: allocatedOp?.id || null, signal,
+              context: deliveryTurnContext });
+            if (!result.sent) return false;
+          }
           const store = industrialHandoffStoreRef;
           const key = industrialHandoffKeyRef;
           const claimed = await store.claimPostCommitOutbox(key, { immediate: true });
@@ -2025,11 +2037,12 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           tenantId,
           conversationId,
           contactPhone,
-          aiResult.messagesToSend,
+          [...industrialGreetingMessages, ...aiResult.messagesToSend],
           signal,
           targetQuoteItem,
           aiResult.quoteMessageId,
-          allocatedOp?.id || null
+          allocatedOp?.id || null,
+          deliveryTurnContext ? { ...deliveryTurnContext, scope: "reply", images: industrialImageItems, greetingCount: industrialGreetingMessages.length } : undefined
         );
       }
 
@@ -2277,10 +2290,30 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     signal?: AbortSignal,
     quoteItem?: QueuedMessageItem | null,
     targetQuoteMessageId?: string | null,
-    expectedOperatorId?: string | null
+    expectedOperatorId?: string | null,
+    deliveryContext?: IndustrialDeliveryContext & { scope?: string; images?: IndustrialBotItem[]; greetingCount?: number }
   ): Promise<void> {
-    if (isSiteConversationId(conversationId) && getAiPersona(tenantId).triagePolicy === "industrial") {
-      return this.sendSiteBotMessages(tenantId, conversationId, messagesArray, signal, expectedOperatorId);
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      const { sendIndustrialBotBatch } = await import("./industrial-outbound");
+      const fragments = messagesArray.map((text) => text.trim()).filter(Boolean);
+      const hasRequote = fragments.some((text) => /só me responde|me responde isso/i.test(text));
+      try {
+        const result = await sendIndustrialBotBatch({ tenantId, conversationId, scope: deliveryContext?.scope || "reply",
+          expectedOperatorId, context: deliveryContext, signal,
+          items: [...fragments.map((text, index) => ({ text,
+            quotedMessageId: (/só me responde|me responde isso/i.test(text) || (index === (deliveryContext?.greetingCount || 0) && !hasRequote))
+              ? targetQuoteMessageId || quoteItem?.messageId || undefined : undefined,
+          })), ...(deliveryContext?.images || [])],
+          beforeSend: async (text) => {
+            await sendBotPresence(tenantId, conversationId, phone, "composing");
+            const delay = Math.min(4200, Math.max(2200, text.length * 60));
+            const start = Date.now();
+            while (Date.now() - start < delay && !signal?.aborted) await new Promise((resolve) => setTimeout(resolve, 100));
+          },
+        });
+        if (!result.sent) throw Error(`Resposta automática preservada para recuperação/revisão: ${result.reason || "pending"}`);
+      } finally { await sendBotPresence(tenantId, conversationId, phone, "paused"); }
+      return;
     }
     const activeProvider = await resolveTenantActiveProvider(tenantId);
     const sock = SessionManager.getInstance().getSession(tenantId);
@@ -2513,42 +2546,5 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
     }
   }
 
-  /**
-   * Canal Site: mesmas mensagens do núcleo, entregues no widget. A posse é revalidada antes de
-   * cada balão para que uma resposta atrasada não atropele o operador que assumiu.
-   */
-  private async sendSiteBotMessages(
-    tenantId: string,
-    conversationId: string,
-    messagesArray: string[],
-    signal?: AbortSignal,
-    expectedOperatorId?: string | null
-  ): Promise<void> {
-    const senderName = `${getAiPersona(tenantId).name} (SDR)`;
-    for (const raw of messagesArray) {
-      const fragmentText = raw.trim();
-      if (!fragmentText) continue;
-      if (signal?.aborted) break;
-      await pushSiteTyping(tenantId, conversationId, true);
-      const typingDelay = Math.min(2600, Math.max(900, fragmentText.length * 30));
-      const startDelay = Date.now();
-      while (Date.now() - startDelay < typingDelay && !signal?.aborted) {
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      if (signal?.aborted) break;
-      const owner = await db.query.conversations.findFirst({
-        where: (t, { eq: dEq, and: dAnd }) => dAnd(dEq(t.tenantId, tenantId), dEq(t.id, conversationId)),
-      });
-      if (!owner || owner.queueState === "finalizados" || (owner.operatorId || null) !== (expectedOperatorId || null)
-        || (owner.queueState === "meus" && !expectedOperatorId)) break;
-      try {
-        await deliverSiteBotFragment({ tenantId, conversationId, text: fragmentText, senderName });
-      } catch (err: any) {
-        console.error(`[SdrEngine] ❌ Falha ao entregar balão no site (${tenantId}):`, err?.message);
-        break;
-      }
-    }
-    await pushSiteTyping(tenantId, conversationId, false);
-  }
 }
 

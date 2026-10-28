@@ -57,7 +57,7 @@ const appRoutesMod = loadTsModule("src/lib/app-routes.ts");
 
 test("manifest has 8 chapters, 232 steps, unique orders and valid data-tour selectors", () => {
   assert.equal(typesMod.OPERATOR_TOUR_KEY, "operator-first-login");
-  assert.equal(typesMod.ONBOARDING_TOUR_VERSION, 1);
+  assert.equal(typesMod.ONBOARDING_TOUR_VERSION, 2);
   assert.equal(manifestMod.ONBOARDING_CHAPTERS.length, 8);
   assert.equal(manifestMod.ONBOARDING_STEPS.length, 232);
   assert.ok(manifestMod.ONBOARDING_SELECTORS.length >= 229);

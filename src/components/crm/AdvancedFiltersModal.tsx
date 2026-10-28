@@ -201,7 +201,7 @@ function DateFilter({
     : "Selecionar";
 
   return (
-    <div className="space-y-1.5">
+    <div data-tour={label === "Data de criação" ? "crm.filter-dates" : undefined} className="space-y-1.5">
       <Label className="text-xs font-semibold">{label}</Label>
       <Popover
         open={open}
@@ -571,6 +571,7 @@ export function AdvancedFiltersModal({
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
+        data-tour="crm.filters-dialog"
         side="right"
         className="grid w-full max-w-[420px] sm:max-w-[460px] md:max-w-[480px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-card p-0 shadow-2xl z-[120]"
       >
@@ -585,7 +586,7 @@ export function AdvancedFiltersModal({
         </SheetHeader>
         <div className="space-y-4 overflow-y-auto px-5 py-4 text-xs">
           {stages.length > 0 && (
-            <div className="space-y-1.5">
+            <div data-tour="crm.filter-stages" className="space-y-1.5">
               <Label className="text-xs font-semibold">Etapas do funil</Label>
               <div className="max-h-28 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
                 {stages.map((stage) => (
@@ -613,6 +614,7 @@ export function AdvancedFiltersModal({
           <div className="space-y-3 border-t border-border pt-4">
             <label className="flex cursor-pointer items-start gap-2">
               <Switch
+                data-tour="crm.filter-work"
                 checked={!!draft.withoutTask}
                 onCheckedChange={(checked) => update("withoutTask", checked)}
               />
@@ -662,6 +664,7 @@ export function AdvancedFiltersModal({
             <Popover open={emptyFieldsPopoverOpen} onOpenChange={setEmptyFieldsPopoverOpen}>
               <PopoverTrigger asChild>
                 <button
+                  data-tour="crm.filter-fields"
                   type="button"
                   className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
                     draft.emptyFields?.length
@@ -808,7 +811,7 @@ export function AdvancedFiltersModal({
               }
             />
           ))}
-          <div className="space-y-1.5">
+          <div data-tour="crm.filter-relations" className="space-y-1.5">
             <Label className="text-xs font-semibold">Empresa</Label>
             <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
               <PopoverTrigger asChild>

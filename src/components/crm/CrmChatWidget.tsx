@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -1391,6 +1392,18 @@ export function CrmChatWidget() {
       : undefined;
 
   // ── Histórico completo de mensagens no Mini Chat + sincronização em tempo real ──
+  useTrainingSurface("mini", (step) => {
+    const conversation = conversations.find(c => c.id !== "valentina" && c.operatorId === currentOperatorId);
+    if (!conversation) return false;
+    setOpen(step.id !== "crm.mini-open");
+    const thread = !["crm.mini-open", "crm.mini-list", "crm.mini-menu"].includes(step.id);
+    setView(thread ? "thread" : "list");
+    if (thread) setSelectedChatId(conversation.id);
+    setContextMenu(step.id === "crm.mini-menu" ? { chatId: conversation.id, x: 250, y: 220 } : null);
+    setShowMetaTemplateModal(step.id === "crm.mini-meta");
+    if (step.id === "crm.mini-meta" && !metaTemplates.length && !metaTemplatesLoading) void loadMetaTemplates(conversation.id);
+    return true;
+  });
   const [history, setHistory] = useState<{ chatId: string; messages: Message[] } | null>(null);
 
   useEffect(() => {
@@ -2551,7 +2564,7 @@ export function CrmChatWidget() {
                           <button
                             type="button"
                             onClick={() => setOpen(false)}
-                            aria-label="Minimizar chat"
+                            data-tour="mini.controls" aria-label="Minimizar chat"
                             className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
                           >
                             <Minus className="h-4 w-4" />
@@ -3632,7 +3645,7 @@ export function CrmChatWidget() {
                                   </button>
                                 </SystemTooltip>
                               )}
-                            <textarea
+                            <textarea data-tour="mini.thread"
                               ref={textareaRef}
                               value={draft}
                               onChange={handleTextareaInput}
@@ -3653,7 +3666,7 @@ export function CrmChatWidget() {
                                   type="button"
                                   onClick={() => void startRecording()}
                                   disabled={sending || metaRestricted}
-                                  aria-label="Gravar áudio"
+                                  data-tour="mini.audio" aria-label="Gravar áudio"
                                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:hover:bg-primary cursor-pointer"
                                 >
                                   {sending ? (
@@ -3767,7 +3780,7 @@ export function CrmChatWidget() {
                     </div>
 
                     {/* Lista de Atendimentos */}
-                    <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5 scrollbar-thin">
+                    <div data-tour="mini.list" className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5 scrollbar-thin">
                       {/* Fagner / Valentina Fixado no Topo */}
                       {showAiAssistant && (
                         <button
@@ -4032,6 +4045,7 @@ export function CrmChatWidget() {
                 transition={{ duration: 0.1 }}
                 data-crm-chat-widget
                 aria-live="polite"
+                data-tour="mini.context-menu"
                 className="fixed z-[10060] pointer-events-auto min-w-[200px] rounded-xl bg-card border border-border shadow-2xl p-1 text-xs"
                 style={{ top: contextMenu.y, left: contextMenu.x }}
                 onClick={(e) => e.stopPropagation()}

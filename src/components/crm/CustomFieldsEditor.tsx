@@ -4,7 +4,7 @@ import {
   type CustomFieldEntity,
   type CustomFieldType,
   normalizePipelineId,
-} from "@/lib/crm/custom-fields";
+} from "@/lib/crm/custom-field-common";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,

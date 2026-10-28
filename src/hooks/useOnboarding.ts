@@ -1,6 +1,9 @@
 import { createContext, useContext } from "react";
 import type { OnboardingDemoRuntimeState } from "@/lib/onboarding/demo-runtime";
-import type { OnboardingCoverageReport, OnboardingEligibilityContext } from "@/lib/onboarding/policy";
+import type {
+  OnboardingCoverageReport,
+  OnboardingEligibilityContext,
+} from "@/lib/onboarding/policy";
 import type {
   OnboardingProgressDTO,
   OperatorTourView,
@@ -46,6 +49,8 @@ export interface OnboardingContextValue {
   personaName: string;
   operatorFirstName: string;
   targetNotFoundReason: string | null;
+  setTargetNotFoundReason: (reason: string | null) => void;
+  interactiveReady: boolean;
   startTour: () => Promise<void>;
   resumeTour: () => Promise<void>;
   pauseTour: () => Promise<void>;
@@ -58,8 +63,9 @@ export interface OnboardingContextValue {
   prevStep: () => Promise<void>;
   goToStep: (stepId: string) => Promise<void>;
   goToChapter: (chapterId: TourChapterId) => Promise<void>;
-  dispatchCommand: (command: TourCommand) => Promise<void>;
-  satisfyCurrentInteractiveStep: () => void;
+  dispatchCommand: (command: TourCommand) => Promise<boolean>;
+  applyDemoCommand: (command: TourCommand) => void;
+  satisfyCurrentInteractiveStep: (stepId: string, runId: string) => void;
 }
 
 export const OnboardingContext = createContext<OnboardingContextValue | null>(null);

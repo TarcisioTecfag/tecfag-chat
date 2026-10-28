@@ -42,7 +42,7 @@ import {
   normalizeFieldOptions,
   normalizePipelineIds,
 } from "./CustomFieldsEditor";
-import { normalizePipelineId } from "@/lib/crm/custom-fields";
+import { normalizePipelineId } from "@/lib/crm/custom-field-common";
 import { ConversationDealContext, useConversationDealContext } from "./ConversationDealContext";
 import { fetchDealContext, markConversationDealSatisfied } from "@/lib/crm/conversation-deal-client";
 import { sortContactDeals } from "@/lib/crm/conversation-deal-policy";
@@ -617,7 +617,7 @@ export function ConversationDealsPanel({
   );
 
   return (
-    <div className="space-y-3 bg-muted/40 p-3.5 rounded-2xl border border-line animate-fade-in">
+    <div data-tour="linked-deals.list" className="space-y-3 bg-muted/40 p-3.5 rounded-2xl border border-line animate-fade-in">
       {/* Cabeçalho Geral do Bloco */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
@@ -635,7 +635,7 @@ export function ConversationDealsPanel({
                 handleSearchDeals();
                 setIsLinkingOpen(true);
               }}
-              aria-label="Vincular negociação existente"
+              data-tour="linked-deals.link" aria-label="Vincular negociação existente"
               className="flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground hover:bg-card hover:text-foreground transition-colors cursor-pointer"
             >
               <Link2 className="h-3 w-3" />
@@ -644,7 +644,7 @@ export function ConversationDealsPanel({
           <SystemTooltip content="Criar nova negociação para este atendimento">
             <button
               onClick={() => setIsCreateOpen(true)}
-              aria-label="Criar nova negociação para este atendimento"
+              data-tour="linked-deals.create" aria-label="Criar nova negociação para este atendimento"
               className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
             >
               <Plus className="h-3.5 w-3.5" />

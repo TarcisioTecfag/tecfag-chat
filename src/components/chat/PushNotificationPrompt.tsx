@@ -21,6 +21,10 @@ export function PushNotificationPrompt() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    if (document.documentElement.dataset.trainingInstalled) {
+      setPermission("unsupported");
+      return;
+    }
     if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) {
       setPermission("unsupported");
       return;

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import {
   X,
   Building2,
@@ -631,6 +632,21 @@ export function DealDetailModal({
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [inlineNoteText, setInlineNoteText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
+  useTrainingSurface("deal", (step) => {
+    if (loading || !deal) return false;
+    const id = step.id;
+    setActiveTab(["crm.next-task", "crm.task-tabs", "crm.task-actions", "tasks.reschedule"].includes(id) ? "tasks" : id === "crm.conversations" ? "conversations" : id === "crm.evidence" ? "evidence" : id === "crm.products" ? "products" : ["crm.files", "crm.file-preview"].includes(id) ? "files" : "history");
+    setIsAddContactDrawerOpen(id === "crm.participants");
+    setIsLinkAccountDrawerOpen(id === "crm.account");
+    setIsCreateTaskModalOpen(id === "crm.next-task");
+    setIsCreatingNote(id === "crm.note");
+    setIsEditingTitle(id === "crm.detail-edit");
+    if (id === "crm.detail-edit") setEditTitle(deal.title);
+    setShowWinPrompt(id === "crm.detail-outcomes");
+    if (id === "crm.marketing-history") setHistorySourceFilter("marketing");
+    else setHistorySourceFilter("all");
+    return true;
+  });
   const noteEditorRef = React.useRef<HTMLDivElement>(null);
   const savedNoteRangeRef = React.useRef<Range | null>(null);
   const [noteActiveFormats, setNoteActiveFormats] = useState({
@@ -1812,7 +1828,7 @@ export function DealDetailModal({
     <div className="crm-deal-detail bg-card h-full flex flex-col overflow-hidden">
       <div className="relative flex flex-col h-full w-full bg-card overflow-hidden">
         {/* Cabeçalho Superior Unificado */}
-        <div className="border-b border-border bg-card px-5 py-3 shrink-0">
+        <div data-tour="deal.header" className="border-b border-border bg-card px-5 py-3 shrink-0">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             {/* Esquerda: Voltar ao CRM + Nome da Negociação + Metas (Funil, Empresa, Status, IA Avaliar) */}
             <div className="flex items-center gap-3 min-w-0 flex-wrap">
@@ -1892,7 +1908,7 @@ export function DealDetailModal({
                     <button
                       type="button"
                       disabled={calculatingPriority}
-                      onClick={handleCalculateAiPriority}
+                      data-tour="deal.priority" onClick={handleCalculateAiPriority}
                       className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer disabled:opacity-50"
                     >
                       {calculatingPriority ? (
@@ -1995,7 +2011,7 @@ export function DealDetailModal({
                   className="h-8 flex-1 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <button
-                  onClick={handleConfirmWin}
+                  data-tour="deal.outcomes" data-training-save="true" onClick={handleConfirmWin}
                   className="h-8 px-4 rounded-lg bg-primary text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
                 >
                   Confirmar Venda
@@ -2066,7 +2082,7 @@ export function DealDetailModal({
 
           {/* Trilha de Etapas do Funil */}
           {!loading && deal && sortedStages.length > 0 && (
-            <div className="crm-stage-track mt-3 flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
+            <div data-tour="deal.stages" className="crm-stage-track mt-3 flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
               {sortedStages.map((stage, idx) => {
                 const isPassed = idx < currentStageIndex;
                 const isCurrent = stage.id === deal.stageId;
@@ -2122,7 +2138,7 @@ export function DealDetailModal({
                       <div className="flex items-center gap-1.5">
                         <input
                           type="text"
-                          value={editTitle}
+                          data-tour="deal.core" value={editTitle}
                           onChange={(e) => setEditTitle(e.target.value)}
                           className="h-7 flex-1 rounded-lg border border-primary bg-card px-2 text-xs font-bold text-foreground focus:outline-none"
                           autoFocus
@@ -2324,7 +2340,7 @@ export function DealDetailModal({
               </div>
 
               {/* 2. Card Contatos Participantes */}
-              <div className="crm-side-contacts order-2 rounded-sm border border-border bg-card p-3.5 space-y-2.5">
+              <div data-tour="deal.participant-chats" className="crm-side-contacts order-2 rounded-sm border border-border bg-card p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                     Contatos ({deal?.contacts?.length || 0})
@@ -2461,7 +2477,7 @@ export function DealDetailModal({
               </div>
 
               {/* 3. Card da Empresa */}
-              <div className="crm-side-account order-3 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+              <div data-tour="deal.account" className="crm-side-account order-3 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                     Empresa
@@ -2575,7 +2591,7 @@ export function DealDetailModal({
               </div>
 
               {/* 4. Card Exclusivo de Campos Personalizados */}
-              <div className="crm-side-custom-fields order-4 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
+              <div data-tour="deal.custom-fields" className="crm-side-custom-fields order-4 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
                   Campos Personalizados
                 </span>
@@ -2745,10 +2761,10 @@ export function DealDetailModal({
               )}
 
               {/* Barra de Abas Compactas */}
-              <div className="crm-deal-tabs flex overflow-x-auto scrollbar-none border-b border-border bg-card px-4 shrink-0 gap-1">
+              <div data-tour="deal.task-tabs" className="crm-deal-tabs flex overflow-x-auto scrollbar-none border-b border-border bg-card px-4 shrink-0 gap-1">
                 <button
                   type="button"
-                  onClick={() => setActiveTab("history")}
+                  data-tour="deal.history" onClick={() => setActiveTab("history")}
                   className={`px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
                     activeTab === "history"
                       ? "border-primary text-primary font-bold"
@@ -2792,7 +2808,7 @@ export function DealDetailModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("products")}
+                  data-tour="deal.products-items" onClick={() => setActiveTab("products")}
                   className={`px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
                     activeTab === "products"
                       ? "border-primary text-primary font-bold"
@@ -2803,7 +2819,7 @@ export function DealDetailModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("files")}
+                  data-tour="deal.files" onClick={() => setActiveTab("files")}
                   className={`px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
                     activeTab === "files"
                       ? "border-primary text-primary font-bold"
@@ -2814,7 +2830,7 @@ export function DealDetailModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("conversations")}
+                  data-tour="deal.conversations" onClick={() => setActiveTab("conversations")}
                   className={`px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
                     activeTab === "conversations"
                       ? "border-primary text-primary font-bold"
@@ -2825,7 +2841,7 @@ export function DealDetailModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("evidence")}
+                  data-tour="deal.evidence" onClick={() => setActiveTab("evidence")}
                   className={`px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
                     activeTab === "evidence"
                       ? "border-primary text-primary font-bold"
@@ -4278,7 +4294,7 @@ export function DealDetailModal({
                             value={historySourceFilter}
                             onValueChange={(val) => setHistorySourceFilter(val as typeof historySourceFilter)}
                           >
-                            <SelectTrigger id="crm-history-source-filter" className="h-8 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground min-w-[130px]">
+                            <SelectTrigger data-tour="deal.marketing-history" id="crm-history-source-filter" className="h-8 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground min-w-[130px]">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -4469,7 +4485,7 @@ export function DealDetailModal({
                               </div>
                             )}
                             <div
-                              ref={noteEditorRef}
+                              data-tour="deal.note-editor" ref={noteEditorRef}
                               contentEditable
                               suppressContentEditableWarning
                               onInput={syncNoteEditorState}

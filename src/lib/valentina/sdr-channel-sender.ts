@@ -16,6 +16,7 @@ export { resetMetaTypingThrottle };
 import { getAiPersona } from "../ai-persona";
 import { isSiteConversationId } from "../livechat/site-channel-policy";
 import { deliverSiteBotFragment, pushSiteTyping } from "../livechat/site-delivery";
+import type { IndustrialDeliveryContext } from "./industrial-delivery-context";
 
 /**
  * Resolve o provedor WhatsApp explicitamente configurado no banco para o tenant (B19).
@@ -90,10 +91,17 @@ export async function sendSdrChannelText(params: {
   text: string;
   idempotencyMessageId?: string;
   expectedOperatorId?: string | null;
+  deliveryContext?: IndustrialDeliveryContext;
+  scheduleOnly?: boolean;
 }): Promise<{ sent: boolean; messageId?: string; alreadySent?: boolean; reason?: string }> {
   const { tenantId, conversationId, text, idempotencyMessageId, expectedOperatorId = null } = params;
   const cleanText = text.trim();
   if (!cleanText) return { sent: false, reason: "empty_text" };
+  if (getAiPersona(tenantId).triagePolicy === "industrial") {
+    const { sendIndustrialBotBatch } = await import("./industrial-outbound");
+    return sendIndustrialBotBatch({ tenantId, conversationId, items: [{ text: cleanText }], scope: "single-text",
+      idempotencyMessageId, expectedOperatorId, context: params.deliveryContext, scheduleOnly: params.scheduleOnly });
+  }
 
   if (idempotencyMessageId) {
     const [existing] = await db
@@ -251,8 +259,17 @@ export async function sendBotCatalogImage(params: {
   mimeType: string;
   fileName: string;
   caption?: string;
+  expectedOperatorId?: string | null;
+  deliveryContext?: IndustrialDeliveryContext;
 }): Promise<{ sent: boolean; messageId?: string }> {
   const { tenantId, conversationId, phone, imgBuffer, mimeType, fileName, caption = "" } = params;
+  if (getAiPersona(tenantId).triagePolicy === "industrial") {
+    const { sendIndustrialBotBatch } = await import("./industrial-outbound");
+    const { createHash } = await import("node:crypto");
+    return sendIndustrialBotBatch({ tenantId, conversationId, scope: `catalog-${createHash("sha256").update(imgBuffer).digest("hex")}`,
+      expectedOperatorId: params.expectedOperatorId, context: params.deliveryContext,
+      items: [{ text: caption, image: { buffer: imgBuffer, mimeType, fileName } }] });
+  }
   const [scope] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId), isNull(conversations.whatsappConnectionId))).limit(1);
   if (!scope) return { sent: false };
   const persona = getAiPersona(tenantId);

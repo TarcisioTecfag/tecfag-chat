@@ -76,6 +76,7 @@ export async function deliverIndustrialPostCommit(
         key.cycle,
       ),
       expectedOperatorId: result.operator?.id || null,
+      deliveryContext: { flowId: key.flowId, cycle: key.cycle },
     });
     return sent.sent;
   };

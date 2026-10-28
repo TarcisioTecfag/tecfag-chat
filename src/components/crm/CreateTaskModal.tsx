@@ -435,7 +435,7 @@ export function CreateTaskModal({
           </SheetTitle>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
+        <form data-tour="task-create.form" onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
           {/* Corpo do Formulário com Scroll Suave */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 text-xs scrollbar-thin">
             {/* 1. Negociação * */}
@@ -846,6 +846,7 @@ export function CreateTaskModal({
             </Button>
             <Button
               type="submit"
+              data-tour="task-create.save"
               size="sm"
               disabled={saving || !subject.trim() || !selectedDealId}
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs px-5 shadow-xs cursor-pointer disabled:opacity-50"

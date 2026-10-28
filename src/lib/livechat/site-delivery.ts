@@ -11,6 +11,9 @@ import { SessionManager } from "../baileys/session-manager";
 import { getOrCreateActiveChat, getVisitorById, saveMessage } from "./livechatStorage";
 import { siteGateway } from "./site-gateway";
 import { SITE_PROVIDER, visitorIdFromSiteConversation } from "./site-channel-policy";
+import { persistSiteOperatorMessage } from "./site-message-store";
+import { getAiPersona } from "../ai-persona";
+import type { IndustrialDeliveryContext } from "../valentina/industrial-delivery-context";
 
 async function resolveSiteVisitor(tenantId: string, conversationId: string) {
   const visitorId = visitorIdFromSiteConversation(conversationId);
@@ -125,8 +128,17 @@ export async function deliverSiteBotFragment(params: {
   text: string;
   senderName: string;
   idempotencyMessageId?: string;
+  expectedOperatorId?: string | null;
+  deliveryContext?: IndustrialDeliveryContext;
 }) {
   const { tenantId, conversationId, text, senderName } = params;
+  if (getAiPersona(tenantId).triagePolicy === "industrial") {
+    const { sendIndustrialBotBatch } = await import("../valentina/industrial-outbound");
+    const result = await sendIndustrialBotBatch({ tenantId, conversationId, scope: "site-fragment", items: [{ text }],
+      idempotencyMessageId: params.idempotencyMessageId, expectedOperatorId: params.expectedOperatorId, context: params.deliveryContext });
+    if (!result.sent || !result.messageId) throw Error(result.reason || "Resposta do site pendente.");
+    return { id: result.messageId, delivered: false, siteMessageId: `${result.messageId}-widget` };
+  }
   const delivery = await deliverSiteText({ tenantId, conversationId, text, sender: "ai", senderName, idempotencyMessageId: params.idempotencyMessageId });
   const id = params.idempotencyMessageId || `bot-site-${crypto.randomUUID()}`;
   const now = new Date();
@@ -175,8 +187,18 @@ export async function deliverSiteCatalogImage(params: {
   mimeType: string;
   fileName: string;
   senderName: string;
+  expectedOperatorId?: string | null;
+  deliveryContext?: IndustrialDeliveryContext;
 }) {
   const { tenantId, conversationId, publicUrl, imgBuffer, mimeType, fileName, senderName } = params;
+  if (getAiPersona(tenantId).triagePolicy === "industrial") {
+    const { sendIndustrialBotBatch } = await import("../valentina/industrial-outbound");
+    const result = await sendIndustrialBotBatch({ tenantId, conversationId, scope: `site-catalog-${publicUrl}`,
+      expectedOperatorId: params.expectedOperatorId, context: params.deliveryContext,
+      items: [{ text: "", image: { buffer: imgBuffer, mimeType, fileName, publicUrl } }] });
+    if (!result.sent || !result.messageId) throw Error(result.reason || "Imagem do site pendente.");
+    return { delivered: false, id: result.messageId };
+  }
   const visitor = await resolveSiteVisitor(tenantId, conversationId);
   const chat = await getOrCreateActiveChat(tenantId, visitor.id);
   const saved = await saveMessage(tenantId, chat.id, "ai", `[IMAGE:${publicUrl}]`, {
@@ -260,69 +282,40 @@ export async function deliverSiteCatalogImage(params: {
 export async function sendSiteOperatorText(params: {
   tenantId: string;
   conversationId: string;
+  operatorId: string;
   text: string;
   operatorName: string;
   idempotencyKey?: string;
 }) {
-  const { tenantId, conversationId, text, operatorName, idempotencyKey } = params;
-  const findExisting = async () => {
-    if (!idempotencyKey) return null;
-    const [existing] = await db
-      .select()
-      .from(messages)
-      .where(and(eq(messages.tenantId, tenantId), eq(messages.idempotencyKey, idempotencyKey)));
-    if (existing && existing.conversationId !== conversationId)
-      throw new Error("Chave já utilizada em outra conversa.");
-    return existing ?? null;
-  };
-  const previous = await findExisting();
-  if (previous) return { success: true, messageId: previous.id, status: previous.status };
-
-  const id = `msg-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-  const now = new Date();
-  try {
-    await db.insert(messages).values({
-      id,
-      tenantId,
-      conversationId,
-      senderType: "agent",
-      senderName: operatorName,
-      content: text,
-      isInternalNote: false,
-      direction: "outbound",
-      provider: SITE_PROVIDER,
-      status: "accepted",
-      idempotencyKey: idempotencyKey || null,
-      sentAt: now,
-      updatedAt: now,
-    });
-  } catch (err) {
-    const existing = await findExisting();
-    if (existing) return { success: true, messageId: existing.id, status: existing.status };
-    throw err;
-  }
-
-  const delivery = await deliverSiteText({
-    tenantId,
-    conversationId,
-    text,
-    sender: "operator",
-    senderName: operatorName,
+  const { tenantId, conversationId } = params;
+  const { message, widgetMessage, visitorId } = await persistSiteOperatorMessage(db, params);
+  // Publishing is auxiliary: the two histories already committed and survive a crash.
+  const delivered = siteGateway.push(tenantId, visitorId, {
+    type: "message", chatId: widgetMessage.chatId, messageId: widgetMessage.id,
+    sender: "operator", senderName: message.senderName, content: message.content,
+  }) || false;
+  const deliveredLegacy = siteGateway.push(tenantId, visitorId, {
+    type: "CHAT_REPLY", chatId: widgetMessage.chatId, messageId: widgetMessage.id,
+    sender: "agent", senderName: message.senderName, content: message.content,
+    timestamp: message.sentAt.toISOString(),
   });
-  const status = delivery.delivered ? "delivered" : "accepted";
-  await db
+  let status = message.status;
+  if ((delivered || deliveredLegacy) && status !== "read") try {
+    await db
     .update(messages)
-    .set({ status, externalId: delivery.siteMessageId, updatedAt: new Date() })
-    .where(and(eq(messages.tenantId, tenantId), eq(messages.id, id)));
-  await db
-    .update(conversations)
-    .set({ lastMessageText: text, lastMessageTime: now, updatedAt: now, unreadCount: 0 })
-    .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conversationId)));
-  SessionManager.getInstance().notifyPublic(tenantId, {
+    .set({ status: "delivered", updatedAt: new Date() })
+    .where(and(eq(messages.tenantId, tenantId), eq(messages.id, message.id)));
+    status = "delivered";
+  } catch {
+    console.error("[SiteDelivery] Histórico preservado; status do socket aguardando reconciliação.");
+  }
+  try { SessionManager.getInstance().notifyPublic(tenantId, {
     type: "message_status",
     conversationId,
-    messageId: id,
+    messageId: message.id,
     status,
-  });
-  return { success: true, messageId: id, status };
+  }); } catch {
+    console.error("[SiteDelivery] Histórico preservado; notificação do painel indisponível.");
+  }
+  return { success: true, messageId: message.id, status };
 }

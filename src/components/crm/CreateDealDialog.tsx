@@ -494,7 +494,7 @@ export function CreateDealDialog({
           </div>
 
           {/* Seção do Cliente / Comprador */}
-          <div className="border-t border-border/60 pt-3 space-y-3">
+          <div data-tour="deal-create.account" className="border-t border-border/60 pt-3 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block">
                 Informações da empresa
@@ -739,6 +739,7 @@ export function CreateDealDialog({
             </button>
             <button
               type="submit"
+              data-tour="deal-create.save"
               disabled={isSubmitting}
               className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
             >

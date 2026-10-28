@@ -32,6 +32,7 @@ export default defineConfig({
       "server/plugins/websocket.ts",
       "server/plugins/orphan-cleanup.ts",
       "server/plugins/recovery.ts",
+      "server/plugins/industrial-triage-recovery.ts",
     ],
   } as any,
 });

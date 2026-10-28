@@ -51,7 +51,7 @@ export function SystemAnnotationBubble({
   }, [count, first, resolvedItems]);
 
   return (
-    <div className={`flex justify-center ${gap} my-1 w-full select-none`}>
+    <div data-tour="message.system-details" className={`flex justify-center ${gap} my-1 w-full select-none`}>
       <AnimatePresence mode="wait" initial={false}>
         {!expanded ? (
           <motion.div

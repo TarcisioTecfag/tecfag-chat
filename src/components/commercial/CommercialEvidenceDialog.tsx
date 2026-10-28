@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 
 interface DirectiveEvidenceTarget {
   id: string;
@@ -152,6 +153,13 @@ export function CommercialEvidenceDialog({
   const [lostNotes, setLostNotes] = useState("");
 
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  useTrainingSurface("home.evidence-dialog", (tourStep) => {
+    if (loading || !apiData) return false;
+    setStep(tourStep.id.startsWith("home.outcome-") ? "outcome" : "evidence");
+    setChannel(tourStep.id === "home.evidence-call" ? "call" : "whatsapp");
+    setNextAction(tourStep.id === "home.outcome-won" ? "won" : tourStep.id === "home.outcome-lost" ? "lost" : "continue");
+    return true;
+  });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -453,6 +461,7 @@ export function CommercialEvidenceDialog({
                   RELATO DA LIGAÇÃO (O QUE FOI TRATADO E ACORDADO?) <span className="text-red-500">*</span>
                 </label>
                 <textarea
+                  data-tour="home.evidence-call"
                   required
                   rows={4}
                   value={summary}
@@ -464,7 +473,7 @@ export function CommercialEvidenceDialog({
             )}
 
             {channel === "whatsapp" && (
-              <div className="space-y-3">
+              <div data-tour="home.evidence-whatsapp" className="space-y-3">
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-300 font-mono">
                     CONTATO VINCULADO NO WHATSAPP <span className="text-red-500">*</span>
@@ -612,7 +621,7 @@ export function CommercialEvidenceDialog({
                 Cancelar
               </button>
               <button
-                type="submit"
+                type="submit" data-tour="home.evidence-next"
                 className="flex items-center gap-1.5 rounded-[4px] bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 transition-colors cursor-pointer shadow-sm"
               >
                 <Check className="h-3.5 w-3.5 stroke-[2.5]" />
@@ -634,7 +643,7 @@ export function CommercialEvidenceDialog({
               <SystemTooltip content="Marcar negociação como ganha e contabilizar venda">
                 <button
                   type="button"
-                  onClick={() => setNextAction("won")}
+                  data-tour="home.outcome-won" onClick={() => setNextAction("won")}
                   className={`flex flex-col items-center justify-center rounded-[4px] p-3 text-center transition-all cursor-pointer ${
                     nextAction === "won"
                       ? "border border-emerald-500 bg-emerald-950/30 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]"
@@ -650,7 +659,7 @@ export function CommercialEvidenceDialog({
               <SystemTooltip content="Registrar perda com motivo para inteligência comercial">
                 <button
                   type="button"
-                  onClick={() => setNextAction("lost")}
+                  data-tour="home.outcome-lost" onClick={() => setNextAction("lost")}
                   className={`flex flex-col items-center justify-center rounded-[4px] p-3 text-center transition-all cursor-pointer ${
                     nextAction === "lost"
                       ? "border border-rose-500 bg-rose-950/30 text-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.15)]"
@@ -704,7 +713,7 @@ export function CommercialEvidenceDialog({
                   <input
                     required
                     type="text"
-                    value={nextTaskTitle}
+                    data-tour="home.outcome-next" value={nextTaskTitle}
                     onFocus={() => setShowTaskSuggestions(true)}
                     onChange={(e) => {
                       setNextTaskTitle(e.target.value);

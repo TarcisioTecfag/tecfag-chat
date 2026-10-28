@@ -30,6 +30,7 @@ import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import type { TrainingFrameElement } from "@/lib/onboarding/frame-types";
 
 export interface SystemAvatarPreset {
   id: string;
@@ -169,8 +170,14 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
   const [status, setStatus] = useState(operatorProfile.status);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  useTrainingSurface("profile", (step) => {
+    setActiveTab(["profile.theme", "profile.density"].includes(step.id) ? "aparencia" : "perfil");
+    setShowAvatarPicker(step.id === "profile.avatar");
+    return true;
+  });
 
   const onboarding = useOptionalOnboarding();
+  const trainingFrame = typeof window !== "undefined" && document.documentElement.dataset.trainingInstalled ? (window.frameElement as TrainingFrameElement | null)?.trainingConfig : null;
 
   useOnboardingAdapter("profileModal", (cmd) => {
     if (cmd.command === "previewTheme") {
@@ -538,7 +545,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
               </div>
 
               {/* Grupo de Acesso */}
-              <div className="rounded-lg border border-border/50 bg-muted/20 px-2.5 py-1.5 flex items-center justify-between">
+              <div data-tour="profile.group" className="rounded-lg border border-border/50 bg-muted/20 px-2.5 py-1.5 flex items-center justify-between">
                 <div className="flex items-center gap-2 min-w-0">
                   <Shield className="h-3.5 w-3.5 text-primary shrink-0" />
                   <div className="min-w-0">
@@ -563,7 +570,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
               </div>
 
               {/* Tour Guiado do Fagner / Valentina */}
-              {onboarding?.enabled && (
+              {(onboarding?.enabled || trainingFrame) && onboarding && (
                 <div
                   data-tour="profile.fagner-tour"
                   className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-2 flex items-center justify-between gap-2"
@@ -586,7 +593,8 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                     data-tour="profile.fagner-tour-restart"
                     onClick={() => {
                       onClose();
-                      onboarding.openTourEntryModal();
+                      if (trainingFrame) trainingFrame.onReplay?.();
+                      else onboarding.openTourEntryModal();
                     }}
                     className="rounded-md bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground hover:opacity-90 shrink-0 cursor-pointer"
                   >
@@ -689,6 +697,7 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
                 <button
                   type="button"
                   onClick={() => setDensity("auto")}
+                  data-tour="profile.density"
                   className={`flex h-7 items-center justify-center gap-1 rounded-lg text-[11px] transition cursor-pointer ${
                     density === "auto"
                       ? "bg-background text-foreground shadow-xs border border-border/50 font-semibold"
@@ -839,3 +848,4 @@ export function ProfileModal() {
     </div>
   );
 }
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
