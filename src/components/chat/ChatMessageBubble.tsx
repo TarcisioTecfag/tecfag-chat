@@ -52,16 +52,120 @@ import {
   QuotedMessagePreview,
 } from "./ChatPanel";
 
+const VTEX_HTML_ENTITIES: Record<string, string> = {
+  "&nbsp;": " ",
+  "&amp;": "&",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&aacute;": "á",
+  "&Aacute;": "Á",
+  "&agrave;": "à",
+  "&Agrave;": "À",
+  "&acirc;": "â",
+  "&Acirc;": "Â",
+  "&atilde;": "ã",
+  "&Atilde;": "Ã",
+  "&auml;": "ä",
+  "&Auml;": "Ä",
+  "&eacute;": "é",
+  "&Eacute;": "É",
+  "&egrave;": "è",
+  "&Egrave;": "È",
+  "&ecirc;": "ê",
+  "&Ecirc;": "Ê",
+  "&iacute;": "í",
+  "&Iacute;": "Í",
+  "&icirc;": "î",
+  "&Icirc;": "Î",
+  "&oacute;": "ó",
+  "&Oacute;": "Ó",
+  "&ograve;": "ò",
+  "&Ograve;": "Ò",
+  "&ocirc;": "ô",
+  "&Ocirc;": "Ô",
+  "&otilde;": "õ",
+  "&Otilde;": "Õ",
+  "&uacute;": "ú",
+  "&Uacute;": "Ú",
+  "&ucirc;": "û",
+  "&Ucirc;": "Û",
+  "&uuml;": "ü",
+  "&Uuml;": "Ü",
+  "&ccedil;": "ç",
+  "&Ccedil;": "Ç",
+  "&ntilde;": "ñ",
+  "&Ntilde;": "Ñ",
+  "&ordm;": "º",
+  "&ordf;": "ª",
+  "&deg;": "°",
+  "&sup2;": "²",
+  "&sup3;": "³",
+  "&sup1;": "¹",
+  "&plusmn;": "±",
+  "&times;": "×",
+  "&divide;": "÷",
+  "&ndash;": "–",
+  "&mdash;": "—",
+  "&bull;": "•",
+  "&hellip;": "…",
+  "&rsquo;": "’",
+  "&lsquo;": "‘",
+  "&rdquo;": "”",
+  "&ldquo;": "“",
+  "&reg;": "®",
+  "&trade;": "™",
+  "&copy;": "©",
+};
+
+export function decodeVtexEntities(raw?: string | null): string {
+  if (!raw) return "";
+  let out = String(raw);
+  for (let pass = 0; pass < 2; pass++) {
+    out = out
+      .replace(/&#(\d+);/g, (_m, dec) => {
+        const code = Number(dec);
+        return Number.isFinite(code) && code > 0 ? String.fromCharCode(code) : "";
+      })
+      .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => {
+        const code = parseInt(hex, 16);
+        return Number.isFinite(code) && code > 0 ? String.fromCharCode(code) : "";
+      })
+      .replace(/&[a-zA-Z0-9#]+;/g, (entity) => {
+        if (VTEX_HTML_ENTITIES[entity] !== undefined) return VTEX_HTML_ENTITIES[entity];
+        const lower = entity.toLowerCase();
+        if (VTEX_HTML_ENTITIES[lower] !== undefined) return VTEX_HTML_ENTITIES[lower];
+        return entity;
+      });
+  }
+  return out;
+}
+
+export function isBoilerplateVtexIntroText(raw?: string | null): boolean {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return true;
+  return (
+    /^Segue\s+abaixo\s+o\s+link\s+direto\s+e\s+a\s+pr[eé]via\s+oficial\s+da\s+/i.test(trimmed) ||
+    /^\*\*[^*]+\*\*\s*(?:\(e\s+modelos\s+relacionados\)\s*)?[—-]\s*Confira\s+abaixo\s+o\s+preview\s+oficial/i.test(
+      trimmed
+    )
+  );
+}
+
 export function VtexProductPreviewCard({
   preview,
   previews,
   onMediaClick,
   compact = false,
+  standalone = false,
 }: {
   preview: VtexProductPreviewItem;
   previews?: VtexProductPreviewItem[];
   onMediaClick?: (type: "image" | "video" | "audio", url: string, caption?: string) => void;
   compact?: boolean;
+  standalone?: boolean;
 }) {
   const allPreviews = React.useMemo(() => {
     const list = Array.isArray(previews) && previews.length > 0 ? previews : [preview];
@@ -84,6 +188,10 @@ export function VtexProductPreviewCard({
 
   const itemKey = `${activeItem.productId}-${activeItem.skuId}`;
   const hasValidImage = Boolean(activeItem.imageUrl && !imgError[itemKey]);
+  const cleanName = decodeVtexEntities(activeItem.name);
+  const cleanDescription = decodeVtexEntities(activeItem.descriptionSnippet);
+  const cleanBrand = decodeVtexEntities(activeItem.brand);
+  const cleanCategory = decodeVtexEntities(activeItem.category);
 
   const handleCopyLink = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -98,7 +206,9 @@ export function VtexProductPreviewCard({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className={`mt-2.5 rounded-xl bg-card border border-border/90 shadow-md overflow-hidden flex flex-col text-left cursor-default transition-all ${
+      className={`${
+        standalone ? "mt-0 rounded-2xl rounded-bl-xs" : "mt-2.5 rounded-xl"
+      } bg-card border border-border/90 shadow-md overflow-hidden flex flex-col text-left cursor-default transition-all ${
         compact ? "max-w-[340px]" : "max-w-[420px]"
       }`}
     >
@@ -156,7 +266,7 @@ export function VtexProductPreviewCard({
           onClick={(e) => {
             e.stopPropagation();
             if (onMediaClick && activeItem.imageUrl) {
-              onMediaClick("image", activeItem.imageUrl, activeItem.name);
+              onMediaClick("image", activeItem.imageUrl, cleanName);
             } else if (activeItem.url) {
               window.open(activeItem.url, "_blank", "noopener,noreferrer");
             }
@@ -165,7 +275,7 @@ export function VtexProductPreviewCard({
         >
           <img
             src={activeItem.imageUrl!}
-            alt={activeItem.name}
+            alt={cleanName}
             onError={() => setImgError((prev) => ({ ...prev, [itemKey]: true }))}
             className="max-h-full max-w-full object-contain transition-transform duration-300 group-hover/vteximg:scale-105"
           />
@@ -191,9 +301,9 @@ export function VtexProductPreviewCard({
 
       {/* Corpo Descritivo + Preço + Especificações da Página VTEX */}
       <div className="p-3 flex flex-col gap-2">
-        {(activeItem.category || activeItem.brand) && (
+        {(cleanCategory || cleanBrand) && (
           <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
-            {[activeItem.brand, activeItem.category].filter(Boolean).join(" • ")}
+            {[cleanBrand, cleanCategory].filter(Boolean).join(" • ")}
           </div>
         )}
 
@@ -204,7 +314,7 @@ export function VtexProductPreviewCard({
           onClick={(e) => e.stopPropagation()}
           className="text-xs sm:text-[13px] font-bold text-foreground hover:text-primary leading-snug transition-colors no-underline"
         >
-          {activeItem.name}
+          {cleanName}
         </a>
 
         {/* Linha de Preço Público VTEX e Estoque */}
@@ -230,9 +340,9 @@ export function VtexProductPreviewCard({
         </div>
 
         {/* Descritivo extraído da página VTEX */}
-        {activeItem.descriptionSnippet && (
+        {cleanDescription && (
           <div className="text-[11px] text-muted-foreground bg-muted/35 border border-border/60 rounded-lg px-2.5 py-2 leading-relaxed line-clamp-3">
-            {activeItem.descriptionSnippet}
+            {cleanDescription}
           </div>
         )}
 
@@ -241,12 +351,13 @@ export function VtexProductPreviewCard({
           activeItem.specificationsSummary.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">
               {activeItem.specificationsSummary.slice(0, 4).map((spec: any, sIdx) => {
-                const specText =
+                const rawSpecText =
                   typeof spec === "string"
                     ? spec
                     : spec && typeof spec === "object"
                     ? `${spec.label}: ${spec.value}`
                     : "";
+                const specText = decodeVtexEntities(rawSpecText);
                 if (!specText) return null;
                 return (
                   <span
@@ -1152,6 +1263,21 @@ function ChatMessageBubbleComponent({
               </div>
             ) : isEmojiOnly(m.text) && !displayQuotedContent && !m.isWarning ? (
               <div className="text-4xl leading-none select-none py-1">{m.text}</div>
+            ) : m.vtexProductPreview && !isMedia && !m.isWarning && isBoilerplateVtexIntroText(m.text) ? (
+              <div className="min-w-0 max-w-full flex flex-col items-start gap-1.5">
+                {activeChat.id === "valentina" && m.thoughtTrace && (
+                  <AgenticThoughtTrace
+                    trace={m.thoughtTrace}
+                    mode="completed"
+                  />
+                )}
+                <VtexProductPreviewCard
+                  preview={m.vtexProductPreview}
+                  previews={m.vtexProductPreviews}
+                  onMediaClick={onMediaClick}
+                  standalone
+                />
+              </div>
             ) : (
               <div
                 onClick={(e) => onBubbleClick(e, m.id)}
@@ -1227,15 +1353,6 @@ function ChatMessageBubbleComponent({
                   undefined,
                   m.author,
                   activeChat.name,
-                )}
-
-                {/* Card interativo: Preview Oficial de Máquina na Loja VTEX (Balão Separado com Link Direto) */}
-                {m.vtexProductPreview && (
-                  <VtexProductPreviewCard
-                    preview={m.vtexProductPreview}
-                    previews={m.vtexProductPreviews}
-                    onMediaClick={onMediaClick}
-                  />
                 )}
 
                 {/* Card interativo: Atraso de Resposta */}
@@ -1788,6 +1905,18 @@ function ChatMessageBubbleComponent({
             side="in"
             onReactionClick={() => onToggleReaction(activeChat.id, m.id, "")}
           />
+
+          {m.vtexProductPreview &&
+            !(!isMedia && !m.isWarning && isBoilerplateVtexIntroText(m.text)) && (
+              <div className="mt-3.5">
+                <VtexProductPreviewCard
+                  preview={m.vtexProductPreview}
+                  previews={m.vtexProductPreviews}
+                  onMediaClick={onMediaClick}
+                  standalone
+                />
+              </div>
+            )}
 
           {/* Sugestões dinâmicas para mensagem de boas-vindas da IA */}
           {m.id === "val_welcome" && (

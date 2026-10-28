@@ -991,67 +991,93 @@ export function ValentinaChatTab() {
                           />
                         )}
 
-                        <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs sm:text-sm text-foreground space-y-2">
-                          {(() => {
-                            const rawText = (msg.content || "").replace(
-                              /\[SEND_IMAGE:([^\]]+)\]/gi,
-                              (_m, rawUrl: string) => {
-                                const trimmed = String(rawUrl || "").trim();
-                                const kfMatch = trimmed.match(/(kf-[a-z0-9-]+)(?:\.([a-z0-9]+))?/i);
-                                const resolvedUrl = kfMatch
-                                  ? `/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(kfMatch[1])}`
-                                  : trimmed;
-                                const fName = kfMatch ? `${kfMatch[1]}.${kfMatch[2] || "png"}` : "equipamento.png";
-                                return `[LOCAL_MEDIA:image:${resolvedUrl}:${fName}]`;
-                              }
+                        {(() => {
+                          const rawContentTrimmed = (msg.content || "").trim();
+                          const isBoilerplateVtex =
+                            !rawContentTrimmed ||
+                            /^Segue\s+abaixo\s+o\s+link\s+direto\s+e\s+a\s+pr[eé]via\s+oficial\s+da\s+/i.test(
+                              rawContentTrimmed
                             );
-                            const localImgMatch = rawText.match(
-                              /^\[LOCAL_MEDIA:image:(.+?):([^\]]+)\]\n?([\s\S]*)$/
+                          const hasBlocks = Boolean(msg.blocks && msg.blocks.length > 0);
+                          if (msg.vtexProductPreview && isBoilerplateVtex && !hasBlocks) {
+                            return (
+                              <VtexProductPreviewCard
+                                preview={msg.vtexProductPreview}
+                                previews={msg.vtexProductPreviews}
+                                onMediaClick={(_type, url) => setFullscreenSrc(url)}
+                                standalone
+                              />
                             );
-                            if (localImgMatch) {
-                              const [, mediaUrl, mediaFileName, captionText] = localImgMatch;
-                              return (
-                                <div className="space-y-2">
-                                  <div
-                                    className="rounded-xl overflow-hidden border border-border/50 bg-background/60 max-w-xs cursor-pointer group relative"
-                                    onClick={() => setFullscreenSrc(mediaUrl)}
-                                  >
-                                    <img
-                                      src={mediaUrl}
-                                      alt={mediaFileName}
-                                      className="max-h-64 w-auto object-contain mx-auto transition-transform group-hover:scale-[1.02]"
-                                      loading="lazy"
-                                    />
-                                    <div className="px-2.5 py-1.5 bg-muted/50 border-t border-border/40 text-[11px] font-medium text-muted-foreground truncate">
-                                      {mediaFileName}
-                                    </div>
-                                  </div>
-                                  {captionText && (
-                                    <p className="whitespace-pre-wrap leading-relaxed">{captionText}</p>
-                                  )}
+                          }
+                          return (
+                            <>
+                              <div className="rounded-2xl rounded-tl-xs bg-muted/40 border border-border/60 p-3.5 text-xs sm:text-sm text-foreground space-y-2">
+                                {(() => {
+                                  const rawText = (msg.content || "").replace(
+                                    /\[SEND_IMAGE:([^\]]+)\]/gi,
+                                    (_m, rawUrl: string) => {
+                                      const trimmed = String(rawUrl || "").trim();
+                                      const kfMatch = trimmed.match(/(kf-[a-z0-9-]+)(?:\.([a-z0-9]+))?/i);
+                                      const resolvedUrl = kfMatch
+                                        ? `/api/valentina/catalog-images?action=rawImage&fileId=${encodeURIComponent(kfMatch[1])}`
+                                        : trimmed;
+                                      const fName = kfMatch ? `${kfMatch[1]}.${kfMatch[2] || "png"}` : "equipamento.png";
+                                      return `[LOCAL_MEDIA:image:${resolvedUrl}:${fName}]`;
+                                    }
+                                  );
+                                  const localImgMatch = rawText.match(
+                                    /^\[LOCAL_MEDIA:image:(.+?):([^\]]+)\]\n?([\s\S]*)$/
+                                  );
+                                  if (localImgMatch) {
+                                    const [, mediaUrl, mediaFileName, captionText] = localImgMatch;
+                                    return (
+                                      <div className="space-y-2">
+                                        <div
+                                          className="rounded-xl overflow-hidden border border-border/50 bg-background/60 max-w-xs cursor-pointer group relative"
+                                          onClick={() => setFullscreenSrc(mediaUrl)}
+                                        >
+                                          <img
+                                            src={mediaUrl}
+                                            alt={mediaFileName}
+                                            className="max-h-64 w-auto object-contain mx-auto transition-transform group-hover:scale-[1.02]"
+                                            loading="lazy"
+                                          />
+                                          <div className="px-2.5 py-1.5 bg-muted/50 border-t border-border/40 text-[11px] font-medium text-muted-foreground truncate">
+                                            {mediaFileName}
+                                          </div>
+                                        </div>
+                                        {captionText && (
+                                          <p className="whitespace-pre-wrap leading-relaxed">{captionText}</p>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+                                  return rawText ? (
+                                    <p className="whitespace-pre-wrap leading-relaxed">{rawText}</p>
+                                  ) : null;
+                                })()}
+                                {msg.blocks
+                                  ?.filter(
+                                    (block) =>
+                                      !(block.type === "text" && (block.text || "").trim() === (msg.content || "").trim())
+                                  )
+                                  .map((block, bIdx) => (
+                                    <ValentinaBlockRenderer key={bIdx} block={block} />
+                                  ))}
+                              </div>
+                              {msg.vtexProductPreview && (
+                                <div className="mt-3">
+                                  <VtexProductPreviewCard
+                                    preview={msg.vtexProductPreview}
+                                    previews={msg.vtexProductPreviews}
+                                    onMediaClick={(_type, url) => setFullscreenSrc(url)}
+                                    standalone
+                                  />
                                 </div>
-                              );
-                            }
-                            return rawText ? (
-                              <p className="whitespace-pre-wrap leading-relaxed">{rawText}</p>
-                            ) : null;
-                          })()}
-                          {msg.blocks
-                            ?.filter(
-                              (block) =>
-                                !(block.type === "text" && (block.text || "").trim() === (msg.content || "").trim())
-                            )
-                            .map((block, bIdx) => (
-                              <ValentinaBlockRenderer key={bIdx} block={block} />
-                            ))}
-                          {msg.vtexProductPreview && (
-                            <VtexProductPreviewCard
-                              preview={msg.vtexProductPreview}
-                              previews={msg.vtexProductPreviews}
-                              onMediaClick={(_type, url) => setFullscreenSrc(url)}
-                            />
-                          )}
-                        </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   )

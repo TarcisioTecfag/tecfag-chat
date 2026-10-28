@@ -1582,11 +1582,28 @@ function findCatalogPhotosMentionedInText(
 
   // Também verifica match por nome descritivo completo do equipamento (ex: "Alicate para Arqueação Manual", "Esteira Curva")
   if (matchedWithPos.length === 0) {
+    if (normText.includes("seladora portatil")) {
+      const praticPhoto = allPhotos.find(
+        (p) =>
+          !p.isAccessoryForOtherModel &&
+          (p.compactModel === "praticseal" ||
+            p.compactModel === "tc20" ||
+            p.normalizedDisplayName.includes("seladora portatil"))
+      );
+      if (praticPhoto) {
+        matchedWithPos.push({
+          photo: praticPhoto,
+          pos: normText.indexOf("seladora portatil"),
+        });
+      }
+    }
+
     const byFullName = [...allPhotos]
       .filter((p) => p.normalizedDisplayName.length >= 12)
       .sort((a, b) => b.normalizedDisplayName.length - a.normalizedDisplayName.length);
 
     for (const photo of byFullName) {
+      if (matchedWithPos.some((m) => m.photo.id === photo.id)) continue;
       const idx = normText.indexOf(photo.normalizedDisplayName);
       if (idx !== -1 && !overlapsConsumed(idx, idx + photo.normalizedDisplayName.length)) {
         consumedSpans.push({
@@ -1847,7 +1864,14 @@ export async function resolveMatchingCatalogPhotos(
   // Busca na mensagem mais recente do histórico que mencione um modelo de máquina (do turno mais recente para trás!)
   if (candidates.length === 0 && isExplicitPhotoRequest && recentHistoryMessages.length > 0) {
     for (const histMsg of recentHistoryMessages) {
-      const foundInTurn = findCatalogPhotosMentionedInText(histMsg, allPhotos, {
+      const cleanedHistMsg = (histMsg || "")
+        .replace(
+          /^Segue\s+abaixo\s+o\s+link\s+direto\s+e\s+a\s+pr[eé]via\s+oficial\s+da\s+[^\n]+/i,
+          ""
+        )
+        .trim();
+      if (!cleanedHistMsg) continue;
+      const foundInTurn = findCatalogPhotosMentionedInText(cleanedHistMsg, allPhotos, {
         includeFamilyMatches,
       });
       if (foundInTurn.length > 0) {

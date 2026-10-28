@@ -197,12 +197,15 @@ function formatBrl(value: number): string {
 
 const STOPWORDS_PT = new Set([
   "como", "qual", "quais", "quem", "onde", "quando", "porque", "para", "pelo", "pela",
-  "meus", "minha", "minhas", "meu", "sobre", "estao", "esta", "estão", "está", "hoje",
+  "com", "sem", "por", "dos", "das", "nos", "nas", "aos", "pro", "pra",
+  "meus", "minha", "minhas", "meu", "sua", "suas", "seu", "seus", "sobre", "estao", "esta", "estão", "está", "hoje",
   "ontem", "amanha", "amanhã", "agora", "fagner", "valentina", "cliente", "clientes",
   "negociacao", "negociação", "negociacoes", "negociações", "tarefa", "tarefas",
   "ligacao", "ligação", "ligacoes", "ligações", "meta", "metas", "conversa", "conversas",
   "atendimento", "atendimentos", "tenho", "tem", "tudo", "todos", "todas", "fazer",
-  "preciso", "quero", "pode", "resumo", "status", "parada", "paradas", "parado", "parados",
+  "preciso", "quero", "pode", "consegue", "avaliar", "avalia", "avaliacao", "avaliação",
+  "analisar", "analisa", "analise", "análise", "auditar", "audita", "olhar", "olha", "ver", "veja",
+  "resumo", "status", "parada", "paradas", "parado", "parados",
   "aberta", "abertas", "aberto", "abertos", "pendente", "pendentes", "agenda", "agendada",
   "agendadas", "agendado", "agendados", "mes", "mês", "semana", "dia", "valor", "proposta",
   "outra", "outras", "outro", "outros", "mais", "algum", "alguma", "alguns", "algumas",
@@ -486,11 +489,16 @@ async function getOperatorContext(
   const isCallOrPhone =
     !systemGuideMatch.isSystemHowTo &&
     /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
-  const isWaitingChat =
-    !systemGuideMatch.isSystemHowTo &&
-    /\b(?:esperando|aguardando|fila|conversa|conversas|chat|whatsapp|responder|atraso|sla|lead|leads|chegaram|chegou|hoje|caixa\s+de\s+entrada)\b/.test(
+  const isConversationEvalQuery =
+    /\b(?:avaliar|avalia|avaliacao|analisar|analisa|analise|auditar|audita|olhar|olha|ver|veja)\b.*\b(?:minha\s+conversa|meu\s+atendimento|conversa\s+com|chat\s+com|atendimento\s+com|atendimento\s+do|atendimento\s+da)\b/i.test(
       q
     );
+  const isWaitingChat =
+    isConversationEvalQuery ||
+    (!systemGuideMatch.isSystemHowTo &&
+      /\b(?:esperando|aguardando|fila|conversa|conversas|chat|whatsapp|responder|atraso|sla|lead|leads|chegaram|chegou|hoje|caixa\s+de\s+entrada)\b/.test(
+        q
+      ));
   const hasExplicitCrmEntityWord =
     !systemGuideMatch.isSystemHowTo &&
     /\b(?:negociac|card|cards|crm|proposta|orcamento|funil|etapa|carteira|pipeline|venda|vendas|mensur|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|comprador|sdr|questionario|email|cnpj|cpf)\b/.test(
@@ -498,6 +506,7 @@ async function getOperatorContext(
     );
   const isPureWaitingQueueQuery =
     !systemGuideMatch.isSystemHowTo &&
+    !isConversationEvalQuery &&
     /\b(?:esperando|aguardando|fila|caixa\s+de\s+entrada|sem\s+resposta)\b/.test(q) &&
     !hasExplicitCrmEntityWord;
   const hasStrictCrmKeyword =
@@ -518,11 +527,12 @@ async function getOperatorContext(
   const hasExplicitCrmKeyword = hasStrictCrmKeyword || hasBroadCrmModifier;
 
   const isDealOrCrm =
-    !systemGuideMatch.isSystemHowTo &&
-    (hasExplicitCrmKeyword ||
-      (!isMachineContext &&
-        !isPureWaitingQueueQuery &&
-        /\b(?:informacao|informacoes|ficha|volume|produto|produtos|arquivo|arquivos)\b/.test(q)));
+    isConversationEvalQuery ||
+    (!systemGuideMatch.isSystemHowTo &&
+      (hasExplicitCrmKeyword ||
+        (!isMachineContext &&
+          !isPureWaitingQueueQuery &&
+          /\b(?:informacao|informacoes|ficha|volume|produto|produtos|arquivo|arquivos)\b/.test(q))));
   const isGoalOrMeta =
     !systemGuideMatch.isSystemHowTo &&
     /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
@@ -533,12 +543,15 @@ async function getOperatorContext(
     !systemGuideMatch.isSystemHowTo &&
     /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
   const isKbQuery =
-    hasExplicitMachineOrManualKeyword ||
-    (isFollowUpRequest && isRecentMachineManualTurn && !hasStrictCrmKeyword);
+    !isConversationEvalQuery &&
+    !isPureWaitingQueueQuery &&
+    (hasExplicitMachineOrManualKeyword ||
+      (isFollowUpRequest && isRecentMachineManualTurn && !hasStrictCrmKeyword));
   const isPureKbQuery =
     (isKbQuery || systemGuideMatch.isSystemHowTo) &&
     !isDealOrCrm &&
     !isWaitingChat &&
+    !isConversationEvalQuery &&
     !isGoalOrMeta &&
     !isCallOrPhone &&
     !isTaskOrAgenda &&
@@ -547,7 +560,10 @@ async function getOperatorContext(
   let taskTitle = "Consultando dados da sua operação";
   let finishedTitle = "Consulta comercial concluída";
 
-  if (systemGuideMatch.isSystemHowTo && !isKbQuery) {
+  if (isConversationEvalQuery) {
+    taskTitle = "Carregando mensagens da conversa com o cliente para avaliação comercial";
+    finishedTitle = "Histórico da conversa carregado e avaliado";
+  } else if (systemGuideMatch.isSystemHowTo && !isKbQuery) {
     taskTitle = "Consultando Guia Oficial do Sistema (Onboarding Wizard)";
     finishedTitle = "Passo a passo de navegação do sistema carregado";
   } else if (vtexIntent.shouldQueryVtex) {
@@ -588,18 +604,24 @@ async function getOperatorContext(
     !systemGuideMatch.isSystemHowTo &&
     (isOverviewOrGeneral || isGoalOrMeta || (!isCallOrPhone && !isWaitingChat && !isTaskOrAgenda && primaryTerms.length === 0));
   const shouldRunDeals =
-    !isPureKbQuery &&
-    !isPureWaitingQueueQuery &&
-    !systemGuideMatch.isSystemHowTo &&
-    (isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || (!hasAttachedImage && (primaryTerms.length > 0 || !isWaitingChat)));
+    isConversationEvalQuery ||
+    (!isPureKbQuery &&
+      !isPureWaitingQueueQuery &&
+      !systemGuideMatch.isSystemHowTo &&
+      (isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || (!hasAttachedImage && (primaryTerms.length > 0 || !isWaitingChat))));
   const shouldRunTasks =
     !isPureKbQuery && !systemGuideMatch.isSystemHowTo && (isOverviewOrGeneral || isTaskOrAgenda || isCallOrPhone);
   const shouldRunChats =
-    !isPureKbQuery &&
-    !systemGuideMatch.isSystemHowTo &&
-    (isOverviewOrGeneral || isWaitingChat || isCallOrPhone || (!hasAttachedImage && primaryTerms.length > 0) || isFollowUpRequest);
+    isConversationEvalQuery ||
+    isWaitingChat ||
+    (!isPureKbQuery &&
+      !systemGuideMatch.isSystemHowTo &&
+      (isOverviewOrGeneral || isCallOrPhone || (!hasAttachedImage && primaryTerms.length > 0) || isFollowUpRequest));
   const shouldRunMetrics = !isPureKbQuery && !systemGuideMatch.isSystemHowTo && (isOverviewOrGeneral || isMetricsQuery);
-  const shouldRunKb = isKbQuery || Boolean(hasAttachedImage) || vtexIntent.shouldQueryVtex;
+  const shouldRunKb =
+    !isConversationEvalQuery &&
+    !isPureWaitingQueueQuery &&
+    (isKbQuery || Boolean(hasAttachedImage) || vtexIntent.shouldQueryVtex);
 
   const pushRealStep = (step: AgenticThoughtStep) => {
     executedSteps.push(step);
@@ -2120,7 +2142,10 @@ async function getOperatorContext(
 
           let extraOwnConvs: typeof activeConvs = [];
           if (matchedConvs.length === 0) {
-            const likeFilters = searchTerms.map((t) => ilike(contacts.name, `%${t}%`));
+            const accentInsensitiveFilters = searchTerms.map(
+              (t) =>
+                sql`translate(lower(${contacts.name}), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn') LIKE ${`%${t}%`}`
+            );
             const rawExtra = await db
               .select({
                 id: conversations.id,
@@ -2142,8 +2167,13 @@ async function getOperatorContext(
               .where(
                 and(
                   eq(conversations.tenantId, tenantId),
-                  eq(conversations.operatorId, operatorId),
-                  or(...likeFilters)
+                  isConversationEvalQuery
+                    ? or(
+                        eq(conversations.operatorId, operatorId),
+                        isNull(conversations.operatorId)
+                      )
+                    : eq(conversations.operatorId, operatorId),
+                  or(...accentInsensitiveFilters)
                 )
               )
               .orderBy(desc(conversations.lastMessageTime))
@@ -2184,7 +2214,7 @@ async function getOperatorContext(
                   )
                 )
                 .orderBy(desc(messages.sentAt))
-                .limit(12);
+                .limit(isConversationEvalQuery ? 25 : 12);
 
               const orderedMsgs = recentMsgs.reverse();
               const transcript = orderedMsgs
@@ -2199,7 +2229,7 @@ async function getOperatorContext(
                       })
                     : "";
                   const who = m.senderType === "client" ? "Cliente" : m.senderType === "bot" ? "IA Triagem" : "Você";
-                  const txt = (m.content || m.mediaInterpretation || "[Mídia]").slice(0, 180);
+                  const txt = (m.content || m.mediaInterpretation || "[Mídia]").slice(0, 260);
                   return `    [${hora}] ${who}: ${txt}`;
                 })
                 .join("\n");
@@ -2208,7 +2238,11 @@ async function getOperatorContext(
                 `  📌 Cliente: ${tc.contactName}${tc.contactCompany ? ` (${tc.contactCompany})` : ""}${tc.contactPhone ? ` | 📞 Tel: ${tc.contactPhone}` : ""} (convId: ${tc.id}) | Fila: ${tc.queueState}${tc.dealTitle ? ` | Negociação: ${tc.dealTitle}` : ""}\n  Últimas mensagens da conversa:\n${transcript}`
               );
             }
-            sections.push(`🔍 HISTÓRICO DETALHADO DO(S) CLIENTE(S) CONSULTADO(S):\n${deepDetails.join("\n\n")}`);
+            sections.push(
+              isConversationEvalQuery
+                ? `🔍 TRANSCRIÇÃO REAL DA CONVERSA CARREGADA DO BANCO DE DADOS PARA SUA AVALIAÇÃO COMERCIAL (AVALIE DIRETAMENTE AS MENSAGENS ABAIXO — PROIBIDO PEDIR PRINT DA TELA OU DIZER QUE NÃO ENXERGA O CHAT):\n${deepDetails.join("\n\n")}`
+                : `🔍 HISTÓRICO DETALHADO DO(S) CLIENTE(S) CONSULTADO(S):\n${deepDetails.join("\n\n")}`
+            );
           }
 
           // 5.3 Guarda de Sigilo: Verifica se o termo buscado pertence a OUTRO operador (apenas quando não é envio puro de imagem)
@@ -2218,7 +2252,10 @@ async function getOperatorContext(
             matchedDeals.length === 0 &&
             primaryTerms.length > 0
           ) {
-            const dealLikeFilters = primaryTerms.map((t) => ilike(crmDeals.title, `%${t}%`));
+            const dealLikeFilters = primaryTerms.map(
+              (t) =>
+                sql`translate(lower(${crmDeals.title}), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn') LIKE ${`%${t}%`}`
+            );
             const thirdPartyDeals = await db
               .select({
                 title: crmDeals.title,
@@ -2234,7 +2271,10 @@ async function getOperatorContext(
               )
               .limit(3);
 
-            const contactLikeFilters = primaryTerms.map((t) => ilike(contacts.name, `%${t}%`));
+            const contactLikeFilters = primaryTerms.map(
+              (t) =>
+                sql`translate(lower(${contacts.name}), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn') LIKE ${`%${t}%`}`
+            );
             const thirdPartyConvs = await db
               .select({
                 contactName: contacts.name,
@@ -2262,6 +2302,10 @@ async function getOperatorContext(
                   `  • O vendedor perguntou sobre "${matchedNames.join(", ")}", que pertence à carteira de OUTRO vendedor/operador.\n` +
                   `  • REGRA INVIOLÁVEL: Informe educadamente em 1 único balão curto que esse cliente/negociação está na carteira de outro consultor e que, por política de sigilo comercial, você só pode consultar clientes da carteira do próprio vendedor logado.\n` +
                   `  • PROIBIDO EMPURRAR OUTROS CARDS: NÃO sugira outras negociações aleatórias (como BOLOS & BOLOS ou JJL PLASTIC) quando bloquear uma consulta de terceiros, e deixe mentionedDealIds, suggestedCallDealIds e mentionedConversationIds vazios ([]).`
+              );
+            } else if (isConversationEvalQuery) {
+              sections.push(
+                `📋 AVISO DE BUSCA DE CONVERSA NO SISTEMA: O sistema consultou todas as suas conversas no banco de dados e não encontrou nenhuma conversa registrada com o nome "${primaryTerms.join(" ")}". Informe ao vendedor que não há conversa ativa vinculada a ele com esse nome e mostre os nomes reais das conversas ativas dele listadas acima em SUAS CONVERSAS ATIVAS (NUNCA peça print da tela!).`
               );
             }
           }
@@ -2422,7 +2466,7 @@ async function getOperatorContext(
         actionVerb: "Consultou guia do sistema",
         targetLabel: primaryPlaybook?.title || "Fagner Onboarding Wizard (237 steps)",
         scopeTag: "#onboarding-wizard",
-        badgeType: "kb",
+        badgeType: "sla",
         detailText: "Passos de interface, botões e fluxos operacionais carregados do Guia Oficial do Sistema (Wizard).",
       });
       systemGuideSources.push({
@@ -2653,6 +2697,15 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
      3. **O que selecionar ou preencher no modal** (ex: escolher a aba **"Para Operador"** ou **"Para Setor"**, adicionar o motivo opcional e clicar em **"Confirmar Transferência"**);
      4. **O que acontece no sistema após a ação** (ex: registro automático no histórico de eventos da conversa e preservação das negociações vinculadas).
    - Quando a pergunta for sobre **como usar o sistema**, mantenha \`"mentionedDealIds": []\`, \`"mentionedConversationIds": []\` e \`"suggestedCallDealIds": []\` vazios.
+
+## REGRA INVIOLÁVEL DE FILA DE ESPERA E AVALIAÇÃO DE CONVERSAS (PROIBIÇÃO ABSOLUTA DE ALUCINAÇÃO DE CLIENTES!):
+1. **FILA DE ESPERA REAL NO WHATSAPP**:
+   - Quando ${firstName} perguntar *"Quais clientes estão aguardando minha resposta agora?"*, *"Quem está esperando resposta?"* ou *"Como está minha fila?"*, leia **EXCLUSIVAMENTE** a seção **CLIENTES AGUARDANDO SUA RESPOSTA AGORA** (ou **CLIENTES AGUARDANDO RESPOSTA (SLA)**) no contexto abaixo.
+   - Se a seção informar **Nenhum cliente esperando resposta na sua fila agora!** ou que não há conversas ativas aguardando resposta, responda em 1 único balão curto e direto que **no momento não há nenhum cliente aguardando resposta na fila do WhatsApp** (e mantenha mentionedConversationIds, mentionedDealIds e suggestedCallDealIds vazios).
+   - **É TERMINANTEMENTE PROIBIDO INVENTAR OU ALUCINAR CLIENTES FICTÍCIOS** (como *"Laticínios União"*, *"Café do Sítio"*, *"Doces da Vovó"*, *"Mariana"*, *"Roberto"*, *"Sônia"*, etc.)! Nunca invente nomes de empresas, contatos ou tempos de espera que não estejam literalmente escritos no bloco de clientes aguardando resposta.
+2. **AVALIAÇÃO COMERCIAL DE CONVERSAS REAIS**:
+   - Quando ${firstName} pedir para avaliar ou analisar a conversa com um cliente específico (ex: *"pode avaliar minha conversa com joao lanza?"*), leia diretamente as mensagens reais em **TRANSCRIÇÃO REAL DA CONVERSA CARREGADA DO BANCO DE DADOS** e a ficha da negociação vinculada.
+   - **JAMAIS** peça print da tela, **JAMAIS** peça para copiar e colar as mensagens e **JAMAIS** diga que não consegue enxergar o chat lateral quando a transcrição da conversa estiver carregada no contexto abaixo! Entregue imediatamente uma avaliação comercial prática (pontos fortes da condução, etapa atual da conversa, objeções ou dúvidas do cliente e sugestão de próxima mensagem para avançar o fechamento).
 
 ${getCompactSystemNavigationCheatSheet()}
 ${
@@ -4030,9 +4083,11 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 );
             }
 
-            const finalSorted = sortedChronological.filter((r) => !orphanObjectRowIds.has(r.id));
+            let finalSorted = sortedChronological.filter((r) => !orphanObjectRowIds.has(r.id));
             let lastSeenUserQuery = "";
-            const metaRepairs: Array<{ id: string; metadata: Record<string, any> }> = [];
+            const metaRepairs: Array<{ id: string; metadata: Record<string, any>; content?: string }> = [];
+            const bogusRowIdsToDelete: string[] = [];
+
             for (const row of finalSorted) {
               if (row.direction === "to_agent") {
                 if (typeof row.content === "string" && row.content.trim()) {
@@ -4052,9 +4107,60 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
               const effectiveUserQuery = rMeta.userQuery || lastSeenUserQuery;
               let metaChanged = false;
+              let contentChanged: string | undefined;
               const nextMeta: Record<string, any> = { ...rMeta };
+              const rawContent = String(row.content || "");
 
-              // Auto-reparo: se a resposta afirma explicitamente que não há nenhum cliente aguardando / caixa em dia, limpa cards vazados
+              // 1. Auto-reparo da alucinação de fila ("Laticínios União", "Café do Sítio", "Doces da Vovó")
+              if (/Latic[ií]nios\s+Uni[aã]o.*Caf[eé]\s+do\s+S[ií]tio|Doces\s+da\s+Vov[oó]\s*\(S[oô]nia\)/i.test(rawContent)) {
+                const honestQueueReply =
+                  "Dei uma olhada aqui na sua fila e, no momento, não há nenhum cliente aguardando sua resposta no WhatsApp.";
+                row.content = honestQueueReply;
+                contentChanged = honestQueueReply;
+                delete nextMeta.relatedConversations;
+                delete nextMeta.relatedDeals;
+                delete nextMeta.relatedCalls;
+                metaChanged = true;
+              } else if (
+                /^Como\s+voc[eê]\s+acabou\s+de\s+perguntar\s+sobre\s+transfer[eê]ncia,\s+se\s+algum\s+desses/i.test(
+                  rawContent.trim()
+                )
+              ) {
+                bogusRowIdsToDelete.push(row.id);
+                continue;
+              }
+
+              // 2. Auto-reparo de balões VTEX gerados indevidamente em perguntas de fila, avaliação de conversa, guia do sistema ou modelo errado (VSF2000 em pergunta da Pratic Seal)
+              if (nextMeta.vtexProductPreview) {
+                const isNonMachineUserTurn =
+                  /\b(clientes?\s+(?:est[aã]o\s+)?aguardando|aguardando\s+minha\s+resposta|avaliar\s+minha\s+conversa|joao\s+lanza|como\s+fa[cç]o\s+para\s+transferir|transferir\s+um\s+cliente)\b/i.test(
+                    effectiveUserQuery
+                  );
+                const isWrongVsfOnPraticSeal =
+                  /\bpratic\s*seal\b/i.test(effectiveUserQuery) &&
+                  /vsf\s*2000/i.test(String(nextMeta.vtexProductPreview?.name || ""));
+
+                if (isNonMachineUserTurn || isWrongVsfOnPraticSeal) {
+                  bogusRowIdsToDelete.push(row.id);
+                  continue;
+                }
+
+                // Garante que o balão de preview VTEX seja uma mensagem independente sem texto colado e sem catalogPhoto misturado
+                if (
+                  /^Segue\s+abaixo\s+o\s+link\s+direto\s+e\s+a\s+pr[eé]via\s+oficial\s+da\s+/i.test(
+                    rawContent.trim()
+                  )
+                ) {
+                  row.content = "";
+                  contentChanged = "";
+                }
+                if (nextMeta.catalogPhoto) {
+                  delete nextMeta.catalogPhoto;
+                  metaChanged = true;
+                }
+              }
+
+              // 3. Auto-reparo: se a resposta afirma explicitamente que não há nenhum cliente aguardando / caixa em dia, limpa cards vazados
               if (
                 isSecrecyOrEmptyRefusalReply(row.content || "", null) &&
                 ((Array.isArray(nextMeta.relatedDeals) && nextMeta.relatedDeals.length > 0) ||
@@ -4098,10 +4204,23 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 }
               }
 
-              if (metaChanged) {
+              if (metaChanged || contentChanged !== undefined) {
                 row.metadata = nextMeta;
-                metaRepairs.push({ id: row.id, metadata: nextMeta });
+                metaRepairs.push({ id: row.id, metadata: nextMeta, content: contentChanged });
               }
+            }
+
+            if (bogusRowIdsToDelete.length > 0) {
+              const delSet = new Set(bogusRowIdsToDelete);
+              finalSorted = finalSorted.filter((r) => !delSet.has(r.id));
+              db.delete(internalMessages)
+                .where(
+                  and(
+                    eq(internalMessages.tenantId, tenantId),
+                    inArray(internalMessages.id, bogusRowIdsToDelete)
+                  )
+                )
+                .catch(() => {});
             }
 
             if (metaRepairs.length > 0) {
@@ -4109,7 +4228,11 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 metaRepairs.map((u) =>
                   db
                     .update(internalMessages)
-                    .set({ metadata: u.metadata })
+                    .set(
+                      u.content !== undefined
+                        ? { metadata: u.metadata, content: u.content }
+                        : { metadata: u.metadata }
+                    )
                     .where(and(eq(internalMessages.tenantId, tenantId), eq(internalMessages.id, u.id)))
                 )
               ).catch(() => {});
@@ -4835,7 +4958,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
                   adminGuideMatch.matchedPlaybooks.map((p) => p.title).slice(0, 2).join(", ") ||
                   "Onboarding Wizard & Guia do Sistema",
                 scopeTag: "#onboarding-wizard",
-                badgeType: "kb",
+                badgeType: "sla",
                 detailText: `Mapeamento passo a passo de telas, botões e ações operacionais do sistema injetado.`,
               });
             }
@@ -5165,30 +5288,56 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const fullReplyText = fragments.map((f) => f.text).join("\n");
 
           // Se a pergunta do usuário não citava o modelo diretamente mas a resposta técnica da IA identificou e explicou uma máquina (ex: via código PAMQ... ou descrição), pareia a foto respeitando a janela de 24h
-          const isMachineTopicTurn =
-            isExplicitPhotoReq ||
-            Boolean(operatorContextResult?.executedSteps?.some((s) => s.badgeType === "kb")) ||
-            Boolean(activeVtexLookup && activeVtexLookup.previews.length > 0) ||
-            /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento|modelo|manual|cat[aá]logo|vtex)\b/i.test(
-              `${userText} ${fullReplyText}`
+          const isOperationalOrSystemGuideTurn =
+            activeSystemGuideSources.length > 0 ||
+            Boolean(
+              operatorContextResult?.executedSteps?.some(
+                (s) => s.id === "step-op-wizard-guide" || s.id === "step-op-conv-eval"
+              )
+            ) ||
+            /\b(?:quais\s+clientes|aguardando\s+minha\s+resposta|fila\s+de\s+espera|avaliar\s+minha\s+conversa|avalia\s+minha\s+conversa|como\s+foi\s+meu\s+atendimento)\b/i.test(
+              userText
             );
 
+          const isMachineTopicTurn =
+            !isOperationalOrSystemGuideTurn &&
+            (isExplicitPhotoReq ||
+              Boolean(
+                operatorContextResult?.executedSteps?.some(
+                  (s) =>
+                    s.id === "step-op-kb" ||
+                    s.id === "step-op-kb-analyze" ||
+                    s.id === "step-op-vtex" ||
+                    s.id === "step-admin-vtex-live"
+                )
+              ) ||
+              Boolean(activeVtexLookup && activeVtexLookup.previews.length > 0) ||
+              /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento|pratic\s*seal|PAMQ[A-Z0-9]+)\b/i.test(
+                userText
+              ));
+
           // Se a pergunta não citou o código do modelo mas a IA recomendou/identificou um modelo específico no texto da resposta, faz pós-pareamento na VTEX para entregar o card de preview da máquina no site
+          const vtexIntentFromUser = isVtexOrProductAssistantQuery(userText);
+          const replyModelCodesMatch = fullReplyText.match(/\b(?:PAMQ[A-Z0-9]+|pratic\s*seal)\b/gi);
           if (
             (!activeVtexLookup || activeVtexLookup.previews.length === 0) &&
             isMachineTopicTurn &&
             !effectiveImageBase64 &&
             !effectiveAttachment &&
             !isFollowUpAboutSentModelOrComparison &&
-            (isVtexOrProductAssistantQuery(userText) ||
-              /\b(?:PAMQ[A-Z0-9]+|tecfag\.com\.br)\b/i.test(fullReplyText))
+            (vtexIntentFromUser.shouldQueryVtex ||
+              Boolean(replyModelCodesMatch && replyModelCodesMatch.length > 0))
           ) {
             try {
+              const postQueryText =
+                replyModelCodesMatch && replyModelCodesMatch.length > 0
+                  ? `${userText}\n${Array.from(new Set(replyModelCodesMatch)).join(" ")}`
+                  : userText;
               const postVtex = await lookupVtexProductsForAssistant({
                 tenantId: contextTenantId,
-                userQuery: `${userText}\n${fullReplyText}`,
+                userQuery: postQueryText,
                 recentHistoryText: recentAiContextText,
-                maxProducts: 3,
+                maxProducts: 2,
                 forceLookup: true,
               });
               if (postVtex && postVtex.previews.length > 0) {
@@ -5247,8 +5396,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
             }));
           }
 
-          // Quando NÃO estamos enviando o balão separado de preview da VTEX (ou quando o operador pediu explicitamente a foto), anexa a foto do catálogo nos fragmentos
-          if (matchedCatalogPhotos.length > 0 && fragments.length > 0 && !shouldAppendSeparateVtexPreviewBubble) {
+          // Sempre que houver foto do catálogo pareada, anexa nos fragmentos de texto (mesmo quando também enviarmos o card VTEX separado em outra mensagem!)
+          if (matchedCatalogPhotos.length > 0 && fragments.length > 0) {
             const buildCatalogPhotoMeta = (photo: MatchedCatalogPhoto) => ({
               fileId: photo.fileId,
               fileName: photo.fileName,
@@ -5366,32 +5515,14 @@ export const Route = createFileRoute("/api/valentina/messages")({
             });
           }
 
-          // ── Balão separado com o Link da Máquina no Site + Card Oficial de Preview da VTEX ──
+          // ── Mensagem separada (standalone card) com o Preview Oficial da Máquina na Loja VTEX ──
           if (shouldAppendSeparateVtexPreviewBubble && activeVtexLookup && activeVtexLookup.previews.length > 0) {
             const primaryPreview = activeVtexLookup.previews[0];
-            const firstMatchedPhoto = matchedCatalogPhotos[0];
-            const catalogPhotoMetaForHistory = firstMatchedPhoto
-              ? {
-                  fileId: firstMatchedPhoto.fileId,
-                  fileName: firstMatchedPhoto.fileName,
-                  modelKey: firstMatchedPhoto.normalizedModelKey,
-                  modelDisplay: firstMatchedPhoto.modelDisplay,
-                  internalCode: firstMatchedPhoto.internalCode,
-                  aliasKeys: firstMatchedPhoto.aliasKeys,
-                  proactive: true,
-                  sentAtISO: now.toISOString(),
-                }
-              : undefined;
-
-            const vtexBubbleText =
-              activeVtexLookup.previews.length > 1
-                ? `Segue abaixo o link direto e a prévia oficial da **${primaryPreview.name}** (e modelos relacionados) na loja VTEX para abrir no site:`
-                : `Segue abaixo o link direto e a prévia oficial da **${primaryPreview.name}** na loja VTEX para abrir no site:`;
 
             fragments.push({
-              text: vtexBubbleText,
-              delay: Math.max(650, fragments.length * 650),
-              catalogPhoto: catalogPhotoMetaForHistory,
+              text: "",
+              delay: Math.max(950, (fragments.length + 1) * 700),
+              catalogPhoto: undefined,
               vtexProductPreview: primaryPreview,
               vtexProductPreviews: activeVtexLookup.previews.slice(0, 3),
             });
@@ -5457,19 +5588,29 @@ export const Route = createFileRoute("/api/valentina/messages")({
             (fileContext && fileContext.trim().length > 0) ||
               liveExecutedSteps.some((s) => s.badgeType === "kb")
           );
+          let lastTextFragIdx = fragments.length - 1;
+          for (let k = fragments.length - 1; k >= 0; k--) {
+            if (!fragments[k].vtexProductPreview) {
+              lastTextFragIdx = k;
+              break;
+            }
+          }
           for (let i = 0; i < fragments.length; i++) {
             const frag = fragments[i];
             const isFirstFrag = i === 0;
-            const isLastFrag = i === fragments.length - 1;
+            const isTargetForRelated = i === lastTextFragIdx;
+            const isStandaloneVtexFrag = Boolean(frag.vtexProductPreview && !frag.text?.trim());
             const fragRelated =
-              isLastFrag && relatedConversations.length > 0 ? relatedConversations : undefined;
+              isTargetForRelated && relatedConversations.length > 0 ? relatedConversations : undefined;
             const fragRelatedDeals =
-              isLastFrag && relatedDeals.length > 0 ? relatedDeals : undefined;
+              isTargetForRelated && relatedDeals.length > 0 ? relatedDeals : undefined;
             const fragRelatedCalls =
-              isLastFrag && relatedCalls.length > 0 ? relatedCalls : undefined;
+              isTargetForRelated && relatedCalls.length > 0 ? relatedCalls : undefined;
             const fragThoughtTrace = isFirstFrag ? thoughtTrace : undefined;
             const fragId = `val-ai-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-            const fragTimestamp = new Date(now.getTime() + 500 + i * 650);
+            const fragTimestamp = new Date(
+              now.getTime() + (isStandaloneVtexFrag ? 1400 + i * 700 : 500 + i * 650)
+            );
 
             const resolvedSources = await resolveKnowledgeSourcesForMessage({
               tenantId: contextTenantId,

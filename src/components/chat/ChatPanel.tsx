@@ -223,7 +223,7 @@ function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; i
     : "flex justify-between text-[10px] text-muted-foreground font-medium tracking-tight";
 
   return (
-    <div className={containerClasses}>
+    <div data-tour="message.audio" className={containerClasses}>
       <audio
         ref={audioRef}
         src={src}
@@ -316,7 +316,7 @@ function DocumentCard({ src, fileName }: { src: string; fileName: string }) {
           : "Documento";
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl bg-card border border-border shadow-soft px-4 py-3 min-w-[240px] max-w-xs">
+    <div data-tour="message.media" className="flex items-center gap-3 rounded-2xl bg-card border border-border shadow-soft px-4 py-3 min-w-[240px] max-w-xs">
       <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${iconBg}`}>
         <FileText className="h-5 w-5" />
       </div>
@@ -481,6 +481,7 @@ export function renderMessageContent(
     if (type === "image") {
       return wrapMediaWithCaption(
         <div
+          data-tour="message.media"
           className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
           onClick={(e) => {
             const imgEl = e.currentTarget.querySelector("img");
@@ -564,6 +565,7 @@ export function renderMessageContent(
       if (type === "image") {
         return wrapMediaWithCaption(
           <div
+            data-tour="message.media"
             className="relative group w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden border border-border/80 bg-black/5 hover:opacity-95 transition cursor-pointer shadow-soft"
             onClick={(e) => {
               const imgEl = e.currentTarget.querySelector("img");
@@ -1089,6 +1091,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         : (metaWindowCacheRef.current.get(activeChat.id) ?? null)
       : null;
 
+  const [trainingStepId, setTrainingStepId] = useState<string | null>(null);
+  const trainingStepIdRef = useRef<string | null>(null);
+  trainingStepIdRef.current = trainingStepId;
+
   useEffect(() => {
     if (!isMetaWhatsappChat || !activeChat?.id) {
       setShowMetaTemplateModal(false);
@@ -1100,7 +1106,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     // Apenas redefine o modal ao alternar para uma conversa diferente, preservando o cache da janela 24h
     if (currentMetaChatIdRef.current !== chatId) {
       currentMetaChatIdRef.current = chatId;
-      setShowMetaTemplateModal(false);
+      if (!["chat.meta-search", "chat.meta-preview", "chat.meta-send"].includes(trainingStepIdRef.current || "")) {
+        setShowMetaTemplateModal(false);
+      }
       setMetaWindowState({
         chatId,
         window: metaWindowCacheRef.current.get(chatId) ?? null,
@@ -1117,7 +1125,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           if (!cancelled && data?.window) {
             metaWindowCacheRef.current.set(chatId, data.window);
             setMetaWindowState({ chatId, window: data.window });
-            if (data.window.open) {
+            if (data.window.open && !["chat.meta-search", "chat.meta-preview", "chat.meta-send"].includes(trainingStepIdRef.current || "")) {
               setShowMetaTemplateModal(false);
             }
           }
@@ -1632,6 +1640,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   useTrainingSurface("chat", (step) => {
     if (!activeChat) return false;
     const id = step.id;
+    setTrainingStepId(id);
+    setShowValOlderPrompt(id === "chat.assistant-history");
     setChoosingWhatsappNumber(["chat.sender", "chat.sender-history"].includes(id));
     setShowMsgSearch(id === "chat.search-thread");
     setShowSystemInfo(["chat.system-toggle", "chat.system-details"].includes(id));
@@ -1641,11 +1651,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     setShowQuickMenu(id.startsWith("chat.quick-"));
     setShowValentinaModal(id.startsWith("chat.inline-"));
     setIsCatalogOpen(["chat.catalog", "chat.catalog-attach"].includes(id));
-    setShowMetaTemplateModal(["chat.meta-search", "chat.meta-preview", "chat.meta-send"].includes(id));
+    const isMetaStep = ["chat.meta-search", "chat.meta-preview", "chat.meta-send"].includes(id);
+    setShowMetaTemplateModal(isMetaStep);
+    if (isMetaStep && !metaTemplates.length && !metaTemplatesLoading) void loadMetaTemplates();
     setShow24hInfoModal(id === "chat.meta-help");
     if (id === "chat.inline-grammar") setText("ola posso confirmar os detalhes do equipamento");
-    if (id === "chat.internal-note") setMsgMode("internal");
-    else if (id === "chat.composer") setMsgMode("client");
+    setMsgMode(id === "chat.internal-note" ? "internal" : "client");
     setMarkingEvidenceMsg(id === "chat.message-evidence" ? activeChat.messages.find((m) => !m.isInternalNote) || null : null);
     setExpandedMsgId(id === "chat.system-details" ? activeChat.messages.find((m) => m.isInternalNote)?.id || null : null);
     return true;
@@ -3303,6 +3314,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               !b.isWarning &&
               !a.isInternalNote &&
               !b.isInternalNote &&
+              !a.vtexProductPreview &&
+              !b.vtexProductPreview &&
               !b.quotedMessageContent &&
               Math.abs(toMin(a.time) - toMin(b.time)) <= 3
             );
@@ -3889,10 +3902,10 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
               {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo vs Templates Meta) ── */}
               {activeChat.id !== "valentina" && (
-                <div className={(!dealContext.data?.hasCurrentDeal && dealContext.data) || msgMode === "internal" ? "mb-2" : ""}>
+                <div className={(!dealContext.data?.hasCurrentDeal && dealContext.data) || msgMode === "internal" || trainingStepId === "chat.deal-context" ? "mb-2" : ""}>
                   <ConversationDealContext
                     conversationId={activeChat.id}
-                    hideWhenSelected
+                    hideWhenSelected={trainingStepId !== "chat.deal-context"}
                     onSelected={(version) => {
                       draftContextVersion.current = version;
                     }}

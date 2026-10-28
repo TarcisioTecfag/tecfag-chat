@@ -594,32 +594,77 @@ const HOW_TO_INTENT_REGEX =
 const SYSTEM_UI_FEATURE_REGEX =
   /\b(transferir\s+(um\s+)?(cliente|atendimento|conversa|chat|card|negocio|negociacao)|assumir\s+(um\s+)?(atendimento|cliente|chat|da\s+fila)|puxar\s+da\s+fila|finalizar\s+(atendimento|conversa|chat)|reabrir\s+(atendimento|conversa|chat)|nota\s+interna|resposta\s+rapida|respostas\s+rapidas|template\s+(da\s+meta|oficial|whatsapp)|janela\s+de\s+24\s*h|vincular\s+(negociacao|negocio|card)|diretriz(es)?\s+do\s+gestor|concluir\s+diretriz|anexar\s+evidencia|evidencia\s+de\s+(ligacao|whatsapp|negocio)|jornada\s+(do\s+cliente|no\s+site)|acoes\s+em\s+lote|transferir\s+em\s+(lote|massa)|prioridade\s+ia|consulta(r)?\s+cnpj|alerta\s+de\s+inatividade|perder\s+carteira|mudar\s+status|entrar\s+em\s+pausa|trocar\s+senha|grupos\s+de\s+acesso|pastas\s+de\s+setores)\b/i;
 
+const OPERATIONAL_DATA_OR_MACHINE_EXCLUSION_REGEX =
+  /\b(quais\s+(?:os\s+|as\s+)?clientes?\b|quem\s+esta\s+(?:aguardando|esperando|na\s+fila)|clientes?\s+(?:estao\s+|que\s+estao\s+)?(?:aguardando|esperando|sem\s+resposta)|aguardando\s+minha\s+resposta|(?:pode\s+|consegue\s+)?(?:avaliar|avalia|analisar|analisa|auditar|audita)\s+(?:a\s+)?(?:minha\s+conversa|meu\s+atendimento|conversa\s+com|chat\s+com|atendimento\s+com)|pratic\s*seal|vsf[-_\s]?\d*|pamq[a-z0-9]+|quero\s+a\s+seladora|manda\s+uma\s+foto\s+dela|foto\s+d[aeo]\s+maquina)\b/i;
+
 /**
  * Detecta se a pergunta do operador ou gestor pede ajuda/orientação sobre como executar
  * alguma ação no sistema, onde clicar ou como funciona algum módulo/botão da plataforma.
  */
 export function isSystemHowToOrWizardQuery(
   query: string,
-  recentContext = ""
+  _recentContext = ""
 ): boolean {
   const raw = `${query || ""}`.trim();
   if (!raw) return false;
-  if (HOW_TO_INTENT_REGEX.test(raw) && SYSTEM_UI_FEATURE_REGEX.test(raw)) {
+  const norm = normalizeText(raw);
+
+  // Nunca sequestrar consultas operacionais de fila real, avaliação de conversa com cliente ou busca de máquinas
+  if (OPERATIONAL_DATA_OR_MACHINE_EXCLUSION_REGEX.test(norm) && !/\b(como\s+(?:eu\s+)?(?:faco|posso|devo|clico)|onde\s+(?:fica|clico|esta)|passo\s+a\s+passo)\b/i.test(norm)) {
+    return false;
+  }
+
+  if (HOW_TO_INTENT_REGEX.test(raw) && SYSTEM_UI_FEATURE_REGEX.test( norm )) {
     return true;
   }
-  if (SYSTEM_UI_FEATURE_REGEX.test(raw)) {
-    return true;
-  }
-  if (HOW_TO_INTENT_REGEX.test(raw)) {
-    const norm = normalizeText(`${raw} ${recentContext}`);
+  if (HOW_TO_INTENT_REGEX.test(norm)) {
     for (const pb of SYSTEM_ACTION_PLAYBOOKS) {
       if (pb.keywords.some((kw) => norm.includes(normalizeText(kw)))) {
         return true;
       }
     }
   }
+  // Só ativa por SYSTEM_UI_FEATURE_REGEX isolado se houver verbo/intenção de dúvida de uso na própria pergunta
+  if (
+    SYSTEM_UI_FEATURE_REGEX.test(norm) &&
+    /\b(como|onde|qual\s+botao|qual\s+caminho|passo\s+a\s+passo|ajuda|ensina|explica|orienta|para\s+outro\s+(?:vendedor|operador|setor))\b/i.test(norm)
+  ) {
+    return true;
+  }
   return false;
 }
+
+const GUIDE_STOPWORDS = new Set([
+  "como",
+  "onde",
+  "qual",
+  "quais",
+  "para",
+  "pelo",
+  "pela",
+  "com",
+  "sem",
+  "meu",
+  "minha",
+  "meus",
+  "minhas",
+  "cliente",
+  "clientes",
+  "conversa",
+  "conversas",
+  "atendimento",
+  "atendimentos",
+  "resposta",
+  "respostas",
+  "agora",
+  "hoje",
+  "pode",
+  "fagner",
+  "sistema",
+  "painel",
+  "tela",
+  "aba",
+]);
 
 /**
  * Busca os Playbooks de ação e os Steps exatos do Onboarding Wizard (237 steps)
@@ -629,15 +674,22 @@ export function resolveSystemGuideForQuery(
   query: string,
   recentContext = ""
 ): MatchedSystemGuideResult {
-  const combinedNorm = normalizeText(`${query || ""} ${recentContext || ""}`);
+  const isHowTo = isSystemHowToOrWizardQuery(query, recentContext);
+  if (!isHowTo) {
+    return {
+      isSystemHowTo: false,
+      matchedPlaybooks: [],
+      matchedWizardSteps: [],
+      promptContext: "",
+    };
+  }
+
   const queryNorm = normalizeText(query || "");
   const queryTokens = queryNorm
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length >= 3);
+    .filter((t) => t.length >= 4 && !GUIDE_STOPWORDS.has(t));
 
-  const isHowTo = isSystemHowToOrWizardQuery(query, recentContext);
-
-  // 1. Pontuar Playbooks de Ação
+  // 1. Pontuar Playbooks de Ação estritamente contra a pergunta atual (queryNorm)
   const scoredPlaybooks = SYSTEM_ACTION_PLAYBOOKS.map((playbook) => {
     let score = 0;
     for (const kw of playbook.keywords) {
@@ -645,20 +697,18 @@ export function resolveSystemGuideForQuery(
       if (!kwNorm) continue;
       if (queryNorm.includes(kwNorm)) {
         score += 120 + kwNorm.length * 2;
-      } else if (combinedNorm.includes(kwNorm)) {
-        score += 45;
       }
     }
     const titleNorm = normalizeText(playbook.title);
     for (const token of queryTokens) {
-      if (titleNorm.includes(token)) score += 20;
+      if (titleNorm.includes(token)) score += 25;
     }
     return { playbook, score };
   })
-    .filter((item) => item.score > 0)
+    .filter((item) => item.score >= 50)
     .sort((a, b) => b.score - a.score);
 
-  const matchedPlaybooks = scoredPlaybooks.slice(0, 4).map((s) => s.playbook);
+  const matchedPlaybooks = scoredPlaybooks.slice(0, 3).map((s) => s.playbook);
 
   // 2. Pontuar os 237 Steps do Onboarding Wizard
   const relatedIdsSet = new Set<string>();
@@ -678,7 +728,6 @@ export function resolveSystemGuideForQuery(
       score += 200;
     }
     for (const token of queryTokens) {
-      if (token.length < 3) continue;
       if (titleNorm.includes(token)) score += 35;
       if (bodyNorm.includes(token)) score += 15;
     }
@@ -692,65 +741,60 @@ export function resolveSystemGuideForQuery(
       score,
     };
   })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item && item.score >= 35))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item && item.score >= 50))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 8);
+    .slice(0, 6);
 
-  const effectiveIsSystemHowTo = isHowTo || matchedPlaybooks.length > 0;
+  const lines: string[] = [
+    "══════════════════════════════════════════════════════════════════════════════",
+    "🧭 GUIA OFICIAL DE NAVEGAÇÃO DO SISTEMA & ONBOARDING WIZARD (PASSO A PASSO DE TELA)",
+    "══════════════════════════════════════════════════════════════════════════════",
+    "ATENÇÃO: O usuário está perguntando como realizar uma ação no sistema, onde clicar ou como funciona um módulo da plataforma.",
+    "Você conhece 100% da interface do sistema (todos os 8 capítulos e 237 passos do Fagner Onboarding Wizard). Explique de forma prática, clara e direta ONDE CLICAR (módulo na barra lateral, aba, posição do botão na tela) e o PASSO A PASSO exato:",
+    "",
+  ];
 
-  let promptContext = "";
-  if (effectiveIsSystemHowTo) {
-    const lines: string[] = [
-      "══════════════════════════════════════════════════════════════════════════════",
-      "🧭 GUIA OFICIAL DE NAVEGAÇÃO DO SISTEMA & ONBOARDING WIZARD (PASSO A PASSO DE TELA)",
-      "══════════════════════════════════════════════════════════════════════════════",
-      "ATENÇÃO: O usuário está perguntando como realizar uma ação no sistema, onde clicar ou como funciona um módulo da plataforma.",
-      "Você conhece 100% da interface do sistema (todos os 8 capítulos e 237 passos do Fagner Onboarding Wizard). Explique de forma prática, clara e direta ONDE CLICAR (módulo na barra lateral, aba, posição do botão na tela) e o PASSO A PASSO exato:",
-      "",
-    ];
-
-    if (matchedPlaybooks.length > 0) {
-      lines.push("📌 PASSO A PASSO EXATO NA INTERFACE PARA ESTA SOLICITAÇÃO:");
-      for (const pb of matchedPlaybooks) {
-        lines.push(`\n▸ ${pb.title.toUpperCase()} (${pb.moduleLabel} — rota ${pb.routePath})`);
-        lines.push(`  • Onde clicar: ${pb.whereToClick}`);
-        lines.push(`  • Passo a passo:`);
-        pb.stepByStep.forEach((st, idx) => {
-          lines.push(`    ${idx + 1}. ${st}`);
+  if (matchedPlaybooks.length > 0) {
+    lines.push("📌 PASSO A PASSO EXATO NA INTERFACE PARA ESTA SOLICITAÇÃO:");
+    for (const pb of matchedPlaybooks) {
+      lines.push(`\n▸ ${pb.title.toUpperCase()} (${pb.moduleLabel} — rota ${pb.routePath})`);
+      lines.push(`  • Onde clicar: ${pb.whereToClick}`);
+      lines.push(`  • Passo a passo:`);
+      pb.stepByStep.forEach((st, idx) => {
+        lines.push(`    ${idx + 1}. ${st}`);
+      });
+      if (pb.importantRules && pb.importantRules.length > 0) {
+        lines.push(`  • Dicas e regras importantes:`);
+        pb.importantRules.forEach((rule) => {
+          lines.push(`    - ${rule}`);
         });
-        if (pb.importantRules && pb.importantRules.length > 0) {
-          lines.push(`  • Dicas e regras importantes:`);
-          pb.importantRules.forEach((rule) => {
-            lines.push(`    - ${rule}`);
-          });
-        }
       }
-      lines.push("");
-    }
-
-    if (scoredSteps.length > 0) {
-      lines.push("📘 PASSOS OFICIAIS DO ONBOARDING WIZARD RELACIONADOS:");
-      for (const st of scoredSteps) {
-        lines.push(
-          `  • [${st.chapterTitle} -> ${st.title} (${st.routePath})]: ${st.body}`
-        );
-      }
-      lines.push("");
-    }
-
-    lines.push("🗺️ MAPA RÁPIDO DOS MÓDULOS DA BARRA LATERAL ESQUERDA (SIDEBAR):");
-    for (const chMeta of ONBOARDING_CHAPTER_META) {
-      const chCopy = ONBOARDING_CHAPTER_COPY[chMeta.id];
-      if (!chCopy) continue;
-      lines.push(`  • ${chCopy.title}: ${chCopy.summary}`);
     }
     lines.push("");
-
-    promptContext = lines.join("\n");
   }
 
+  if (scoredSteps.length > 0) {
+    lines.push("📘 PASSOS OFICIAIS DO ONBOARDING WIZARD RELACIONADOS:");
+    for (const st of scoredSteps) {
+      lines.push(
+        `  • [${st.chapterTitle} -> ${st.title} (${st.routePath})]: ${st.body}`
+      );
+    }
+    lines.push("");
+  }
+
+  lines.push("🗺️ MAPA RÁPIDO DOS MÓDULOS DA BARRA LATERAL ESQUERDA (SIDEBAR):");
+  for (const chMeta of ONBOARDING_CHAPTER_META) {
+    const chCopy = ONBOARDING_CHAPTER_COPY[chMeta.id];
+    if (!chCopy) continue;
+    lines.push(`  • ${chCopy.title}: ${chCopy.summary}`);
+  }
+  lines.push("");
+
+  const promptContext = lines.join("\n");
+
   return {
-    isSystemHowTo: effectiveIsSystemHowTo,
+    isSystemHowTo: true,
     matchedPlaybooks,
     matchedWizardSteps: scoredSteps.map(({ score: _score, ...rest }) => rest),
     promptContext,

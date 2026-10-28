@@ -89,22 +89,100 @@ function normalizeText(value: string): string {
     .trim();
 }
 
-function decodeHtmlEntities(input: string): string {
+const HTML_NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  amp: "&",
+  quot: '"',
+  apos: "'",
+  lt: "<",
+  gt: ">",
+  ndash: "–",
+  mdash: "—",
+  bull: "•",
+  hellip: "…",
+  deg: "°",
+  ordm: "º",
+  ordf: "ª",
+  sup2: "²",
+  sup3: "³",
+  times: "×",
+  divide: "÷",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  aacute: "á",
+  Aacute: "Á",
+  agrave: "à",
+  Agrave: "À",
+  acirc: "â",
+  Acirc: "Â",
+  atilde: "ã",
+  Atilde: "Ã",
+  auml: "ä",
+  Auml: "Ä",
+  eacute: "é",
+  Eacute: "É",
+  egrave: "è",
+  Egrave: "È",
+  ecirc: "ê",
+  Ecirc: "Ê",
+  euml: "ë",
+  Euml: "Ë",
+  iacute: "í",
+  Iacute: "Í",
+  igrave: "ì",
+  Igrave: "Ì",
+  icirc: "î",
+  Icirc: "Î",
+  iuml: "ï",
+  Iuml: "Ï",
+  oacute: "ó",
+  Oacute: "Ó",
+  ograve: "ò",
+  Ograve: "Ò",
+  ocirc: "ô",
+  Ocirc: "Ô",
+  otilde: "õ",
+  Otilde: "Õ",
+  ouml: "ö",
+  Ouml: "Ö",
+  uacute: "ú",
+  Uacute: "Ú",
+  ugrave: "ù",
+  Ugrave: "Ù",
+  ucirc: "û",
+  Ucirc: "Û",
+  uuml: "ü",
+  Uuml: "Ü",
+  ccedil: "ç",
+  Ccedil: "Ç",
+  ntilde: "ñ",
+  Ntilde: "Ñ",
+};
+
+function decodeHtmlEntitiesOnce(input: string): string {
   return (input || "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&ndash;/gi, "–")
-    .replace(/&mdash;/gi, "—")
-    .replace(/&bull;/gi, "•")
-    .replace(/&deg;/gi, "°")
     .replace(/&#(\d+);/g, (_m, dec) => {
       const code = Number(dec);
       return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&([a-zA-Z0-9]+);/g, (full, name) => {
+      if (name in HTML_NAMED_ENTITIES) return HTML_NAMED_ENTITIES[name];
+      const lower = name.toLowerCase();
+      if (lower in HTML_NAMED_ENTITIES) return HTML_NAMED_ENTITIES[lower];
+      return full;
     });
+}
+
+export function decodeHtmlEntities(input: string): string {
+  if (!input) return "";
+  // Duas passadas para cobrir entidades duplamente escapadas no cadastro VTEX (ex: &amp;eacute;)
+  return decodeHtmlEntitiesOnce(decodeHtmlEntitiesOnce(input));
 }
 
 function cleanHtmlToStructuredText(html: string, maxChars = 8000): string {
@@ -574,8 +652,15 @@ export function isVtexOrProductAssistantQuery(
   postalCode: string | null;
 } {
   const raw = `${userQuery || ""}`.trim();
-  const norm = normalizeText(raw);
-  const combinedNorm = normalizeText(`${raw} ${recentHistoryText || ""}`);
+  const primaryUserLine = raw.split("\n")[0] || raw;
+  const norm = normalizeText(primaryUserLine);
+  const isPronounFollowUp =
+    /\b(dela|dele|dessa\s+maquina|desse\s+modelo|desse\s+equipamento|dessa\s+ai|esse\s+modelo|essa\s+maquina)\b/i.test(
+      norm
+    );
+  const combinedNorm = isPronounFollowUp
+    ? normalizeText(`${primaryUserLine} ${recentHistoryText || ""}`)
+    : norm;
 
   const wantsProductLink =
     /\b(link|url|site|pagina|página|abrir no site|mandar o link|manda o link|link da maquina|link do produto|link na vtex|ver no site|preview)\b/i.test(
@@ -584,7 +669,7 @@ export function isVtexOrProductAssistantQuery(
 
   const wantsFullPageRead =
     wantsProductLink ||
-    /\b(mais informac|mais detalhe|tudo sobre|pagina toda|página toda|pagina inteira|página inteira|ler a pagina|le a pagina|leia a pagina|na vtex|no site|ficha completa|especificac|descricao completa|descrição completa|sobre a maquina|sobre o equipamento|sobre o modelo|me fala sobre|me explica sobre)\b/i.test(
+    /\b(informac|detalhe|tudo sobre|pagina toda|página toda|pagina inteira|página inteira|ler a pagina|le a pagina|leia a pagina|na vtex|no site|ficha completa|ficha tecnica|especificac|descricao completa|descrição completa|sobre a maquina|sobre o equipamento|sobre o modelo|me fala sobre|me explica sobre|sabe a maquina|conhece a maquina)\b/i.test(
       norm
     );
 
@@ -594,24 +679,24 @@ export function isVtexOrProductAssistantQuery(
     );
 
   const hasExplicitMachineToken =
-    /\b(maquina|maquinas|equipamento|equipamentos|seladora|envasadora|rotuladora|datador|empacotadora|dosadora|arqueadora|tunel|encolhimento|vacuo|encapsuladora|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|pratic\s*seal|vsf|apf|bsf|dzf?|dbf|dcgy|fql|pamq[a-z0-9]+|sku\s*\d+|[a-z]{2,5}[-_\s]?\d{2,5}[a-z0-9-]*)\b/i.test(
+    /\b(seladora|envasadora|rotuladora|datador|empacotadora|dosadora|arqueadora|tunel|encolhimento|vacuo|encapsuladora|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|pratic\s*seal|tc[-_\s]?20|vsf|apf|bsf|dzf?|dbf|dcgy|fql|pamq[a-z0-9]+|sku\s*\d+|[a-z]{2,5}[-_\s]?\d{2,5}[a-z0-9-]*)\b/i.test(
       combinedNorm
     );
 
-  const hasVtexUrl = /tecfag\.com\.br\/[^\s/]+\/p\b/i.test(raw);
-  const cepMatch = raw.match(/\b(\d{5})-?(\d{3})\b/);
+  const hasVtexUrl = /tecfag\.com\.br\/[^\s/]+\/p\b/i.test(primaryUserLine);
+  const cepMatch = primaryUserLine.match(/\b(\d{5})-?(\d{3})\b/);
   const postalCode = cepMatch ? `${cepMatch[1]}${cepMatch[2]}` : null;
 
-  // Ignora perguntas puramente sobre fila/clientes do CRM sem relação com máquinas
+  // Ignora perguntas sobre fila/clientes do CRM, avaliação de conversa ou guia de navegação do sistema
   const isPureQueueOrSystemHowTo =
-    /\b(clientes?\s+aguardando|fila\s+de\s+espera|como\s+eu\s+transfiro|como\s+posso\s+transferir|como\s+assumo|como\s+finalizo|concluir\s+diretriz)\b/i.test(
+    /\b(clientes?\s+(?:estao\s+|que\s+estao\s+)?aguardando|aguardando\s+minha\s+resposta|fila\s+de\s+espera|(?:avaliar|avalia|analisar|analisa|auditar)\s+(?:a\s+)?(?:minha\s+conversa|meu\s+atendimento|conversa\s+com|chat\s+com)|como\s+(?:eu\s+)?(?:faco|faço|posso|devo)\s+(?:para\s+)?(?:transferir|assumir|finalizar|vincular|criar|concluir)|onde\s+(?:fica|clico))\b/i.test(
       norm
     ) && !wantsPriceOrCommercial && !wantsProductLink && !hasVtexUrl;
 
   const shouldQueryVtex =
     !isPureQueueOrSystemHowTo &&
     (hasVtexUrl ||
-      wantsProductLink ||
+      (wantsProductLink && hasExplicitMachineToken) ||
       (wantsPriceOrCommercial && hasExplicitMachineToken) ||
       (wantsFullPageRead && hasExplicitMachineToken) ||
       /\b(vtex|sku\s*\d+|quanto\s+custa|qual\s+o\s+(?:preco|preço|valor))\b/i.test(norm));
@@ -629,36 +714,17 @@ export function isVtexOrProductAssistantQuery(
  * Localiza candidatos no Catálogo Oficial Tecfag (1.037 máquinas) para obter o SKU exato da VTEX,
  * código interno PAMQ e nome oficial do equipamento.
  */
-function findCatalogCandidatesForVtex(
-  userQuery: string,
-  recentHistoryText = "",
-  maxCandidates = 3
-): CatalogEntry[] {
-  const catalog = (defaultTecfagCatalog as CatalogEntry[]).filter(
-    (item) => item && item.active !== false
-  );
-  if (catalog.length === 0) return [];
-
-  const expandedUser = expandInternalCatalogCodesInText(userQuery || "");
-  const expandedHistory = expandInternalCatalogCodesInText(recentHistoryText || "");
-  const normUser = normalizeText(expandedUser);
+function scoreCatalogAgainstSource(
+  catalog: CatalogEntry[],
+  sourceText: string,
+  userDirectText: string
+): Array<{ item: CatalogEntry; score: number }> {
+  const normSource = normalizeText(sourceText);
+  const compactSource = normSource.replace(/[^a-z0-9]/g, "");
+  const normUser = normalizeText(userDirectText);
   const compactUser = normUser.replace(/[^a-z0-9]/g, "");
 
-  // Se a pergunta atual usa pronomes ("qual o valor dela?", "me passa o link dela", "preciso de mais informações dessa máquina"),
-  // usa também os modelos recentes do histórico
-  const isPronounFollowUp =
-    /\b(dela|dele|dessa\s+maquina|desse\s+modelo|desse\s+equipamento|dessa\s+ai|esse\s+modelo|essa\s+maquina|o\s+link|o\s+preco|o\s+valor)\b/i.test(
-      normUser
-    );
-
-  const searchSource = isPronounFollowUp
-    ? `${expandedUser} ${expandedHistory.slice(-1600)}`
-    : expandedUser;
-  const normSource = normalizeText(searchSource);
-  const compactSource = normSource.replace(/[^a-z0-9]/g, "");
-
-  // SKU explícito (ex: "SKU 865")
-  const explicitSkuMatch = searchSource.match(/\bsku\s*[:#-]?\s*(\d{1,8})\b/i);
+  const explicitSkuMatch = sourceText.match(/\bsku\s*[:#-]?\s*(\d{1,8})\b/i);
   const explicitSku = explicitSkuMatch ? explicitSkuMatch[1] : null;
 
   const modelRegexMatches =
@@ -693,6 +759,7 @@ function findCatalogCandidatesForVtex(
     "saber",
     "passa",
     "manda",
+    "mandou",
     "link",
     "site",
     "pagina",
@@ -708,6 +775,10 @@ function findCatalogCandidatesForVtex(
     "tem",
     "voce",
     "fagner",
+    "foto",
+    "dela",
+    "dele",
+    "sabe",
   ]);
 
   const queryTerms = Array.from(
@@ -726,58 +797,152 @@ function findCatalogCandidatesForVtex(
     const itemCodeNorm = normalizeText(item.code || "").replace(/[^a-z0-9]/g, "");
     const itemNameNorm = normalizeText(item.name || "");
     const itemNameCompact = itemNameNorm.replace(/[^a-z0-9]/g, "");
+    const itemDescNorm = normalizeText(item.description || "");
     const firstSegment = itemNameNorm.split(/\s+[-–—]\s+/)[0]?.trim() || "";
     const firstSegmentCompact = firstSegment.replace(/[^a-z0-9]/g, "");
+    const descModelMatch = itemDescNorm.match(/modelo\s*:\s*([^|\n]+)/);
+    const descModelNorm = descModelMatch?.[1]?.trim() || "";
+    const descModelCompact = descModelNorm.replace(/[^a-z0-9]/g, "");
 
     let score = 0;
 
     if (explicitSku && itemSku === explicitSku) {
-      score += 2500;
+      score += 2600;
     }
     if (itemCodeNorm && itemCodeNorm.length >= 5 && compactSource.includes(itemCodeNorm)) {
-      score += compactUser.includes(itemCodeNorm) ? 2000 : 1400;
+      score += compactUser.includes(itemCodeNorm) ? 2200 : 1400;
+    }
+
+    // Match direto no Modelo explícito da descrição do catálogo (ex: "Modelo: Pratic Seal")
+    if (descModelCompact && descModelCompact.length >= 4) {
+      if (
+        (descModelNorm.length >= 4 && normUser.includes(descModelNorm)) ||
+        compactUser.includes(descModelCompact)
+      ) {
+        score += 2300;
+      } else if (
+        (descModelNorm.length >= 4 && normSource.includes(descModelNorm)) ||
+        compactSource.includes(descModelCompact)
+      ) {
+        score += 1500;
+      }
+    }
+
+    // Frases compostas conhecidas como "seladora portatil" -> Seladora Portátil Super Rápida (TC-20)
+    if (
+      normSource.includes("seladora portatil") &&
+      itemNameNorm.includes("seladora portatil")
+    ) {
+      score += normUser.includes("seladora portatil") ? 1900 : 1300;
     }
 
     for (const cm of compactModels) {
-      if (firstSegmentCompact && firstSegmentCompact === cm) {
-        score += compactUser.includes(cm) ? 1600 : 1100;
-      } else if (itemNameCompact.includes(cm)) {
-        score += compactUser.includes(cm) ? 900 : 600;
+      if (
+        (firstSegmentCompact && firstSegmentCompact === cm) ||
+        (descModelCompact && descModelCompact === cm)
+      ) {
+        score += compactUser.includes(cm) ? 1700 : 1100;
+      } else if (itemNameCompact.includes(cm) || descModelCompact.includes(cm)) {
+        score += compactUser.includes(cm) ? 950 : 600;
       }
     }
 
     for (const term of queryTerms) {
       if (term === "vsf" && /\bvsf\b/.test(itemNameNorm)) {
-        // Prioriza a VSF pura ("Envasadora semiautomática de Pós VSF - 220V") quando perguntam "VSF" sem sufixo
         score += /\bvsf\s*-\s*\d/.test(itemNameNorm) ? 550 : 1200;
-      } else if (firstSegmentCompact && firstSegmentCompact === term && term.length >= 3) {
+      } else if (
+        (firstSegmentCompact && firstSegmentCompact === term && term.length >= 3) ||
+        (descModelCompact && descModelCompact === term && term.length >= 3)
+      ) {
         score += 1100;
+      } else if (descModelNorm && descModelNorm.split(/\s+/).includes(term) && term.length >= 4) {
+        score += 550;
       } else if (itemNameNorm.includes(term)) {
         score += /\d/.test(term) ? 240 : 85;
       }
     }
 
-    // Bônus se o item possui SKU VTEX mapeado
     if (score > 0 && itemSku) {
       score += 90;
     }
 
-    if (score >= 160) {
+    if (score >= 220) {
       scored.push({ item, score });
     }
   }
 
   scored.sort((a, b) => b.score - a.score);
+  return scored;
+}
 
-  // Deduplica por SKU ou nome base para não buscar 3 voltagens idênticas se houver outros modelos
+function findCatalogCandidatesForVtex(
+  userQuery: string,
+  recentHistoryText = "",
+  maxCandidates = 3
+): CatalogEntry[] {
+  const catalog = (defaultTecfagCatalog as CatalogEntry[]).filter(
+    (item) => item && item.active !== false
+  );
+  if (catalog.length === 0) return [];
+
+  // Usa primeiro APENAS a pergunta do usuário (1ª linha antes de eventual texto da resposta)
+  const rawUserLine = (userQuery || "").split("\n")[0] || userQuery || "";
+  const expandedUserOnly = expandInternalCatalogCodesInText(rawUserLine);
+  const expandedFullUser = expandInternalCatalogCodesInText(userQuery || "");
+
+  let scored = scoreCatalogAgainstSource(catalog, expandedUserOnly, expandedUserOnly);
+
+  // Se a 1ª linha do usuário não teve match forte, tenta o texto completo do turno atual (sem histórico antigo)
+  if ((scored.length === 0 || scored[0].score < 600) && expandedFullUser !== expandedUserOnly) {
+    const scoredFullTurn = scoreCatalogAgainstSource(catalog, expandedFullUser, expandedUserOnly);
+    if (scoredFullTurn.length > 0 && (scored.length === 0 || scoredFullTurn[0].score > scored[0].score)) {
+      scored = scoredFullTurn;
+    }
+  }
+
+  // Só recorre ao histórico recente se a pergunta atual NÃO identificou máquina específica
+  // E o usuário usou pronome referencial ("qual o valor dela?", "me manda o link dela")
+  const normUserOnly = normalizeText(rawUserLine);
+  const isUserPronounFollowUp =
+    /\b(dela|dele|dessa\s+maquina|desse\s+modelo|desse\s+equipamento|dessa\s+ai|esse\s+modelo|essa\s+maquina|o\s+link|o\s+preco|o\s+valor|que\s+(?:vc|voce)\s+mandou)\b/i.test(
+      normUserOnly
+    );
+
+  if ((scored.length === 0 || scored[0].score < 600) && isUserPronounFollowUp && recentHistoryText) {
+    const cleanedHistory = recentHistoryText.replace(
+      /Segue\s+abaixo\s+o\s+link\s+direto\s+e\s+a\s+pr[eé]via\s+oficial\s+da\s+[^\n]+/gi,
+      " "
+    );
+    const expandedHistory = expandInternalCatalogCodesInText(cleanedHistory.slice(-1600));
+    const scoredWithHistory = scoreCatalogAgainstSource(
+      catalog,
+      `${expandedUserOnly} ${expandedHistory}`,
+      expandedUserOnly
+    );
+    if (scoredWithHistory.length > 0) {
+      scored = scoredWithHistory;
+    }
+  }
+
+  if (scored.length === 0) return [];
+
+  // Quando há um match forte e específico (ex: Pratic Seal, VSF2000, VSF-30S),
+  // retorna APENAS o equipamento correspondente (sem pendurar abas de máquinas aleatórias)
+  const topScore = scored[0].score;
+  const filteredScored =
+    topScore >= 900
+      ? scored.filter((entry) => entry.score >= topScore * 0.85)
+      : scored;
+  const effectiveMax = topScore >= 900 ? 1 : maxCandidates;
+
   const picked: CatalogEntry[] = [];
   const seenKeys = new Set<string>();
-  for (const { item } of scored) {
+  for (const { item } of filteredScored) {
     const key = item.sku || item.code || item.id;
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
     picked.push(item);
-    if (picked.length >= maxCandidates) break;
+    if (picked.length >= effectiveMax) break;
   }
 
   return picked;
@@ -830,7 +995,7 @@ export async function lookupVtexProductsForAssistant(options: {
   const seenProductIds = new Set<string>();
 
   // 1. Verifica se o operador colou um link direto da VTEX (ex: https://www.tecfag.com.br/envasadora.../p)
-  const urlSlugMatch = `${userQuery} ${recentHistoryText}`.match(
+  const urlSlugMatch = `${userQuery}`.match(
     /tecfag\.com\.br\/([^\s/?#]+)\/p\b/i
   );
   if (urlSlugMatch?.[1]) {
@@ -942,9 +1107,15 @@ export async function lookupVtexProductsForAssistant(options: {
     }
   }
 
-  // 4. Fallback: Busca full-text direta na VTEX se não achou pelo catálogo local
-  if (products.length === 0) {
-    const cleanedQuery = userQuery
+  // 4. Fallback: Busca full-text direta na VTEX APENAS se a pergunta do usuário menciona explicitamente uma categoria de máquina
+  const rawUserFirstLine = (userQuery || "").split("\n")[0] || "";
+  if (
+    products.length === 0 &&
+    /\b(seladora|envasadora|empacotadora|datador|rotuladora|dosadora|arqueadora|encapsuladora|tunel|cartonadora|fechadora)\b/i.test(
+      rawUserFirstLine
+    )
+  ) {
+    const cleanedQuery = rawUserFirstLine
       .replace(
         /\b(qual|quais|quanto|custa|valor|preco|preço|da|do|de|na|no|vtex|site|link|me|passa|manda|fala|sobre|mais|informacoes|informações|detalhes|preciso|saber|ler|pagina|página|inteira|toda|maquina|máquina|equipamento)\b/gi,
         " "
@@ -953,16 +1124,16 @@ export async function lookupVtexProductsForAssistant(options: {
       .replace(/\s+/g, " ")
       .trim();
 
-    if (cleanedQuery.length >= 2) {
-      const ftUrl = `${baseApiUrl}/api/catalog_system/pub/products/search?ft=${encodeURIComponent(cleanedQuery.slice(0, 70))}&_from=0&_to=3&sc=${encodeURIComponent(settings.salesChannel)}`;
+    if (cleanedQuery.length >= 3) {
+      const ftUrl = `${baseApiUrl}/api/catalog_system/pub/products/search?ft=${encodeURIComponent(cleanedQuery.slice(0, 70))}&_from=0&_to=2&sc=${encodeURIComponent(settings.salesChannel)}`;
       const payload = await fetchJsonWithTimeout(
         ftUrl,
         { method: "GET", headers },
         settings.timeoutMs
       );
       const rows = Array.isArray(payload) ? payload : [];
-      for (const row of rows.slice(0, 2)) {
-        const parsed = parseVtexApiProductRow(row, settings, null, null);
+      if (rows[0]) {
+        const parsed = parseVtexApiProductRow(rows[0], settings, null, null);
         if (parsed && !seenProductIds.has(parsed.productId)) {
           seenProductIds.add(parsed.productId);
           products.push(parsed);

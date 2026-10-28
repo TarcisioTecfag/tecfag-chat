@@ -2772,6 +2772,47 @@ export function CrmChatWidget() {
                               );
                             }
 
+                            const isStandaloneVtexMessage = Boolean(
+                              message.vtexProductPreview &&
+                                !message.isWarning &&
+                                (!message.text?.trim() ||
+                                  /^Segue\s+abaixo\s+o\s+link\s+direto\s+e\s+a\s+pr[eé]via\s+oficial\s+da\s+/i.test(
+                                    message.text.trim()
+                                  ))
+                            );
+                            if (isStandaloneVtexMessage && message.vtexProductPreview) {
+                              return (
+                                <div key={message.id || i} className="flex items-end gap-2 w-full min-w-0 group mt-2">
+                                  {selected.id === "valentina" ? (
+                                    <AiAvatar
+                                      tenantId={tenant}
+                                      className="h-6 w-6 shrink-0 rounded-full border border-border/80 shadow-xs mb-1"
+                                    />
+                                  ) : (
+                                    <CustomerAvatar
+                                      avatar={selected.avatar}
+                                      name={selected.name}
+                                      initials={selected.initials}
+                                      initialsBg={selected.initialsBg}
+                                      channel={selected.channel}
+                                      size="xs"
+                                      showChannel={false}
+                                      className="mb-1"
+                                    />
+                                  )}
+                                  <div className="min-w-0 max-w-[90%]">
+                                    <VtexProductPreviewCard
+                                      preview={message.vtexProductPreview}
+                                      previews={message.vtexProductPreviews}
+                                      onMediaClick={(_type, url) => setPreviewImage(url)}
+                                      compact
+                                      standalone
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            }
+
                             // Mensagem do Cliente / Assistente IA (Recebida) com Foto ao Lado
                             return (
                               <div key={message.id || i} className="flex items-end gap-2 w-full min-w-0 group">
