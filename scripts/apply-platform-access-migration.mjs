@@ -240,6 +240,26 @@ if (!databaseUrl) {
         console.log(`[platform migration] ${migration.name} aplicada com sucesso.`);
       }
     });
+
+    // 2. Reset Zero-Day operacional do tenant Tecfag (Negociações, Contatos, Empresas, Tarefas e Conversas)
+    // Executa APENAS UMA VEZ por ambiente (controlado via app_deploy_migrations)
+    const tecfagZeroDayResetName = "reset_tecfag_zero_day_2026_10_28";
+    const [appliedZeroDayReset] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagZeroDayResetName}
+    `;
+    if (!appliedZeroDayReset) {
+      console.log(`[platform migration] Iniciando execução única de ${tecfagZeroDayResetName}...`);
+      const { runTenantReset } = await import("./reset-tenant-data.mjs");
+      await runTenantReset(sql, "tecfag", { isDryRun: false });
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${tecfagZeroDayResetName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(`[platform migration] ${tecfagZeroDayResetName} concluída e registrada com sucesso.`);
+    } else {
+      console.log(`[platform migration] ${tecfagZeroDayResetName} já aplicada anteriormente.`);
+    }
   } catch (error) {
     console.error(
       "[platform migration] Falha crítica ao aplicar migrações estruturais DDL:",
