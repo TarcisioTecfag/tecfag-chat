@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
+import { ProfilePopover } from "@/components/chat/ProfileModal";
+import { AccountDetailModal } from "@/components/crm/AccountDetailModal";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { CommercialEvidenceDialog } from "./CommercialEvidenceDialog";
 import { CommercialHomeSkeleton } from "./CommercialHomeSkeleton";
 import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
@@ -12,10 +17,13 @@ import {
   ArrowUpRight,
   Bell,
   BriefcaseBusiness,
+  Building2,
   Calendar,
   CalendarDays,
   Check,
+  CheckCheck,
   CheckCircle2,
+  ClipboardList,
   Clock3,
   ExternalLink,
   Flame,
@@ -23,11 +31,12 @@ import {
   Loader2,
   Mail,
   MessageSquare,
-  MessageSquareText,
   Phone,
   RefreshCw,
+  Search,
   Target,
   TrendingUp,
+  User,
   X,
 } from "lucide-react";
 
@@ -64,29 +73,78 @@ type CommercialHome = {
   activities: Array<{
     id: string;
     title: string;
+    type?: string;
+    description?: string | null;
+    status?: string;
     dueDate: string | null;
+    completedAt?: string | null;
+    createdAt?: string | null;
+    overdue?: boolean;
     dealId: string;
     dealTitle: string;
+    dealValue?: number;
+    pipelineId?: string | null;
+    pipelineName?: string | null;
+    stageId?: string | null;
+    stageName?: string | null;
+    accountId?: string | null;
+    accountName?: string | null;
+    accountDocument?: string | null;
+    contactId?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    conversationId?: string | null;
+    assignedByOperatorName?: string | null;
   }>;
   directives: Array<{
     id: string;
     dealId: string;
     dealTitle: string;
     dealValue: number;
+    pipelineId?: string | null;
+    pipelineName?: string | null;
+    stageId?: string | null;
     stageName?: string | null;
+    accountId?: string | null;
+    accountName?: string | null;
+    accountDocument?: string | null;
+    contactId?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    conversationId?: string | null;
     instruction: string;
     priority: string;
     assignedDate: string;
+    assignedByOperatorId?: string | null;
+    assignedByOperatorName?: string | null;
+    createdAt?: string | null;
     dueAt: string | null;
     status: string;
     completedAt?: string | null;
     completionNote?: string | null;
     evidenceChannel?: string | null;
+    notificationReadAt?: string | null;
     overdue: boolean;
   }>;
 };
 
 type Filter = "Todas" | "Atrasadas" | "Alta" | "Hoje" | "Concluídas";
+type AgendaModalFilter = "todos" | "tarefas" | "responsabilidades" | "atrasadas";
+
+function formatTaskTypeLabel(type?: string | null): string {
+  switch ((type || "task").toLowerCase()) {
+    case "call":
+      return "Ligação";
+    case "meeting":
+      return "Reunião";
+    case "email":
+      return "E-mail";
+    case "whatsapp":
+      return "WhatsApp";
+    default:
+      return "Tarefa";
+  }
+}
 
 function formatBRL(val: number | string | null | undefined): string {
   const num = typeof val === "string" ? parseFloat(val) : Number(val || 0);
@@ -237,7 +295,14 @@ export function CommercialHomeView({
   isManagementPreview = false,
   onBack,
 }: CommercialHomeViewProps = {}) {
-  const { tenant, setActiveView } = useChat();
+  const {
+    tenant,
+    setActiveView,
+    setSelectedChatId,
+    setActiveQueue,
+    refreshConversations,
+    operatorProfile,
+  } = useChat();
   const navigate = useNavigate();
   const [data, setData] = useState<CommercialHome | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,6 +315,50 @@ export function CommercialHomeView({
     CommercialHome["directives"][number] | null
   >(null);
   const [isAgendaModalOpen, setIsAgendaModalOpen] = useState(false);
+  const [agendaModalFilter, setAgendaModalFilter] = useState<AgendaModalFilter>("todos");
+  const [agendaSearch, setAgendaSearch] = useState("");
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [startingChatKey, setStartingChatKey] = useState<string | null>(null);
+
+  const readStorageKey = useMemo(
+    () => `valem_home_read_directives_${tenant || "tecfag"}_${operatorId || "self"}`,
+    [tenant, operatorId],
+  );
+
+  const [readDirectiveIds, setReadDirectiveIds] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = window.localStorage.getItem(
+        `valem_home_read_directives_${tenant || "tecfag"}_${operatorId || "self"}`,
+      );
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return new Set(parsed.filter((x) => typeof x === "string"));
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return new Set();
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(readStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setReadDirectiveIds(new Set(parsed.filter((x) => typeof x === "string")));
+          return;
+        }
+      }
+      setReadDirectiveIds(new Set());
+    } catch {
+      setReadDirectiveIds(new Set());
+    }
+  }, [readStorageKey]);
+
   useTrainingSurface("home", (step) => {
     if (loading || !data) return false;
     setIsAgendaModalOpen(step.id === "home.agenda-modal");
@@ -298,12 +407,94 @@ export function CommercialHomeView({
     return () => controller.abort();
   }, [load, tenant, operatorId]);
 
+  const handleRefreshPage = useCallback(() => {
+    if (
+      (typeof document !== "undefined" && document.documentElement.dataset.trainingInstalled) ||
+      isManagementPreview
+    ) {
+      void load();
+      return;
+    }
+    setLoading(true);
+    window.location.reload();
+  }, [isManagementPreview, load]);
+
   const openDeal = (dealId: string) =>
     navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
 
   const openCrm = () => {
     setActiveView("crm");
     navigate({ to: "/negociacoes/quadro" as any });
+  };
+
+  const handleOpenCompany = (accountId?: string | null) => {
+    if (accountId) {
+      setSelectedAccountId(accountId);
+      return;
+    }
+    toast.info("Esta negociação ainda não possui empresa vinculada. Abrindo lista de empresas...");
+    setActiveView("contacts");
+    navigate({ to: "/clientes/empresas" as any });
+  };
+
+  const handleOpenChatForItem = async (item: {
+    id: string;
+    dealId: string;
+    conversationId?: string | null;
+    contactId?: string | null;
+  }) => {
+    if (item.conversationId) {
+      setIsAgendaModalOpen(false);
+      setIsNotificationsOpen(false);
+      setSelectedChatId(item.conversationId);
+      setActiveView("chat");
+      navigate({ to: "/conversas" as any });
+      return;
+    }
+
+    if (item.contactId) {
+      try {
+        setStartingChatKey(item.id);
+        const res = await fetch(
+          `/api/contacts/${encodeURIComponent(item.contactId)}/conversations`,
+          {
+            method: "POST",
+            credentials: "include",
+          },
+        );
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok || !payload.conversationId) {
+          throw new Error(payload.error || "Não foi possível abrir o atendimento deste contato.");
+        }
+        if (refreshConversations) {
+          await refreshConversations(payload.conversationId);
+        }
+        const queue = payload.readOnly
+          ? payload.queueState === "fila"
+            ? "fila"
+            : payload.queueState === "automacao"
+              ? "automacao"
+              : "todos"
+          : "meus";
+        setIsAgendaModalOpen(false);
+        setIsNotificationsOpen(false);
+        setActiveQueue(queue);
+        setSelectedChatId(payload.conversationId);
+        setActiveView("chat");
+        navigate({ to: "/conversas" as any });
+        return;
+      } catch (err: any) {
+        toast.error(err?.message || "Não foi possível iniciar o chat com este contato.");
+      } finally {
+        setStartingChatKey(null);
+      }
+      return;
+    }
+
+    toast.info("Nenhum contato com WhatsApp/Chat vinculado a esta negociação. Abrindo no CRM...");
+    setIsAgendaModalOpen(false);
+    setIsNotificationsOpen(false);
+    openDeal(item.dealId);
   };
 
   // Dados calculados para exibição
@@ -330,7 +521,12 @@ export function CommercialHomeView({
   }, [now]);
 
   const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
-  const consultantName = data?.consultant.name || "Consultor";
+  const consultantName =
+    (!isManagementPreview && operatorProfile?.name) || data?.consultant.name || "Consultor";
+  const consultantAvatar =
+    (!isManagementPreview && operatorProfile?.avatar) ||
+    data?.consultant.avatar ||
+    getDeterministicConsultantAvatar(consultantName);
   const consultantFirstName = consultantName.trim().split(/\s+/)[0];
 
   const directives = useMemo(() => data?.directives || [], [data?.directives]);
@@ -348,6 +544,85 @@ export function CommercialHomeView({
   const totalActionsCount = openActionsCount + completedDirectives.length;
   const progressRatio =
     totalActionsCount > 0 ? (completedDirectives.length / totalActionsCount) * 100 : 0;
+
+  // Notificações reais das responsabilidades alocadas pelo gestor
+  const isDirectiveNotificationRead = useCallback(
+    (dir: CommercialHome["directives"][number]) => {
+      return (
+        dir.status === "completed" ||
+        Boolean(dir.notificationReadAt) ||
+        readDirectiveIds.has(dir.id)
+      );
+    },
+    [readDirectiveIds],
+  );
+
+  const unreadDirectives = useMemo(
+    () => directives.filter((d) => !isDirectiveNotificationRead(d)),
+    [directives, isDirectiveNotificationRead],
+  );
+  const unreadNotificationsCount = unreadDirectives.length;
+
+  const sortedNotificationDirectives = useMemo(() => {
+    return [...directives].sort((a, b) => {
+      const aUnread = !isDirectiveNotificationRead(a) ? 1 : 0;
+      const bUnread = !isDirectiveNotificationRead(b) ? 1 : 0;
+      if (aUnread !== bUnread) return bUnread - aUnread;
+      const aTime = a.createdAt || a.assignedDate || "";
+      const bTime = b.createdAt || b.assignedDate || "";
+      return bTime.localeCompare(aTime);
+    });
+  }, [directives, isDirectiveNotificationRead]);
+
+  const markNotificationsRead = useCallback(
+    async (targetIds?: string[], markAll = false) => {
+      const idsToMark = markAll
+        ? directives.map((d) => d.id)
+        : (targetIds || []).filter(Boolean);
+      if (idsToMark.length === 0) return;
+
+      const nowIso = new Date().toISOString();
+      setReadDirectiveIds((prev) => {
+        const next = new Set(prev);
+        for (const id of idsToMark) next.add(id);
+        if (typeof window !== "undefined") {
+          try {
+            window.localStorage.setItem(readStorageKey, JSON.stringify(Array.from(next)));
+          } catch {
+            // ignore storage errors
+          }
+        }
+        return next;
+      });
+
+      setData((prev) => {
+        if (!prev) return prev;
+        const idSet = new Set(idsToMark);
+        return {
+          ...prev,
+          directives: prev.directives.map((d) =>
+            markAll || idSet.has(d.id) ? { ...d, notificationReadAt: nowIso } : d,
+          ),
+        };
+      });
+
+      try {
+        await fetch("/api/commercial/home", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            operatorId,
+            directiveIds: idsToMark,
+            markAll,
+          }),
+        });
+      } catch {
+        // Persistência local já garante feedback imediato
+      }
+    },
+    [directives, operatorId, readStorageKey],
+  );
 
   // Abas de diretrizes com suporte a navegação rápida por teclado
   const directiveTabs = useMemo<Filter[]>(() => {
@@ -388,6 +663,101 @@ export function CommercialHomeView({
     if (filter === "Concluídas") return completedDirectives;
     return pendingDirectives;
   }, [completedDirectives, data?.today, filter, pendingDirectives]);
+
+  // Itens unificados para a Agenda de Hoje (Tarefas + Responsabilidades)
+  const unifiedAgendaItems = useMemo(() => {
+    const acts = (data?.activities || []).map((act) => ({
+      uid: `task-${act.id}`,
+      id: act.id,
+      kind: "task" as const,
+      title: act.title,
+      subtitle: act.description || null,
+      taskType: act.type || "task",
+      status: act.status || "pending",
+      overdue: Boolean(act.overdue),
+      priority: act.overdue ? "high" : "normal",
+      dueDate: act.dueDate,
+      assignedDate: act.dueDate ? act.dueDate.slice(0, 10) : data?.today || "",
+      dealId: act.dealId,
+      dealTitle: act.dealTitle,
+      dealValue: Number(act.dealValue ?? 0),
+      pipelineName: act.pipelineName ?? null,
+      stageName: act.stageName ?? null,
+      accountId: act.accountId ?? null,
+      accountName: act.accountName ?? null,
+      accountDocument: act.accountDocument ?? null,
+      contactId: act.contactId ?? null,
+      contactName: act.contactName ?? null,
+      contactPhone: act.contactPhone ?? null,
+      conversationId: act.conversationId ?? null,
+      assignedByOperatorName: act.assignedByOperatorName ?? null,
+      rawDirective: null as CommercialHome["directives"][number] | null,
+    }));
+
+    const dirs = directives.map((dir) => ({
+      uid: `dir-${dir.id}`,
+      id: dir.id,
+      kind: "directive" as const,
+      title: dir.instruction || "GESTOR PONTUOU ATENÇÃO E EXECUÇÃO NESSA NEGOCIAÇÃO",
+      subtitle: dir.completionNote || null,
+      taskType: "directive",
+      status: dir.status,
+      overdue: Boolean(dir.overdue),
+      priority: dir.priority || "normal",
+      dueDate: dir.dueAt,
+      assignedDate: dir.assignedDate,
+      dealId: dir.dealId,
+      dealTitle: dir.dealTitle,
+      dealValue: Number(dir.dealValue ?? 0),
+      pipelineName: dir.pipelineName ?? null,
+      stageName: dir.stageName ?? null,
+      accountId: dir.accountId ?? null,
+      accountName: dir.accountName ?? null,
+      accountDocument: dir.accountDocument ?? null,
+      contactId: dir.contactId ?? null,
+      contactName: dir.contactName ?? null,
+      contactPhone: dir.contactPhone ?? null,
+      conversationId: dir.conversationId ?? null,
+      assignedByOperatorName: dir.assignedByOperatorName || "Gestão Comercial",
+      rawDirective: dir,
+    }));
+
+    return [...acts, ...dirs];
+  }, [data?.activities, data?.today, directives]);
+
+  const filteredAgendaItems = useMemo(() => {
+    const q = agendaSearch.trim().toLowerCase();
+    return unifiedAgendaItems.filter((item) => {
+      if (agendaModalFilter === "tarefas" && item.kind !== "task") return false;
+      if (agendaModalFilter === "responsabilidades" && item.kind !== "directive") return false;
+      if (agendaModalFilter === "atrasadas" && !item.overdue) return false;
+      if (!q) return true;
+      return (
+        item.dealTitle.toLowerCase().includes(q) ||
+        item.title.toLowerCase().includes(q) ||
+        (item.accountName && item.accountName.toLowerCase().includes(q)) ||
+        (item.contactName && item.contactName.toLowerCase().includes(q)) ||
+        (item.stageName && item.stageName.toLowerCase().includes(q))
+      );
+    });
+  }, [agendaModalFilter, agendaSearch, unifiedAgendaItems]);
+
+  const totalAgendaValue = useMemo(() => {
+    const seenDeals = new Set<string>();
+    let sum = 0;
+    for (const item of unifiedAgendaItems) {
+      if (!seenDeals.has(item.dealId)) {
+        seenDeals.add(item.dealId);
+        sum += Number(item.dealValue || 0);
+      }
+    }
+    return sum;
+  }, [unifiedAgendaItems]);
+
+  const overdueAgendaCount = useMemo(
+    () => unifiedAgendaItems.filter((i) => i.overdue && i.status !== "completed").length,
+    [unifiedAgendaItems],
+  );
 
   // Cálculos do Calendário Comercial
   const calendarData = useMemo(() => {
@@ -540,62 +910,325 @@ export function CommercialHomeView({
 
             {/* Ações Rápidas de Topo com Animações Fluidas */}
             <div className="flex items-center gap-1.5 sm:gap-2">
-              <motion.button
-                data-tour="home.refresh"
-                whileHover={{ scale: 1.1, rotate: 60 }}
-                whileTap={{ scale: 0.9 }}
-                transition={{ duration: 0.2 }}
-                onClick={() => void load()}
-                disabled={loading}
-                className="border border-border bg-card p-2 text-muted-foreground hover:border-border hover:text-foreground cursor-pointer rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-400 dark:hover:text-zinc-50 transition-colors shadow-sm"
-              >
-                <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-              </motion.button>
+              <SystemTooltip content="Recarregar página">
+                <motion.button
+                  type="button"
+                  data-tour="home.refresh"
+                  whileHover={{ scale: 1.08, rotate: 60 }}
+                  whileTap={{ scale: 0.92 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={handleRefreshPage}
+                  disabled={loading}
+                  aria-label="Recarregar página"
+                  className="border border-border bg-card p-2 text-muted-foreground hover:border-primary/40 hover:text-foreground cursor-pointer rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-400 dark:hover:text-zinc-50 transition-colors shadow-sm"
+                >
+                  <RefreshCw size={15} className={loading ? "animate-spin text-primary" : ""} />
+                </motion.button>
+              </SystemTooltip>
 
-              <motion.button
-                whileHover={{ scale: 1.1, rotate: overdueActionsCount > 0 ? [0, -8, 8, -4, 0] : 0 }}
-                whileTap={{ scale: 0.9 }}
-                transition={{ duration: 0.25 }}
-                data-tour="home.overdue" onClick={() => setFilter("Atrasadas")}
-                className={`relative border p-2 text-muted-foreground hover:border-border hover:text-foreground cursor-pointer rounded-[4px] transition-colors dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-400 dark:hover:text-zinc-50 shadow-sm ${
-                  overdueActionsCount > 0
-                    ? "border-red-600/80 bg-red-50 text-red-600 dark:border-red-600/80 dark:bg-red-950/40 dark:text-red-300"
-                    : "border-border bg-card"
-                }`}
-              >
-                <Bell size={16} strokeWidth={1.8} className={overdueActionsCount > 0 ? "text-red-500" : ""} />
-                <span
-                  className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${
-                    overdueActionsCount > 0 ? "bg-red-500 animate-ping" : "bg-primary"
-                  }`}
-                />
-                {overdueActionsCount > 0 && (
-                  <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-red-500" />
-                )}
-              </motion.button>
+              {/* Sino de Notificações Reais (Responsabilidades alocadas pelo gestor) */}
+              <Popover open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
+                <SystemTooltip
+                  content={
+                    unreadNotificationsCount > 0
+                      ? `${unreadNotificationsCount} responsabilidade(s) não lida(s)`
+                      : "Notificações recentes"
+                  }
+                >
+                  <PopoverTrigger asChild>
+                    <motion.button
+                      type="button"
+                      data-tour="home.overdue"
+                      whileHover={{
+                        scale: 1.08,
+                        rotate: unreadNotificationsCount > 0 ? [0, -8, 8, -4, 0] : 0,
+                      }}
+                      whileTap={{ scale: 0.92 }}
+                      transition={{ duration: 0.25 }}
+                      onClick={() => {
+                        if (
+                          typeof document !== "undefined" &&
+                          document.documentElement.dataset.trainingInstalled
+                        ) {
+                          setFilter("Atrasadas");
+                        }
+                      }}
+                      aria-label="Notificações recentes"
+                      className={`relative border p-2 cursor-pointer rounded-[4px] transition-colors shadow-sm ${
+                        unreadNotificationsCount > 0
+                          ? "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 dark:border-rose-700/80 dark:bg-rose-950/35 dark:text-rose-300"
+                          : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-400 dark:hover:text-zinc-50"
+                      }`}
+                    >
+                      <Bell
+                        size={16}
+                        strokeWidth={1.8}
+                        className={unreadNotificationsCount > 0 ? "text-primary" : ""}
+                      />
+                      {unreadNotificationsCount > 0 && (
+                        <span className=" -right-1.5 -top-1.5 absolute inline-flex min-w-[20px] h-[17px] items-center justify-center rounded-full bg-primary px-1 font-mono text-[10px] font-bold leading-none text-primary-foreground shadow-sm ring-2 ring-background">
+                          +{unreadNotificationsCount}
+                        </span>
+                      )}
+                    </motion.button>
+                  </PopoverTrigger>
+                </SystemTooltip>
 
-              {/* Chip do Consultor */}
-              <motion.div
-                whileHover={{ scale: 1.03, y: -1 }}
-                transition={{ duration: 0.15 }}
-                className="flex items-center gap-2 border border-border bg-card px-2 sm:px-2.5 py-1.5 text-left rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950/70 shadow-sm cursor-default"
-              >
-                <img
-                  src={data?.consultant.avatar || getDeterministicConsultantAvatar(consultantName)}
-                  alt={consultantName}
-                  className="size-6 rounded-[2px] object-cover border border-border dark:border-zinc-700"
-                  onError={(e) => {
-                    const img = e.currentTarget;
-                    const fallback = getDeterministicConsultantAvatar(consultantName);
-                    if (img.src !== fallback) {
-                      img.src = fallback;
-                    }
-                  }}
-                />
-                <span className="hidden text-xs font-semibold text-foreground dark:text-zinc-300 sm:inline">
-                  {consultantName}
-                </span>
-              </motion.div>
+                <PopoverContent
+                  align="end"
+                  sideOffset={8}
+                  collisionPadding={16}
+                  className="w-[400px] max-w-[calc(100vw-24px)] p-0 rounded-xl bg-card/95 backdrop-blur-xl border border-border shadow-2xl z-[180] overflow-hidden text-foreground select-none"
+                >
+                  <div className="flex items-center justify-between border-b border-border/80 bg-muted/30 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/50">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-[4px] border border-primary/30 bg-primary/10 text-primary">
+                        <Bell size={14} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-foreground">
+                            Notificações Recentes
+                          </span>
+                          {unreadNotificationsCount > 0 && (
+                            <span className="rounded-full bg-primary/15 border border-primary/30 px-1.5 py-0.5 font-mono text-[10px] font-bold text-primary">
+                              +{unreadNotificationsCount} nova(s)
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground truncate">
+                          Responsabilidades alocadas pela Gestão Comercial
+                        </p>
+                      </div>
+                    </div>
+
+                    {unreadNotificationsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => void markNotificationsRead(undefined, true)}
+                        className="shrink-0 inline-flex items-center gap-1 rounded-[4px] border border-border bg-card px-2 py-1 text-[10px] font-bold text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors cursor-pointer"
+                      >
+                        <CheckCheck size={12} />
+                        Marcar todas como lidas
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-[410px] overflow-y-auto divide-y divide-border/70 dark:divide-zinc-800/80">
+                    {sortedNotificationDirectives.length > 0 ? (
+                      sortedNotificationDirectives.map((notif) => {
+                        const isRead = isDirectiveNotificationRead(notif);
+                        const isDone = notif.status === "completed";
+                        const dateLabel = notif.assignedDate
+                          ? `${notif.assignedDate.slice(8, 10)}/${notif.assignedDate.slice(5, 7)}/${notif.assignedDate.slice(0, 4)}`
+                          : "Hoje";
+
+                        return (
+                          <div
+                            key={notif.id}
+                            className={`p-3.5 transition-colors ${
+                              !isRead
+                                ? "bg-primary/5 hover:bg-primary/10 dark:bg-rose-950/15 dark:hover:bg-rose-950/25"
+                                : "bg-card hover:bg-muted/40 dark:bg-zinc-950/40"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {!isRead && (
+                                  <span className="size-2 shrink-0 rounded-full bg-primary animate-pulse" />
+                                )}
+                                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-primary truncate">
+                                  Responsabilidade Alocada
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">·</span>
+                                <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                                  {dateLabel}
+                                </span>
+                              </div>
+                              <PriorityPill priority={notif.priority} />
+                            </div>
+
+                            <div className="mt-1.5 flex items-baseline justify-between gap-2">
+                              <h4 className="text-xs font-bold text-foreground truncate">
+                                {notif.dealTitle}
+                              </h4>
+                              <span className="font-mono text-xs font-bold text-emerald-500 shrink-0">
+                                {formatBRL(notif.dealValue)}
+                              </span>
+                            </div>
+
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+                              {notif.stageName && (
+                                <span className="font-medium text-foreground/80">
+                                  Etapa: {notif.stageName}
+                                </span>
+                              )}
+                              {notif.accountName && (
+                                <>
+                                  <span>·</span>
+                                  <span className="truncate max-w-[180px]">
+                                    Empresa: {notif.accountName}
+                                  </span>
+                                </>
+                              )}
+                              {notif.assignedByOperatorName && (
+                                <>
+                                  <span>·</span>
+                                  <span>Por: {notif.assignedByOperatorName}</span>
+                                </>
+                              )}
+                            </div>
+
+                            <p className="mt-2 rounded-[4px] border border-border/60 bg-muted/40 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground dark:border-zinc-800 dark:bg-zinc-900/60">
+                              {notif.instruction ||
+                                "GESTOR PONTUOU ATENÇÃO E EXECUÇÃO NESSA NEGOCIAÇÃO"}
+                            </p>
+
+                            <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!isRead) void markNotificationsRead([notif.id], false);
+                                    setIsNotificationsOpen(false);
+                                    openDeal(notif.dealId);
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-[4px] border border-border bg-card px-2 py-1 text-[10px] font-bold text-foreground hover:border-primary/40 hover:text-primary transition-colors cursor-pointer"
+                                >
+                                  <ExternalLink size={11} />
+                                  Abrir CRM
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={startingChatKey === notif.id}
+                                  onClick={() => {
+                                    if (!isRead) void markNotificationsRead([notif.id], false);
+                                    void handleOpenChatForItem(notif);
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-[4px] border border-border bg-card px-2 py-1 text-[10px] font-bold text-foreground hover:border-primary/40 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  {startingChatKey === notif.id ? (
+                                    <Loader2 size={11} className="animate-spin" />
+                                  ) : (
+                                    <MessageSquare size={11} />
+                                  )}
+                                  Chat
+                                </button>
+                                {!isDone && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!isRead) void markNotificationsRead([notif.id], false);
+                                      setIsNotificationsOpen(false);
+                                      setSelectedDirective(notif);
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-[4px] bg-[#00a868] hover:bg-[#00965d] px-2 py-1 text-[10px] font-bold text-white transition-colors cursor-pointer"
+                                  >
+                                    <Check size={11} />
+                                    Concluir
+                                  </button>
+                                )}
+                              </div>
+
+                              {!isRead ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void markNotificationsRead([notif.id], false)}
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-primary hover:underline cursor-pointer"
+                                >
+                                  <CheckCheck size={12} />
+                                  Marcar como lida
+                                </button>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                                  <Check size={11} className="text-emerald-500" />
+                                  {isDone ? "Concluída" : "Lida"}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="flex flex-col items-center justify-center px-5 py-10 text-center">
+                        <div className="flex size-10 items-center justify-center rounded-full border border-border bg-muted/50 text-muted-foreground">
+                          <Bell size={18} />
+                        </div>
+                        <p className="mt-3 font-mono text-xs font-bold text-foreground">
+                          Nenhuma notificação recente
+                        </p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                          Quando o gestor alocar responsabilidades para você, elas aparecerão aqui
+                          em tempo real.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              {/* Chip do Consultor — Abre o mesmo ProfilePopover da barra lateral */}
+              {!isManagementPreview ? (
+                <ProfilePopover side="bottom" align="end" sideOffset={8}>
+                  <motion.button
+                    type="button"
+                    whileHover={{ scale: 1.03, y: -1 }}
+                    whileTap={{ scale: 0.97 }}
+                    transition={{ duration: 0.15 }}
+                    aria-label="Editar Meu Perfil"
+                    className="group/profile flex items-center gap-2 border border-border bg-card px-2 sm:px-2.5 py-1.5 text-left rounded-[4px] hover:border-primary/50 dark:border-zinc-800 dark:bg-zinc-950/70 dark:hover:border-zinc-700 shadow-sm cursor-pointer transition-colors"
+                  >
+                    <div className="relative shrink-0">
+                      <img
+                        src={consultantAvatar}
+                        alt={consultantName}
+                        className="size-6 rounded-[2px] object-cover border border-border dark:border-zinc-700"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          const fallback = getDeterministicConsultantAvatar(consultantName);
+                          if (img.src !== fallback) {
+                            img.src = fallback;
+                          }
+                        }}
+                      />
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 size-2 rounded-full border border-card ${
+                          operatorProfile?.status === "disponivel"
+                            ? "bg-primary"
+                            : operatorProfile?.status === "pausa"
+                              ? "bg-amber-500"
+                              : "bg-zinc-400"
+                        }`}
+                      />
+                    </div>
+                    <span className="hidden text-xs font-semibold text-foreground group-hover/profile:text-primary dark:text-zinc-300 sm:inline transition-colors">
+                      {consultantName}
+                    </span>
+                  </motion.button>
+                </ProfilePopover>
+              ) : (
+                <motion.div
+                  whileHover={{ scale: 1.03, y: -1 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex items-center gap-2 border border-border bg-card px-2 sm:px-2.5 py-1.5 text-left rounded-[4px] dark:border-zinc-800 dark:bg-zinc-950/70 shadow-sm cursor-default"
+                >
+                  <img
+                    src={consultantAvatar}
+                    alt={consultantName}
+                    className="size-6 rounded-[2px] object-cover border border-border dark:border-zinc-700"
+                    onError={(e) => {
+                      const img = e.currentTarget;
+                      const fallback = getDeterministicConsultantAvatar(consultantName);
+                      if (img.src !== fallback) {
+                        img.src = fallback;
+                      }
+                    }}
+                  />
+                  <span className="hidden text-xs font-semibold text-foreground dark:text-zinc-300 sm:inline">
+                    {consultantName}
+                  </span>
+                </motion.div>
+              )}
 
               {/* Botão Vermelho Oficial "Abrir CRM" */}
               <motion.button
@@ -644,6 +1277,11 @@ export function CommercialHomeView({
             >
               <CalendarDays size={15} className="text-primary group-hover:scale-110 transition-transform" />
               Ver agenda de hoje
+              {unifiedAgendaItems.length > 0 && (
+                <span className="rounded-[2px] bg-primary/15 border border-primary/30 px-1.5 py-0.5 font-mono text-[10px] font-bold text-primary">
+                  {unifiedAgendaItems.length}
+                </span>
+              )}
               <ArrowUpRight size={14} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </motion.button>
           </div>
@@ -792,11 +1430,12 @@ export function CommercialHomeView({
                   <div className="mt-6">
                     <div className="relative">
                       <ProgressBar value={coveragePct} color="#10b981" className="h-3" delay={0.3} />
-                      <span
-                        className="absolute -top-1.5 h-6 w-0.5 bg-primary"
-                        style={{ left: `${Math.min(96, Math.max(4, expectedPct))}%` }}
-                        title={`Esperado hoje: ${expectedPct.toFixed(0)}%`}
-                      />
+                      <SystemTooltip content={`Esperado hoje: ${expectedPct.toFixed(0)}%`}>
+                        <span
+                          className="absolute -top-1.5 h-6 w-0.5 bg-primary"
+                          style={{ left: `${Math.min(96, Math.max(4, expectedPct))}%` }}
+                        />
+                      </SystemTooltip>
                     </div>
                     <div className="mt-3 flex justify-between text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-500">
                       <span>Realizado · {realizedValueFormatted}</span>
@@ -832,7 +1471,7 @@ export function CommercialHomeView({
                   </div>
                 </motion.section>
 
-                {/* AGENDA DE HOJE */}
+                {/* AGENDA DE HOJE (TAREFAS + RESPONSABILIDADES) */}
                 <motion.section
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -848,60 +1487,78 @@ export function CommercialHomeView({
                           Agenda de hoje
                         </div>
                         <div className="mt-3 font-mono text-3xl font-bold tracking-[-.06em] text-foreground dark:text-zinc-50 group-hover:text-primary transition-colors">
-                          {String(data.activities.length).padStart(2, "0")}{" "}
+                          {String(unifiedAgendaItems.length).padStart(2, "0")}{" "}
                           <span className="text-base font-medium tracking-normal text-muted-foreground dark:text-zinc-400">
                             compromissos
                           </span>
                         </div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-mono text-muted-foreground">
+                          <span className="rounded-[2px] border border-border bg-muted/50 px-1.5 py-0.5">
+                            {data.activities.length} tarefa(s)
+                          </span>
+                          <span className="rounded-[2px] border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-primary">
+                            {directives.length} responsabilidade(s)
+                          </span>
+                        </div>
                       </div>
-                      <motion.button
-                        whileHover={{ scale: 1.15, rotate: 15 }}
-                        whileTap={{ scale: 0.9 }}
-                        transition={{ duration: 0.15 }}
-                        onClick={() => setIsAgendaModalOpen(true)}
-                        className="border border-border p-2 text-muted-foreground hover:border-primary hover:text-primary cursor-pointer rounded-[4px] dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-rose-400 dark:hover:text-rose-400 shadow-sm"
-                        title="Abrir agenda completa de hoje"
-                      >
-                        <ArrowUpRight size={15} />
-                      </motion.button>
+                      <SystemTooltip content="Abrir agenda completa de hoje">
+                        <motion.button
+                          whileHover={{ scale: 1.15, rotate: 15 }}
+                          whileTap={{ scale: 0.9 }}
+                          transition={{ duration: 0.15 }}
+                          onClick={() => setIsAgendaModalOpen(true)}
+                          className="border border-border p-2 text-muted-foreground hover:border-primary hover:text-primary cursor-pointer rounded-[4px] dark:border-zinc-800 dark:text-zinc-400 dark:hover:border-rose-400 dark:hover:text-rose-400 shadow-sm"
+                        >
+                          <ArrowUpRight size={15} />
+                        </motion.button>
+                      </SystemTooltip>
                     </div>
 
-                    <div className="mt-5 space-y-3">
-                      {data.activities.length > 0 ? (
-                        data.activities.slice(0, 3).map((act) => {
-                          const timeStr = act.dueDate
-                            ? new Date(act.dueDate).toLocaleTimeString("pt-BR", {
-                                timeZone: "America/Sao_Paulo",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : "—";
+                    <div className="mt-4 space-y-2.5">
+                      {unifiedAgendaItems.length > 0 ? (
+                        unifiedAgendaItems.slice(0, 3).map((item) => {
+                          const timeStr =
+                            item.kind === "task" && item.dueDate
+                              ? new Date(item.dueDate).toLocaleTimeString("pt-BR", {
+                                  timeZone: "America/Sao_Paulo",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : item.kind === "directive"
+                                ? "RESP."
+                                : "HOJE";
                           return (
                             <motion.button
-                              key={act.id}
+                              key={item.uid}
                               whileHover={{ x: 5, scale: 1.01 }}
                               whileTap={{ scale: 0.98 }}
                               transition={{ duration: 0.15 }}
-                              onClick={() => openDeal(act.dealId)}
-                              className="group/item flex w-full items-center gap-3 border-b border-border/80 pb-3 text-left last:border-0 last:pb-0 cursor-pointer dark:border-zinc-800 hover:bg-muted/40 p-1 rounded-[2px]"
+                              onClick={() => setIsAgendaModalOpen(true)}
+                              className="group/item flex w-full items-center gap-3 border-b border-border/80 pb-2.5 text-left last:border-0 last:pb-0 cursor-pointer dark:border-zinc-800 hover:bg-muted/40 p-1 rounded-[2px]"
                             >
-                              <span className="w-11 font-mono text-xs font-semibold text-emerald-500 dark:text-emerald-400 group-hover/item:font-bold">
+                              <span
+                                className={`w-12 shrink-0 font-mono text-[10px] font-bold ${
+                                  item.kind === "directive"
+                                    ? "text-primary"
+                                    : "text-emerald-500 dark:text-emerald-400"
+                                }`}
+                              >
                                 {timeStr}
                               </span>
-                              <div className="min-w-0 border-l border-border pl-3 dark:border-zinc-700">
+                              <div className="min-w-0 flex-1 border-l border-border pl-3 dark:border-zinc-700">
                                 <div className="truncate text-xs font-semibold text-foreground dark:text-zinc-300 group-hover/item:text-primary transition-colors">
-                                  {act.title}
+                                  {item.dealTitle}
                                 </div>
                                 <div className="truncate text-[11px] text-muted-foreground dark:text-zinc-500">
-                                  {act.dealTitle}
+                                  {item.title}
                                 </div>
                               </div>
                             </motion.button>
                           );
                         })
                       ) : (
-                        <div className="py-6 text-center text-xs text-muted-foreground dark:text-zinc-500 italic">
-                          Nenhum compromisso agendado para hoje.
+                        <div className="py-5 text-center text-xs text-muted-foreground dark:text-zinc-500 italic">
+                          Nenhuma tarefa ou responsabilidade para hoje.
                         </div>
                       )}
                     </div>
@@ -1015,9 +1672,23 @@ export function CommercialHomeView({
                                   )}
                                   <PriorityPill priority={item.priority} />
                                 </div>
-                                <p className="mt-1 text-xs font-medium text-muted-foreground dark:text-zinc-300">
-                                  Executar diretriz - {item.stageName || "Leads Recebidos (Faltam 90d p/ maturar)"}
-                                </p>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground dark:text-zinc-300">
+                                  <span>
+                                    Executar diretriz -{" "}
+                                    {item.stageName || "Leads Recebidos (Faltam 90d p/ maturar)"}
+                                  </span>
+                                  {item.accountName && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                                      · <Building2 size={11} className="text-primary" />{" "}
+                                      {item.accountName}
+                                    </span>
+                                  )}
+                                  {item.contactName && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                                      · <User size={11} /> {item.contactName}
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="mt-1.5 max-w-2xl text-[11px] font-semibold uppercase tracking-wide text-zinc-400 bg-muted/30 dark:bg-zinc-900/40 p-2 border border-border/40 dark:border-zinc-800/60 rounded-[4px] group-hover:border-primary/30 transition-colors">
                                   {item.instruction || "GESTOR PONTUOU ATENÇÃO E EXECUÇÃO NESSA NEGOCIAÇÃO"}
                                 </p>
@@ -1025,7 +1696,7 @@ export function CommercialHomeView({
                             </div>
 
                             {/* Informações da Direita & Ações */}
-                            <div className="flex items-center justify-between gap-5 border-t border-border pt-3 lg:min-w-[390px] lg:border-t-0 lg:pt-0 dark:border-zinc-800">
+                            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border pt-3 lg:min-w-[440px] lg:border-t-0 lg:pt-0 dark:border-zinc-800">
                               <div>
                                 <div
                                   className={`text-[10px] font-bold uppercase tracking-[.15em] font-mono ${
@@ -1046,7 +1717,7 @@ export function CommercialHomeView({
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
                                 {isDone ? (
                                   <>
                                     <span className="rounded-[4px] bg-muted dark:bg-zinc-800/80 border border-border dark:border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-foreground dark:text-zinc-300 flex items-center gap-1.5 shadow-xs">
@@ -1076,10 +1747,10 @@ export function CommercialHomeView({
                                       whileHover={{ scale: 1.04, y: -1 }}
                                       whileTap={{ scale: 0.96 }}
                                       onClick={() => openDeal(item.dealId)}
-                                      className="flex items-center gap-1.5 border border-zinc-700/80 bg-zinc-900/60 hover:bg-zinc-800/80 hover:border-zinc-600 px-3.5 py-2 text-xs font-bold text-zinc-200 hover:text-white cursor-pointer rounded-[4px] shadow-sm transition-all"
+                                      className="flex items-center gap-1.5 border border-border bg-card hover:border-primary/40 px-3 py-2 text-xs font-bold text-foreground cursor-pointer rounded-[4px] shadow-sm transition-all dark:border-zinc-700/80 dark:bg-zinc-900/60 dark:text-zinc-200"
                                     >
                                       <ExternalLink size={13} strokeWidth={2} />
-                                      CRM
+                                      Abrir CRM
                                     </motion.button>
                                   </>
                                 ) : (
@@ -1088,8 +1759,9 @@ export function CommercialHomeView({
                                       whileHover={{ scale: 1.04, y: -1 }}
                                       whileTap={{ scale: 0.96 }}
                                       transition={{ duration: 0.15 }}
-                                      data-tour="home.directive-actions" onClick={() => setSelectedDirective(item)}
-                                      className="flex items-center gap-1.5 bg-[#00a868] hover:bg-[#00965d] active:bg-[#008f57] px-4 py-2 text-xs sm:text-[13px] font-bold text-white cursor-pointer rounded-[4px] shadow-sm transition-all"
+                                      data-tour="home.directive-actions"
+                                      onClick={() => setSelectedDirective(item)}
+                                      className="flex items-center gap-1.5 bg-[#00a868] hover:bg-[#00965d] active:bg-[#008f57] px-3.5 py-2 text-xs font-bold text-white cursor-pointer rounded-[4px] shadow-sm transition-all"
                                     >
                                       <Check size={14} strokeWidth={2.8} />
                                       Concluir
@@ -1099,11 +1771,38 @@ export function CommercialHomeView({
                                       whileTap={{ scale: 0.96 }}
                                       transition={{ duration: 0.15 }}
                                       onClick={() => openDeal(item.dealId)}
-                                      className="flex items-center gap-1.5 border border-zinc-700/80 bg-zinc-900/60 hover:bg-zinc-800/80 hover:border-zinc-600 px-3.5 py-2 text-xs sm:text-[13px] font-bold text-zinc-100 hover:text-white cursor-pointer rounded-[4px] transition-all shadow-sm"
+                                      className="flex items-center gap-1.5 border border-border bg-card hover:border-primary/40 px-3 py-2 text-xs font-bold text-foreground cursor-pointer rounded-[4px] transition-all shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/60 dark:text-zinc-100"
                                     >
                                       <ExternalLink size={13} strokeWidth={2} />
                                       Abrir CRM
                                     </motion.button>
+                                    <SystemTooltip content="Abrir Chat">
+                                      <motion.button
+                                        whileHover={{ scale: 1.04, y: -1 }}
+                                        whileTap={{ scale: 0.96 }}
+                                        transition={{ duration: 0.15 }}
+                                        disabled={startingChatKey === item.id}
+                                        onClick={() => void handleOpenChatForItem(item)}
+                                        className="flex items-center gap-1.5 border border-border bg-card hover:border-primary/40 px-2.5 py-2 text-xs font-bold text-foreground cursor-pointer rounded-[4px] transition-all shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/60 dark:text-zinc-100 disabled:opacity-50"
+                                      >
+                                        {startingChatKey === item.id ? (
+                                          <Loader2 size={13} className="animate-spin" />
+                                        ) : (
+                                          <MessageSquare size={13} />
+                                        )}
+                                      </motion.button>
+                                    </SystemTooltip>
+                                    <SystemTooltip content="Abrir Empresa">
+                                      <motion.button
+                                        whileHover={{ scale: 1.04, y: -1 }}
+                                        whileTap={{ scale: 0.96 }}
+                                        transition={{ duration: 0.15 }}
+                                        onClick={() => handleOpenCompany(item.accountId)}
+                                        className="flex items-center gap-1.5 border border-border bg-card hover:border-primary/40 px-2.5 py-2 text-xs font-bold text-foreground cursor-pointer rounded-[4px] transition-all shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/60 dark:text-zinc-100"
+                                      >
+                                        <Building2 size={13} />
+                                      </motion.button>
+                                    </SystemTooltip>
                                   </>
                                 )}
                               </div>
@@ -1229,12 +1928,9 @@ export function CommercialHomeView({
                             {d.dayNumber}
                           </span>
                           {d.isToday ? (
-                            <span className="size-1.5 rounded-full bg-primary" title="Hoje" />
+                            <span className="size-1.5 rounded-full bg-primary" />
                           ) : isHoliday ? (
-                            <span
-                              className="size-1.5 rounded-full bg-amber-500"
-                              title={d.holiday?.description || "Feriado"}
-                            />
+                            <span className="size-1.5 rounded-full bg-amber-500" />
                           ) : null}
                         </div>
 
@@ -1244,10 +1940,7 @@ export function CommercialHomeView({
                               +{d.deals.length}
                             </span>
                           ) : isHoliday ? (
-                            <span
-                              className="truncate text-[8px] font-mono font-bold uppercase tracking-wider text-amber-700 bg-amber-100 border border-amber-300 px-0.5 rounded-[1px] dark:text-amber-300/90 dark:bg-amber-950/60 dark:border-amber-800/50"
-                              title={d.holiday?.description}
-                            >
+                            <span className="truncate text-[8px] font-mono font-bold uppercase tracking-wider text-amber-700 bg-amber-100 border border-amber-300 px-0.5 rounded-[1px] dark:text-amber-300/90 dark:bg-amber-950/60 dark:border-amber-800/50">
                               Feriado
                             </span>
                           ) : null}
@@ -1454,86 +2147,376 @@ export function CommercialHomeView({
         />
       )}
 
-      {/* MODAL DE AGENDA COMPLETA DO DIA COM FRAMER-MOTION */}
+      {/* MODAL DE AGENDA COMPLETA DO DIA (TAREFAS + RESPONSABILIDADES DETALHADAS) */}
       <AnimatePresence>
         {isAgendaModalOpen && (
-          <div data-tour="home.agenda-dialog" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div
+            data-tour="home.agenda-dialog"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3 sm:p-5"
+            onClick={() => setIsAgendaModalOpen(false)}
+          >
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              exit={{ opacity: 0, scale: 0.96, y: 10 }}
               transition={{ duration: 0.2 }}
-              className="w-full max-w-lg rounded-[4px] border border-border bg-card p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950"
+              onClick={(e) => e.stopPropagation()}
+              className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-[6px] border border-border bg-card shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
             >
-              <div className="flex items-center justify-between border-b border-border pb-4 dark:border-zinc-800">
-                <div className="flex items-center gap-2">
-                  <CalendarDays size={16} className="text-primary" />
-                  <h3 className="font-mono text-lg font-bold text-foreground dark:text-zinc-50">
-                    Agenda de Hoje · {data?.activities.length || 0} compromisso(s)
+              {/* Cabeçalho do Modal */}
+              <div className="flex items-start justify-between gap-4 border-b border-border bg-muted/20 px-5 py-4 sm:px-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] text-primary">
+                    <CalendarDays size={14} />
+                    <span>{weekdayName}</span>
+                    <span>·</span>
+                    <span>{dateLongFormatted}</span>
+                  </div>
+                  <h3 className="mt-1 font-mono text-lg sm:text-xl font-bold text-foreground dark:text-zinc-50">
+                    Agenda & Responsabilidades de Hoje
                   </h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Acompanhe seus compromissos agendados e as responsabilidades alocadas pelo
+                    gestor com acesso rápido ao CRM, Chat e Empresa.
+                  </p>
                 </div>
                 <motion.button
                   whileHover={{ scale: 1.1, rotate: 90 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={() => setIsAgendaModalOpen(false)}
-                  className="text-muted-foreground hover:text-foreground p-1 dark:text-zinc-400 dark:hover:text-zinc-50 cursor-pointer"
+                  aria-label="Fechar agenda"
+                  className="rounded-[4px] border border-border bg-card p-1.5 text-muted-foreground hover:border-primary/40 hover:text-foreground dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50 cursor-pointer"
                 >
-                  <X size={18} />
+                  <X size={16} />
                 </motion.button>
               </div>
 
-              <div className="mt-4 max-h-[60vh] space-y-3 overflow-y-auto pr-1">
-                {data?.activities && data.activities.length > 0 ? (
-                  data.activities.map((act) => {
-                    const timeStr = act.dueDate
-                      ? new Date(act.dueDate).toLocaleTimeString("pt-BR", {
-                          timeZone: "America/Sao_Paulo",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "—";
+              {/* Faixa de Indicadores Rápidos da Agenda */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 border-b border-border bg-card px-5 py-3.5 sm:px-6 dark:border-zinc-800">
+                <div className="rounded-[4px] border border-border/80 bg-muted/30 px-3 py-2 dark:border-zinc-800/80 dark:bg-zinc-900/50">
+                  <div className="text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                    Total na Agenda
+                  </div>
+                  <div className="mt-0.5 font-mono text-lg font-bold text-foreground">
+                    {String(unifiedAgendaItems.length).padStart(2, "0")}
+                  </div>
+                </div>
+                <div className="rounded-[4px] border border-border/80 bg-muted/30 px-3 py-2 dark:border-zinc-800/80 dark:bg-zinc-900/50">
+                  <div className="text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                    Tarefas do Dia
+                  </div>
+                  <div className="mt-0.5 font-mono text-lg font-bold text-emerald-500">
+                    {String(data?.activities.length || 0).padStart(2, "0")}
+                  </div>
+                </div>
+                <div className="rounded-[4px] border border-border/80 bg-muted/30 px-3 py-2 dark:border-zinc-800/80 dark:bg-zinc-900/50">
+                  <div className="text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                    Responsabilidades
+                  </div>
+                  <div className="mt-0.5 flex items-baseline gap-2">
+                    <span className="font-mono text-lg font-bold text-primary">
+                      {String(directives.length).padStart(2, "0")}
+                    </span>
+                    {overdueAgendaCount > 0 && (
+                      <span className="font-mono text-[10px] font-bold text-red-500">
+                        ({overdueAgendaCount} atrasada{overdueAgendaCount > 1 ? "s" : ""})
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-[4px] border border-border/80 bg-muted/30 px-3 py-2 dark:border-zinc-800/80 dark:bg-zinc-900/50">
+                  <div className="text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                    Valor em Negociação
+                  </div>
+                  <div className="mt-0.5 font-mono text-sm sm:text-base font-bold text-foreground truncate">
+                    {formatBRL(totalAgendaValue)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Barra de Filtros e Pesquisa */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-border bg-muted/15 px-5 py-3 sm:px-6 dark:border-zinc-800">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(
+                    [
+                      { id: "todos", label: `Todos (${unifiedAgendaItems.length})` },
+                      { id: "tarefas", label: `Tarefas (${data?.activities.length || 0})` },
+                      {
+                        id: "responsabilidades",
+                        label: `Responsabilidades (${directives.length})`,
+                      },
+                      ...(overdueAgendaCount > 0
+                        ? [{ id: "atrasadas", label: `Atrasadas (${overdueAgendaCount})` }]
+                        : []),
+                    ] as Array<{ id: AgendaModalFilter; label: string }>
+                  ).map((tab) => {
+                    const active = agendaModalFilter === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setAgendaModalFilter(tab.id)}
+                        className={`rounded-[4px] border px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
+                          active
+                            ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                            : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground dark:border-zinc-800 dark:bg-zinc-900"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+                  <Search
+                    size={13}
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <input
+                    type="text"
+                    value={agendaSearch}
+                    onChange={(e) => setAgendaSearch(e.target.value)}
+                    placeholder="Filtrar por negociação, empresa, contato..."
+                    className="w-full rounded-[4px] border border-border bg-card py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                  />
+                </div>
+              </div>
+
+              {/* Lista Detalhada de Tarefas e Responsabilidades */}
+              <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4 sm:px-6">
+                {filteredAgendaItems.length > 0 ? (
+                  filteredAgendaItems.map((item) => {
+                    const isDirective = item.kind === "directive";
+                    const isCompleted = item.status === "completed";
+                    const timeStr =
+                      item.kind === "task" && item.dueDate
+                        ? new Date(item.dueDate).toLocaleTimeString("pt-BR", {
+                            timeZone: "America/Sao_Paulo",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : null;
+                    const dateStr = item.assignedDate
+                      ? `${item.assignedDate.slice(8, 10)}/${item.assignedDate.slice(5, 7)}/${item.assignedDate.slice(0, 4)}`
+                      : "Hoje";
+
                     return (
                       <motion.div
-                        key={act.id}
-                        whileHover={{ x: 4, scale: 1.01 }}
+                        key={item.uid}
+                        whileHover={{ y: -1 }}
                         transition={{ duration: 0.15 }}
-                        className="flex items-center justify-between gap-3 border border-border/80 bg-muted/30 p-3 rounded-[4px] dark:border-zinc-800 dark:bg-zinc-900/50 shadow-sm"
+                        className={`rounded-[4px] border p-4 transition-colors shadow-sm ${
+                          item.overdue && !isCompleted
+                            ? "border-l-4 border-l-red-500 border-red-300/80 bg-red-50/20 dark:border-zinc-800 dark:border-l-red-500 dark:bg-red-950/15"
+                            : "border-border/80 bg-muted/20 hover:border-primary/40 dark:border-zinc-800 dark:bg-zinc-900/50"
+                        }`}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="w-12 font-mono text-xs font-bold text-emerald-500 dark:text-emerald-400">
-                            {timeStr}
-                          </span>
-                          <div className="min-w-0 border-l border-border pl-3 dark:border-zinc-700">
-                            <strong className="block truncate text-xs text-foreground dark:text-zinc-200">
-                              {act.title}
-                            </strong>
-                            <span className="block truncate text-[11px] text-muted-foreground dark:text-zinc-400">
-                              {act.dealTitle}
+                        {/* Linha 1: Tipo (Negociação / Responsabilidade / Tarefa), Status e Valor */}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${
+                                isDirective
+                                  ? "border-primary/40 bg-primary/15 text-primary"
+                                  : "border-emerald-500/40 bg-emerald-500/15 text-emerald-500"
+                              }`}
+                            >
+                              {isDirective ? (
+                                <>
+                                  <BriefcaseBusiness size={11} />
+                                  Responsabilidade do Gestor
+                                </>
+                              ) : (
+                                <>
+                                  <ClipboardList size={11} />
+                                  {formatTaskTypeLabel(item.taskType)}
+                                </>
+                              )}
+                            </span>
+
+                            {timeStr && (
+                              <span className="inline-flex items-center gap-1 rounded-[2px] border border-border bg-card px-2 py-0.5 font-mono text-[10px] font-bold text-foreground dark:border-zinc-700 dark:bg-zinc-900">
+                                <Clock3 size={10} className="text-emerald-500" />
+                                {timeStr}
+                              </span>
+                            )}
+
+                            <span className="inline-flex items-center gap-1 rounded-[2px] border border-border bg-card px-2 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground dark:border-zinc-800 dark:bg-zinc-900">
+                              {dateStr}
+                            </span>
+
+                            {item.overdue && !isCompleted && (
+                              <span className="inline-flex items-center gap-1 rounded-[2px] border border-red-400/60 bg-red-500/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-red-500">
+                                <AlertTriangle size={10} />
+                                Atrasada
+                              </span>
+                            )}
+
+                            {isCompleted && (
+                              <span className="inline-flex items-center gap-1 rounded-[2px] border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-emerald-500">
+                                <Check size={10} />
+                                Concluída
+                              </span>
+                            )}
+
+                            {isDirective && <PriorityPill priority={item.priority} />}
+                          </div>
+
+                          <div className="font-mono text-sm sm:text-base font-bold text-foreground">
+                            {formatBRL(item.dealValue)}
+                          </div>
+                        </div>
+
+                        {/* Linha 2: Negociação & Título da Tarefa/Instrução */}
+                        <div className="mt-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
+                              Negociação:
+                            </span>
+                            <h4 className="text-sm font-bold text-foreground dark:text-zinc-100">
+                              {item.dealTitle}
+                            </h4>
+                          </div>
+
+                          <div className="mt-1.5 rounded-[4px] border border-border/60 bg-card/80 p-2.5 text-xs font-medium text-foreground/90 dark:border-zinc-800 dark:bg-zinc-950/60">
+                            <span className="mr-1.5 font-mono text-[10px] font-bold uppercase text-primary">
+                              {isDirective ? "Diretriz:" : "Compromisso:"}
+                            </span>
+                            {item.title}
+                            {item.subtitle && (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                {item.subtitle}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Linha 3: Metadados Detalhados (Etapa/Funil, Empresa, Contato, Alocado por) */}
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-[4px] border border-border/50 bg-card/50 p-2.5 text-[11px] dark:border-zinc-800/70 dark:bg-zinc-950/40">
+                          <div className="min-w-0">
+                            <span className="block text-[9px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
+                              Funil / Etapa
+                            </span>
+                            <span className="mt-0.5 block truncate font-semibold text-foreground">
+                              {item.pipelineName ? `${item.pipelineName} › ` : ""}
+                              {item.stageName || "Em andamento"}
+                            </span>
+                          </div>
+
+                          <div className="min-w-0">
+                            <span className="block text-[9px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
+                              Empresa Vinculada
+                            </span>
+                            <span className="mt-0.5 block truncate font-semibold text-foreground">
+                              {item.accountName || "Não vinculada"}
+                              {item.accountDocument ? ` (${item.accountDocument})` : ""}
+                            </span>
+                          </div>
+
+                          <div className="min-w-0">
+                            <span className="block text-[9px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
+                              Contato / Cliente
+                            </span>
+                            <span className="mt-0.5 block truncate font-semibold text-foreground">
+                              {item.contactName || "Não informado"}
+                              {item.contactPhone ? ` · ${item.contactPhone}` : ""}
                             </span>
                           </div>
                         </div>
-                        <motion.button
-                          whileHover={{ scale: 1.08 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => {
-                            setIsAgendaModalOpen(false);
-                            openDeal(act.dealId);
-                          }}
-                          className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
-                        >
-                          Abrir <ArrowUpRight size={12} />
-                        </motion.button>
+
+                        {/* Linha 4: Ações Diretas (Abrir CRM, Abrir Chat, Abrir Empresa + Concluir) */}
+                        <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3 dark:border-zinc-800/80">
+                          <div className="text-[10px] font-mono text-muted-foreground">
+                            {isDirective
+                              ? `Alocada por: ${item.assignedByOperatorName || "Gestão Comercial"}`
+                              : item.assignedByOperatorName
+                                ? `Criada por: ${item.assignedByOperatorName}`
+                                : "Agenda Comercial"}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isDirective && !isCompleted && item.rawDirective && (
+                              <motion.button
+                                whileHover={{ scale: 1.03 }}
+                                whileTap={{ scale: 0.96 }}
+                                onClick={() => {
+                                  setIsAgendaModalOpen(false);
+                                  setSelectedDirective(item.rawDirective);
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-[4px] bg-[#00a868] hover:bg-[#00965d] px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-all cursor-pointer"
+                              >
+                                <Check size={13} strokeWidth={2.5} />
+                                Concluir
+                              </motion.button>
+                            )}
+
+                            <motion.button
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.96 }}
+                              onClick={() => {
+                                setIsAgendaModalOpen(false);
+                                openDeal(item.dealId);
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-[4px] bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-95 shadow-xs transition-all cursor-pointer"
+                            >
+                              <ExternalLink size={13} />
+                              Abrir CRM
+                            </motion.button>
+
+                            <motion.button
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.96 }}
+                              disabled={startingChatKey === item.id}
+                              onClick={() => void handleOpenChatForItem(item)}
+                              className="inline-flex items-center gap-1.5 rounded-[4px] border border-border bg-card px-3 py-1.5 text-xs font-bold text-foreground hover:border-primary/50 hover:text-primary transition-all cursor-pointer dark:border-zinc-700 dark:bg-zinc-900 disabled:opacity-50"
+                            >
+                              {startingChatKey === item.id ? (
+                                <Loader2 size={13} className="animate-spin" />
+                              ) : (
+                                <MessageSquare size={13} />
+                              )}
+                              Abrir Chat
+                            </motion.button>
+
+                            <motion.button
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.96 }}
+                              onClick={() => {
+                                setIsAgendaModalOpen(false);
+                                handleOpenCompany(item.accountId);
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-[4px] border border-border bg-card px-3 py-1.5 text-xs font-bold text-foreground hover:border-primary/50 hover:text-primary transition-all cursor-pointer dark:border-zinc-700 dark:bg-zinc-900"
+                            >
+                              <Building2 size={13} />
+                              Abrir Empresa
+                            </motion.button>
+                          </div>
+                        </div>
                       </motion.div>
                     );
                   })
                 ) : (
-                  <p className="py-8 text-center text-sm text-muted-foreground">
-                    Nenhum compromisso agendado para hoje.
-                  </p>
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <div className="flex size-12 items-center justify-center rounded-full border border-border bg-muted/40 text-muted-foreground">
+                      <CalendarDays size={22} />
+                    </div>
+                    <p className="mt-3 font-mono text-sm font-bold text-foreground">
+                      Nenhum compromisso ou responsabilidade encontrado
+                    </p>
+                    <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                      Não há tarefas agendadas nem responsabilidades para o filtro selecionado hoje.
+                    </p>
+                  </div>
                 )}
               </div>
 
-              <div className="mt-6 flex justify-end border-t border-border pt-4 dark:border-zinc-800">
+              {/* Rodapé do Modal */}
+              <div className="flex items-center justify-between border-t border-border bg-muted/20 px-5 py-3.5 sm:px-6 dark:border-zinc-800 dark:bg-zinc-900/40">
+                <span className="text-[11px] text-muted-foreground">
+                  Exibindo {filteredAgendaItems.length} de {unifiedAgendaItems.length} item(ns) do
+                  dia
+                </span>
                 <motion.button
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.96 }}
@@ -1547,6 +2530,27 @@ export function CommercialHomeView({
           </div>
         )}
       </AnimatePresence>
+
+      {/* MODAL DETALHADO DA EMPRESA (ACIONADO POR "ABRIR EMPRESA") */}
+      <AccountDetailModal
+        accountId={selectedAccountId}
+        isOpen={selectedAccountId !== null}
+        onClose={() => setSelectedAccountId(null)}
+        onAccountUpdated={() => {
+          void load();
+        }}
+        onOpenDeal={(dealId) => {
+          setSelectedAccountId(null);
+          openDeal(dealId);
+        }}
+        onOpenChat={(conversationId) => {
+          setSelectedAccountId(null);
+          setActiveQueue("todos");
+          setSelectedChatId(conversationId);
+          setActiveView("chat");
+          navigate({ to: "/conversas" as any });
+        }}
+      />
     </section>
   );
 }

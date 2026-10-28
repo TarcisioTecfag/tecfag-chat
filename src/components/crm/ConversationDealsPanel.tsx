@@ -26,6 +26,7 @@ import { CreateDealDialog } from "./CreateDealDialog";
 import { ContactDealModal } from "./ContactDealPicker";
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import { useChat } from "@/hooks/useChatState";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { useNavigate } from "@tanstack/react-router";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
@@ -385,6 +386,16 @@ export function ConversationDealsPanel({
     setEditingDealId(null);
   };
 
+  useTrainingSurface("linked-deals", (step) => {
+    if (loading) return false;
+    if (step.id === "chat.linked-deal-edit" && deals[0]) {
+      if (editingDealId !== deals[0].id) handleStartEdit(deals[0]);
+    } else if (editingDealId) {
+      setEditingDealId(null);
+    }
+    return true;
+  });
+
   // Troca de funil no formulário de edição
   const handlePipelineChange = (newPipelineId: string) => {
     const selectedPipeline = pipelines.find((p) => p.id === newPipelineId);
@@ -730,7 +741,7 @@ export function ConversationDealsPanel({
                   )}
                   {isEditing ? (
                     /* ── MODO EDIÇÃO INLINE DO CARD ── */
-                    <div className="space-y-3">
+                    <div data-tour="linked-deals.editor" className="space-y-3">
                       {/* Header da Edição */}
                       <div className="flex items-center justify-between border-b border-border/60 pb-2">
                         <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
@@ -751,6 +762,7 @@ export function ConversationDealsPanel({
                         <SystemTooltip content="Salvar alterações">
                           <button
                             type="button"
+                            data-training-save="true"
                             onClick={() => handleSaveEdit(deal.id)}
                             disabled={isSaving}
                             className="p-1 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition cursor-pointer disabled:opacity-50"
@@ -1025,15 +1037,17 @@ export function ConversationDealsPanel({
                                       {field.name}
                                     </label>
                                     <input
-                                      type="number"
-                                      step="any"
+                                      type="text"
+                                      inputMode="decimal"
                                       value={val !== null && val !== undefined ? String(val) : ""}
-                                      onChange={(e) =>
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        if (raw !== "" && !/^-?\d*([.,]\d*)?$/.test(raw)) return;
                                         setEditForm((prev) => ({
                                           ...prev,
-                                          customFields: { ...prev.customFields, [field.id]: e.target.value },
-                                        }))
-                                      }
+                                          customFields: { ...prev.customFields, [field.id]: raw },
+                                        }));
+                                      }}
                                       className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                                       placeholder="0"
                                     />
@@ -1076,6 +1090,7 @@ export function ConversationDealsPanel({
                         </button>
                         <button
                           type="button"
+                          data-training-save="true"
                           onClick={() => handleSaveEdit(deal.id)}
                           disabled={isSaving}
                           className="flex-1 h-8 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"

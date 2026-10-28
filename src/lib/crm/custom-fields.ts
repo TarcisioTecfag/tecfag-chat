@@ -218,15 +218,19 @@ export function validateFieldValues(
         result[id] = value;
         break;
       }
-      case "number":
+      case "number": {
         if (typeof value !== "number" && typeof value !== "string")
           throw new CustomFieldError(`${field.name}: número inválido.`);
-        if (typeof value === "string" && !/^-?\d+(\.\d+)?$/.test(value.trim()))
+        const rawStr = typeof value === "string" ? value.trim().replace(",", ".") : String(value);
+        if (typeof value === "string" && !/^-?\d+(\.\d+)?$/.test(rawStr))
           throw new CustomFieldError(`${field.name}: número inválido.`);
-        if (!Number.isFinite(Number(value)))
+        const numericVal = Number(rawStr);
+        if (!Number.isFinite(numericVal))
           throw new CustomFieldError(`${field.name}: número inválido.`);
-        result[id] = Number(value);
+        result[id] =
+          typeof value === "string" && /^-?0\d/.test(rawStr) ? rawStr : numericVal;
         break;
+      }
       case "single":
         if (typeof value !== "string" || !optionsById.has(value))
           throw new CustomFieldError(`${field.name}: opção inválida.`);

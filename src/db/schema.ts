@@ -1265,6 +1265,7 @@ export const commercialDirectives = pgTable("commercial_directives", {
     maturityDays?: number;
     daysRemaining?: number;
     division?: string;
+    notificationReadAt?: string | null;
   }>().default({}).notNull(),
   status: text("status").default("pending").notNull(),
   completionNote: text("completion_note"),

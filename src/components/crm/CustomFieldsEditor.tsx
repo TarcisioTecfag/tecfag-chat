@@ -272,13 +272,19 @@ export function CustomFieldsEditor({
                 <div className="relative flex items-center">
                   <input
                     id={`cf-${field.id}`}
-                    className={`${common} pr-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
-                    type="number"
-                    step="any"
+                    className={`${common} pr-16`}
+                    type="text"
+                    inputMode="decimal"
                     value={value === null || value === undefined ? "" : String(value)}
                     onChange={(event) => {
                       const raw = event.target.value;
-                      update(field.id, raw === "" ? null : Number(raw));
+                      if (raw === "") {
+                        update(field.id, null);
+                        return;
+                      }
+                      if (/^-?\d*([.,]\d*)?$/.test(raw)) {
+                        update(field.id, raw);
+                      }
                     }}
                     required={create && (field.required || requiredIds.includes(field.id))}
                   />
@@ -288,8 +294,18 @@ export function CustomFieldsEditor({
                         type="button"
                         tabIndex={-1}
                         onClick={() => {
-                          const currentNum = typeof value === "number" ? value : Number(value) || 0;
-                          update(field.id, currentNum - 1);
+                          const rawStr = value === null || value === undefined ? "" : String(value).trim();
+                          const normalized = rawStr.replace(",", ".");
+                          const currentNum =
+                            normalized !== "" && Number.isFinite(Number(normalized)) ? Number(normalized) : 0;
+                          const nextNum = currentNum - 1;
+                          if (/^-?0\d+$/.test(rawStr)) {
+                            const digitsLen = rawStr.replace("-", "").length;
+                            const absStr = String(Math.abs(Math.trunc(nextNum))).padStart(digitsLen, "0");
+                            update(field.id, nextNum < 0 ? `-${absStr}` : absStr);
+                          } else {
+                            update(field.id, nextNum);
+                          }
                         }}
                         className="flex h-6 w-6 items-center justify-center rounded-[6px] border border-slate-300/80 dark:border-slate-700 bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
                         aria-label="Diminuir valor"
@@ -302,8 +318,18 @@ export function CustomFieldsEditor({
                         type="button"
                         tabIndex={-1}
                         onClick={() => {
-                          const currentNum = typeof value === "number" ? value : Number(value) || 0;
-                          update(field.id, currentNum + 1);
+                          const rawStr = value === null || value === undefined ? "" : String(value).trim();
+                          const normalized = rawStr.replace(",", ".");
+                          const currentNum =
+                            normalized !== "" && Number.isFinite(Number(normalized)) ? Number(normalized) : 0;
+                          const nextNum = currentNum + 1;
+                          if (/^-?0\d+$/.test(rawStr)) {
+                            const digitsLen = rawStr.replace("-", "").length;
+                            const absStr = String(Math.abs(Math.trunc(nextNum))).padStart(digitsLen, "0");
+                            update(field.id, nextNum < 0 ? `-${absStr}` : absStr);
+                          } else {
+                            update(field.id, nextNum);
+                          }
                         }}
                         className="flex h-6 w-6 items-center justify-center rounded-[6px] border border-slate-300/80 dark:border-slate-700 bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
                         aria-label="Aumentar valor"

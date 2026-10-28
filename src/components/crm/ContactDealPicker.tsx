@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
 import type { LinkedDealSummary } from "./PhoneContactSuggestions";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
@@ -522,20 +521,22 @@ export function ContactDealModal({
   if (!effectiveOpen) return null;
 
   const modalContent = (
-    <DismissableLayerBranch asChild>
+    <div
+      data-crm-interactive-portal
+      aria-live="polite"
+      className="fixed inset-0 z-[10020] pointer-events-auto flex items-center justify-center bg-black/65 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in duration-150"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !effectiveSaving) {
+          handleClose();
+        }
+      }}
+    >
       <div
-        data-crm-interactive-portal
-        aria-live="polite"
-        className="fixed inset-0 z-[10020] pointer-events-auto flex items-center justify-center bg-black/65 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in duration-150"
-        onClick={handleClose}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Vincular negociação ao contato e atendimento"
+        className="flex max-h-[92vh] w-[min(1160px,96vw)] max-w-6xl flex-col overflow-hidden rounded-3xl border border-border bg-card text-foreground shadow-2xl"
       >
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Vincular negociação ao contato e atendimento"
-          onClick={(e) => e.stopPropagation()}
-          className="flex max-h-[92vh] w-[min(1160px,96vw)] max-w-6xl flex-col overflow-hidden rounded-3xl border border-border bg-card text-foreground shadow-2xl"
-        >
         {/* ── HEADER DO MODAL ── */}
         <div className="flex flex-col gap-3 border-b border-border bg-muted/25 px-6 py-4 shrink-0">
           <div className="flex items-start justify-between gap-4">
@@ -1511,9 +1512,8 @@ export function ContactDealModal({
             </button>
           </div>
         </div>
-        </div>
       </div>
-    </DismissableLayerBranch>
+    </div>
   );
 
   if (typeof document !== "undefined" && document.body) {
@@ -1590,7 +1590,7 @@ export function ContactDealPicker({
   };
 
   return (
-    <fieldset className="rounded-2xl border border-primary/25 bg-gradient-to-b from-primary/[0.04] to-card p-3.5 space-y-2.5 shadow-2xs">
+    <fieldset data-tour="contact-create.deal" className="rounded-2xl border border-primary/25 bg-gradient-to-b from-primary/[0.04] to-card p-3.5 space-y-2.5 shadow-2xs">
       <legend className="px-1.5 text-[11px] font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
         <Columns3 className="h-3.5 w-3.5" />
         <span>Negociação obrigatória</span>

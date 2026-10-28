@@ -10,7 +10,7 @@ import {
   type ExistingPhoneContact,
 } from "./PhoneContactSuggestions";
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Search } from "lucide-react";
+import { Building2, Loader2, MapPin, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/utils";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
@@ -30,7 +30,13 @@ import {
   formatAccountDocumentInput,
   getInlineDocumentMismatch,
   validateAccountDocument,
+  validateCnpj,
 } from "../../lib/crm/account-validation";
+import { fetchCnpjInfo, type CnpjFullDetails } from "../../lib/valentina/cnpj-service";
+import {
+  buildAccountAddressFromCnpjDetails,
+  createEmptyCnpjDetails,
+} from "../../lib/crm/cnpj-account-mapper";
 import {
   Select,
   SelectContent,
@@ -89,6 +95,9 @@ export function CrmQuickCreateDialog({
   const [searchingDeals, setSearchingDeals] = useState(false);
   const [saving, setSaving] = useState(false);
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [cnpjDetails, setCnpjDetails] = useState<CnpjFullDetails>(() => createEmptyCnpjDetails());
+  const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
+  const lastAutoQueriedCnpjRef = useRef("");
 
   useEffect(() => {
     if (!kind) return;
@@ -111,7 +120,79 @@ export function CrmQuickCreateDialog({
     setDealOptions([]);
     setSaving(false);
     setCustomFields({});
+    setCnpjDetails(createEmptyCnpjDetails());
+    setIsSearchingCnpj(false);
+    lastAutoQueriedCnpjRef.current = "";
   }, [kind, currentOperatorId]);
+
+  const queryReceita = async (rawDocument?: string) => {
+    const cleanDoc = (rawDocument ?? document).replace(/\D/g, "");
+    if (cleanDoc.length !== 14) {
+      toast.warning("Informe um CNPJ válido com 14 dígitos para consultar a Receita Federal.");
+      return;
+    }
+    if (!validateCnpj(cleanDoc)) {
+      toast.error("CNPJ matematicamente inválido (dígitos verificadores não conferem).");
+      return;
+    }
+    setIsSearchingCnpj(true);
+    try {
+      const info = await fetchCnpjInfo(cleanDoc);
+      if (info && info.valid && info.details) {
+        const d = info.details;
+        if (d.razaoSocial) setName((prev) => d.razaoSocial || prev);
+        if (d.nomeFantasia) setTradeName((prev) => d.nomeFantasia || prev);
+        if (d.telefone) setPhone((prev) => (d.telefone ? maskPhone(d.telefone) : prev));
+        if (d.email) setEmail((prev) => d.email || prev);
+        setCnpjDetails((prev) => ({
+          ...prev,
+          razaoSocial: d.razaoSocial || prev.razaoSocial,
+          nomeFantasia: d.nomeFantasia || prev.nomeFantasia,
+          situacaoCadastral: d.situacaoCadastral || prev.situacaoCadastral,
+          dataAbertura: d.dataAbertura || prev.dataAbertura,
+          capitalSocial: d.capitalSocial || prev.capitalSocial,
+          naturezaJuridica: d.naturezaJuridica || prev.naturezaJuridica,
+          porte: d.porte || prev.porte,
+          atividadePrincipal: d.atividadePrincipal || prev.atividadePrincipal,
+          atividadesSecundarias: d.atividadesSecundarias || prev.atividadesSecundarias,
+          logradouro: d.logradouro || prev.logradouro,
+          numero: d.numero || prev.numero,
+          complemento: d.complemento || prev.complemento,
+          bairro: d.bairro || prev.bairro,
+          municipio: d.municipio || prev.municipio,
+          uf: d.uf || prev.uf,
+          cep: d.cep || prev.cep,
+          telefone: d.telefone || prev.telefone,
+          email: d.email || prev.email,
+          qsa: d.qsa || prev.qsa,
+        }));
+        toast.success("Dados da Receita Federal preenchidos automaticamente!");
+      } else {
+        toast.error(info?.erro || "CNPJ não localizado na Receita Federal.");
+      }
+    } catch {
+      toast.error("Erro ao consultar CNPJ na Receita Federal.");
+    } finally {
+      setIsSearchingCnpj(false);
+    }
+  };
+
+  useEffect(() => {
+    if (kind !== "company" || accountType !== "company") return;
+    const cleanDigits = document.replace(/\D/g, "");
+    if (cleanDigits.length < 14) {
+      lastAutoQueriedCnpjRef.current = "";
+      return;
+    }
+    if (
+      cleanDigits.length === 14 &&
+      validateCnpj(cleanDigits) &&
+      cleanDigits !== lastAutoQueriedCnpjRef.current
+    ) {
+      lastAutoQueriedCnpjRef.current = cleanDigits;
+      void queryReceita(cleanDigits);
+    }
+  }, [kind, accountType, document]);
 
   useEffect(() => {
     if (kind !== "task") return;
@@ -169,6 +250,10 @@ export function CrmQuickCreateDialog({
               document: document.replace(/\D/g, ""),
               phone: phone.trim() || undefined,
               email: email.trim() || undefined,
+              address:
+                accountType === "company"
+                  ? buildAccountAddressFromCnpjDetails(cnpjDetails, null)
+                  : undefined,
               customFields,
             }
           : kind === "contact"
@@ -369,19 +454,44 @@ export function CrmQuickCreateDialog({
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <Label htmlFor="crm-quick-document">
-                    {accountType === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"} *
-                  </Label>
-                  <Input
-                    id="crm-quick-document"
-                    value={document}
-                    required
-                    placeholder={accountType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
-                    onChange={(event) =>
-                      setDocument(formatAccountDocumentInput(event.target.value, accountType))
-                    }
-                    className="font-mono"
-                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="crm-quick-document">
+                      {accountType === "company" ? "CNPJ (14 dígitos)" : "CPF (11 dígitos)"} *
+                    </Label>
+                    {accountType === "company" && isSearchingCnpj && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Consultando Receita...
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      id="crm-quick-document"
+                      value={document}
+                      required
+                      placeholder={accountType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
+                      onChange={(event) =>
+                        setDocument(formatAccountDocumentInput(event.target.value, accountType))
+                      }
+                      className="font-mono flex-1"
+                    />
+                    {accountType === "company" && (
+                      <button
+                        type="button"
+                        disabled={isSearchingCnpj}
+                        onClick={() => void queryReceita()}
+                        className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 text-[11px] font-bold text-primary hover:bg-primary/20 transition cursor-pointer disabled:opacity-50"
+                      >
+                        {isSearchingCnpj ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        Receita
+                      </button>
+                    )}
+                  </div>
                   {(() => {
                     const mismatch = getInlineDocumentMismatch(accountType, document);
                     if (!mismatch) return null;
@@ -430,6 +540,101 @@ export function CrmQuickCreateDialog({
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                   />
+                </div>
+              </div>
+            )}
+            {kind === "company" && accountType === "company" && (
+              <div className="rounded-xl border border-border bg-muted/20 p-3.5 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Building2 className="h-3.5 w-3.5" />
+                    Dados da Receita Federal & Endereço
+                  </span>
+                  {cnpjDetails.situacaoCadastral && (
+                    <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-500">
+                      {cnpjDetails.situacaoCadastral}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Situação</Label>
+                    <Input
+                      value={cnpjDetails.situacaoCadastral}
+                      onChange={(e) => setCnpjDetails((p) => ({ ...p, situacaoCadastral: e.target.value }))}
+                      placeholder="ATIVA"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Abertura</Label>
+                    <Input
+                      value={cnpjDetails.dataAbertura}
+                      onChange={(e) => setCnpjDetails((p) => ({ ...p, dataAbertura: e.target.value }))}
+                      placeholder="AAAA-MM-DD"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px]">Porte</Label>
+                    <Input
+                      value={cnpjDetails.porte}
+                      onChange={(e) => setCnpjDetails((p) => ({ ...p, porte: e.target.value }))}
+                      placeholder="ME / EPP"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">CNAE Principal</Label>
+                  <Input
+                    value={cnpjDetails.atividadePrincipal}
+                    onChange={(e) => setCnpjDetails((p) => ({ ...p, atividadePrincipal: e.target.value }))}
+                    placeholder="Atividade principal..."
+                  />
+                </div>
+                <div className="pt-2 border-t border-border/60 space-y-2">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                    <MapPin className="h-3 w-3 text-primary" />
+                    Endereço Comercial
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-[10px]">Logradouro</Label>
+                      <Input
+                        value={cnpjDetails.logradouro}
+                        onChange={(e) => setCnpjDetails((p) => ({ ...p, logradouro: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">Número</Label>
+                      <Input
+                        value={cnpjDetails.numero}
+                        onChange={(e) => setCnpjDetails((p) => ({ ...p, numero: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">Bairro</Label>
+                      <Input
+                        value={cnpjDetails.bairro}
+                        onChange={(e) => setCnpjDetails((p) => ({ ...p, bairro: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">Cidade</Label>
+                      <Input
+                        value={cnpjDetails.municipio}
+                        onChange={(e) => setCnpjDetails((p) => ({ ...p, municipio: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">UF / CEP</Label>
+                      <Input
+                        value={cnpjDetails.uf}
+                        maxLength={2}
+                        onChange={(e) => setCnpjDetails((p) => ({ ...p, uf: e.target.value.toUpperCase() }))}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

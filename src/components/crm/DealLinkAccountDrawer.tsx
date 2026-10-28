@@ -40,7 +40,13 @@ import {
   formatAccountDocumentInput,
   getInlineDocumentMismatch,
   validateAccountDocument,
+  validateCnpj,
 } from "../../lib/crm/account-validation";
+import { fetchCnpjInfo, type CnpjFullDetails } from "../../lib/valentina/cnpj-service";
+import {
+  buildAccountAddressFromCnpjDetails,
+  createEmptyCnpjDetails,
+} from "../../lib/crm/cnpj-account-mapper";
 
 export interface LinkedDealAccount {
   id: string;
@@ -129,7 +135,40 @@ export function DealLinkAccountDrawer({
   const [createCity, setCreateCity] = useState("");
   const [createState, setCreateState] = useState("");
   const [createCustomFields, setCreateCustomFields] = useState<Record<string, unknown>>({});
+  const [createCnpjDetails, setCreateCnpjDetails] = useState<CnpjFullDetails>(() =>
+    createEmptyCnpjDetails(),
+  );
+  const [isSearchingCreateCnpj, setIsSearchingCreateCnpj] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  const queryReceitaForCreate = async (rawDoc?: string) => {
+    const cleanDoc = (rawDoc ?? createDocument).replace(/\D/g, "");
+    if (cleanDoc.length !== 14 || !validateCnpj(cleanDoc)) return;
+    setIsSearchingCreateCnpj(true);
+    try {
+      const info = await fetchCnpjInfo(cleanDoc);
+      if (info && info.valid && info.details) {
+        const d = info.details;
+        if (d.razaoSocial) setCreateName((prev) => d.razaoSocial || prev);
+        if (d.nomeFantasia) setCreateTradeName((prev) => d.nomeFantasia || prev);
+        if (d.telefone) setCreatePhone((prev) => (d.telefone ? maskPhone(d.telefone) : prev));
+        if (d.email) setCreateEmail((prev) => d.email || prev);
+        if (d.municipio) setCreateCity((prev) => d.municipio || prev);
+        if (d.uf) setCreateState((prev) => d.uf || prev);
+        setCreateCnpjDetails((prev) => ({
+          ...prev,
+          ...d,
+          municipio: d.municipio || prev.municipio,
+          uf: d.uf || prev.uf,
+        }));
+        toast.success("Dados da Receita Federal preenchidos automaticamente!");
+      }
+    } catch {
+      // Silencioso no auto-lookup
+    } finally {
+      setIsSearchingCreateCnpj(false);
+    }
+  };
 
   const populateEditForm = (acc: LinkedDealAccount) => {
     setEditType(acc.type === "person" ? "person" : "company");
@@ -160,6 +199,8 @@ export function DealLinkAccountDrawer({
       setCreateCity("");
       setCreateState("");
       setCreateCustomFields({});
+      setCreateCnpjDetails(createEmptyCnpjDetails());
+      setIsSearchingCreateCnpj(false);
 
       if (initialMode === "edit" && currentAccount) {
         setTab("search");
@@ -345,12 +386,21 @@ export function DealLinkAccountDrawer({
           email: createEmail.trim() || undefined,
           website: createWebsite.trim() || undefined,
           address:
-            createCity.trim() || createState.trim()
-              ? {
-                  city: createCity.trim() || undefined,
-                  state: createState.trim().toUpperCase() || undefined,
-                }
-              : undefined,
+            createType === "company"
+              ? buildAccountAddressFromCnpjDetails(
+                  {
+                    ...createCnpjDetails,
+                    municipio: createCity.trim() || createCnpjDetails.municipio,
+                    uf: createState.trim().toUpperCase() || createCnpjDetails.uf,
+                  },
+                  null,
+                )
+              : createCity.trim() || createState.trim()
+                ? {
+                    city: createCity.trim() || undefined,
+                    state: createState.trim().toUpperCase() || undefined,
+                  }
+                : undefined,
           customFields: Object.keys(createCustomFields).length > 0 ? createCustomFields : undefined,
         }),
       });
@@ -389,6 +439,7 @@ export function DealLinkAccountDrawer({
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
+        data-tour="deal.account"
         side="right"
         className="w-full sm:max-w-[460px] p-0 flex flex-col bg-card border-l border-border text-foreground"
       >
@@ -876,16 +927,37 @@ export function DealLinkAccountDrawer({
                 </div>
 
                 <div className="sm:col-span-2 space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">
-                    {createType === "company" ? "CNPJ" : "CPF"}{" "}
-                    <span className="text-primary">*</span>
-                  </Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-xs font-semibold text-foreground">
+                      {createType === "company" ? "CNPJ" : "CPF"}{" "}
+                      <span className="text-primary">*</span>
+                    </Label>
+                    {createType === "company" && isSearchingCreateCnpj && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Consultando Receita...
+                      </span>
+                    )}
+                  </div>
                   <Input
                     type="text"
                     required
                     placeholder={createType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                     value={createDocument}
-                    onChange={(e) => setCreateDocument(formatAccountDocumentInput(e.target.value, createType))}
+                    onChange={(e) => {
+                      const prevDigits = createDocument.replace(/\D/g, "");
+                      const nextFormatted = formatAccountDocumentInput(e.target.value, createType);
+                      const nextDigits = nextFormatted.replace(/\D/g, "");
+                      setCreateDocument(nextFormatted);
+                      if (
+                        createType === "company" &&
+                        nextDigits.length === 14 &&
+                        nextDigits !== prevDigits &&
+                        validateCnpj(nextDigits)
+                      ) {
+                        void queryReceitaForCreate(nextDigits);
+                      }
+                    }}
                     className="h-8 text-xs rounded-sm border-border bg-card font-mono"
                   />
                   {(() => {

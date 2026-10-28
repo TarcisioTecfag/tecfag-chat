@@ -1,3 +1,7 @@
+import { validateCnpj } from "../valentina/cnpj-service";
+
+export { validateCnpj };
+
 export type AccountEntityType = "company" | "person";
 
 export interface AccountDocumentValidationResult {

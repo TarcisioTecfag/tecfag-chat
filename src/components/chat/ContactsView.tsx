@@ -44,18 +44,27 @@ import {
   Building2,
   Loader2,
   MousePointerClick,
+  RefreshCw,
+  MapPin,
 } from "lucide-react";
 import { Channel, Conversation, QueueType } from "@/lib/mockData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 import { AccountPicker } from "@/components/crm/AccountPicker";
 import { AccountDetailModal } from "@/components/crm/AccountDetailModal";
+import { CatalogSelect } from "@/components/crm/CatalogSelect";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import {
   formatAccountDocumentInput,
   getInlineDocumentMismatch,
   validateAccountDocument,
+  validateCnpj,
 } from "@/lib/crm/account-validation";
+import { fetchCnpjInfo, type CnpjFullDetails } from "@/lib/valentina/cnpj-service";
+import {
+  buildAccountAddressFromCnpjDetails,
+  createEmptyCnpjDetails,
+} from "@/lib/crm/cnpj-account-mapper";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -219,6 +228,7 @@ export function ContactsView() {
   const [standaloneCompanyForm, setStandaloneCompanyForm] = useState({
     name: "",
     tradeName: "",
+    segment: "",
     document: "",
     type: "company" as "company" | "person",
     phone: "",
@@ -226,6 +236,14 @@ export function ContactsView() {
     website: "",
     notes: "",
   });
+  const [standaloneCnpjDetails, setStandaloneCnpjDetails] = useState<CnpjFullDetails>(() =>
+    createEmptyCnpjDetails(),
+  );
+  const [standaloneCompanyCustomFields, setStandaloneCompanyCustomFields] = useState<
+    Record<string, unknown>
+  >({});
+  const [isSearchingStandaloneCnpj, setIsSearchingStandaloneCnpj] = useState(false);
+  const lastAutoQueriedStandaloneCnpjRef = useRef("");
   const [savingStandaloneCompany, setSavingStandaloneCompany] = useState(false);
   const companiesRequestRevision = useRef(0);
 
@@ -324,6 +342,7 @@ export function ContactsView() {
     const company = step.surface.startsWith("contacts.account") || step.surface === "contacts.company-create" || step.id === "contacts.companies";
     setChannelFilter(company ? "companies" : "all");
     setShowAddModal(step.surface === "contacts.create-drawer" || step.surface === "contacts.deal-picker");
+    setExistingContact(step.id === "contacts.duplicate" && contactRows[0] ? { id: contactRows[0].id, name: contactRows[0].name, phone: contactRows[0].phone, email: contactRows[0].email, accountId: contactRows[0].accountId, accountName: contactRows[0].accountName } : null);
     setShowAddCompanyDrawer(step.surface === "contacts.company-create");
     setShowSearchModal(step.id === "contacts.conversation-search");
     if (step.id === "contacts.edit" && contactRows[0]) startEditing(contactRows[0]);
@@ -604,6 +623,112 @@ export function ContactsView() {
     }
   };
 
+  const openStandaloneCompanyDrawer = (initialQuery?: string) => {
+    const trimmed = (initialQuery || "").trim();
+    const digits = trimmed.replace(/\D/g, "");
+    const looksLikeDoc =
+      digits.length >= 11 && digits.length <= 14 && /^[\d.\-/\s]+$/.test(trimmed);
+    const inferredType: "company" | "person" =
+      looksLikeDoc && digits.length === 11 ? "person" : "company";
+
+    lastAutoQueriedStandaloneCnpjRef.current = "";
+    setStandaloneCompanyForm({
+      name: looksLikeDoc ? "" : trimmed,
+      tradeName: "",
+      segment: "",
+      document: looksLikeDoc ? formatAccountDocumentInput(digits, inferredType) : "",
+      type: inferredType,
+      phone: "",
+      email: "",
+      website: "",
+      notes: "",
+    });
+    setStandaloneCnpjDetails(createEmptyCnpjDetails());
+    setStandaloneCompanyCustomFields({});
+    setShowAddCompanyDrawer(true);
+  };
+
+  const queryReceitaForStandaloneCompany = async (
+    rawDocument?: string,
+    options?: { silent?: boolean },
+  ) => {
+    const cleanDoc = (rawDocument ?? standaloneCompanyForm.document).replace(/\D/g, "");
+    if (cleanDoc.length !== 14) {
+      if (!options?.silent) {
+        toast.warning("Informe um CNPJ válido com 14 dígitos para consultar a Receita Federal.");
+      }
+      return;
+    }
+    if (!validateCnpj(cleanDoc)) {
+      if (!options?.silent) {
+        toast.error("CNPJ matematicamente inválido (dígitos verificadores não conferem).");
+      }
+      return;
+    }
+    setIsSearchingStandaloneCnpj(true);
+    try {
+      const info = await fetchCnpjInfo(cleanDoc);
+      if (info && info.valid && info.details) {
+        const d = info.details;
+        setStandaloneCompanyForm((prev) => ({
+          ...prev,
+          name: d.razaoSocial || prev.name,
+          tradeName: d.nomeFantasia || prev.tradeName,
+          phone: d.telefone ? maskPhone(d.telefone) : prev.phone,
+          email: d.email || prev.email,
+        }));
+        setStandaloneCnpjDetails((prev) => ({
+          ...prev,
+          razaoSocial: d.razaoSocial || prev.razaoSocial,
+          nomeFantasia: d.nomeFantasia || prev.nomeFantasia,
+          situacaoCadastral: d.situacaoCadastral || prev.situacaoCadastral,
+          dataAbertura: d.dataAbertura || prev.dataAbertura,
+          capitalSocial: d.capitalSocial || prev.capitalSocial,
+          naturezaJuridica: d.naturezaJuridica || prev.naturezaJuridica,
+          porte: d.porte || prev.porte,
+          atividadePrincipal: d.atividadePrincipal || prev.atividadePrincipal,
+          atividadesSecundarias: d.atividadesSecundarias || prev.atividadesSecundarias,
+          logradouro: d.logradouro || prev.logradouro,
+          numero: d.numero || prev.numero,
+          complemento: d.complemento || prev.complemento,
+          bairro: d.bairro || prev.bairro,
+          municipio: d.municipio || prev.municipio,
+          uf: d.uf || prev.uf,
+          cep: d.cep || prev.cep,
+          telefone: d.telefone || prev.telefone,
+          email: d.email || prev.email,
+          qsa: d.qsa || prev.qsa,
+        }));
+        toast.success("Dados da Receita Federal preenchidos automaticamente!");
+      } else if (!options?.silent) {
+        toast.error(info?.erro || "CNPJ não localizado na Receita Federal.");
+      }
+    } catch {
+      if (!options?.silent) {
+        toast.error("Erro ao consultar CNPJ na Receita Federal.");
+      }
+    } finally {
+      setIsSearchingStandaloneCnpj(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showAddCompanyDrawer || standaloneCompanyForm.type !== "company") return;
+    const cleanDigits = standaloneCompanyForm.document.replace(/\D/g, "");
+    if (cleanDigits.length < 14) {
+      lastAutoQueriedStandaloneCnpjRef.current = "";
+      return;
+    }
+    if (
+      cleanDigits.length === 14 &&
+      validateCnpj(cleanDigits) &&
+      cleanDigits !== lastAutoQueriedStandaloneCnpjRef.current
+    ) {
+      lastAutoQueriedStandaloneCnpjRef.current = cleanDigits;
+      void queryReceitaForStandaloneCompany(cleanDigits, { silent: false });
+    }
+  }, [showAddCompanyDrawer, standaloneCompanyForm.type, standaloneCompanyForm.document]);
+
   const handleCreateStandaloneCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!standaloneCompanyForm.name.trim()) {
@@ -617,6 +742,10 @@ export function ContactsView() {
     }
     setSavingStandaloneCompany(true);
     try {
+      const addressPayload =
+        standaloneCompanyForm.type === "company"
+          ? buildAccountAddressFromCnpjDetails(standaloneCnpjDetails, null)
+          : undefined;
       const response = await fetch("/api/crm/accounts", {
         method: "POST",
         credentials: "include",
@@ -625,21 +754,30 @@ export function ContactsView() {
           name: standaloneCompanyForm.name.trim(),
           type: standaloneCompanyForm.type,
           tradeName: standaloneCompanyForm.tradeName.trim() || undefined,
+          segment: standaloneCompanyForm.segment || undefined,
           document: standaloneCompanyForm.document.replace(/\D/g, ""),
           phone: standaloneCompanyForm.phone.trim() || undefined,
           email: standaloneCompanyForm.email.trim() || undefined,
           website: standaloneCompanyForm.website.trim() || undefined,
           notes: standaloneCompanyForm.notes.trim() || undefined,
+          address: addressPayload,
+          customFields: standaloneCompanyCustomFields,
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Não foi possível cadastrar a empresa.");
       const createdAcc: CrmAccountDTO = data.account;
       if (showAddModal) setNewAccount(createdAcc);
+      if (editingContact) {
+        setEditAccount(createdAcc);
+        setEditAccountId(createdAcc.id);
+      }
       setShowAddCompanyDrawer(false);
+      lastAutoQueriedStandaloneCnpjRef.current = "";
       setStandaloneCompanyForm({
         name: "",
         tradeName: "",
+        segment: "",
         document: "",
         type: "company",
         phone: "",
@@ -647,6 +785,8 @@ export function ContactsView() {
         website: "",
         notes: "",
       });
+      setStandaloneCnpjDetails(createEmptyCnpjDetails());
+      setStandaloneCompanyCustomFields({});
       toast.success(`Empresa "${createdAcc.name}" cadastrada com sucesso!`);
       await loadCompanies(0);
     } catch (err: any) {
@@ -794,19 +934,7 @@ export function ContactsView() {
             {canCreateContact && (
               <button
                 type="button"
-                onClick={() => {
-                  setStandaloneCompanyForm({
-                    name: "",
-                    tradeName: "",
-                    document: "",
-                    type: "company",
-                    phone: "",
-                    email: "",
-                    website: "",
-                    notes: "",
-                  });
-                  setShowAddCompanyDrawer(true);
-                }}
+                onClick={() => openStandaloneCompanyDrawer()}
                 className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 transition cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -1142,7 +1270,7 @@ export function ContactsView() {
                           )}
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <button onClick={() => handleStartChat(c.id)} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">
+                              <button data-tour="contacts.attend" onClick={() => handleStartChat(c.id)} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">
                                 <MessageSquare className="h-3.5 w-3.5" />
                                 Conversar
                               </button>
@@ -1412,6 +1540,7 @@ export function ContactsView() {
                 <Search className="h-5 w-5 text-primary shrink-0" strokeWidth={2.5} />
                 <input
                   ref={globalSearchRef}
+                  data-tour="contacts.conversation-search"
                   type="text"
                   value={globalSearch}
                   onChange={(e) => setGlobalSearch(e.target.value)}
@@ -1607,17 +1736,24 @@ export function ContactsView() {
 
               {!existingContact && (
                 <div data-tour="contact-create.account" className="space-y-1.5">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
+                    <button
+                      type="button"
+                      onClick={() => openStandaloneCompanyDrawer()}
+                      className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Nova empresa
+                    </button>
+                  </div>
                   <AccountPicker
                     value={newAccount?.id || null}
                     selectedAccount={newAccount}
                     onSelectAccount={setNewAccount}
                     lookupUrl="/api/contacts/account-options"
                     placeholder="Buscar empresa por nome ou CNPJ..."
-                    onAddNew={(query) => {
-                      setStandaloneCompanyForm({ name: query || "", tradeName: "", document: "", type: "company", phone: "", email: "", website: "", notes: "" });
-                      setShowAddCompanyDrawer(true);
-                    }}
+                    onAddNew={(query) => openStandaloneCompanyDrawer(query)}
                   />
                 </div>
               )}
@@ -1994,10 +2130,7 @@ export function ContactsView() {
                       <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Empresa / cliente vinculado</label>
                       <button
                         type="button"
-                        onClick={() => {
-                          setCompanyForm({ name: "", tradeName: "", document: "", type: "company", phone: "", email: "" });
-                          setCreatingCompany(true);
-                        }}
+                        onClick={() => openStandaloneCompanyDrawer()}
                         className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <Plus className="h-3 w-3" />
@@ -2013,17 +2146,7 @@ export function ContactsView() {
                       }}
                       lookupUrl="/api/contacts/account-options"
                       placeholder="Buscar empresa por nome ou CNPJ..."
-                      onAddNew={(initialQuery) => {
-                        setCompanyForm({
-                          name: initialQuery || "",
-                          tradeName: "",
-                          document: "",
-                          type: "company",
-                          phone: "",
-                          email: "",
-                        });
-                        setCreatingCompany(true);
-                      }}
+                      onAddNew={(initialQuery) => openStandaloneCompanyDrawer(initialQuery)}
                     />
                   </div>
                 )}
@@ -2079,7 +2202,7 @@ export function ContactsView() {
       <Sheet open={showAddCompanyDrawer} onOpenChange={setShowAddCompanyDrawer}>
         <SheetContent
           side="right"
-          className="flex h-full w-full max-w-[500px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[500px] shadow-2xl border-l border-border"
+          className="flex h-full w-full max-w-[640px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[640px] shadow-2xl border-l border-border z-[60]"
         >
           <SheetHeader className="flex h-16 shrink-0 flex-row items-center justify-between border-b border-border px-6 bg-card space-y-0">
             <SheetTitle className="text-base font-extrabold text-foreground flex items-center gap-2">
@@ -2119,49 +2242,47 @@ export function ContactsView() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
-                  {standaloneCompanyForm.type === "company" ? "Razão Social / Nome da Empresa *" : "Nome Completo *"}
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder={standaloneCompanyForm.type === "company" ? "Ex: Tecfag Máquinas Ltda" : "Ex: Maria Oliveira"}
-                  value={standaloneCompanyForm.name}
-                  onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, name: e.target.value }))}
-                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
-                />
-              </div>
-
-              {standaloneCompanyForm.type === "company" && (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Fantasia</label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                    {standaloneCompanyForm.type === "company" ? "CNPJ * (preenchimento automático na Receita)" : "CPF *"}
+                  </label>
+                  {standaloneCompanyForm.type === "company" && isSearchingStandaloneCnpj && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Consultando Receita Federal...
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Ex: Tecfag"
-                    value={standaloneCompanyForm.tradeName}
-                    onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, tradeName: e.target.value }))}
-                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                    required
+                    placeholder={standaloneCompanyForm.type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
+                    value={standaloneCompanyForm.document}
+                    onChange={(e) =>
+                      setStandaloneCompanyForm((prev) => ({
+                        ...prev,
+                        document: formatAccountDocumentInput(e.target.value, prev.type),
+                      }))
+                    }
+                    className="h-10 flex-1 rounded-xl bg-muted px-3.5 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
                   />
+                  {standaloneCompanyForm.type === "company" && (
+                    <button
+                      type="button"
+                      disabled={isSearchingStandaloneCnpj}
+                      onClick={() => void queryReceitaForStandaloneCompany(standaloneCompanyForm.document, { silent: false })}
+                      className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 text-[11px] font-bold text-primary hover:bg-primary/20 transition cursor-pointer disabled:opacity-50"
+                    >
+                      {isSearchingStandaloneCnpj ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                      Consultar Receita
+                    </button>
+                  )}
                 </div>
-              )}
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
-                  {standaloneCompanyForm.type === "company" ? "CNPJ *" : "CPF *"}
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder={standaloneCompanyForm.type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
-                  value={standaloneCompanyForm.document}
-                  onChange={(e) =>
-                    setStandaloneCompanyForm((prev) => ({
-                      ...prev,
-                      document: formatAccountDocumentInput(e.target.value, prev.type),
-                    }))
-                  }
-                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
-                />
                 {(() => {
                   const mismatch = getInlineDocumentMismatch(standaloneCompanyForm.type, standaloneCompanyForm.document);
                   if (!mismatch) return null;
@@ -2186,7 +2307,47 @@ export function ContactsView() {
                 })()}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                  {standaloneCompanyForm.type === "company" ? "Razão Social / Nome da Empresa *" : "Nome Completo *"}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={standaloneCompanyForm.type === "company" ? "Ex: Tecfag Máquinas Ltda" : "Ex: Maria Oliveira"}
+                  value={standaloneCompanyForm.name}
+                  onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, name: e.target.value }))}
+                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                />
+              </div>
+
+              <div className={`grid gap-3 ${standaloneCompanyForm.type === "company" ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+                {standaloneCompanyForm.type === "company" && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Nome Fantasia</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Tecfag"
+                      value={standaloneCompanyForm.tradeName}
+                      onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, tradeName: e.target.value }))}
+                      className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Segmento</label>
+                  <CatalogSelect
+                    kind="segment"
+                    value={standaloneCompanyForm.segment || null}
+                    onChange={(value) => setStandaloneCompanyForm((prev) => ({ ...prev, segment: value || "" }))}
+                    placeholder="Selecionar segmento..."
+                    allowCreate
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
                   <input
@@ -2220,6 +2381,249 @@ export function ContactsView() {
                 />
               </div>
 
+              {standaloneCompanyForm.type === "company" && (
+                <div className="rounded-2xl border border-border bg-muted/20 p-4 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5" />
+                        Dados da Receita Federal & Endereço Comercial
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Preenchidos automaticamente ao digitar o CNPJ ou editáveis manualmente.
+                      </p>
+                    </div>
+                    {standaloneCnpjDetails.situacaoCadastral && (
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase border ${
+                          standaloneCnpjDetails.situacaoCadastral.toUpperCase().includes("ATIVA")
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                            : "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                        }`}
+                      >
+                        {standaloneCnpjDetails.situacaoCadastral}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Situação Cadastral</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: ATIVA"
+                        value={standaloneCnpjDetails.situacaoCadastral}
+                        onChange={(e) =>
+                          setStandaloneCnpjDetails((prev) => ({ ...prev, situacaoCadastral: e.target.value }))
+                        }
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Data de Abertura</label>
+                      <input
+                        type="text"
+                        placeholder="AAAA-MM-DD ou DD/MM/AAAA"
+                        value={standaloneCnpjDetails.dataAbertura}
+                        onChange={(e) =>
+                          setStandaloneCnpjDetails((prev) => ({ ...prev, dataAbertura: e.target.value }))
+                        }
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Capital Social</label>
+                      <input
+                        type="text"
+                        placeholder="R$ 0,00"
+                        value={standaloneCnpjDetails.capitalSocial}
+                        onChange={(e) =>
+                          setStandaloneCnpjDetails((prev) => ({ ...prev, capitalSocial: e.target.value }))
+                        }
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Natureza Jurídica</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Sociedade Empresária Limitada"
+                        value={standaloneCnpjDetails.naturezaJuridica}
+                        onChange={(e) =>
+                          setStandaloneCnpjDetails((prev) => ({ ...prev, naturezaJuridica: e.target.value }))
+                        }
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Porte da Empresa</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: ME, EPP, DEMAIS"
+                        value={standaloneCnpjDetails.porte}
+                        onChange={(e) =>
+                          setStandaloneCnpjDetails((prev) => ({ ...prev, porte: e.target.value }))
+                        }
+                        className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Atividade Principal (CNAE)</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: 2829-1/99 - Fabricação de outras máquinas e equipamentos"
+                      value={standaloneCnpjDetails.atividadePrincipal}
+                      onChange={(e) =>
+                        setStandaloneCnpjDetails((prev) => ({ ...prev, atividadePrincipal: e.target.value }))
+                      }
+                      className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                      Atividades Secundárias (uma por linha)
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="CNAEs secundários..."
+                      value={standaloneCnpjDetails.atividadesSecundarias || ""}
+                      onChange={(e) =>
+                        setStandaloneCnpjDetails((prev) => ({
+                          ...prev,
+                          atividadesSecundarias: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl bg-card px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border resize-y"
+                    />
+                  </div>
+
+                  <div className="pt-2 border-t border-border/60 space-y-3">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5 text-primary" />
+                      Endereço Comercial
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Logradouro</label>
+                        <input
+                          type="text"
+                          placeholder="Rua, Avenida, Rodovia..."
+                          value={standaloneCnpjDetails.logradouro || ""}
+                          onChange={(e) =>
+                            setStandaloneCnpjDetails((prev) => ({ ...prev, logradouro: e.target.value }))
+                          }
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Número</label>
+                        <input
+                          type="text"
+                          placeholder="S/N"
+                          value={standaloneCnpjDetails.numero || ""}
+                          onChange={(e) =>
+                            setStandaloneCnpjDetails((prev) => ({ ...prev, numero: e.target.value }))
+                          }
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Complemento</label>
+                        <input
+                          type="text"
+                          placeholder="Sala, Galpão, Bloco..."
+                          value={standaloneCnpjDetails.complemento || ""}
+                          onChange={(e) =>
+                            setStandaloneCnpjDetails((prev) => ({ ...prev, complemento: e.target.value }))
+                          }
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Bairro / Distrito</label>
+                        <input
+                          type="text"
+                          placeholder="Bairro"
+                          value={standaloneCnpjDetails.bairro || ""}
+                          onChange={(e) =>
+                            setStandaloneCnpjDetails((prev) => ({ ...prev, bairro: e.target.value }))
+                          }
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                      <div className="sm:col-span-2 space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Cidade / Município</label>
+                        <input
+                          type="text"
+                          placeholder="Cidade"
+                          value={standaloneCnpjDetails.municipio || ""}
+                          onChange={(e) =>
+                            setStandaloneCnpjDetails((prev) => ({ ...prev, municipio: e.target.value }))
+                          }
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">UF</label>
+                        <input
+                          type="text"
+                          maxLength={2}
+                          placeholder="UF"
+                          value={standaloneCnpjDetails.uf || ""}
+                          onChange={(e) =>
+                            setStandaloneCnpjDetails((prev) => ({ ...prev, uf: e.target.value.toUpperCase() }))
+                          }
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground uppercase focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold uppercase text-muted-foreground">CEP</label>
+                        <input
+                          type="text"
+                          placeholder="00000-000"
+                          value={standaloneCnpjDetails.cep || ""}
+                          onChange={(e) =>
+                            setStandaloneCnpjDetails((prev) => ({ ...prev, cep: e.target.value }))
+                          }
+                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-border/60 space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5 text-primary" />
+                      Quadro Societário / Administradores (QSA)
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Um sócio/administrador por linha"
+                      value={standaloneCnpjDetails.qsa || ""}
+                      onChange={(e) =>
+                        setStandaloneCnpjDetails((prev) => ({
+                          ...prev,
+                          qsa: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl bg-card px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border resize-y"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Observações Internas</label>
                 <textarea
@@ -2230,6 +2634,13 @@ export function ContactsView() {
                   className="w-full rounded-xl bg-muted px-3.5 py-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent resize-y"
                 />
               </div>
+
+              <CustomFieldsEditor
+                entity="company"
+                values={standaloneCompanyCustomFields}
+                onChange={setStandaloneCompanyCustomFields}
+                create
+              />
             </div>
 
             <div className="shrink-0 border-t border-border bg-card px-6 py-4 flex items-center justify-end gap-3">

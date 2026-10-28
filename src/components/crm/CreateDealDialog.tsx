@@ -23,7 +23,13 @@ import {
   formatAccountDocumentInput,
   getInlineDocumentMismatch,
   validateAccountDocument,
+  validateCnpj,
 } from "../../lib/crm/account-validation";
+import { fetchCnpjInfo, type CnpjFullDetails } from "../../lib/valentina/cnpj-service";
+import {
+  buildAccountAddressFromCnpjDetails,
+  createEmptyCnpjDetails,
+} from "../../lib/crm/cnpj-account-mapper";
 import {
   Select,
   SelectContent,
@@ -225,8 +231,38 @@ export function CreateDealDialog({
       ? `Atenção: Este contato está associado à empresa "${contactOriginalAccount.name}". A negociação será criada para "${selectedAccount.name}", preservando o histórico e os vínculos existentes sem sobrescrevê-los.`
       : null;
 
+  const [accountCnpjDetails, setAccountCnpjDetails] = useState<CnpjFullDetails>(() =>
+    createEmptyCnpjDetails(),
+  );
+
   const handleDocumentChange = (val: string) => {
-    setAccountDocument(formatAccountDocumentInput(val, accountType));
+    const prevDigits = accountDocument.replace(/\D/g, "");
+    const nextFormatted = formatAccountDocumentInput(val, accountType);
+    const nextDigits = nextFormatted.replace(/\D/g, "");
+    setAccountDocument(nextFormatted);
+    if (
+      accountType === "company" &&
+      nextDigits.length === 14 &&
+      nextDigits !== prevDigits &&
+      validateCnpj(nextDigits)
+    ) {
+      void (async () => {
+        try {
+          const info = await fetchCnpjInfo(nextDigits);
+          if (info && info.valid && info.details) {
+            const d = info.details;
+            if (d.razaoSocial) setAccountName((prev) => d.razaoSocial || prev);
+            if (d.nomeFantasia) setAccountTradeName((prev) => d.nomeFantasia || prev);
+            if (d.telefone) setAccountPhone((prev) => d.telefone || prev);
+            if (d.email) setAccountEmail((prev) => d.email || prev);
+            setAccountCnpjDetails((prev) => ({ ...prev, ...d }));
+            toast.success("Dados da Receita Federal preenchidos automaticamente!");
+          }
+        } catch {
+          // Silencioso no auto-lookup
+        }
+      })();
+    }
   };
 
   const handleTypeChange = (newType: "person" | "company") => {
@@ -297,6 +333,10 @@ export function CreateDealDialog({
           document: cleanDoc || undefined,
           phone: accountPhone.replace(/\D/g, "") || undefined,
           email: accountEmail.trim() || undefined,
+          address:
+            accountType === "company"
+              ? buildAccountAddressFromCnpjDetails(accountCnpjDetails, null)
+              : undefined,
           customFields: accountCustomFields,
         };
       }

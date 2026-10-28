@@ -4,7 +4,10 @@ import { db } from "../../../db";
 import { commercialConsultantProfiles } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
-import { getCommercialHome } from "../../../lib/commercial/home-service";
+import {
+  getCommercialHome,
+  markCommercialDirectivesRead,
+} from "../../../lib/commercial/home-service";
 
 export const Route = createFileRoute("/api/commercial/home")({
   server: {
@@ -80,6 +83,62 @@ export const Route = createFileRoute("/api/commercial/home")({
               status: 500,
               headers: { "Content-Type": "application/json" },
             },
+          );
+        }
+      },
+      PATCH: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
+        const permError = requireCrmPermission(session, "canViewCrm");
+        if (permError) return permError;
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = (await request.json()) as Record<string, unknown>;
+        } catch {
+          return new Response(
+            JSON.stringify({ error: "Corpo da requisição inválido." }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        let targetOperatorId = session.operator.id;
+        const requestedOperatorId =
+          typeof body.operatorId === "string" ? body.operatorId.trim() : "";
+        if (requestedOperatorId && requestedOperatorId !== session.operator.id) {
+          if (session.operator.role !== "admin") {
+            return new Response(
+              JSON.stringify({
+                error: "Permissão insuficiente para atualizar notificações de outro consultor.",
+                code: "FORBIDDEN",
+              }),
+              { status: 403, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          targetOperatorId = requestedOperatorId;
+        }
+
+        const directiveIds = Array.isArray(body.directiveIds)
+          ? (body.directiveIds as string[])
+          : undefined;
+        const markAll = Boolean(body.markAll);
+
+        try {
+          const result = await markCommercialDirectivesRead(tenantId, targetOperatorId, {
+            directiveIds,
+            markAll,
+          });
+          return new Response(JSON.stringify({ success: true, ...result }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (error) {
+          console.error("[commercial/home] PATCH erro ao marcar notificações:", error);
+          return new Response(
+            JSON.stringify({ error: "Não foi possível marcar as notificações como lidas." }),
+            { status: 500, headers: { "Content-Type": "application/json" } },
           );
         }
       },

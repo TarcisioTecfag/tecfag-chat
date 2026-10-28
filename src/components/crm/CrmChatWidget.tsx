@@ -55,7 +55,6 @@ import {
 } from "@/components/chat/ChatList";
 import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
 import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
-import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import {
   Dialog,
   DialogContent,
@@ -687,6 +686,7 @@ function MiniChatTemplateSelector({
 
   return (
     <motion.div
+      data-tour="mini.templates"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 12 }}
@@ -1505,7 +1505,9 @@ export function CrmChatWidget() {
 
   // Limpar gravação e modal de template ao trocar de conversa ou fechar
   useEffect(() => {
-    setShowMetaTemplateModal(false);
+    if (document.documentElement.dataset.trainingStep !== "crm.mini-meta") {
+      setShowMetaTemplateModal(false);
+    }
     setShowValOlderPrompt(false);
     setShowOlderValentinaDays(false);
     setCurrentBrtDateStr(getBrtTodayDateStr());
@@ -2318,42 +2320,39 @@ export function CrmChatWidget() {
       {/* Lightbox rápido para visualização de imagem enviada/recebida */}
       <AnimatePresence>
         {previewImage && (
-          <DismissableLayerBranch asChild>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPreviewImage(null)}
+            data-crm-chat-widget
+            aria-live="polite"
+            className="fixed inset-0 z-[10060] pointer-events-auto flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm cursor-zoom-out"
+          >
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setPreviewImage(null)}
-              data-crm-chat-widget
-              aria-live="polite"
-              className="fixed inset-0 z-[10060] pointer-events-auto flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm cursor-zoom-out"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-white/20 bg-black/60 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
             >
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-white/20 bg-black/60 shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/90 transition-colors"
               >
-                <button
-                  type="button"
-                  onClick={() => setPreviewImage(null)}
-                  className="absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white hover:bg-black/90 transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-                <img src={previewImage} alt="Visualização ampliada" className="max-h-[85vh] max-w-[85vw] object-contain" />
-              </motion.div>
+                <X className="h-4 w-4" />
+              </button>
+              <img src={previewImage} alt="Visualização ampliada" className="max-h-[85vh] max-w-[85vw] object-contain" />
             </motion.div>
-          </DismissableLayerBranch>
+          </motion.div>
         )}
       </AnimatePresence>
 
-      <DismissableLayerBranch asChild>
-        <div
-          className={`fixed md:bottom-0 z-[10050] pointer-events-auto flex flex-col items-end ${
-            isDragging ? "select-none" : ""
-          }`}
+      <div
+        className={`fixed md:bottom-0 z-[10050] pointer-events-auto flex flex-col items-end ${
+          isDragging ? "select-none" : ""
+        }`}
           style={{
             right: isMobile ? "12px" : `${rightOffset}px`,
             bottom: isMobile
@@ -3677,6 +3676,7 @@ export function CrmChatWidget() {
                                 <SystemTooltip content="Templates Meta Oficiais">
                                   <button
                                     type="button"
+                                    data-tour="mini.templates"
                                     onClick={() => {
                                       if (!selected) return;
                                       if (!showMetaTemplateModal) {
@@ -4078,8 +4078,7 @@ export function CrmChatWidget() {
             </span>
           </motion.button>
         )}
-        </div>
-      </DismissableLayerBranch>
+      </div>
 
       {/* Mini Pop-up de Menu de Contexto (botão direito) */}
       <AnimatePresence>
@@ -4087,72 +4086,70 @@ export function CrmChatWidget() {
           const chat = conversations.find((c) => c.id === contextMenu.chatId);
           if (!chat) return null;
           return (
-            <DismissableLayerBranch asChild>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.1 }}
-                data-crm-chat-widget
-                aria-live="polite"
-                data-tour="mini.context-menu"
-                className="fixed z-[10060] pointer-events-auto min-w-[200px] rounded-xl bg-card border border-border shadow-2xl p-1 text-xs"
-                style={{ top: contextMenu.y, left: contextMenu.x }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {chat.id !== "valentina" && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      pinChat(chat.id);
-                      setContextMenu(null);
-                    }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                  >
-                    <Pin className="h-3.5 w-3.5 text-primary" />
-                    {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
-                  </button>
-                )}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              data-crm-chat-widget
+              aria-live="polite"
+              data-tour="mini.context-menu"
+              className="fixed z-[10060] pointer-events-auto min-w-[200px] rounded-xl bg-card border border-border shadow-2xl p-1 text-xs"
+              style={{ top: contextMenu.y, left: contextMenu.x }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {chat.id !== "valentina" && (
                 <button
                   type="button"
                   onClick={() => {
-                    markAsUnread(chat.id);
+                    pinChat(chat.id);
                     setContextMenu(null);
                   }}
                   className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
                 >
-                  <BookOpen className="h-3.5 w-3.5 text-primary" />
-                  Marcar como não lido
+                  <Pin className="h-3.5 w-3.5 text-primary" />
+                  {(chat as any).pinned ? "Desafixar Chat" : "Fixar Chat"}
                 </button>
-                {chat.id !== "valentina" && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTransferTargetChat(chat);
-                        setContextMenu(null);
-                      }}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                    >
-                      <Forward className="h-3.5 w-3.5 text-primary" />
-                      Transferir atendimento
-                    </button>
-                    <div className="my-1 border-t border-border/60" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        archiveFromMiniChat(chat.id);
-                        setContextMenu(null);
-                      }}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
-                    >
-                      <Archive className="h-3.5 w-3.5 text-amber-500" />
-                      Arquivar do mini chat
-                    </button>
-                  </>
-                )}
-              </motion.div>
-            </DismissableLayerBranch>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  markAsUnread(chat.id);
+                  setContextMenu(null);
+                }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                <BookOpen className="h-3.5 w-3.5 text-primary" />
+                Marcar como não lido
+              </button>
+              {chat.id !== "valentina" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTransferTargetChat(chat);
+                      setContextMenu(null);
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                  >
+                    <Forward className="h-3.5 w-3.5 text-primary" />
+                    Transferir atendimento
+                  </button>
+                  <div className="my-1 border-t border-border/60" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      archiveFromMiniChat(chat.id);
+                      setContextMenu(null);
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
+                  >
+                    <Archive className="h-3.5 w-3.5 text-amber-500" />
+                    Arquivar do mini chat
+                  </button>
+                </>
+              )}
+            </motion.div>
           );
         })()}
       </AnimatePresence>

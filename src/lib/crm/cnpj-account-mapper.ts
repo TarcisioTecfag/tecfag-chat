@@ -1,6 +1,33 @@
 import type { CrmAccountDTO } from "./crm-types";
 import { type CnpjFullDetails, validateCnpj } from "../valentina/cnpj-service";
 
+export function createEmptyCnpjDetails(): CnpjFullDetails {
+  return {
+    razaoSocial: "",
+    nomeFantasia: "",
+    cnpjFormatted: "",
+    cleanCnpj: "",
+    situacaoCadastral: "",
+    dataAbertura: "",
+    naturezaJuridica: "",
+    capitalSocial: "",
+    porte: "",
+    atividadePrincipal: "",
+    atividadesSecundarias: "",
+    logradouro: "",
+    numero: "",
+    complemento: "",
+    bairro: "",
+    municipio: "",
+    uf: "",
+    cep: "",
+    telefone: "",
+    email: "",
+    qsa: "",
+    consultedAt: "",
+  };
+}
+
 export function formatCnpjDigits(raw?: string | null): string {
   if (!raw) return "";
   const digits = raw.replace(/\D/g, "");

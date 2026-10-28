@@ -28,6 +28,7 @@ import {
   formatAccountDocumentInput,
   getInlineDocumentMismatch,
   validateAccountDocument,
+  validateCnpj,
 } from "../../lib/crm/account-validation";
 import { fetchCnpjInfo, type CnpjFullDetails } from "../../lib/valentina/cnpj-service";
 import {
@@ -167,8 +168,8 @@ export function AccountDetailModal({
 
   if (!isOpen || !accountId) return null;
 
-  const handleQueryReceita = async () => {
-    const cleanDigits = document.replace(/\D/g, "");
+  const handleQueryReceita = async (rawDoc?: string) => {
+    const cleanDigits = (typeof rawDoc === "string" ? rawDoc : document).replace(/\D/g, "");
     if (cleanDigits.length !== 14) {
       toast.error("Informe um CNPJ válido de 14 dígitos para consultar na Receita Federal.");
       return;
@@ -537,27 +538,39 @@ export function AccountDetailModal({
                             type="text"
                             value={document}
                             required
-                            onChange={(e) =>
-                              setDocument(formatAccountDocumentInput(e.target.value, type))
-                            }
+                            onChange={(e) => {
+                              const prevDigits = document.replace(/\D/g, "");
+                              const nextFormatted = formatAccountDocumentInput(e.target.value, type);
+                              const nextDigits = nextFormatted.replace(/\D/g, "");
+                              setDocument(nextFormatted);
+                              if (
+                                type === "company" &&
+                                nextDigits.length === 14 &&
+                                nextDigits !== prevDigits &&
+                                validateCnpj(nextDigits)
+                              ) {
+                                void handleQueryReceita(nextDigits);
+                              }
+                            }}
                             placeholder={type === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                             className={`${UNIFORM_INPUT_CLASS} font-mono flex-1`}
                           />
                           {type === "company" && (
-                            <button
-                              type="button"
-                              onClick={handleQueryReceita}
-                              disabled={isSearchingCnpj}
-                              className="h-9 px-3 rounded-[8px] border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-bold inline-flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer disabled:opacity-50"
-                              title="Consultar dados na Receita Federal pelo CNPJ"
-                            >
-                              {isSearchingCnpj ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Search className="w-3.5 h-3.5" />
-                              )}
-                              <span>Consultar API</span>
-                            </button>
+                            <SystemTooltip content="Consultar dados na Receita Federal pelo CNPJ">
+                              <button
+                                type="button"
+                                onClick={() => void handleQueryReceita()}
+                                disabled={isSearchingCnpj}
+                                className="h-9 px-3 rounded-[8px] border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-bold inline-flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                {isSearchingCnpj ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Search className="w-3.5 h-3.5" />
+                                )}
+                                <span>Consultar API</span>
+                              </button>
+                            </SystemTooltip>
                           )}
                         </div>
                         {(() => {
@@ -652,7 +665,7 @@ export function AccountDetailModal({
 
                   {/* Bloco 1.5: Dados da Receita Federal & Endereço Comercial (Exclusivo PJ) */}
                   {type === "company" && (
-                    <div className="rounded-[10px] border border-slate-200/90 dark:border-slate-800 bg-card p-4 shadow-2xs space-y-4">
+                    <div data-tour="account.registration" className="rounded-[10px] border border-slate-200/90 dark:border-slate-800 bg-card p-4 shadow-2xs space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border/70">
                         <div className="flex items-center gap-2">
                           <Building2 className="w-3.5 h-3.5 text-primary" />
