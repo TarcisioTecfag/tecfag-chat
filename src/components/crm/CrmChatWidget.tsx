@@ -54,7 +54,7 @@ import {
   WhatsappLogo,
 } from "@/components/chat/ChatList";
 import { SystemAnnotationBubble } from "@/components/chat/SystemAnnotationBubble";
-import { MessageKnowledgeSourceButton } from "@/components/chat/ChatMessageBubble";
+import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
 import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import {
   Dialog,
@@ -2982,6 +2982,15 @@ export function CrmChatWidget() {
                                         </div>
                                       </div>
                                     )}
+
+                                  {/* Card interativo: Preview Oficial de Máquina na Loja VTEX */}
+                                  {message.vtexProductPreview && (
+                                    <VtexProductPreviewCard
+                                      preview={message.vtexProductPreview}
+                                      previews={message.vtexProductPreviews}
+                                      compact
+                                    />
+                                  )}
 
                                   {/* Cards interativos unificados e sem duplicidade (CRM / VigosPhone / Conversas) */}
                                   {(() => {

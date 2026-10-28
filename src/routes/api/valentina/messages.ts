@@ -46,6 +46,15 @@ import {
 } from "../../../lib/valentina/knowledge-service";
 import { getDirectorBiContext } from "../../../lib/valentina/director-bi-context";
 import {
+  resolveSystemGuideForQuery,
+  getCompactSystemNavigationCheatSheet,
+} from "../../../lib/valentina/system-guide-service";
+import {
+  lookupVtexProductsForAssistant,
+  isVtexOrProductAssistantQuery,
+  type VtexAssistantLookupResult,
+} from "../../../lib/valentina/vtex-assistant-service";
+import {
   fieldAppliesToPipeline,
   formatCustomFieldLabel,
   isFilled,
@@ -65,6 +74,8 @@ import type {
   RelatedConversationItem,
   RelatedDealItem,
   RelatedCallActionItem,
+  VtexProductPreviewItem,
+  KnowledgeSourceItem,
 } from "../../../lib/mockData";
 
 // ── Emissor de Telemetria Real via SSE para a Árvore Agêntica ────────────────
@@ -381,6 +392,9 @@ export interface OperatorContextResult {
   isCasual: boolean;
   isThirdPartyBlocked: boolean;
   isPureKbQuery?: boolean;
+  isSystemGuideQuery?: boolean;
+  vtexLookupResult?: VtexAssistantLookupResult | null;
+  systemGuideSources?: KnowledgeSourceItem[];
 }
 
 async function getOperatorContext(
@@ -427,7 +441,7 @@ async function getOperatorContext(
   const normRecentAiForIntent = normalizeForMatch(recentAiContextText || "");
   const primaryTerms = extractSearchCandidateTerms(cleanUserQuery);
   const isFollowUpRequest =
-    /\b(?:puxe|puxar|detalhe|detalhes|link|botao|abrir|abre|ela|elas|essa|essas|esse|esses|dela|delas|dele|deles|dessa|dessas|desse|desses|nela|nelas|nele|neles|nessa|nessas|nesse|nesses|recomende|especifico|fechar\s+hoje|ligar|outra|outras|outro|outros|lista\s+completa|todas|todos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|informacao|informacoes|dado|dados|ficha|historico|nota|notas|atividade|atividades|produto|produtos|questionario|arquivo|arquivos|email|comprador|sdr|volume|criado|criada|atualizado|atualizada|fechamento|previsao)\b/i.test(
+    /\b(?:puxe|puxar|detalhe|detalhes|link|botao|abrir|abre|ela|elas|essa|essas|esse|esses|dela|delas|dele|deles|dessa|dessas|desse|desses|nela|nelas|nele|neles|nessa|nessas|nesse|nesses|recomende|especifico|fechar\s+hoje|ligar|outra|outras|outro|outros|lista\s+completa|todas|todos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|informacao|informacoes|dado|dados|ficha|historico|nota|notas|atividade|atividades|produto|produtos|questionario|arquivo|arquivos|email|comprador|sdr|volume|criado|criada|atualizado|atualizada|fechamento|previsao|preco|valor|site|vtex|pagina)\b/i.test(
       q
     );
 
@@ -436,17 +450,28 @@ async function getOperatorContext(
     Boolean(hasAttachedImage)
   );
 
+  // Detecção de dúvidas sobre o uso do sistema (Onboarding Wizard) e consultas VTEX
+  const systemGuideMatch = resolveSystemGuideForQuery(
+    cleanUserQuery || userQuery || "",
+    recentAiContextText || ""
+  );
+  const vtexIntent = isVtexOrProductAssistantQuery(
+    cleanUserQuery || userQuery || "",
+    recentAiContextText || ""
+  );
+
   // Classificação de intenção real para consultar apenas o que é necessário
   const hasExplicitMachineOrManualKeyword =
     Boolean(hasAttachedImage) ||
     isExplicitPhotoRequest ||
-    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|selar|selagem|envasadora|envasar|envase|rotuladora|rotular|rotulagem|datador|datar|datacao|empacotadora|empacotar|dosadora|dosar|valvula|frasco|frascos|pote|potes|garrafa|garrafas|tampa|tampas|alicate|arqueadora|arquear|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|saches|encapsuladora|encapsular|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|plastico|salgadinho|salgadinhos|embalar|embalagem|embalagens|pacote|pacotes|saco|sacos|bandeja|bandejas|por\s+minuto|ciclos|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre)\b/.test(
+    vtexIntent.shouldQueryVtex ||
+    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|selar|selagem|envasadora|envasar|envase|rotuladora|rotular|rotulagem|datador|datar|datacao|empacotadora|empacotar|dosadora|dosar|valvula|frasco|frascos|pote|potes|garrafa|garrafas|tampa|tampas|alicate|arqueadora|arquear|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|saches|encapsuladora|encapsular|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|plastico|salgadinho|salgadinhos|embalar|embalagem|embalagens|pacote|pacotes|saco|sacos|bandeja|bandejas|por\s+minuto|ciclos|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre|vtex|sku\s*\d+)\b/.test(
       q
     ) ||
     /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(cleanUserQuery || userQuery || "");
 
   const isRecentMachineManualTurn =
-    /\b(?:puxei\s+as\s+informacoes\s+do\s+manual|segundo\s+o\s+manual|segundo\s+o\s+catalogo|linha\s+personnalite|linha\s+semi-industrial|faixa\s+de\s+dosagem|range\s+de\s+dosagem|embalagens\s+por\s+hora|ciclos\s+por\s+minuto|componentes\s+pneumaticos|alimentacao\s+eletrica|manual\s+tecnico|painel\s+de\s+controle|ihm\s+touch|volume\s+de\s+envase|velocidade\s+da\s+esteira|tempo\s+entre\s+os\s+ciclos|nao,\s+essa\s+maquina\s+nao\s+serve|envasadora|seladora|dosadora|rotuladora|datador|empacotadora|arqueadora|encapsuladora|pamq[a-z0-9]+)\b/.test(
+    /\b(?:puxei\s+as\s+informacoes\s+do\s+manual|segundo\s+o\s+manual|segundo\s+o\s+catalogo|linha\s+personnalite|linha\s+semi-industrial|faixa\s+de\s+dosagem|range\s+de\s+dosagem|embalagens\s+por\s+hora|ciclos\s+por\s+minuto|componentes\s+pneumaticos|alimentacao\s+eletrica|manual\s+tecnico|painel\s+de\s+controle|ihm\s+touch|volume\s+de\s+envase|velocidade\s+da\s+esteira|tempo\s+entre\s+os\s+ciclos|nao,\s+essa\s+maquina\s+nao\s+serve|envasadora|seladora|dosadora|rotuladora|datador|empacotadora|arqueadora|encapsuladora|pamq[a-z0-9]+|tecfag\.com\.br|loja\s+vtex)\b/.test(
       normRecentAiForIntent
     );
 
@@ -454,49 +479,64 @@ async function getOperatorContext(
 
   const isOverviewOrGeneral =
     !isMachineContext &&
+    !systemGuideMatch.isSystemHowTo &&
     /\b(?:resumo|panorama|geral|tudo|meu dia|como estou|prioridade|prioridades|bom dia|boa tarde|boa noite|oi|ola)\b/.test(
       q
     );
   const isCallOrPhone =
+    !systemGuideMatch.isSystemHowTo &&
     /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
   const isWaitingChat =
+    !systemGuideMatch.isSystemHowTo &&
     /\b(?:esperando|aguardando|fila|conversa|conversas|chat|whatsapp|responder|atraso|sla|lead|leads|chegaram|chegou|hoje|caixa\s+de\s+entrada)\b/.test(
       q
     );
   const hasExplicitCrmEntityWord =
+    !systemGuideMatch.isSystemHowTo &&
     /\b(?:negociac|card|cards|crm|proposta|orcamento|funil|etapa|carteira|pipeline|venda|vendas|mensur|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|comprador|sdr|questionario|email|cnpj|cpf)\b/.test(
       q
     );
   const isPureWaitingQueueQuery =
+    !systemGuideMatch.isSystemHowTo &&
     /\b(?:esperando|aguardando|fila|caixa\s+de\s+entrada|sem\s+resposta)\b/.test(q) &&
     !hasExplicitCrmEntityWord;
   const hasStrictCrmKeyword =
-    hasExplicitCrmEntityWord ||
-    (!isPureWaitingQueueQuery &&
-      /\b(?:parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|cliente|clientes|empresa|empresas|fechar)\b/.test(
-        q
-      ));
+    !systemGuideMatch.isSystemHowTo &&
+    (hasExplicitCrmEntityWord ||
+      (!isPureWaitingQueueQuery &&
+        !isMachineContext &&
+        /\b(?:parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|cliente|clientes|empresa|empresas|fechar)\b/.test(
+          q
+        )));
   const hasBroadCrmModifier =
     !isMachineContext &&
     !isPureWaitingQueueQuery &&
+    !systemGuideMatch.isSystemHowTo &&
     /\b(?:valor|outra|outras|outro|outros|lista|listar|liste|todas|todos|quantas|quantos)\b/.test(
       q
     );
   const hasExplicitCrmKeyword = hasStrictCrmKeyword || hasBroadCrmModifier;
 
   const isDealOrCrm =
-    hasExplicitCrmKeyword ||
-    (!isMachineContext &&
-      !isPureWaitingQueueQuery &&
-      /\b(?:informacao|informacoes|ficha|volume|produto|produtos|arquivo|arquivos)\b/.test(q));
-  const isGoalOrMeta = /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
-  const isTaskOrAgenda = /\b(?:tarefa|tarefas|agenda|compromisso|reuniao|reunioes|pendente|atrasad|follow)\b/.test(q);
-  const isMetricsQuery = /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
+    !systemGuideMatch.isSystemHowTo &&
+    (hasExplicitCrmKeyword ||
+      (!isMachineContext &&
+        !isPureWaitingQueueQuery &&
+        /\b(?:informacao|informacoes|ficha|volume|produto|produtos|arquivo|arquivos)\b/.test(q)));
+  const isGoalOrMeta =
+    !systemGuideMatch.isSystemHowTo &&
+    /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
+  const isTaskOrAgenda =
+    !systemGuideMatch.isSystemHowTo &&
+    /\b(?:tarefa|tarefas|agenda|compromisso|reuniao|reunioes|pendente|atrasad|follow)\b/.test(q);
+  const isMetricsQuery =
+    !systemGuideMatch.isSystemHowTo &&
+    /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
   const isKbQuery =
     hasExplicitMachineOrManualKeyword ||
     (isFollowUpRequest && isRecentMachineManualTurn && !hasStrictCrmKeyword);
   const isPureKbQuery =
-    isKbQuery &&
+    (isKbQuery || systemGuideMatch.isSystemHowTo) &&
     !isDealOrCrm &&
     !isWaitingChat &&
     !isGoalOrMeta &&
@@ -507,7 +547,13 @@ async function getOperatorContext(
   let taskTitle = "Consultando dados da sua operação";
   let finishedTitle = "Consulta comercial concluída";
 
-  if (hasAttachedImage && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta) {
+  if (systemGuideMatch.isSystemHowTo && !isKbQuery) {
+    taskTitle = "Consultando Guia Oficial do Sistema (Onboarding Wizard)";
+    finishedTitle = "Passo a passo de navegação do sistema carregado";
+  } else if (vtexIntent.shouldQueryVtex) {
+    taskTitle = "Consultando Loja VTEX ao vivo, lendo página do produto e manual técnico";
+    finishedTitle = "Leitura da página VTEX e manual técnico concluída";
+  } else if (hasAttachedImage && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta) {
     taskTitle = "Inspecionando visualmente a foto enviada e consultando catálogo técnico";
     finishedTitle = "Inspeção visual e consulta técnica concluídas";
   } else if (isExplicitPhotoRequest && !isDealOrCrm) {
@@ -539,18 +585,21 @@ async function getOperatorContext(
   const shouldRunGoals =
     !hasAttachedImage &&
     !isPureKbQuery &&
+    !systemGuideMatch.isSystemHowTo &&
     (isOverviewOrGeneral || isGoalOrMeta || (!isCallOrPhone && !isWaitingChat && !isTaskOrAgenda && primaryTerms.length === 0));
   const shouldRunDeals =
     !isPureKbQuery &&
     !isPureWaitingQueueQuery &&
+    !systemGuideMatch.isSystemHowTo &&
     (isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || (!hasAttachedImage && (primaryTerms.length > 0 || !isWaitingChat)));
   const shouldRunTasks =
-    !isPureKbQuery && (isOverviewOrGeneral || isTaskOrAgenda || isCallOrPhone);
+    !isPureKbQuery && !systemGuideMatch.isSystemHowTo && (isOverviewOrGeneral || isTaskOrAgenda || isCallOrPhone);
   const shouldRunChats =
     !isPureKbQuery &&
+    !systemGuideMatch.isSystemHowTo &&
     (isOverviewOrGeneral || isWaitingChat || isCallOrPhone || (!hasAttachedImage && primaryTerms.length > 0) || isFollowUpRequest);
-  const shouldRunMetrics = !isPureKbQuery && (isOverviewOrGeneral || isMetricsQuery);
-  const shouldRunKb = isKbQuery || Boolean(hasAttachedImage);
+  const shouldRunMetrics = !isPureKbQuery && !systemGuideMatch.isSystemHowTo && (isOverviewOrGeneral || isMetricsQuery);
+  const shouldRunKb = isKbQuery || Boolean(hasAttachedImage) || vtexIntent.shouldQueryVtex;
 
   const pushRealStep = (step: AgenticThoughtStep) => {
     executedSteps.push(step);
@@ -2287,7 +2336,8 @@ async function getOperatorContext(
       }
     }
 
-    // ── 7. BASE DE CONHECIMENTO / CATÁLOGO DE MÁQUINAS E PRODUTOS ────────────
+    // ── 7. BASE DE CONHECIMENTO / CATÁLOGO DE MÁQUINAS E PRODUTOS + LOJA VTEX ──
+    let vtexLookupResult: VtexAssistantLookupResult | null = null;
     if (shouldRunKb) {
       const tKb0 = Date.now();
       try {
@@ -2296,10 +2346,10 @@ async function getOperatorContext(
             id: "step-op-kb-analyze",
             kind: "analyze",
             actionVerb: "Analisou",
-            targetLabel: "parâmetros técnicos & catálogo de equipamentos",
-            scopeTag: "#1037-maquinas • #210-manuais",
+            targetLabel: "parâmetros técnicos, catálogo de equipamentos & loja VTEX",
+            scopeTag: "#1037-maquinas • #210-manuais • #vtex",
             badgeType: "kb",
-            detailText: `Cruzando a aplicação, capacidade produtiva e especificações de "${(cleanUserQuery || userQuery || "").slice(0, 80)}" com as linhas de máquinas e manuais técnicos disponíveis.`,
+            detailText: `Cruzando a aplicação, capacidade produtiva, especificações e página da VTEX de "${(cleanUserQuery || userQuery || "").slice(0, 80)}" com as linhas de máquinas e manuais técnicos disponíveis.`,
           });
         }
         const kbQuery = [
@@ -2312,7 +2362,20 @@ async function getOperatorContext(
           .filter(Boolean)
           .join(" ")
           .trim();
-        const kbContext = await getKnowledgeBaseContext(tenantId, kbQuery || userQuery);
+
+        const tVtex0 = Date.now();
+        const [kbContext, vtexRes] = await Promise.all([
+          getKnowledgeBaseContext(tenantId, kbQuery || userQuery),
+          tenantId === "tecfag"
+            ? lookupVtexProductsForAssistant({
+                tenantId,
+                userQuery: cleanUserQuery || userQuery || "",
+                recentHistoryText: recentAiContextText || "",
+                forceLookup: vtexIntent.shouldQueryVtex,
+              }).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+
         if (kbContext) {
           sections.push(kbContext);
           const kbMs = Math.max(10, Date.now() - tKb0);
@@ -2326,7 +2389,53 @@ async function getOperatorContext(
             detailText: `Manuais técnicos em PDF e Catálogo Oficial de Máquinas consultados na Base de Conhecimento em ${kbMs}ms.`,
           });
         }
+
+        if (vtexRes && vtexRes.invoked && vtexRes.products.length > 0) {
+          vtexLookupResult = vtexRes;
+          sections.push(vtexRes.promptContext);
+          const vtexMs = Math.max(15, Date.now() - tVtex0);
+          const hasFullPage = vtexRes.products.some((p) => p.pageReadComplete);
+          pushRealStep({
+            id: "step-op-vtex",
+            kind: "search",
+            actionVerb: hasFullPage ? "Consultou VTEX & leu página" : "Consultou loja VTEX",
+            targetLabel: vtexRes.products
+              .map((p) => `${p.name} (SKU ${p.skuId})`)
+              .join(", ")
+              .slice(0, 75),
+            scopeTag: `#vtex-live • ${vtexMs}ms`,
+            badgeType: "kb",
+            detailText: `Consulta ao vivo na loja VTEX (www.tecfag.com.br)${hasFullPage ? " e leitura completa da página do produto (/p)" : ""} concluídas em ${vtexMs}ms.`,
+          });
+        }
       } catch {}
+    }
+
+    // ── 8. GUIA OFICIAL DE NAVEGAÇÃO DO SISTEMA (ONBOARDING WIZARD) ──────────
+    const systemGuideSources: KnowledgeSourceItem[] = [];
+    if (systemGuideMatch.isSystemHowTo && systemGuideMatch.promptContext) {
+      sections.push(systemGuideMatch.promptContext);
+      const primaryPlaybook = systemGuideMatch.matchedPlaybooks[0];
+      pushRealStep({
+        id: "step-op-wizard-guide",
+        kind: "read",
+        actionVerb: "Consultou guia do sistema",
+        targetLabel: primaryPlaybook?.title || "Fagner Onboarding Wizard (237 steps)",
+        scopeTag: "#onboarding-wizard",
+        badgeType: "kb",
+        detailText: "Passos de interface, botões e fluxos operacionais carregados do Guia Oficial do Sistema (Wizard).",
+      });
+      systemGuideSources.push({
+        id: `wizard-guide-${primaryPlaybook?.id || "general"}`,
+        kind: "system_guide",
+        title: primaryPlaybook?.title || "Guia Oficial do Sistema (Fagner Onboarding Wizard)",
+        code: primaryPlaybook?.routePath || "/inicio",
+        folderOrCategory: `Onboarding Wizard • ${primaryPlaybook?.moduleLabel || "Navegação do Sistema"}`,
+        excerptOrDetail:
+          primaryPlaybook?.whereToClick ||
+          "Instruções passo a passo de botões, abas e fluxos operacionais do sistema.",
+        verified: true,
+      });
     }
 
     return {
@@ -2342,6 +2451,9 @@ async function getOperatorContext(
       isCasual: false,
       isThirdPartyBlocked,
       isPureKbQuery,
+      isSystemGuideQuery: systemGuideMatch.isSystemHowTo,
+      vtexLookupResult,
+      systemGuideSources,
     };
   } catch (err: any) {
     console.error("[getOperatorContext] Erro:", err);
@@ -2358,6 +2470,7 @@ async function getOperatorContext(
       isCasual: false,
       isThirdPartyBlocked,
       isPureKbQuery,
+      isSystemGuideQuery: systemGuideMatch.isSystemHowTo,
     };
   }
 }
@@ -2429,6 +2542,8 @@ Você está conversando diretamente com "${operatorName}" (Diretoria / Gestão E
      * **Seção 8**: Top 5 Principais Alertas da Operação Hoje (síntese executiva priorizada por criticidade).
      * **Seção 9**: Escala do Rodízio (consultores ativos, pausados, saldo de compensação) e Telemetria de Custos de IA.
      * **Seção 10 e 11**: Busca Profunda sob demanda (conversas com transcrição, negociações e empresas específicas) e Catálogo/Base de Conhecimento.
+     * **Seção 12 (VTEX Ao Vivo & Página Completa do Produto)**: Consulta em tempo real à loja oficial VTEX (https://www.tecfag.com.br) com preços públicos em R$, SKUs, códigos internos (PAMQ...), estoque, simulação de frete e leitura integral da página web do equipamento no site (com envio automático do link e preview da máquina em um balão separado).
+     * **Seção 13 (Guia Oficial do Sistema & Onboarding Wizard)**: Domínio completo de todas as telas, botões, fluxos e ações operacionais/administrativas do sistema para orientar passo a passo onde clicar.
 
 2. **REGRA INVIOLÁVEL — PROIBIDO DIZER "NÃO TENHO ACESSO", PROIBIDO INVENTAR DADOS FICTÍCIOS E PROIBIDO USAR EMOJIS**:
    - **JAMAIS** responda que "não tem acesso", "não consigo consultar", "os dados não estão disponíveis no contexto" ou que houve "falha no início do ciclo / erro na compilação da métrica".
@@ -2442,7 +2557,7 @@ ${
    - Analise diretamente os pixels da imagem enviada com máxima precisão e fidelidade visual, sem inventar especificações ou dados que não estejam visíveis na foto ou no dossiê.\n`
     : ""
 }
-3. **USO OBRIGATRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\` COM DADOS 100% REAIS DO DOSSIÊ)**:
+3. **USO OBRIGATÓRIO E INTELIGENTE DE BLOCOS VISUAIS (\`"blocks"\` COM DADOS 100% REAIS DO DOSSIÊ)**:
    - Sempre que a pergunta envolver métricas, comparativos, rankings, funil, relatórios ou objeções, enriqueça sua resposta com **1 ou 2 blocos visuais** dentro do array \`"blocks"\` usando **exclusivamente** os números e nomes reais do dossiê:
      * **Perguntas sobre TMA**: Traga a análise executiva em \`"text"\` + um \`InsightBlock\` (com os valores reais do dossiê de TMA Hoje, 7d, 30d e Pós-SDR) + um \`ChartBlock\` (\`"bar"\`, unit \`"min"\` ou \`"s"\`) se houver operadores com TMA medido (se todos estiverem em 0/N/A, use um \`ReportBlock\` com os operadores reais da equipe e seu status atual).
      * **Perguntas sobre Gargalo de Fila por Operador**: Traga a resposta direta em \`"text"\` + um \`ReportBlock\` ou \`ChartBlock\` (\`"bar"\`) com os operadores reais listados na Seção 1 / Seção 6 / Seção 9 + um \`InsightBlock\` apontando o status real da fila agora.
@@ -2451,6 +2566,9 @@ ${
      * **Perguntas sobre Gráfico do Funil de Vendas desta Semana**: Gere obrigatoriamente um \`ChartBlock\` (\`"bar"\`) com as etapas e quantidades/valores reais do funil comercial da Seção 5 + um \`ReportBlock\` ou \`InsightBlock\` detalhando quantidade e valor (R$) real em cada etapa.
      * **Perguntas sobre Relatório Detalhado por Vendedor**: Gere obrigatoriamente um \`ReportBlock\` completo com os vendedores reais da Seção 6 (Colunas sugeridas: \`["Vendedor", "Divisão", "Meta Mês", "Realizado Mês", "Pipeline Aberto", "Parados >=3d", "Perdidos Mês"]\`) + um \`InsightBlock\` com o resumo da meta global e realizado real da empresa.
      * **Perguntas sobre Objeções dos Leads**: Gere um \`ChartBlock\` (\`"bar"\` ou \`"pie"\`) com o ranking real das categorias/objeções da Seção 7 (usando as 5 macro-categorias e os Top 12 motivos específicos de perda do CRM quando a amostra de mensagens do chat estiver em 0) + um \`ReportBlock\` ou \`InsightBlock\` detalhando os valores em R$ e ocorrências reais.
+     * **Perguntas sobre Preços/Máquinas na VTEX ou Como Usar o Sistema (Wizard)**: Quando o gestor perguntar sobre preço, estoque, página de uma máquina na VTEX ou como realizar uma ação no sistema, responda de forma direta e completa usando as seções \`🛒 DADOS EM TEMPO REAL DA LOJA VTEX\` e \`🧭 GUIA OFICIAL DE NAVEGAÇÃO DO SISTEMA & ONBOARDING WIZARD\`. Quando houver máquina localizada na VTEX, o sistema anexará automaticamente um **balão separado logo abaixo** com o card de preview oficial da VTEX e o link direto para abrir no site.
+
+${getCompactSystemNavigationCheatSheet()}
 
 ## DADOS REAIS DA OPERAÇÃO AGORA (DOSSIÊ EXECUTIVO 360º):
 ${operationalContext}
@@ -2507,18 +2625,36 @@ Você NÃO é um suporte de T.I. (nunca fale em "chamados de T.I." ou "tickets")
 4. **Ligações Agendadas e Discagem Direta via VigosPhone**: Quais ligações e follow-ups ${firstName} precisa fazer hoje e atalho direto para ligar via VigosPhone.
 5. **MENSURAÇÃO 100% COMPLETA DA CARTEIRA E LISTAGEM DE NEGOCIAÇÕES (CRM)**: Você enxerga **100% de todas as negociações** de ${firstName} no CRM (sem nenhum limite de 60 registros — você vê todas as milhares de negociações: abertas, ganhas, pausadas e perdidas, além da mensuração matemática completa por status, por faixa de valor, por tempo sem interação/aging e por cada Funil e Etapa).
 6. **Análise Visual de Fotos/Imagens e Domínio Completo dos Manuais Técnicos e Catálogo (RAG)**: Inspeção visual real de fotos de máquinas, ferramentas, peças ou prints enviados por ${firstName} + consulta direta aos **210 Manuais Técnicos Oficiais (PDFs extraídos na Base de Conhecimento RAG)** e ao **Catálogo Oficial de Máquinas da ${persona.company}**.
+7. **Integração em Tempo Real com a Loja VTEX e Leitura Completa da Página do Produto no Site**: Consulta ao vivo à loja oficial VTEX (https://www.tecfag.com.br) trazendo **preços públicos em R$, valores de tabela, SKUs VTEX, códigos internos ERP (PAMQ...), disponibilidade em estoque, simulação de frete por CEP e leitura integral da página web do equipamento no site**, além de entregar automaticamente o **link direto da máquina em um balão separado com o card oficial de preview da VTEX**.
+8. **Guia Completo de Uso do Sistema e Onboarding Wizard (Onde Clicar / Passo a Passo)**: Domínio completo de todas as telas, botões, ícones e fluxos do sistema (com base nos 8 capítulos e 237 passos do Onboarding Wizard oficial) para ensinar ${firstName} exatamente **onde clicar e como realizar qualquer ação no sistema** (ex: transferir um cliente, assumir da fila, vincular ou criar negociação no chat, concluir diretriz com evidência, usar notas internas, enviar template Meta 24h, consultar CNPJ na Receita Federal, etc.).
 
-## CONSULTAS TÉCNICAS DE MÁQUINAS, MODELOS E MANUAIS (BASE DE CONHECIMENTO RAG):
-1. **DOMÍNIO TOTAL DOS MANUAIS TÉCNICOS E DO CATÁLOGO OFICIAL**:
-   - Quando ${firstName} perguntar sobre qualquer máquina, código ou modelo (ex: *"O que sabe sobre a APF300-2B?"*, *"Qual a especificação da BSF-5640LG?"*, *"Como funciona a DZ400?"*, *"Qual a faixa de dosagem ou pressão de ar dessa máquina?"*), consulte imediatamente a seção \`📚 BASE DE CONHECIMENTO & DIRETRIZES\` no contexto abaixo (que traz tanto os itens do **Catálogo Oficial de Máquinas** quanto o texto completo extraído do **Manual Técnico PDF** correspondente).
-   - **JAMAIS** diga que *"Não encontrei o catálogo técnico ou as especificações"* quando o modelo estiver listado na seção \`📚 BASE DE CONHECIMENTO & DIRETRIZES\`!
-   - **RESPONDA COM PROFUNDIDADE TÉCNICA E CLAREZA COMERCIAL**: Entregue diretamente as especificações técnicas reais que constam no manual e no catálogo (ex: nome oficial e linha, tipo de equipamento, faixa de dosagem/capacidade, quantidade de bicos, sistema de acionamento pneumático/elétrico, pressão de ar / consumo, tensão/potência, materiais de contato como Inox 304/316L, modos de operação, regulagens e aplicações indicadas).
-   - **NÃO DESVIE PARA CRM SE A PERGUNTA FOR TÉCNICA**: Se ${firstName} fez uma pergunta técnica sobre uma máquina ou modelo, responda 100% sobre a máquina com base no manual técnico e deixe \`"mentionedDealIds": []\` vazio (não empurre cards de CRM aleatórios nem pergunte *"Ela está em alguma negociação?"* se ele só pediu informações da máquina).
+## CONSULTAS TÉCNICAS DE MÁQUINAS, MODELOS, MANUAIS E LOJA VTEX AO VIVO:
+1. **DOMÍNIO TOTAL DOS MANUAIS TÉCNICOS, DO CATÁLOGO OFICIAL E DA PÁGINA INTEIRA DO PRODUTO NA VTEX**:
+   - Quando ${firstName} perguntar sobre qualquer máquina, código, preço, estoque, link do site ou pedir mais informações sobre um equipamento (ex: *"O que sabe sobre a APF300-2B?"*, *"Preciso de mais informações sobre a máquina X"*, *"Qual o preço da VS-500 na VTEX?"*, *"Lê a página da DZ-400 no site"*, *"Me manda o link dessa máquina"*), consulte imediatamente:
+     a) A seção \`🛒 DADOS EM TEMPO REAL DA LOJA VTEX & LEITURA COMPLETA DA PÁGINA DO PRODUTO NO SITE\` (que traz o preço público em R$ na VTEX, SKU, código interno PAMQ..., disponibilidade de estoque, simulação de frete e o **conteúdo integral lido diretamente da página web do produto no site https://www.tecfag.com.br**);
+     b) A seção \`📚 BASE DE CONHECIMENTO & DIRETRIZES\` (que traz os dados do **Catálogo Oficial** e o texto extraído do **Manual Técnico PDF**).
+   - **JAMAIS** diga que *"Não encontrei o catálogo técnico ou as especificações"* ou que *"Não tenho acesso aos preços / ao site"* quando o modelo estiver listado na seção VTEX ou na Base de Conhecimento!
+   - **COMBINE O MANUAL TÉCNICO + A LEITURA DA PÁGINA VTEX**: Entregue uma resposta completa, prática e organizada unindo os **dados comerciais ao vivo da VTEX** (nome oficial na loja, SKU VTEX, Código Interno ERP \`PAMQ...\`, **preço público em R$**, disponibilidade em estoque e condições/frete quando houver) com as **especificações técnicas completas lidas da página inteira do site e do Manual PDF** (aplicação, funcionamento, faixa de dosagem/produção, tensão, potência, pressão de ar, dimensões, estrutura em Inox, etc.).
+   - **ENTREGA DO LINK DA MÁQUINA EM BALÃO SEPARADO COM PREVIEW OFICIAL DA VTEX**:
+     * Sempre que uma máquina for localizada na VTEX (em perguntas sobre informações da máquina, preço, estoque, página ou link), o sistema **anexará automaticamente um balão separado logo abaixo da sua resposta** contendo o **Card de Preview Oficial da VTEX** (com a foto da máquina vinda da própria VTEX, título, SKU, preço em R$, resumo descritivo e botão clicável para ${firstName} abrir a página direto no site).
+     * Portanto, nos seus balões de texto, concentre-se em passar os valores, preços e informações técnicas/comerciais completas da máquina, e avise de forma natural que está enviando logo abaixo o card com o link direto do site para ele abrir (não precisa colar a URL crua \`https://...\` repetida no meio do texto quando o card de preview da VTEX estiver disponível).
+   - **NÃO DESVIE PARA CRM SE A PERGUNTA FOR SOBRE MÁQUINA / VTEX**: Se ${firstName} fez uma pergunta sobre máquina, preço, estoque ou catálogo/VTEX, responda 100% focado no equipamento e deixe \`"mentionedDealIds": []\` vazio.
 2. **REGRA INVIOLÁVEL DE SINCERIDADE TÉCNICA E ANTI-ALUCINAÇÃO (QUANDO NÃO SOUBER, DIGA QUE NÃO SABE!)**:
-   - Separe com rigor absoluto **o que consta no manual/catálogo** do que **não consta**: uma coisa é você funcionar muito bem entregando dados reais da documentação; outra coisa inaceitável é alucinar e inventar especificações por não saber!
-   - Quando ${firstName} perguntar sobre um detalhe técnico específico (ex: consumo exato de ar comprimido, peso líquido, dimensão exata, potência em kW, velocidade em condição especial, peça interna ou esquema elétrico) ou sobre um equipamento que **NÃO esteja escrito** nos Manuais Técnicos ou no Catálogo Oficial fornecidos no contexto abaixo, **JAMAIS chute, JAMAIS deduza e JAMAIS invente números ou especificações!**
-   - **Seja 100% sincero e transparente**: passe com segurança tudo o que consta no manual/catálogo sobre a máquina e avise com naturalidade o que não consta (ex: *"Consultei o manual/catálogo da [Máquina] aqui na base, mas essa especificação exata de [X] não consta na documentação. Prefiro ser sincero e não chutar um valor para não te passar informação errada — recomendo confirmar esse ponto direto com a engenharia ou na placa física do equipamento."*).
-   - Lembre-se: cada mensagem sua possui um ícone \`?\` na interface onde o operador audita exatamente de qual Manual PDF ou Ficha do Catálogo você tirou a informação. Nunca afirme algo técnico que não esteja amparado na fonte oficial!
+   - Separe com rigor absoluto **o que consta na VTEX / manual / catálogo** do que **não consta**:
+   - Quando ${firstName} perguntar sobre um detalhe técnico específico ou sobre um preço/equipamento que **NÃO esteja escrito** na seção VTEX, nos Manuais Técnicos ou no Catálogo Oficial fornecidos no contexto abaixo, **JAMAIS chute, JAMAIS deduza e JAMAIS invente preços ou especificações!**
+   - **Seja 100% sincero e transparente**: passe com segurança tudo o que consta na VTEX e no manual/catálogo sobre a máquina e avise com naturalidade caso algum detalhe específico não conste na documentação ou caso o item esteja sob consulta na loja.
+
+## AUXÍLIO OPERACIONAL E PASSO A PASSO DE USO DO SISTEMA (ONBOARDING WIZARD INJETADO):
+1. **COMO ENSINAR ${firstName.toUpperCase()} A REALIZAR QUALQUER AÇÃO NO SISTEMA (ONDE CLICAR)**:
+   - Sempre que ${firstName} perguntar como fazer algo no sistema (ex: *"Como posso transferir um cliente?"*, *"Onde clico para assumir um lead da fila?"*, *"Como vinculo uma negociação na conversa?"*, *"Como concluo uma diretriz do gestor com evidência?"*, *"Como uso notas internas ou respostas rápidas?"*, *"Como funciona o template Meta de 24h?"*, *"Como puxo os dados do CNPJ no sistema?"*), consulte a seção \`🧭 GUIA OFICIAL DE NAVEGAÇÃO DO SISTEMA & ONBOARDING WIZARD\` no contexto abaixo e o mapa de navegação do sistema.
+   - Explique de forma **clara, direta e passo a passo**, indicando exatamente:
+     1. **Qual módulo na barra lateral esquerda** ou **qual painel da tela** acessar (ex: Painel Esquerdo da Fila, Cabeçalho Superior do Chat Central, Compositor de Mensagem no Rodapé ou Painel Direito de Contexto CRM);
+     2. **Qual botão ou ícone clicar** (ex: botão **"Transferir"** com ícone de seta dupla no cabeçalho superior da conversa, ao lado de "Finalizar");
+     3. **O que selecionar ou preencher no modal** (ex: escolher a aba **"Para Operador"** ou **"Para Setor"**, adicionar o motivo opcional e clicar em **"Confirmar Transferência"**);
+     4. **O que acontece no sistema após a ação** (ex: registro automático no histórico de eventos da conversa e preservação das negociações vinculadas).
+   - Quando a pergunta for sobre **como usar o sistema**, mantenha \`"mentionedDealIds": []\`, \`"mentionedConversationIds": []\` e \`"suggestedCallDealIds": []\` vazios.
+
+${getCompactSystemNavigationCheatSheet()}
 ${
   hasAttachedImage
     ? `
@@ -2527,8 +2663,8 @@ ${
    - ${firstName} acabou de enviar uma **IMAGEM / FOTO REAL** anexada nesta mensagem${imageFileName ? ` (nome de referência do arquivo: "${imageFileName}")` : ""}.
    - Os pixels reais da imagem estão anexados diretamente na entrada multimodal desta chamada. **INSPECIONE VISUALMENTE A IMAGEM COM ATENÇÃO TOTAL!**
 2. **REGRA INVIOLÁVEL CONTRA ALUCINAÇÃO E MENTIRA**:
-   - Descreva e responda com base no que **REALMENTE APARECE VISUALMENTE NA FOTO** (ex: formato físico do equipamento/ferramenta, mecanismo de acionamento/alavancas, cor, material da estrutura, painel, rótulos visíveis na peça ou texto visível em um print) combinado com os dados oficiais da seção \`📚 CATÁLOGO / BASE DE CONHECIMENTO\` (quando o item constar no catálogo abaixo).
-   - **PROIBIDO INVENTAR OU CHUTAR ESPECIFICAÇÕES TÉCNICAS**: Se um dado técnico específico (como voltagem, potência em W, largura/espessura exata de fita em mm, peso exato em kg, capacidade produtiva ou preço) **NÃO estiver visível na foto** e **NÃO constar na Base de Conhecimento abaixo**, **JAMAIS invente números ou especificações!** Descreva com precisão o equipamento/ferramenta que você está vendo na foto, explique sua aplicação prática real e informe com transparência quais medidas/especificações exatas não estão visíveis na imagem e precisam ser conferidas na ficha técnica.
+   - Descreva e responda com base no que **REALMENTE APARECE VISUALMENTE NA FOTO** (ex: formato físico do equipamento/ferramenta, mecanismo de acionamento/alavancas, cor, material da estrutura, painel, rótulos visíveis na peça ou texto visível em um print) combinado com os dados oficiais da seção \`📚 CATÁLOGO / BASE DE CONHECIMENTO\` e \`🛒 LOJA VTEX\` (quando o item constar abaixo).
+   - **PROIBIDO INVENTAR OU CHUTAR ESPECIFICAÇÕES TÉCNICAS**: Se um dado técnico específico (como voltagem, potência em W, largura/espessura exata de fita em mm, peso exato em kg, capacidade produtiva ou preço) **NÃO estiver visível na foto** e **NÃO constar na Base de Conhecimento/VTEX abaixo**, **JAMAIS invente números ou especificações!** Descreva com precisão o equipamento/ferramenta que você está vendo na foto, explique sua aplicação prática real e informe com transparência quais medidas/especificações exatas não estão visíveis na imagem e precisam ser conferidas na ficha técnica.
    - **NÃO EMPURRE CARDS DE CRM**: Como o foco é a análise da foto enviada, mantenha \`"mentionedDealIds": []\`, \`"suggestedCallDealIds": []\` e \`"mentionedConversationIds": []\` vazios, a menos que ${firstName} tenha pedido explicitamente uma negociação junto com a foto.
 `
     : ""
@@ -2558,7 +2694,7 @@ ${
 ## ESTILO DE CONVERSA NATURAL (COMO UM COLEGA NO WHATSAPP):
 1. **DIVIDA EM BALÕES CURTOS (1 A 3 FRAGMENTOS)**:
    - Em agradecimentos ou confirmações rápidas (ex: *"ta obrigado"*, *"valeu"*, *"beleza"*, *"ok"*), responda em **1 único balão curto** (1 frase natural, sem puxar novos assuntos ou empurrar atendimentos).
-   - Em consultas comerciais, quebre sua resposta em **2 a 3 balões** dentro do array \`"fragments"\`.
+   - Em consultas comerciais, técnicas ou passo a passo de uso do sistema, quebre sua resposta em **2 a 3 balões** dentro do array \`"fragments"\`.
 2. **PROIBIDO CUMPRIMENTAR TODA HORA**:
    - ${
      alreadyTalkingToday
@@ -4648,6 +4784,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
 
           let managerContextText = "";
           let operatorContextResult: OperatorContextResult | null = null;
+          let activeVtexLookup: Awaited<ReturnType<typeof lookupVtexProductsForAssistant>> | null = null;
+          let activeSystemGuideSources: KnowledgeSourceItem[] = [];
 
           const contextStartMs = Date.now();
           if (useManagerContext) {
@@ -4668,7 +4806,52 @@ export const Route = createFileRoute("/api/valentina/messages")({
               badgeType: "bi",
               detailText: "Leitura em tempo real dos funis do CRM, metas comerciais, filas de atendimento e alertas de SLA.",
             });
-            managerContextText = await getManagerContext(contextTenantId, userText, knowledgeBase);
+            const adminGuideMatch = resolveSystemGuideForQuery(userText, recentAiContextText);
+            const [biDossierText, adminVtexRes] = await Promise.all([
+              getManagerContext(contextTenantId, userText, knowledgeBase),
+              lookupVtexProductsForAssistant({
+                tenantId: contextTenantId,
+                userQuery: userText,
+                recentHistoryText: recentAiContextText,
+                maxProducts: 3,
+              }).catch(() => null),
+            ]);
+            managerContextText = biDossierText;
+            if (adminGuideMatch.promptContext) {
+              managerContextText += `\n\n${adminGuideMatch.promptContext}`;
+              activeSystemGuideSources = adminGuideMatch.matchedPlaybooks.slice(0, 2).map((pb) => ({
+                id: `guide-${pb.id}`,
+                kind: "system_guide" as const,
+                title: pb.title,
+                subtitle: pb.moduleLabel,
+                badge: "Wizard & Guia do Sistema",
+                excerpt: pb.clickPath,
+              }));
+              liveExecutedSteps.push({
+                id: "step-admin-system-guide",
+                kind: "read",
+                actionVerb: "Consultou",
+                targetLabel:
+                  adminGuideMatch.matchedPlaybooks.map((p) => p.title).slice(0, 2).join(", ") ||
+                  "Onboarding Wizard & Guia do Sistema",
+                scopeTag: "#onboarding-wizard",
+                badgeType: "kb",
+                detailText: `Mapeamento passo a passo de telas, botões e ações operacionais do sistema injetado.`,
+              });
+            }
+            if (adminVtexRes && adminVtexRes.products.length > 0) {
+              activeVtexLookup = adminVtexRes;
+              managerContextText += `\n\n${adminVtexRes.promptContext}`;
+              liveExecutedSteps.push({
+                id: "step-admin-vtex-live",
+                kind: "query",
+                actionVerb: "Consultou",
+                targetLabel: `VTEX Store (${adminVtexRes.products.map((p) => p.modelCode || p.skuId).slice(0, 2).join(", ")})`,
+                scopeTag: "#vtex-live",
+                badgeType: "kb",
+                detailText: `Leitura ao vivo da loja VTEX e da página completa do produto no site (${adminVtexRes.products.length} equipamento(s)).`,
+              });
+            }
             const biMs = Math.max(25, Date.now() - contextStartMs);
             liveExecutedSteps.push(
               {
@@ -4721,6 +4904,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
             );
             liveTaskTitle = operatorContextResult.taskTitle;
             liveFinishedTitle = operatorContextResult.finishedTitle;
+            activeVtexLookup = operatorContextResult.vtexLookupResult || null;
+            activeSystemGuideSources = operatorContextResult.systemGuideSources || [];
             // Garante sincronização final das etapas reais do operador
             const nonOpSteps = liveExecutedSteps.filter(
               (s) => s && typeof s.id === "string" && !s.id.startsWith("step-op-")
@@ -4802,7 +4987,14 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const featureKey = useManagerContext ? "supervisor_chat" : persona.chatFeatureKey;
 
           // ── Chama o Vertex AI (suportando imagem anexada quando houver) ─────
-          let fragments: { text: string; delay?: number; blocks?: any[]; catalogPhoto?: any }[] = [];
+          let fragments: {
+            text: string;
+            delay?: number;
+            blocks?: any[];
+            catalogPhoto?: any;
+            vtexProductPreview?: VtexProductPreviewItem;
+            vtexProductPreviews?: VtexProductPreviewItem[];
+          }[] = [];
           let mentionedConversationIds: string[] = [];
           let mentionedDealIds: string[] = [];
           let suggestedCallDealIds: string[] = [];
@@ -4976,9 +5168,36 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const isMachineTopicTurn =
             isExplicitPhotoReq ||
             Boolean(operatorContextResult?.executedSteps?.some((s) => s.badgeType === "kb")) ||
-            /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento|modelo|manual|cat[aá]logo)\b/i.test(
+            Boolean(activeVtexLookup && activeVtexLookup.previews.length > 0) ||
+            /\b(?:envasadora|seladora|datador|empacotadora|fechadora|tampadora|rotuladora|encapsuladora|c[aá]psula|dosadora|alimentador|esteira|t[uú]nel|m[aá]quina|equipamento|modelo|manual|cat[aá]logo|vtex)\b/i.test(
               `${userText} ${fullReplyText}`
             );
+
+          // Se a pergunta não citou o código do modelo mas a IA recomendou/identificou um modelo específico no texto da resposta, faz pós-pareamento na VTEX para entregar o card de preview da máquina no site
+          if (
+            (!activeVtexLookup || activeVtexLookup.previews.length === 0) &&
+            isMachineTopicTurn &&
+            !effectiveImageBase64 &&
+            !effectiveAttachment &&
+            !isFollowUpAboutSentModelOrComparison &&
+            (isVtexOrProductAssistantQuery(userText) ||
+              /\b(?:PAMQ[A-Z0-9]+|tecfag\.com\.br)\b/i.test(fullReplyText))
+          ) {
+            try {
+              const postVtex = await lookupVtexProductsForAssistant({
+                tenantId: contextTenantId,
+                userQuery: `${userText}\n${fullReplyText}`,
+                recentHistoryText: recentAiContextText,
+                maxProducts: 3,
+                forceLookup: true,
+              });
+              if (postVtex && postVtex.previews.length > 0) {
+                activeVtexLookup = postVtex;
+              }
+            } catch (vtexPostErr: any) {
+              console.warn("[valentina/messages] Erro ao pós-parear produto VTEX:", vtexPostErr?.message);
+            }
+          }
 
           if (
             !effectiveImageBase64 &&
@@ -5005,7 +5224,31 @@ export const Route = createFileRoute("/api/valentina/messages")({
             }
           }
 
-          if (matchedCatalogPhotos.length > 0 && fragments.length > 0) {
+          // Verifica se devemos enviar o balão separado com o link e a prévia oficial da máquina na VTEX
+          const shouldAppendSeparateVtexPreviewBubble = Boolean(
+            activeVtexLookup &&
+              activeVtexLookup.previews.length > 0 &&
+              (activeVtexLookup.shouldSendSeparatePreviewBubble || isMachineTopicTurn) &&
+              !effectiveImageBase64 &&
+              !isFollowUpAboutSentModelOrComparison &&
+              !isExplicitPhotoReq &&
+              !isMultiPhotoReq
+          );
+
+          // Enriquecimento de imagem de fallback nos previews VTEX caso algum SKU não tenha retornado imagem na API VTEX
+          if (activeVtexLookup && activeVtexLookup.previews.length > 0 && matchedCatalogPhotos.length > 0) {
+            activeVtexLookup.previews = activeVtexLookup.previews.map((prev, idx) => ({
+              ...prev,
+              imageUrl:
+                prev.imageUrl ||
+                matchedCatalogPhotos[idx]?.rawImageUrl ||
+                matchedCatalogPhotos[0]?.rawImageUrl ||
+                null,
+            }));
+          }
+
+          // Quando NÃO estamos enviando o balão separado de preview da VTEX (ou quando o operador pediu explicitamente a foto), anexa a foto do catálogo nos fragmentos
+          if (matchedCatalogPhotos.length > 0 && fragments.length > 0 && !shouldAppendSeparateVtexPreviewBubble) {
             const buildCatalogPhotoMeta = (photo: MatchedCatalogPhoto) => ({
               fileId: photo.fileId,
               fileName: photo.fileName,
@@ -5123,6 +5366,37 @@ export const Route = createFileRoute("/api/valentina/messages")({
             });
           }
 
+          // ── Balão separado com o Link da Máquina no Site + Card Oficial de Preview da VTEX ──
+          if (shouldAppendSeparateVtexPreviewBubble && activeVtexLookup && activeVtexLookup.previews.length > 0) {
+            const primaryPreview = activeVtexLookup.previews[0];
+            const firstMatchedPhoto = matchedCatalogPhotos[0];
+            const catalogPhotoMetaForHistory = firstMatchedPhoto
+              ? {
+                  fileId: firstMatchedPhoto.fileId,
+                  fileName: firstMatchedPhoto.fileName,
+                  modelKey: firstMatchedPhoto.normalizedModelKey,
+                  modelDisplay: firstMatchedPhoto.modelDisplay,
+                  internalCode: firstMatchedPhoto.internalCode,
+                  aliasKeys: firstMatchedPhoto.aliasKeys,
+                  proactive: true,
+                  sentAtISO: now.toISOString(),
+                }
+              : undefined;
+
+            const vtexBubbleText =
+              activeVtexLookup.previews.length > 1
+                ? `Segue abaixo o link direto e a prévia oficial da **${primaryPreview.name}** (e modelos relacionados) na loja VTEX para abrir no site:`
+                : `Segue abaixo o link direto e a prévia oficial da **${primaryPreview.name}** na loja VTEX para abrir no site:`;
+
+            fragments.push({
+              text: vtexBubbleText,
+              delay: Math.max(650, fragments.length * 650),
+              catalogPhoto: catalogPhotoMetaForHistory,
+              vtexProductPreview: primaryPreview,
+              vtexProductPreviews: activeVtexLookup.previews.slice(0, 3),
+            });
+          }
+
           const relatedDeals = !useManagerContext
             ? resolveRelatedDeals(
                 mentionedDealIds,
@@ -5208,6 +5482,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
                   (fragRelatedDeals && fragRelatedDeals.length > 0) ||
                   (fragRelatedCalls && fragRelatedCalls.length > 0)
               ),
+              vtexSources: activeVtexLookup?.knowledgeSources,
+              systemGuideSources: activeSystemGuideSources,
             });
 
             await db.insert(internalMessages).values({
@@ -5225,6 +5501,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 userQuery: isFirstFrag ? userText : undefined,
                 blocks: frag.blocks || undefined,
                 catalogPhoto: frag.catalogPhoto || undefined,
+                vtexProductPreview: frag.vtexProductPreview || undefined,
+                vtexProductPreviews: frag.vtexProductPreviews || undefined,
                 knowledgeSources: resolvedSources.sources,
                 knowledgeSourceStatus: resolvedSources.status,
                 knowledgeSourceStatusLabel: resolvedSources.statusLabel,
@@ -5244,6 +5522,8 @@ export const Route = createFileRoute("/api/valentina/messages")({
               content: frag.text,
               blocks: frag.blocks || undefined,
               catalogPhoto: frag.catalogPhoto || undefined,
+              vtexProductPreview: frag.vtexProductPreview || undefined,
+              vtexProductPreviews: frag.vtexProductPreviews || undefined,
               knowledgeSources: resolvedSources.sources,
               knowledgeSourceStatus: resolvedSources.status,
               knowledgeSourceStatusLabel: resolvedSources.statusLabel,

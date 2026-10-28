@@ -24,6 +24,11 @@ import {
   Image as ImageIcon,
   Package,
   Info,
+  ShoppingBag,
+  ExternalLink,
+  Copy,
+  Check,
+  Compass,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -34,13 +39,261 @@ import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
 import { SystemAnnotationBubble, type SystemAnnotationItem } from "./SystemAnnotationBubble";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
-import { Message, type KnowledgeSourceItem, type KnowledgeSourceStatus } from "@/lib/mockData";
+import {
+  Message,
+  type KnowledgeSourceItem,
+  type KnowledgeSourceStatus,
+  type VtexProductPreviewItem,
+} from "@/lib/mockData";
 import {
   renderTextWithLinks,
   renderMessageContent,
   isEmojiOnly,
   QuotedMessagePreview,
 } from "./ChatPanel";
+
+export function VtexProductPreviewCard({
+  preview,
+  previews,
+  onMediaClick,
+  compact = false,
+}: {
+  preview: VtexProductPreviewItem;
+  previews?: VtexProductPreviewItem[];
+  onMediaClick?: (type: "image" | "video" | "audio", url: string, caption?: string) => void;
+  compact?: boolean;
+}) {
+  const allPreviews = React.useMemo(() => {
+    const list = Array.isArray(previews) && previews.length > 0 ? previews : [preview];
+    const seen = new Set<string>();
+    return list.filter((item) => {
+      if (!item || !item.url) return false;
+      const key = `${item.productId}-${item.skuId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [preview, previews]);
+
+  const [selectedIdx, setSelectedIdx] = React.useState(0);
+  const [copiedUrl, setCopiedUrl] = React.useState<string | null>(null);
+  const [imgError, setImgError] = React.useState<Record<string, boolean>>({});
+
+  const activeItem = allPreviews[selectedIdx] || preview;
+  if (!activeItem) return null;
+
+  const itemKey = `${activeItem.productId}-${activeItem.skuId}`;
+  const hasValidImage = Boolean(activeItem.imageUrl && !imgError[itemKey]);
+
+  const handleCopyLink = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!activeItem.url) return;
+    navigator.clipboard?.writeText(activeItem.url).catch(() => {});
+    setCopiedUrl(activeItem.url);
+    setTimeout(() => {
+      setCopiedUrl((prev) => (prev === activeItem.url ? null : prev));
+    }, 2200);
+  };
+
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className={`mt-2.5 rounded-xl bg-card border border-border/90 shadow-md overflow-hidden flex flex-col text-left cursor-default transition-all ${
+        compact ? "max-w-[340px]" : "max-w-[420px]"
+      }`}
+    >
+      {/* Cabeçalho Oficial VTEX */}
+      <div className="px-3 py-2 bg-muted/45 border-b border-border/70 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="p-1 rounded-md bg-primary/12 text-primary border border-primary/25 shrink-0">
+            <ShoppingBag className="h-3 w-3" />
+          </div>
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-foreground truncate">
+            Loja Oficial VTEX • Tecfag
+          </span>
+        </div>
+        <span
+          className={`shrink-0 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+            activeItem.available
+              ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+              : "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/30"
+          }`}
+        >
+          {activeItem.available ? "Disponível no site" : "Sob consulta"}
+        </span>
+      </div>
+
+      {/* Seletor rápido quando houver mais de 1 máquina relacionada */}
+      {allPreviews.length > 1 && (
+        <div className="px-2.5 py-1.5 bg-muted/25 border-b border-border/60 flex items-center gap-1 overflow-x-auto">
+          {allPreviews.map((item, idx) => {
+            const isSel = idx === selectedIdx;
+            const shortLabel = item.modelCode || item.internalCode || `SKU ${item.skuId}`;
+            return (
+              <button
+                key={`${item.productId}-${item.skuId}`}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedIdx(idx);
+                }}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer shrink-0 border ${
+                  isSel
+                    ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                    : "bg-background/80 text-muted-foreground hover:text-foreground border-border/70"
+                }`}
+              >
+                {shortLabel}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Preview Visual da Máquina vindo da VTEX */}
+      {hasValidImage && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onMediaClick && activeItem.imageUrl) {
+              onMediaClick("image", activeItem.imageUrl, activeItem.name);
+            } else if (activeItem.url) {
+              window.open(activeItem.url, "_blank", "noopener,noreferrer");
+            }
+          }}
+          className="relative w-full h-44 sm:h-48 bg-white dark:bg-zinc-900/90 border-b border-border/60 flex items-center justify-center p-3 overflow-hidden group/vteximg cursor-pointer"
+        >
+          <img
+            src={activeItem.imageUrl!}
+            alt={activeItem.name}
+            onError={() => setImgError((prev) => ({ ...prev, [itemKey]: true }))}
+            className="max-h-full max-w-full object-contain transition-transform duration-300 group-hover/vteximg:scale-105"
+          />
+          <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1 pointer-events-none">
+            <span className="px-2 py-0.5 rounded-md bg-zinc-900/80 text-white text-[9.5px] font-mono font-bold backdrop-blur-xs">
+              SKU #{activeItem.skuId}
+            </span>
+            {activeItem.internalCode && (
+              <span className="px-2 py-0.5 rounded-md bg-primary/90 text-primary-foreground text-[9.5px] font-mono font-bold backdrop-blur-xs">
+                {activeItem.internalCode}
+              </span>
+            )}
+          </div>
+          {activeItem.modelCode && (
+            <div className="absolute bottom-2 right-2 pointer-events-none">
+              <span className="px-2 py-0.5 rounded-md bg-zinc-900/75 text-white text-[9.5px] font-bold backdrop-blur-xs">
+                Modelo {activeItem.modelCode}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Corpo Descritivo + Preço + Especificações da Página VTEX */}
+      <div className="p-3 flex flex-col gap-2">
+        {(activeItem.category || activeItem.brand) && (
+          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
+            {[activeItem.brand, activeItem.category].filter(Boolean).join(" • ")}
+          </div>
+        )}
+
+        <a
+          href={activeItem.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-xs sm:text-[13px] font-bold text-foreground hover:text-primary leading-snug transition-colors no-underline"
+        >
+          {activeItem.name}
+        </a>
+
+        {/* Linha de Preço Público VTEX e Estoque */}
+        <div className="flex items-baseline justify-between gap-2 pt-0.5">
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <span className="text-sm sm:text-base font-black text-primary">
+              {activeItem.priceFormatted || "Sob consulta"}
+            </span>
+            {activeItem.listPriceFormatted &&
+              activeItem.listPriceFormatted !== activeItem.priceFormatted &&
+              (activeItem.listPriceCents ?? 0) > (activeItem.priceCents ?? 0) && (
+                <span className="text-[10px] text-muted-foreground line-through">
+                  {activeItem.listPriceFormatted}
+                </span>
+              )}
+          </div>
+          {!hasValidImage && (
+            <span className="text-[10px] font-mono font-bold text-muted-foreground">
+              SKU #{activeItem.skuId}
+              {activeItem.internalCode ? ` • ${activeItem.internalCode}` : ""}
+            </span>
+          )}
+        </div>
+
+        {/* Descritivo extraído da página VTEX */}
+        {activeItem.descriptionSnippet && (
+          <div className="text-[11px] text-muted-foreground bg-muted/35 border border-border/60 rounded-lg px-2.5 py-2 leading-relaxed line-clamp-3">
+            {activeItem.descriptionSnippet}
+          </div>
+        )}
+
+        {/* Pílulas de especificações lidas da página VTEX */}
+        {Array.isArray(activeItem.specificationsSummary) &&
+          activeItem.specificationsSummary.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {activeItem.specificationsSummary.slice(0, 4).map((spec: any, sIdx) => {
+                const specText =
+                  typeof spec === "string"
+                    ? spec
+                    : spec && typeof spec === "object"
+                    ? `${spec.label}: ${spec.value}`
+                    : "";
+                if (!specText) return null;
+                return (
+                  <span
+                    key={sIdx}
+                    className="text-[9.5px] font-medium px-2 py-0.5 rounded-md bg-muted/55 text-foreground/90 border border-border/60 max-w-full truncate"
+                  >
+                    {specText}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+        {/* Botões de Ação: Abrir Página da Máquina no Site + Copiar Link */}
+        <div className="pt-1.5 flex items-center gap-1.5">
+          <a
+            href={activeItem.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-[11px] font-bold shadow-soft transition cursor-pointer no-underline"
+          >
+            <span>Abrir Máquina no Site</span>
+            <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+          </a>
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            className="flex items-center justify-center gap-1 py-2 px-2.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground text-[11px] font-semibold border border-border/80 transition cursor-pointer shrink-0"
+          >
+            {copiedUrl === activeItem.url ? (
+              <>
+                <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                <span>Copiado</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span>Copiar Link</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function MessageKnowledgeSourceButton({
   message,
@@ -61,7 +314,7 @@ export function MessageKnowledgeSourceButton({
   const sources = Array.isArray(message.knowledgeSources) ? message.knowledgeSources : [];
   const status: KnowledgeSourceStatus =
     message.knowledgeSourceStatus ||
-    (sources.some((s) => s.kind === "manual" || s.kind === "document")
+    (sources.some((s) => s.kind === "manual" || s.kind === "document" || s.kind === "vtex" || s.kind === "system_guide")
       ? "verified"
       : sources.some((s) => s.kind === "catalog" || s.kind === "photo")
       ? "catalog_only"
@@ -85,7 +338,7 @@ export function MessageKnowledgeSourceButton({
         title: message.knowledgeSourceStatusLabel || "Fonte Técnica Verificada (Manual / RAG)",
         desc:
           message.knowledgeSourceStatusDescription ||
-          "As informações técnicas desta mensagem foram extraídas diretamente dos Manuais Técnicos (PDF) e Catálogo Oficial indexados na Base de Conhecimento.",
+          "As informações técnicas desta mensagem foram extraídas diretamente dos Manuais Técnicos (PDF), Loja Oficial VTEX e Catálogo Oficial indexados na Base de Conhecimento.",
         tooltip: `Fonte verificada (${sources.length} ${sources.length === 1 ? "documento/ficha" : "documentos/fichas"}) — Clique para ver de onde ${message.author || "o assistente"} tirou a informação`,
       }
     : isCatalogVerified
@@ -139,6 +392,10 @@ export function MessageKnowledgeSourceButton({
       case "manual":
       case "document":
         return FileText;
+      case "vtex":
+        return ShoppingBag;
+      case "system_guide":
+        return Compass;
       case "catalog":
         return Package;
       case "photo":
@@ -156,6 +413,10 @@ export function MessageKnowledgeSourceButton({
         return "Manual Técnico PDF";
       case "document":
         return "Documento Oficial";
+      case "vtex":
+        return "Loja Oficial VTEX Ao Vivo";
+      case "system_guide":
+        return "Guia do Sistema • Wizard";
       case "catalog":
         return "Catálogo Oficial";
       case "photo":
@@ -171,6 +432,8 @@ export function MessageKnowledgeSourceButton({
     switch (kind) {
       case "manual":
       case "document":
+      case "vtex":
+      case "system_guide":
       case "catalog":
       case "photo":
       case "crm":
@@ -261,7 +524,7 @@ export function MessageKnowledgeSourceButton({
                       className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeAccent}`}
                     >
                       <SrcIcon className="h-3 w-3 shrink-0" />
-                      {getSourceBadgeLabel(src.kind)}
+                      {src.badge || getSourceBadgeLabel(src.kind)}
                     </span>
                     <div className="flex items-center gap-1.5">
                       {src.code && (
@@ -281,16 +544,28 @@ export function MessageKnowledgeSourceButton({
                     {src.title}
                   </div>
 
-                  {src.folderOrCategory && (
+                  {(src.folderOrCategory || src.subtitle) && (
                     <div className="text-[10px] font-medium text-muted-foreground">
-                      {src.folderOrCategory}
+                      {src.folderOrCategory || src.subtitle}
                     </div>
                   )}
 
-                  {src.excerptOrDetail && (
+                  {(src.excerptOrDetail || src.excerpt) && (
                     <div className="mt-0.5 text-[11px] text-muted-foreground bg-muted/40 border border-border/60 rounded-lg px-2.5 py-1.5 leading-relaxed line-clamp-4">
-                      {src.excerptOrDetail}
+                      {src.excerptOrDetail || src.excerpt}
                     </div>
+                  )}
+
+                  {src.url && (
+                    <a
+                      href={src.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-bold text-primary hover:underline"
+                    >
+                      <span>Abrir página oficial na loja VTEX</span>
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
                   )}
                 </div>
               );
@@ -952,6 +1227,15 @@ function ChatMessageBubbleComponent({
                   undefined,
                   m.author,
                   activeChat.name,
+                )}
+
+                {/* Card interativo: Preview Oficial de Máquina na Loja VTEX (Balão Separado com Link Direto) */}
+                {m.vtexProductPreview && (
+                  <VtexProductPreviewCard
+                    preview={m.vtexProductPreview}
+                    previews={m.vtexProductPreviews}
+                    onMediaClick={onMediaClick}
+                  />
                 )}
 
                 {/* Card interativo: Atraso de Resposta */}

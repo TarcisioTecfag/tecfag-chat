@@ -1182,7 +1182,7 @@ export function getModelToInternalCodeMap(): Map<string, string> {
   return ensureCodeModelMapsInitialized().modelToCode;
 }
 
-function expandInternalCatalogCodesInText(text: string): string {
+export function expandInternalCatalogCodesInText(text: string): string {
   if (!text) return "";
   const { codeToModel, modelToCode } = ensureCodeModelMapsInitialized();
   if (codeToModel.size === 0 && modelToCode.size === 0) return text;
@@ -1949,6 +1949,8 @@ export interface ResolveKnowledgeSourcesOptions {
   hasCrmContext?: boolean;
   crmContextSummary?: string;
   usedKnowledgeBase?: boolean;
+  vtexSources?: KnowledgeSourceItem[];
+  systemGuideSources?: KnowledgeSourceItem[];
 }
 
 export interface ResolvedKnowledgeSourcesResult {
@@ -1985,7 +1987,8 @@ function buildConciseManualSnippet(doc: IndexedKnowledgeDoc, terms: string[]): s
 }
 
 /**
- * Identifica exatamente de qual Manual Técnico (PDF), Ficha do Catálogo Oficial (1.037 itens)
+ * Identifica exatamente de qual Manual Técnico (PDF), Ficha do Catálogo Oficial (1.037 itens),
+ * Página da Loja VTEX Ao Vivo, Guia Oficial do Sistema (Onboarding Wizard)
  * ou Documento/Foto da Base de Conhecimento a resposta do Fagner/Valentina tirou as informações,
  * classificando também quando a IA declarou sinceramente que não sabe (`honest_unknown`)
  * ou quando fez afirmações técnicas sem documento vinculado (`unverified_technical`).
@@ -2001,6 +2004,8 @@ export async function resolveKnowledgeSourcesForMessage(
     hasCrmContext,
     crmContextSummary,
     usedKnowledgeBase,
+    vtexSources,
+    systemGuideSources,
   } = options;
 
   const cleanReply = (aiReplyText || "")
@@ -2347,7 +2352,25 @@ export async function resolveKnowledgeSourcesForMessage(
       }
     }
 
-    // 5. Se utilizou dados do CRM / Atendimento em tempo real
+    // 5. Se utilizou dados da Loja VTEX ao vivo
+    if (Array.isArray(vtexSources) && vtexSources.length > 0) {
+      for (const vs of vtexSources) {
+        if (!vs?.id || seenIds.has(vs.id)) continue;
+        seenIds.add(vs.id);
+        sources.push(vs);
+      }
+    }
+
+    // 6. Se utilizou o Guia Oficial do Sistema / Onboarding Wizard
+    if (Array.isArray(systemGuideSources) && systemGuideSources.length > 0) {
+      for (const gs of systemGuideSources) {
+        if (!gs?.id || seenIds.has(gs.id)) continue;
+        seenIds.add(gs.id);
+        sources.push(gs);
+      }
+    }
+
+    // 7. Se utilizou dados do CRM / Atendimento em tempo real
     if (hasCrmContext || isOperationalQueueOrCrmTurn) {
       sources.push({
         id: "crm-live-context",
@@ -2365,19 +2388,35 @@ export async function resolveKnowledgeSourcesForMessage(
   }
 
   const hasManualOrDoc = sources.some((s) => s.kind === "manual" || s.kind === "document");
+  const hasVtexSource = sources.some((s) => s.kind === "vtex");
   const hasCatalogOrPhoto = sources.some((s) => s.kind === "catalog" || s.kind === "photo");
+  const hasSystemGuide = sources.some((s) => s.kind === "system_guide");
   const hasCrmSource = sources.some((s) => s.kind === "crm");
-  const hasTechnicalClaims = hasTechnicalSpecTerms || hasManualOrDoc || hasCatalogOrPhoto;
+  const hasTechnicalClaims = hasTechnicalSpecTerms || hasManualOrDoc || hasCatalogOrPhoto || hasVtexSource;
 
   let status: KnowledgeSourceStatus = "operational_or_chat";
-  let statusLabel = hasCrmSource
+  let statusLabel = hasSystemGuide
+    ? "Guia Oficial do Sistema (Onboarding Wizard)"
+    : hasCrmSource
     ? "Consulta Operacional em Tempo Real (Fila & CRM)"
     : "Interação Operacional / Conversa";
-  let statusDescription = hasCrmSource
+  let statusDescription = hasSystemGuide
+    ? "Instruções passo a passo extraídas do Guia Oficial de Navegação e Onboarding Wizard da plataforma."
+    : hasCrmSource
     ? "O assistente consultou em tempo real sua fila de atendimento no WhatsApp e sua carteira no CRM (nenhum manual técnico de máquina foi utilizado)."
     : "Mensagem conversacional ou de apoio operacional (sem exigência de manual técnico específico).";
 
-  if (hasManualOrDoc) {
+  if (hasManualOrDoc && hasVtexSource) {
+    status = "verified";
+    statusLabel = "Fonte Verificada (Manual PDF + Loja VTEX Ao Vivo)";
+    statusDescription =
+      "Informações técnicas e comerciais cruzadas em tempo real entre o Manual Técnico (PDF), a Página Oficial da Máquina na VTEX e o Catálogo Oficial.";
+  } else if (hasVtexSource) {
+    status = "verified";
+    statusLabel = "Fonte Verificada na Loja Oficial VTEX Ao Vivo";
+    statusDescription =
+      "Preço público, disponibilidade, SKU, descrição e especificações lidos diretamente da loja oficial da Tecfag na VTEX (www.tecfag.com.br).";
+  } else if (hasManualOrDoc) {
     if (isHonestUnknown) {
       status = "honest_unknown";
       statusLabel = "Sinceridade Técnica • Manual Consultado";
@@ -2401,6 +2440,8 @@ export async function resolveKnowledgeSourcesForMessage(
       statusDescription =
         "Informações de modelos, códigos, linhas e capacidades extraídas do Catálogo Oficial de Máquinas e Acervo da Base de Conhecimento.";
     }
+  } else if (hasSystemGuide) {
+    status = "verified";
   } else if (isHonestUnknown) {
     status = "honest_unknown";
     statusLabel = "Sinceridade Técnica (Dado Ausente na Base)";

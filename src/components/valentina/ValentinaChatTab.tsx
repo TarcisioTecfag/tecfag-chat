@@ -15,7 +15,7 @@ import { AiAvatar } from "@/components/ui/AiAvatar";
 import { ValentinaBlockRenderer } from "./chat-blocks/ValentinaBlockRenderer";
 import { ValentinaThreadRail } from "./chat-blocks/ValentinaThreadRail";
 import { AgenticThoughtTrace } from "./chat-blocks/AgenticThoughtTrace";
-import { MessageKnowledgeSourceButton } from "@/components/chat/ChatMessageBubble";
+import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
 import {
   buildAgenticThoughtTrace,
   isCasualConversationQuery,
@@ -561,6 +561,10 @@ export function ValentinaChatTab() {
               content: msgText,
               timestamp: new Date().toISOString(),
               blocks: rawBlocks && rawBlocks.length > 0 ? rawBlocks : undefined,
+              vtexProductPreview: fragments[i].vtexProductPreview || undefined,
+              vtexProductPreviews: Array.isArray(fragments[i].vtexProductPreviews)
+                ? fragments[i].vtexProductPreviews
+                : undefined,
               thoughtTrace: i === 0 ? resolvedTrace : undefined,
               knowledgeSources: Array.isArray(fragments[i].knowledgeSources)
                 ? fragments[i].knowledgeSources
@@ -1040,6 +1044,13 @@ export function ValentinaChatTab() {
                             .map((block, bIdx) => (
                               <ValentinaBlockRenderer key={bIdx} block={block} />
                             ))}
+                          {msg.vtexProductPreview && (
+                            <VtexProductPreviewCard
+                              preview={msg.vtexProductPreview}
+                              previews={msg.vtexProductPreviews}
+                              onMediaClick={(_type, url) => setFullscreenSrc(url)}
+                            />
+                          )}
                         </div>
                       </div>
                     </div>

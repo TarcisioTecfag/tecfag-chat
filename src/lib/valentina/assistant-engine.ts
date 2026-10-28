@@ -538,6 +538,8 @@ const TECFAG_INDUSTRIAL_EXPERTISE = `DIRETRIZES TÉCNICAS E COMERCIAIS — GRUPO
   • Para recomendar ou orçar máquina, as variáveis técnicas essenciais são: (1) Qual produto vai embalar/envasar/datar; (2) Tipo e medida da embalagem ou peso/volume da dose; (3) Produção estimada (unidades/hora ou dia); (4) CNPJ/CPF e CEP para proposta formal e cotação de frete.
   • Para Peças ou Assistência Técnica: confirmar o modelo exato da máquina (ou pedir foto da etiqueta/plaqueta e vídeo curto do equipamento).`;
 
+import { lookupVtexProductsForAssistant } from "./vtex-assistant-service";
+
 const VALEM_COMMERCIAL_EXPERTISE = `DIRETRIZES COMERCIAIS — VALEM VÁLVULAS E EMBALAGENS:
 - Produtos: Válvulas Spray (perfumes/líquidos), Válvulas Pump/Saboneteira (cremes/géis), Mini Triggers (borrifadores), Tampas Luxo, Frascos e Potes de Vidro Âmbar (10ml a 100ml) e PEAD/PET. Roscas: 18/410, 20/410, 24/410, 28/410.
 - Atacado B2B no WhatsApp (CNPJ): mínimo de 1.000 unidades por item, faturamento PJ e condições especiais.
@@ -554,15 +556,25 @@ export async function buildBestResponsePrompt(params: {
   const persona = getAiPersona(tenantId);
   const isTecfag = tenantId === "tecfag";
 
-  // Carrega base de conhecimento com queryHint das últimas falas do cliente (usa cache em memória de 60s)
+  // Carrega base de conhecimento e consulta VTEX em paralelo com queryHint das últimas falas do cliente
   let knowledgeSnippet = "";
+  let vtexSnippet = "";
   try {
-    const rawKb = await getKnowledgeBaseContext(
-      tenantId,
-      richContext.knowledgeQueryHint || currentDraftText,
-    );
-    // Limita tamanho para manter baixa latência mas comportar manual técnico ranqueado
+    const queryHint = `${currentDraftText || ""} ${richContext.knowledgeQueryHint || ""}`.trim();
+    const [rawKb, vtexResult] = await Promise.all([
+      getKnowledgeBaseContext(tenantId, queryHint).catch(() => ""),
+      isTecfag
+        ? lookupVtexProductsForAssistant({
+            tenantId,
+            userQuery: queryHint,
+            recentHistoryText: richContext.visibleTranscript.slice(-1200),
+          }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
     knowledgeSnippet = rawKb ? rawKb.slice(0, 12000) : "";
+    if (vtexResult && vtexResult.invoked && vtexResult.promptContext) {
+      vtexSnippet = vtexResult.promptContext.slice(0, 6000);
+    }
   } catch {
     knowledgeSnippet = "";
   }
@@ -592,7 +604,7 @@ ${richContext.internalNotesTranscript ? `📝 NOTAS INTERNAS DA EQUIPE:\n${richC
 ${richContext.visibleTranscript || "Início de atendimento (sem mensagens anteriores)."}
 
 ${draftInstruction}
-${knowledgeSnippet ? `\n${knowledgeSnippet}\n` : ""}
+${knowledgeSnippet ? `\n${knowledgeSnippet}\n` : ""}${vtexSnippet ? `\n${vtexSnippet}\n` : ""}
 REGRAS OBRIGATÓRIAS DE QUALIDADE (PROIBIDO RESPOSTA GENÉRICA):
 1. SEJA ESPECÍFICO: Cite diretamente a máquina, peça, produto, medida, documento ou dúvida real mencionada na conversa/CRM. É TERMINANTEMENTE PROIBIDO gerar frases genéricas vazias como "Como posso ajudar com suas necessidades hoje?" ou "Estamos à disposição para oferecer a melhor solução".
 2. FORMATO WHATSAPP HUMANO: Escreva de 1 a 3 frases curtas, diretas e naturais, como um consultor humano experiente escreve no WhatsApp.

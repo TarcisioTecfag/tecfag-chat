@@ -1910,6 +1910,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isInternalNote: false,
         ...(meta.archivedByReset ? { archivedByReset: true } : {}),
         ...(meta.catalogPhoto || r.catalogPhoto ? { catalogPhoto: meta.catalogPhoto || r.catalogPhoto } : {}),
+        ...(meta.vtexProductPreview || r.vtexProductPreview
+          ? { vtexProductPreview: meta.vtexProductPreview || r.vtexProductPreview }
+          : {}),
+        ...(Array.isArray(meta.vtexProductPreviews)
+          ? { vtexProductPreviews: meta.vtexProductPreviews }
+          : Array.isArray(r.vtexProductPreviews)
+          ? { vtexProductPreviews: r.vtexProductPreviews }
+          : {}),
         ...(Array.isArray(meta.knowledgeSources)
           ? { knowledgeSources: meta.knowledgeSources }
           : Array.isArray(r.knowledgeSources)
@@ -2575,6 +2583,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 isInternalNote: false,
                 ...(i === 0 ? { thoughtTrace: frag.thoughtTrace || resolvedTrace } : {}),
                 ...(frag.catalogPhoto ? { catalogPhoto: frag.catalogPhoto } : {}),
+                ...(frag.vtexProductPreview ? { vtexProductPreview: frag.vtexProductPreview } : {}),
+                ...(Array.isArray(frag.vtexProductPreviews)
+                  ? { vtexProductPreviews: frag.vtexProductPreviews }
+                  : {}),
                 ...(Array.isArray(frag.knowledgeSources)
                   ? { knowledgeSources: frag.knowledgeSources }
                   : {}),

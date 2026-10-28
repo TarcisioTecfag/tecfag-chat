@@ -89,7 +89,11 @@ export interface AttachedImageInfo {
 }
 
 import type { AgenticThoughtTraceData } from "@/lib/valentina/agentic-thought-trace";
-import type { KnowledgeSourceItem, KnowledgeSourceStatus } from "@/lib/mockData";
+import type {
+  KnowledgeSourceItem,
+  KnowledgeSourceStatus,
+  VtexProductPreviewItem,
+} from "@/lib/mockData";
 
 export interface ValentinaChatMessage {
   id: string;
@@ -100,6 +104,8 @@ export interface ValentinaChatMessage {
   attachedFileInfo?: AttachedFileInfo;
   attachedImageInfo?: AttachedImageInfo;
   thoughtTrace?: AgenticThoughtTraceData;
+  vtexProductPreview?: VtexProductPreviewItem | null;
+  vtexProductPreviews?: VtexProductPreviewItem[];
   knowledgeSources?: KnowledgeSourceItem[];
   knowledgeSourceStatus?: KnowledgeSourceStatus;
   knowledgeSourceStatusLabel?: string;

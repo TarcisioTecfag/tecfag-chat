@@ -93,10 +93,38 @@ export type Message = {
   thoughtTrace?: import("./valentina/agentic-thought-trace").AgenticThoughtTraceData;
   archivedByReset?: boolean;
   catalogPhoto?: Record<string, any> | null;
+  vtexProductPreview?: VtexProductPreviewItem | null;
+  vtexProductPreviews?: VtexProductPreviewItem[];
   knowledgeSources?: KnowledgeSourceItem[];
   knowledgeSourceStatus?: KnowledgeSourceStatus;
   knowledgeSourceStatusLabel?: string;
   knowledgeSourceStatusDescription?: string;
+};
+
+export type VtexProductPreviewItem = {
+  productId: string;
+  skuId: string;
+  name: string;
+  skuName?: string | null;
+  referenceCode?: string | null;
+  internalCode?: string | null;
+  modelCode?: string | null;
+  brand?: string | null;
+  category?: string | null;
+  url: string;
+  imageUrl?: string | null;
+  additionalImages?: string[];
+  priceCents?: number | null;
+  listPriceCents?: number | null;
+  priceFormatted?: string | null;
+  listPriceFormatted?: string | null;
+  available?: boolean | null;
+  availableQuantity?: number | null;
+  descriptionSnippet?: string | null;
+  fullDescription?: string | null;
+  specificationsSummary?: Array<{ label: string; value: string }>;
+  pageReadComplete?: boolean;
+  checkedAt?: string | null;
 };
 
 export type KnowledgeSourceStatus =
@@ -108,7 +136,7 @@ export type KnowledgeSourceStatus =
 
 export type KnowledgeSourceItem = {
   id: string;
-  kind: "manual" | "catalog" | "document" | "photo" | "crm";
+  kind: "manual" | "catalog" | "document" | "photo" | "crm" | "vtex" | "system_guide";
   title: string;
   code?: string;
   model?: string;
@@ -117,6 +145,7 @@ export type KnowledgeSourceItem = {
   charCount?: number;
   fileId?: string;
   mediaUrl?: string;
+  url?: string;
   verified: boolean;
 };
 
