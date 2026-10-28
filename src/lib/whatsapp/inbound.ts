@@ -108,15 +108,41 @@ export class InboundProcessor {
           .where(
             and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.id, result.conversationId)),
           );
+        const [contactRow] = conv?.contactId
+          ? await db
+              .select({
+                walletOperatorId: contacts.walletOperatorId,
+                avatar: contacts.avatar,
+                responsibleName: contacts.responsibleName,
+              })
+              .from(contacts)
+              .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)))
+          : [];
         SessionManager.getInstance().notifyPublic(tenantId, {
           type: "message",
           message: {
             ...msg,
+            contactId: conv.contactId,
             phone: inbound.fromPhone,
+            avatar: contactRow?.avatar || null,
             queue: conv.queueState,
             operatorId: conv.operatorId,
+            walletOperatorId: contactRow?.walletOperatorId ?? null,
           },
         });
+        if ((result as any).reopened) {
+          SessionManager.getInstance().notifyPublic(tenantId, {
+            type: "queue_update",
+            conversationId: conv.id,
+            contactId: conv.contactId,
+            queueState: conv.queueState,
+            operatorId: conv.operatorId,
+            walletOperatorId: contactRow?.walletOperatorId ?? null,
+            sectorId: conv.sectorId,
+            version: conv.version,
+            responsibleName: contactRow?.responsibleName || undefined,
+          });
+        }
         if (conv.operatorId)
           void sendPushToOperator(tenantId, conv.operatorId, {
             title: msg.senderName,
@@ -271,8 +297,8 @@ export class InboundProcessor {
       return;
     }
 
-    // 2. Se a conversa estava finalizada e foi reaberta, arquiva a triagem anterior e inicia novo ciclo
-    if (reopened) {
+    // 2. Se a conversa estava finalizada e foi reaberta sem operador de carteira, arquiva a triagem anterior e inicia novo ciclo
+    if (reopened && !conv.operatorId && conv.queueState !== "meus") {
       if (getAiPersona(tenantId).triagePolicy === "industrial") {
         const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reopened", sourceKey: messageId, receivedAt: inbound.timestamp });
         if (!restarted) return;
@@ -583,9 +609,10 @@ export class InboundProcessor {
         const contactId = contact.id;
         let initialOperatorId: string | null = null;
         let initialQueueState = "fila";
+        let initialResponsibleName: string | null = null;
 
-        // Na Meta, carteira não equivale a captura de atendimento.
-        if (contact.walletOperatorId && provider !== "meta") {
+        // Se o cliente tem carteira fixa, roteia diretamente para o operador da carteira ("Meus")
+        if (contact.walletOperatorId) {
           const [walletOp] = await db
             .select({ id: operators.id, name: operators.name })
             .from(operators)
@@ -596,6 +623,7 @@ export class InboundProcessor {
           if (walletOp) {
             initialOperatorId = walletOp.id;
             initialQueueState = "meus";
+            initialResponsibleName = walletOp.name;
           }
         }
 
@@ -649,7 +677,20 @@ export class InboundProcessor {
             .orderBy(desc(conversations.lastMessageTime))
             .limit(1);
           if (existing) return existing;
-          await setAttendanceActor(tx, tenantId, "Automação WhatsApp", initialOperatorId);
+          await setAttendanceActor(
+            tx,
+            tenantId,
+            initialOperatorId
+              ? `Automação WhatsApp (${initialResponsibleName || "Carteira"})`
+              : "Automação WhatsApp",
+            initialOperatorId,
+          );
+          if (initialResponsibleName && contact.responsibleName !== initialResponsibleName) {
+            await tx
+              .update(contacts)
+              .set({ responsibleName: initialResponsibleName })
+              .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+          }
           const [created] = await tx
             .insert(conversations)
             .values({
@@ -697,13 +738,15 @@ export class InboundProcessor {
       await syncConversationDeals(db, tenantId, activeConv.id, contact.id);
 
       if (!createdConversation && activeConv.queueState === "finalizados") {
-        // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico
+        // 3b. Reabertura consistente: reutiliza a mesma conversa preservando histórico.
+        // Se o cliente possui dono de carteira (walletOperatorId), pula a triagem da IA e a fila geral,
+        // entrando diretamente em "Meus" do operador responsável.
         reopened = true;
-        let reOpenOperatorId: string | null =
-          provider === "meta" ? null : activeConv.operatorId || null;
+        let reOpenOperatorId: string | null = null;
         let reOpenQueueState = "fila";
+        let reOpenResponsibleName: string | null = null;
 
-        if (contact.walletOperatorId && provider !== "meta") {
+        if (contact.walletOperatorId) {
           const [walletOp] = await db
             .select({ id: operators.id, name: operators.name })
             .from(operators)
@@ -714,6 +757,7 @@ export class InboundProcessor {
           if (walletOp) {
             reOpenOperatorId = walletOp.id;
             reOpenQueueState = "meus";
+            reOpenResponsibleName = walletOp.name;
           }
         }
 
@@ -724,6 +768,23 @@ export class InboundProcessor {
             reOpenQueueState = "fila";
           }
         }
+
+        if (reOpenResponsibleName && contact.responsibleName !== reOpenResponsibleName) {
+          await db
+            .update(contacts)
+            .set({ responsibleName: reOpenResponsibleName })
+            .where(and(eq(contacts.id, contact.id), eq(contacts.tenantId, tenantId)));
+          contact = { ...contact, responsibleName: reOpenResponsibleName };
+        }
+
+        await setAttendanceActor(
+          db,
+          tenantId,
+          reOpenOperatorId
+            ? `Automação WhatsApp (${reOpenResponsibleName || "Carteira"})`
+            : "Automação WhatsApp",
+          reOpenOperatorId,
+        );
 
         const [reopenedConv] = await db
           .update(conversations)
