@@ -261,16 +261,27 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!isCompletionOpen || !scopedChapterId) return;
     setCompletedModuleIds((prev) => {
-      if (prev.includes(scopedChapterId)) return prev;
-      const next = [...prev, scopedChapterId];
+      const next = prev.includes(scopedChapterId) ? prev : [...prev, scopedChapterId];
       if (storagePrefix) {
         try {
           localStorage.setItem(`${storagePrefix}:completed`, JSON.stringify(next));
         } catch {}
       }
+      const primaryModuleChapters = eligibleChapters.filter((ch) => ch.id !== "profile");
+      const allPrimaryDone =
+        primaryModuleChapters.length > 0 &&
+        primaryModuleChapters.every((ch) => next.includes(ch.id));
+      if (allPrimaryDone) {
+        setIsPeekingMascotVisible(false);
+        if (storagePrefix) {
+          try {
+            localStorage.removeItem(`${storagePrefix}:peeking`);
+          } catch {}
+        }
+      }
       return next;
     });
-  }, [isCompletionOpen, scopedChapterId, storagePrefix]);
+  }, [isCompletionOpen, scopedChapterId, storagePrefix, eligibleChapters]);
 
   const persona = tenant ? getAiPersona(tenant) : { name: "Assistente" };
   const sendPatch = useCallback(

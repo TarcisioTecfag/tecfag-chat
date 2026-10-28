@@ -90,11 +90,22 @@ function OnboardingHostContent() {
     onboarding.activeModuleChapter?.title ||
     "Módulo Atual";
 
+  const currentModuleCompleted = Boolean(
+    onboarding.activeModuleChapter &&
+      onboarding.completedModuleIds.includes(onboarding.activeModuleChapter.id),
+  );
+  const primaryChapters = onboarding.chapters.filter((ch) => ch.id !== "profile");
+  const allModulesCompleted =
+    primaryChapters.length > 0 &&
+    primaryChapters.every((ch) => onboarding.completedModuleIds.includes(ch.id));
+
   const showPeekingMascot =
     !onboarding.isRunnerActive &&
     !onboarding.isWelcomeOpen &&
     !onboarding.isCompletionOpen &&
-    onboarding.isPeekingMascotVisible;
+    onboarding.isPeekingMascotVisible &&
+    !currentModuleCompleted &&
+    !allModulesCompleted;
 
   return (
     <>
