@@ -210,3 +210,88 @@ export async function urlToBase64(url: string): Promise<string | undefined> {
   }
 }
 
+export interface TemplateVariableContext {
+  clientName?: string | null;
+  operatorName?: string | null;
+  companyName?: string | null;
+  clientCompanyName?: string | null;
+  tenantId?: string | null;
+}
+
+/**
+ * Substitui variáveis dinâmicas de templates e respostas rápidas.
+ * Suporta tanto a sintaxe padronizada `{{nome}}`, `{{operador}}`, `{{empresa}}`, `{{empresa_cliente}}`
+ * quanto a sintaxe legada `<<1>>` (Operador), `<<2>>` (Cliente) e `<<3>>` (Empresa).
+ */
+export function resolveTemplateVariables(
+  text: string,
+  ctx: TemplateVariableContext
+): string {
+  if (!text) return "";
+  const resolvedClientName = (ctx.clientName || "").trim() || "Cliente";
+  const resolvedOperatorName = (ctx.operatorName || "").trim() || "Atendente";
+  const defaultTenantCompany =
+    ctx.tenantId === "valem"
+      ? "Valem"
+      : ctx.tenantId === "tecfag"
+        ? "Tecfag"
+        : "Tecfag";
+  const resolvedCompanyName = (ctx.companyName || "").trim() || defaultTenantCompany;
+  const resolvedClientCompanyName =
+    (ctx.clientCompanyName || "").trim() || resolvedCompanyName;
+
+  return text
+    .replace(/\{\{\s*(?:nome|cliente|nome_cliente)\s*\}\}/gi, resolvedClientName)
+    .replace(/<<\s*2\s*>>/g, resolvedClientName)
+    .replace(/\{\{\s*(?:operador|atendente|vendedor|meu_nome)\s*\}\}/gi, resolvedOperatorName)
+    .replace(/<<\s*1\s*>>/g, resolvedOperatorName)
+    .replace(/\{\{\s*empresa_cliente\s*\}\}/gi, resolvedClientCompanyName)
+    .replace(/\{\{\s*empresa\s*\}\}/gi, resolvedCompanyName)
+    .replace(/<<\s*3\s*>>/g, resolvedCompanyName);
+}
+
+/**
+ * Gera um atalho canônico com barra (ex: "Saudação Inicial" -> "/saudacao_inicial").
+ */
+export function formatQuickShortcut(rawTitleOrShortcut: string | null | undefined): string {
+  if (!rawTitleOrShortcut) return "/";
+  const trimmed = rawTitleOrShortcut.trim();
+  const withoutSlash = trimmed.replace(/^\/+/, "");
+  const slug = withoutSlash
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `/${slug || withoutSlash.toLowerCase().replace(/\s+/g, "_")}`;
+}
+
+/**
+ * Verifica se um template/resposta rápida corresponde ao termo pesquisado (com ou sem `/`, com ou sem acentos/espaços).
+ */
+export function matchesQuickResponseSearch(
+  titleOrShortcut: string,
+  content: string,
+  rawQuery: string
+): boolean {
+  const q = rawQuery.trim();
+  if (!q || q === "/") return true;
+  const normalize = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  const cleanQ = normalize(q.replace(/^\/+/, ""));
+  const cleanQSlug = cleanQ.replace(/\s+/g, "_");
+  const normTitle = normalize(titleOrShortcut.replace(/^\/+/, ""));
+  const normSlug = normTitle.replace(/[^a-z0-9_-]+/g, "_");
+  const normContent = normalize(content);
+  return (
+    normTitle.includes(cleanQ) ||
+    normSlug.includes(cleanQ) ||
+    normSlug.includes(cleanQSlug) ||
+    normContent.includes(cleanQ)
+  );
+}
+
+

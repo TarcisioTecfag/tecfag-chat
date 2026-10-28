@@ -243,11 +243,14 @@ export const Route = createFileRoute("/api/chats/update-queue")({
 
               const convResult = updatedRows[0];
 
-              // Atualizar responsável no contato atomicamente
+              // Atualizar responsável e carteira no contato atomicamente
               if (convResult.contactId) {
                 await tx
                   .update(contacts)
-                  .set({ responsibleName: respName })
+                  .set({
+                    responsibleName: respName,
+                    ...(queueState === "meus" && targetOpId ? { walletOperatorId: targetOpId } : {}),
+                  })
                   .where(
                     and(
                       eq(contacts.id, convResult.contactId),
@@ -343,12 +346,15 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           // 7. Notificar SSE em tempo real para os atendentes conectados deste tenant
           const finalOperatorId = operatorId !== undefined ? operatorId : updatedConv.operatorId ?? null;
           const finalSectorId = sectorId !== undefined ? sectorId : updatedConv.sectorId ?? null;
+          const finalWalletOperatorId = queueState === "meus" && finalOperatorId ? finalOperatorId : undefined;
 
           SessionManager.getInstance().notifyPublic(session.tenantId, {
             type: "queue_update",
             conversationId,
+            contactId: updatedConv.contactId,
             queueState,
             operatorId: finalOperatorId,
+            walletOperatorId: finalWalletOperatorId,
             sectorId: finalSectorId,
             responsibleName: respName,
             version: updatedConv.version,
@@ -404,8 +410,10 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             JSON.stringify({
               success: true,
               conversationId,
+              contactId: updatedConv.contactId,
               queueState,
               operatorId: finalOperatorId,
+              walletOperatorId: finalWalletOperatorId,
               sectorId: finalSectorId,
               responsibleName: respName,
               version: updatedConv.version,

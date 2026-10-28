@@ -1,14 +1,23 @@
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, SystemTooltip } from "@/components/ui/tooltip";
 import React, { useState, useRef, useEffect } from "react";
 import { useChat } from "@/hooks/useChatState";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
-import { formatPhoneNumber, formatCPF, formatCNPJ } from "@/lib/utils";
+import {
+  formatPhoneNumber,
+  formatCPF,
+  formatCNPJ,
+  resolveTemplateVariables,
+  formatQuickShortcut,
+  matchesQuickResponseSearch,
+} from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   Plus,
   User,
+  Globe,
   Phone,
   Mail,
   Building,
@@ -29,7 +38,7 @@ import {
   AlertTriangle,
   Clock,
 } from "lucide-react";
-import { Conversation, OperatorTemplate } from "@/lib/mockData";
+import { Conversation, OperatorTemplate, QuickResponse } from "@/lib/mockData";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
@@ -44,21 +53,29 @@ export function WalletView() {
     conversations,
     operators,
     currentOperatorId,
+    operatorProfile,
     templates,
     createTemplate,
     updateTemplate,
     deleteTemplate,
+    quickResponses,
+    createQuickResponse,
+    updateQuickResponse,
+    deleteQuickResponse,
     updateContactWallet,
     setSelectedChatId,
     setActiveView,
     setActiveQueue,
   } = useChat();
+  const { hasPermission } = usePermissions();
+  const canManageGlobalTemplates = hasPermission("chat", "canManageGlobalQuickResponses");
 
   const aiPersona = getAiPersona(tenant || "valem");
 
   const [activeTab, setActiveTab] = useState<"wallet" | "templates">(() =>
     getInitialTabFromUrl("wallet", "wallet", WALLET_TABS),
   );
+  const [templateScopeFilter, setTemplateScopeFilter] = useState<"all" | "personal" | "global">("all");
 
   useTabNavigation({
     tabs: WALLET_TABS,
@@ -80,20 +97,29 @@ export function WalletView() {
   // Custom Modals
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [modalScope, setModalScope] = useState<"personal" | "global">("personal");
   const [editingTemplate, setEditingTemplate] = useState<OperatorTemplate | null>(null);
+  const [editingGlobalQr, setEditingGlobalQr] = useState<QuickResponse | null>(null);
   const [templateForm, setTemplateForm] = useState({
     title: "",
+    description: "",
     text: "",
   });
 
   const [confirmRemoveClient, setConfirmRemoveClient] = useState<Conversation | null>(null);
   const [confirmDeleteTemplateId, setConfirmDeleteTemplateId] = useState<string | null>(null);
+  const [confirmDeleteScope, setConfirmDeleteScope] = useState<"personal" | "global">("personal");
   useTrainingSurface("wallet", (step) => {
     const templateStep = step.id.startsWith("wallet.template");
     setActiveTab(templateStep ? "templates" : "wallet");
     const editor = ["wallet.template-edit", "wallet.template-vars"].includes(step.id);
     setShowModal(editor);
-    if (editor && templates[0]) { setModalMode("edit"); setEditingTemplate(templates[0]); setTemplateForm({ title: templates[0].title, text: templates[0].text }); }
+    if (editor && templates[0]) {
+      setModalMode("edit");
+      setModalScope("personal");
+      setEditingTemplate(templates[0]);
+      setTemplateForm({ title: templates[0].title, description: "", text: templates[0].text });
+    }
     setConfirmRemoveClient(step.id === "wallet.remove" ? conversations.find((c) => c.id.startsWith("demo:")) || null : null);
     setConfirmDeleteTemplateId(step.id === "wallet.template-delete" ? templates[0]?.id || null : null);
     return !templateStep || templates.length > 0;
@@ -103,10 +129,13 @@ export function WalletView() {
 
   const handleInsertTag = (tag: string) => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
+    if (!textarea) {
+      setTemplateForm((prev) => ({ ...prev, text: `${prev.text}${tag}` }));
+      return;
+    }
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
+    const start = textarea.selectionStart ?? templateForm.text.length;
+    const end = textarea.selectionEnd ?? templateForm.text.length;
     const currentText = templateForm.text;
 
     const newText = currentText.substring(0, start) + tag + currentText.substring(end);
@@ -123,13 +152,11 @@ export function WalletView() {
     c.id === "fagner" ||
     c.contactId === "valentina" ||
     c.contactId === "fagner" ||
-    c.name.toLowerCase().includes(aiPersona.name.toLowerCase()) ||
-    c.name.toLowerCase().includes("valentina") ||
-    c.name.toLowerCase().includes("fagner");
+    c.phone === "IA";
 
-  // Filter clients in the wallet (walletOperatorId === currentOperatorId)
+  // Filter clients in the wallet (walletOperatorId === currentOperatorId), excluding internal AI channel
   const walletClients = conversations.filter((c) => {
-    const isInWallet = c.walletOperatorId === currentOperatorId;
+    const isInWallet = c.walletOperatorId === currentOperatorId && !isAiContactRow(c);
     if (!isInWallet) return false;
 
     if (search.trim() !== "") {
@@ -164,16 +191,18 @@ export function WalletView() {
       .catch(() => {}); // silencia erros de rede — KPI é informativo
   }, [activeTab, tenant, currentOperatorId, realWalletClients.length]);
 
-  // Filter templates of the operator
-  const filteredTemplates = templates.filter((tpl) => {
-    if (search.trim() !== "") {
-      const q = search.toLowerCase();
-      return (
-        tpl.title.toLowerCase().includes(q) || tpl.text.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  // Filter templates of the operator and global quick responses
+  const filteredTemplates =
+    templateScopeFilter === "global"
+      ? []
+      : templates.filter((tpl) => matchesQuickResponseSearch(tpl.title, tpl.text, search));
+
+  const filteredGlobalQrs =
+    templateScopeFilter === "personal"
+      ? []
+      : (quickResponses || []).filter((qr) =>
+          matchesQuickResponseSearch(`${qr.shortcut} ${qr.description || ""}`, qr.text, search)
+        );
 
   // Stats (apenas clientes reais da carteira, sem contar o contato fixo da IA)
   const activeAttendancesCount = realWalletClients.filter(
@@ -182,25 +211,62 @@ export function WalletView() {
 
   const handleOpenCreateModal = () => {
     setModalMode("create");
-    setTemplateForm({ title: "", text: "" });
+    setModalScope("personal");
+    setEditingTemplate(null);
+    setEditingGlobalQr(null);
+    setTemplateForm({ title: "", description: "", text: "" });
     setShowModal(true);
   };
 
   const handleOpenEditModal = (tpl: OperatorTemplate) => {
     setModalMode("edit");
+    setModalScope("personal");
     setEditingTemplate(tpl);
-    setTemplateForm({ title: tpl.title, text: tpl.text });
+    setEditingGlobalQr(null);
+    setTemplateForm({ title: tpl.title, description: "", text: tpl.text });
+    setShowModal(true);
+  };
+
+  const handleOpenEditGlobalModal = (qr: QuickResponse) => {
+    setModalMode("edit");
+    setModalScope("global");
+    setEditingGlobalQr(qr);
+    setEditingTemplate(null);
+    setTemplateForm({
+      title: qr.shortcut,
+      description: qr.description || "",
+      text: qr.text,
+    });
     setShowModal(true);
   };
 
   const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!templateForm.title.trim() || !templateForm.text.trim()) return;
+    const rawTitle = templateForm.title.trim();
+    const rawText = templateForm.text.trim();
+    if (!rawTitle || !rawText) return;
 
-    if (modalMode === "create") {
-      await createTemplate(templateForm.title, templateForm.text);
-    } else if (modalMode === "edit" && editingTemplate) {
-      await updateTemplate(editingTemplate.id, templateForm.title, templateForm.text);
+    if (modalScope === "global" && canManageGlobalTemplates) {
+      const formattedShortcut = rawTitle.startsWith("/") ? rawTitle : `/${rawTitle}`;
+      if (modalMode === "create") {
+        await createQuickResponse({
+          shortcut: formattedShortcut,
+          text: rawText,
+          description: templateForm.description.trim() || undefined,
+        });
+      } else if (modalMode === "edit" && editingGlobalQr?.id) {
+        await updateQuickResponse(editingGlobalQr.id, {
+          shortcut: formattedShortcut,
+          text: rawText,
+          description: templateForm.description.trim() || undefined,
+        });
+      }
+    } else {
+      if (modalMode === "create") {
+        await createTemplate(rawTitle, rawText);
+      } else if (modalMode === "edit" && editingTemplate) {
+        await updateTemplate(editingTemplate.id, rawTitle, rawText);
+      }
     }
 
     setShowModal(false);
@@ -656,44 +722,209 @@ export function WalletView() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                className="h-full"
+                className="h-full space-y-4"
               >
-                {filteredTemplates.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredTemplates.map((tpl) => (
-                      <div
-                        key={tpl.id}
-                        className="group flex flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-soft transition-all hover:shadow-md hover:border-primary/30"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
-                              {tpl.title}
-                            </h3>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={() => handleOpenEditModal(tpl)}
-                                className="p-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition cursor-pointer"
-                                title="Editar Template"
-                              >
-                                <Edit2 className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteTemplateId(tpl.id)}
-                                className="p-1 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer"
-                                title="Excluir Template"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
+                {/* Filtro de escopo sincronizado com Respostas Rápidas do Chat */}
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card px-4 py-2.5 shadow-2xs">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setTemplateScopeFilter("all")}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        templateScopeFilter === "all"
+                          ? "bg-primary text-primary-foreground shadow-2xs"
+                          : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Todos ({templates.length + (quickResponses?.length || 0)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTemplateScopeFilter("personal")}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        templateScopeFilter === "personal"
+                          ? "bg-primary text-primary-foreground shadow-2xs"
+                          : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <User className="h-3.5 w-3.5" />
+                      <span>Meus Templates ({templates.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTemplateScopeFilter("global")}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        templateScopeFilter === "global"
+                          ? "bg-primary text-primary-foreground shadow-2xs"
+                          : "bg-muted/60 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      <span>Globais da Equipe ({quickResponses?.length || 0})</span>
+                    </button>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground">
+                    Digite <strong className="font-mono text-primary">/atalho</strong> no Chat para usar qualquer template
+                  </span>
+                </div>
 
-                          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4 bg-muted/30 p-3 rounded-xl border border-border/50 font-mono">
-                            {tpl.text}
-                          </p>
+                {filteredTemplates.length > 0 || filteredGlobalQrs.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredTemplates.map((tpl) => {
+                      const shortcutBadge = formatQuickShortcut(tpl.title);
+                      const hasVars = /\{\{.*?\}\}|<<\s*[123]\s*>>/.test(tpl.text);
+                      const previewText = hasVars
+                        ? resolveTemplateVariables(tpl.text, {
+                            clientName: "João Silva",
+                            operatorName: operatorProfile.name || "Operador",
+                            tenantId: tenant,
+                          })
+                        : null;
+                      return (
+                        <div
+                          key={tpl.id}
+                          className="group flex flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-soft transition-all hover:shadow-md hover:border-primary/30"
+                        >
+                          <div className="space-y-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="rounded-lg bg-primary/10 border border-primary/20 px-2 py-0.5 text-[11px] font-bold text-primary font-mono">
+                                    {shortcutBadge}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 rounded-lg bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                                    <User className="h-3 w-3" />
+                                    Individual
+                                  </span>
+                                </div>
+                                <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors truncate">
+                                  {tpl.title}
+                                </h3>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                <SystemTooltip content="Editar Template">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditModal(tpl)}
+                                    className="p-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition cursor-pointer"
+                                  >
+                                    <Edit2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </SystemTooltip>
+                                <SystemTooltip content="Excluir Template">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmDeleteScope("personal");
+                                      setConfirmDeleteTemplateId(tpl.id);
+                                    }}
+                                    className="p-1 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </SystemTooltip>
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4 bg-muted/30 p-3 rounded-xl border border-border/50 font-mono">
+                              {tpl.text}
+                            </p>
+
+                            {previewText && (
+                              <div className="rounded-xl bg-primary/5 border border-primary/15 px-3 py-2">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-primary mb-0.5">
+                                  Prévia no envio:
+                                </div>
+                                <p className="text-[11px] text-foreground/90 leading-relaxed line-clamp-3">
+                                  {previewText}
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+
+                    {filteredGlobalQrs.map((qr) => {
+                      const shortcutBadge = qr.shortcut.startsWith("/") ? qr.shortcut : `/${qr.shortcut}`;
+                      const hasVars = /\{\{.*?\}\}|<<\s*[123]\s*>>/.test(qr.text);
+                      const previewText = hasVars
+                        ? resolveTemplateVariables(qr.text, {
+                            clientName: "João Silva",
+                            operatorName: operatorProfile.name || "Operador",
+                            tenantId: tenant,
+                          })
+                        : null;
+                      return (
+                        <div
+                          key={qr.id || qr.shortcut}
+                          className="group flex flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-soft transition-all hover:shadow-md hover:border-primary/30"
+                        >
+                          <div className="space-y-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="rounded-lg bg-primary/10 border border-primary/20 px-2 py-0.5 text-[11px] font-bold text-primary font-mono">
+                                    {shortcutBadge}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                    <Globe className="h-3 w-3" />
+                                    Global
+                                  </span>
+                                </div>
+                                {qr.description && (
+                                  <h3 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors truncate">
+                                    {qr.description}
+                                  </h3>
+                                )}
+                              </div>
+                              {canManageGlobalTemplates && (
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                  <SystemTooltip content="Editar Resposta Global">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditGlobalModal(qr)}
+                                      className="p-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition cursor-pointer"
+                                    >
+                                      <Edit2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </SystemTooltip>
+                                  <SystemTooltip content="Excluir Resposta Global">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (qr.id) {
+                                          setConfirmDeleteScope("global");
+                                          setConfirmDeleteTemplateId(qr.id);
+                                        }
+                                      }}
+                                      className="p-1 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </SystemTooltip>
+                                </div>
+                              )}
+                            </div>
+
+                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4 bg-muted/30 p-3 rounded-xl border border-border/50 font-mono">
+                              {qr.text}
+                            </p>
+
+                            {previewText && (
+                              <div className="rounded-xl bg-primary/5 border border-primary/15 px-3 py-2">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-primary mb-0.5">
+                                  Prévia no envio:
+                                </div>
+                                <p className="text-[11px] text-foreground/90 leading-relaxed line-clamp-3">
+                                  {previewText}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="flex h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card p-6 text-center">
@@ -796,9 +1027,14 @@ export function WalletView() {
                 <button data-training-save="true"
                   onClick={async () => {
                     const id = confirmDeleteTemplateId;
+                    const scope = confirmDeleteScope;
                     setConfirmDeleteTemplateId(null);
                     if (id) {
-                      await deleteTemplate(id);
+                      if (scope === "global") {
+                        await deleteQuickResponse(id);
+                      } else {
+                        await deleteTemplate(id);
+                      }
                       toast.success("Template excluído com sucesso!");
                     }
                   }}
@@ -817,7 +1053,7 @@ export function WalletView() {
             <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-xl animate-scaleIn">
               <div className="flex items-center justify-between border-b border-line pb-4 mb-4">
                 <h2 className="text-base font-bold text-foreground">
-                  {modalMode === "create" ? "Criar Resposta Rápida" : "Editar Resposta Rápida"}
+                  {modalMode === "create" ? "Novo Template / Resposta Rápida" : "Editar Template / Resposta Rápida"}
                 </h2>
                 <button
                   onClick={() => setShowModal(false)}
@@ -828,13 +1064,49 @@ export function WalletView() {
               </div>
 
               <form data-tour="wallet.template-editor" onSubmit={handleSaveTemplate} className="space-y-4">
+                {canManageGlobalTemplates && modalMode === "create" && (
+                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-muted/60 border border-border">
+                    <button
+                      type="button"
+                      onClick={() => setModalScope("personal")}
+                      className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        modalScope === "personal"
+                          ? "bg-card text-primary shadow-2xs border border-border/60"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <User className="h-3.5 w-3.5" />
+                      <span>Meu Template (Individual)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalScope("global")}
+                      className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        modalScope === "global"
+                          ? "bg-card text-primary shadow-2xs border border-border/60"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      <span>Global (Toda a Equipe)</span>
+                    </button>
+                  </div>
+                )}
+
                 <div>
-                  <label className="block text-xs font-semibold text-foreground mb-1.5">
-                    Título do Template
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-foreground">
+                      {modalScope === "global" ? "Atalho Rápido (ex: /saudacao)" : "Título do Template (Atalho)"}
+                    </label>
+                    {templateForm.title.trim() && (
+                      <span className="text-[11px] font-mono font-bold text-primary">
+                        Atalho no Chat: {formatQuickShortcut(templateForm.title)}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
-                    placeholder="Ex: Boas-vindas Orçamento"
+                    placeholder={modalScope === "global" ? "Ex: /saudacao" : "Ex: Saudação Inicial"}
                     value={templateForm.title}
                     onChange={(e) => setTemplateForm({ ...templateForm, title: e.target.value })}
                     className="w-full rounded-2xl border border-border bg-muted/40 px-3.5 py-2 text-xs text-foreground outline-none focus:border-primary focus:bg-card"
@@ -842,49 +1114,85 @@ export function WalletView() {
                   />
                 </div>
 
+                {modalScope === "global" && (
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">
+                      Descrição Curta (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Boas-vindas ao cliente"
+                      value={templateForm.description}
+                      onChange={(e) => setTemplateForm({ ...templateForm, description: e.target.value })}
+                      className="w-full rounded-2xl border border-border bg-muted/40 px-3.5 py-2 text-xs text-foreground outline-none focus:border-primary focus:bg-card"
+                    />
+                  </div>
+                )}
+
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                     <label className="block text-xs font-semibold text-foreground">
                       Conteúdo da Mensagem
                     </label>
-                    <span className="text-[10px] text-muted-foreground">Variáveis disponíveis:</span>
+                    <span className="text-[10px] text-muted-foreground">Clique para inserir variáveis dinâmicas:</span>
                   </div>
 
                   {/* Variable Tags */}
                   <div className="flex flex-wrap gap-1.5 mb-2">
-                    <button
-                      type="button"
-                      onClick={() => handleInsertTag("{{nome}}")}
-                      className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
-                    >
-                      + {"{{nome}}"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleInsertTag("{{empresa}}")}
-                      className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
-                    >
-                      + {"{{empresa}}"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleInsertTag("{{operador}}")}
-                      className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
-                    >
-                      + {"{{operador}}"}
-                    </button>
+                    <SystemTooltip content="Insere automaticamente o nome do cliente">
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTag("{{nome}}")}
+                        className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2.5 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
+                      >
+                        + {"{{nome}}"} Cliente
+                      </button>
+                    </SystemTooltip>
+                    <SystemTooltip content={`Insere automaticamente seu nome (${operatorProfile.name || "Operador"})`}>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTag("{{operador}}")}
+                        className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2.5 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
+                      >
+                        + {"{{operador}}"} Meu Nome
+                      </button>
+                    </SystemTooltip>
+                    <SystemTooltip content="Insere automaticamente o nome da nossa empresa">
+                      <button
+                        type="button"
+                        onClick={() => handleInsertTag("{{empresa}}")}
+                        className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2.5 py-1 text-[10px] font-bold text-primary transition cursor-pointer"
+                      >
+                        + {"{{empresa}}"} Empresa
+                      </button>
+                    </SystemTooltip>
                   </div>
 
                   <textarea
                     ref={textareaRef}
                     data-tour="wallet.template-variables"
                     rows={5}
-                    placeholder="Digite o texto do template aqui..."
+                    placeholder="Olá! {{nome}}, meu nome é {{operador}} faço parte do time da {{empresa}}, como posso te ajudar hoje?"
                     value={templateForm.text}
                     onChange={(e) => setTemplateForm({ ...templateForm, text: e.target.value })}
                     className="w-full rounded-2xl border border-border bg-muted/40 p-3.5 text-xs font-mono text-foreground outline-none focus:border-primary focus:bg-card resize-none"
                     required
                   />
+
+                  {templateForm.text.trim() && (
+                    <div className="mt-2.5 rounded-2xl bg-primary/5 border border-primary/15 px-3.5 py-2.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">
+                        Prévia de como será enviado no Chat:
+                      </div>
+                      <p className="text-xs text-foreground leading-relaxed">
+                        {resolveTemplateVariables(templateForm.text, {
+                          clientName: "João Silva",
+                          operatorName: operatorProfile.name || "Operador",
+                          tenantId: tenant,
+                        })}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
@@ -897,6 +1205,7 @@ export function WalletView() {
                   </button>
                   <button
                     type="submit"
+                    data-training-save="true"
                     className="rounded-2xl bg-primary px-5 py-2 text-xs font-semibold text-primary-foreground hover:opacity-95 cursor-pointer shadow-soft"
                   >
                     Salvar Template

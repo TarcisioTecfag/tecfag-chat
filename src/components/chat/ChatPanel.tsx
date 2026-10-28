@@ -89,6 +89,7 @@ import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { setRememberedTabForView } from "@/lib/app-routes";
+import { resolveTemplateVariables } from "@/lib/utils";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -2428,15 +2429,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   };
 
   const selectQuickResponse = (response: string) => {
-    let parsedText = response;
-    
-    // Substitui as tags dinâmicas pelos valores reais correspondentes
-    if (parsedText.includes("<<1>>")) {
-      parsedText = parsedText.replaceAll("<<1>>", operatorProfile.name);
-    }
-    if (parsedText.includes("<<2>>")) {
-      parsedText = parsedText.replaceAll("<<2>>", activeChat?.name || "Cliente");
-    }
+    const parsedText = resolveTemplateVariables(response, {
+      clientName: activeChat?.name || "Cliente",
+      operatorName: operatorProfile.name,
+      tenantId: tenant,
+      clientCompanyName:
+        (activeChat as any)?.companyName ||
+        activeChat?.cnpjDetails?.nomeFantasia ||
+        activeChat?.cnpjDetails?.razaoSocial ||
+        null,
+    });
 
     setText((prev) => {
       const trimmed = prev.trim();

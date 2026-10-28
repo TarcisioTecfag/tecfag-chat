@@ -53,8 +53,15 @@ function OperatorWalletCard({ op }: OperatorWalletCardProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const opClients = conversations.filter(c => c.walletOperatorId === op.id);
-  const availableClients = conversations.filter(c => c.walletOperatorId !== op.id);
+  const isInternalAiRow = (c: any) =>
+    c.id === "valentina" ||
+    c.id === "fagner" ||
+    c.contactId === "valentina" ||
+    c.contactId === "fagner" ||
+    c.phone === "IA";
+
+  const opClients = conversations.filter(c => !isInternalAiRow(c) && c.walletOperatorId === op.id);
+  const availableClients = conversations.filter(c => !isInternalAiRow(c) && c.walletOperatorId !== op.id);
   const otherOperators = operators.filter(o => o.id !== op.id);
 
   const filteredClients = availableClients.filter(c => {
@@ -3483,32 +3490,40 @@ export function GroupsView() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/80">Texto da Mensagem</label>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-foreground/80">Texto da Mensagem</label>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setQrForm((prev) => ({ ...prev, text: `${prev.text}{{nome}}` }))}
+                      className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary transition cursor-pointer"
+                    >
+                      + {"{{nome}}"} Cliente
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQrForm((prev) => ({ ...prev, text: `${prev.text}{{operador}}` }))}
+                      className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary transition cursor-pointer"
+                    >
+                      + {"{{operador}}"} Meu Nome
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQrForm((prev) => ({ ...prev, text: `${prev.text}{{empresa}}` }))}
+                      className="rounded-lg bg-primary-soft/60 hover:bg-primary-soft border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary transition cursor-pointer"
+                    >
+                      + {"{{empresa}}"} Empresa
+                    </button>
+                  </div>
+                </div>
                 <textarea
-                  placeholder="Olá! Como posso te ajudar?"
+                  placeholder="Olá! {{nome}}, meu nome é {{operador}} faço parte do time da {{empresa}}, como posso te ajudar hoje?"
                   value={qrForm.text}
                   onChange={(e) => setQrForm({ ...qrForm, text: e.target.value })}
                   rows={4}
                   className="rounded-2xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground outline-none transition focus:border-primary focus:bg-card focus:shadow-soft resize-none scrollbar-thin leading-relaxed"
                   required
                 />
-              </div>
-
-              {/* Dica de Variáveis Dinâmicas */}
-              <div className="rounded-2xl bg-muted/50 p-3 border border-border/60">
-                <span className="text-[9px] font-extrabold uppercase tracking-wide text-primary block mb-2 text-center">
-                  Tags Dinâmicas Disponíveis
-                </span>
-                <div className="grid grid-cols-2 gap-2 text-[9px] text-muted-foreground font-medium">
-                  <div className="flex items-center justify-between gap-1.5 bg-card rounded-lg px-2 py-1 border border-border/40">
-                    <code className="text-primary font-bold font-mono">{"<<1>>"}</code>
-                    <span>Nome do Vendedor</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-1.5 bg-card rounded-lg px-2 py-1 border border-border/40">
-                    <code className="text-primary font-bold font-mono">{"<<2>>"}</code>
-                    <span>Nome do Cliente</span>
-                  </div>
-                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 border-t border-line pt-4 mt-2">

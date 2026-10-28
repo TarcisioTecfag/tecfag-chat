@@ -23,6 +23,7 @@ import { QuickResponsesPopover } from "../chat/QuickResponsesPopover";
 import { getAiPersona } from "@/lib/ai-persona";
 import { usePermissions } from "@/hooks/usePermissions";
 import { setRememberedTabForView } from "@/lib/app-routes";
+import { resolveTemplateVariables } from "@/lib/utils";
 import { ConversationDealContext, useConversationDealContext } from "@/components/crm/ConversationDealContext";
 
 interface MobileMessageInputProps {
@@ -263,13 +264,16 @@ export const MobileMessageInput: React.FC<MobileMessageInputProps> = ({
               isOpen={showQuickTemplates}
               onClose={() => setShowQuickTemplates(false)}
               onSelectResponse={(rawResponse) => {
-                let parsedText = rawResponse;
-                if (parsedText.includes("<<1>>")) {
-                  parsedText = parsedText.replaceAll("<<1>>", operatorProfile.name);
-                }
-                if (parsedText.includes("<<2>>")) {
-                  parsedText = parsedText.replaceAll("<<2>>", activeChat?.name || "Cliente");
-                }
+                const parsedText = resolveTemplateVariables(rawResponse, {
+                  clientName: activeChat?.name || "Cliente",
+                  operatorName: operatorProfile.name,
+                  tenantId: tenant,
+                  clientCompanyName:
+                    (activeChat as any)?.companyName ||
+                    activeChat?.cnpjDetails?.nomeFantasia ||
+                    activeChat?.cnpjDetails?.razaoSocial ||
+                    null,
+                });
                 setText((prev) => {
                   const trimmed = prev.trim();
                   if (!trimmed || trimmed.startsWith("/")) {

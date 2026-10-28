@@ -111,7 +111,7 @@ export async function handleTrainingRequest(store: TrainingStore, input: string 
     if (row) Object.assign(row, body.updates || {});
     return reply({ success: true, conversation: row, message: row?.messages.at(-1), id: row?.id });
   }
-  if (path === "/api/chats/update-queue") { const row = find(store.conversations, body.conversationId); if (!row) return reply({ error: "Atendimento fictício não encontrado." }, 404); Object.assign(row, { queue: body.queue, operatorId: body.operatorId ?? row.operatorId, version: row.version + 1 }); return reply({ success: true, conversation: row, ...row }); }
+  if (path === "/api/chats/update-queue") { const row = find(store.conversations, body.conversationId); if (!row) return reply({ error: "Atendimento fictício não encontrado." }, 404); const nextQueue = body.queueState ?? body.queue ?? row.queue; const nextOpId = body.operatorId !== undefined ? body.operatorId : row.operatorId; Object.assign(row, { queue: nextQueue, operatorId: nextOpId, ...(nextQueue === "meus" && nextOpId ? { walletOperatorId: nextOpId } : {}), version: row.version + 1 }); return reply({ success: true, conversation: row, ...row }); }
   const contextRoute = path.match(/^\/api\/chats\/([^/]+)\/deal-context$/);
   if (contextRoute) {
     const conversation = find(store.conversations, contextRoute[1]);
@@ -141,6 +141,12 @@ export async function handleTrainingRequest(store: TrainingStore, input: string 
     store.tasks.push(task);
     if (row && !row.tags.includes(body.tagName)) row.tags.push(body.tagName);
     return reply({ success: true, task });
+  }
+  if (path === "/api/chats/resolve") {
+    const key = (url.searchParams.get("key") || "").trim();
+    const digits = key.replace(/\D/g, "");
+    const row = store.conversations.find((c) => c.id === key || (digits && String(c.phone || "").replace(/\D/g, "") === digits)) || store.conversations[0];
+    return reply({ success: true, conversationId: row?.id || store.conversations[0].id, conversation: row });
   }
   if (path.startsWith("/api/chats/") || path === "/api/whatsapp/send") {
     const row = find(store.conversations, body.conversationId || url.searchParams.get("conversationId"));

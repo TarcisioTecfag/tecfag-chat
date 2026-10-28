@@ -31,7 +31,6 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
           const auth = await requireSession(request);
           if ("response" in auth) return auth.response;
           const session = auth.session;
-          if (session.operator.role !== "admin" && !session.permissions?.chat?.canChangeWallet && !session.permissions?.security?.canManageWallets) return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
 
           const body = await request.json();
           const { contactId, walletOperatorId } = body;
@@ -41,6 +40,26 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
               status: 400,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
+          }
+
+          const [existingContact] = await db
+            .select({ id: contacts.id, walletOperatorId: contacts.walletOperatorId })
+            .from(contacts)
+            .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, session.tenantId)))
+            .limit(1);
+
+          const isSelfWalletRelease =
+            !walletOperatorId &&
+            existingContact?.walletOperatorId === session.operator.id &&
+            Boolean(session.permissions?.views?.wallet);
+
+          if (
+            session.operator.role !== "admin" &&
+            !session.permissions?.chat?.canChangeWallet &&
+            !session.permissions?.security?.canManageWallets &&
+            !isSelfWalletRelease
+          ) {
+            return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
           }
 
           // Se informou um operador de carteira, valida se pertence ao mesmo tenant
@@ -108,16 +127,35 @@ export const Route = createFileRoute("/api/contacts/update-wallet")({
               SessionManager.getInstance().notifyPublic(session.tenantId, {
                 type: "queue_update",
                 conversationId: conv.id,
+                contactId,
                 queueState: "automacao",
                 operatorId: null,
+                walletOperatorId: null,
                 sectorId: queueSectorId,
                 version: queueVersion,
                 responsibleName: aiName,
               });
             }
+          } else {
+            const clientConvs = await db
+              .select({ id: conversations.id, queueState: conversations.queueState, operatorId: conversations.operatorId, sectorId: conversations.sectorId, version: conversations.version })
+              .from(conversations)
+              .where(and(eq(conversations.contactId, contactId), eq(conversations.tenantId, session.tenantId)));
+            for (const conv of clientConvs) {
+              SessionManager.getInstance().notifyPublic(session.tenantId, {
+                type: "queue_update",
+                conversationId: conv.id,
+                contactId,
+                queueState: conv.queueState,
+                operatorId: conv.operatorId,
+                walletOperatorId: walletOperatorId || null,
+                sectorId: conv.sectorId,
+                version: conv.version,
+              });
+            }
           }
 
-          return new Response(JSON.stringify({ success: true }), {
+          return new Response(JSON.stringify({ success: true, contactId, walletOperatorId: walletOperatorId || null }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
 

@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import type { QuickResponse, OperatorTemplate } from "@/lib/mockData";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
+import { formatQuickShortcut, matchesQuickResponseSearch } from "@/lib/utils";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 interface QuickResponsesPopoverProps {
   isOpen: boolean;
@@ -112,31 +114,24 @@ export function QuickResponsesPopover({
     }
   }, [isOpen]);
 
-  const effectiveFilter = (slashFilterText || searchQuery).trim().toLowerCase();
+  const effectiveFilter = (slashFilterText || searchQuery).trim();
 
   const filteredQrs = useMemo(() => {
     if (activeTab === "personal") return [];
-    return (quickResponses || []).filter((qr) => {
-      if (!effectiveFilter) return true;
-      const cleanShortcut = qr.shortcut.replace(/^\//, "").toLowerCase();
-      return (
-        qr.shortcut.toLowerCase().includes(effectiveFilter) ||
-        cleanShortcut.includes(effectiveFilter) ||
-        qr.text.toLowerCase().includes(effectiveFilter) ||
-        (qr.description || "").toLowerCase().includes(effectiveFilter)
-      );
-    });
+    return (quickResponses || []).filter((qr) =>
+      matchesQuickResponseSearch(
+        `${qr.shortcut} ${qr.description || ""}`,
+        qr.text,
+        effectiveFilter
+      )
+    );
   }, [quickResponses, effectiveFilter, activeTab]);
 
   const filteredTpls = useMemo(() => {
     if (activeTab === "global") return [];
-    return (templates || []).filter((tpl) => {
-      if (!effectiveFilter) return true;
-      return (
-        tpl.title.toLowerCase().includes(effectiveFilter) ||
-        tpl.text.toLowerCase().includes(effectiveFilter)
-      );
-    });
+    return (templates || []).filter((tpl) =>
+      matchesQuickResponseSearch(tpl.title, tpl.text, effectiveFilter)
+    );
   }, [templates, effectiveFilter, activeTab]);
 
   const totalCount = (quickResponses?.length || 0) + (templates?.length || 0);
@@ -253,14 +248,15 @@ export function QuickResponsesPopover({
       <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border bg-muted/30 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           {formMode !== "idle" ? (
-            <button
-              type="button"
-              onClick={() => setFormMode("idle")}
-              className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
-              title="Voltar para a lista"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-            </button>
+            <SystemTooltip content="Voltar para a lista">
+              <button
+                type="button"
+                onClick={() => setFormMode("idle")}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
           ) : (
             <div className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
               <Zap className="h-3.5 w-3.5" />
@@ -268,10 +264,10 @@ export function QuickResponsesPopover({
           )}
           <span className="text-xs font-extrabold text-foreground truncate">
             {formMode === "create"
-              ? "Nova Resposta Rápida"
+              ? "Novo Template / Resposta Rápida"
               : formMode === "edit"
-                ? "Editar Resposta Rápida"
-                : "Respostas Rápidas"}
+                ? "Editar Template / Resposta Rápida"
+                : "Respostas Rápidas & Meus Templates"}
           </span>
           {formMode === "idle" && (
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
@@ -288,17 +284,18 @@ export function QuickResponsesPopover({
               className="inline-flex items-center gap-1 rounded-xl bg-primary px-2.5 py-1 text-[11px] font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-2xs"
             >
               <Plus className="h-3 w-3" />
-              <span>Nova Resposta</span>
+              <span>Novo Template</span>
             </button>
           )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
-            title="Fechar (Esc)"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <SystemTooltip content="Fechar (Esc)">
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </SystemTooltip>
         </div>
       </div>
 
@@ -336,9 +333,16 @@ export function QuickResponsesPopover({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                {formScope === "global" ? "Atalho (ex: /saudacao)" : "Título ou Atalho"}
-              </label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  {formScope === "global" ? "Atalho (ex: /saudacao)" : "Título do Template (Atalho)"}
+                </label>
+                {formTitleOrShortcut.trim() && (
+                  <span className="text-[10px] font-mono font-bold text-primary">
+                    Atalho: {formatQuickShortcut(formTitleOrShortcut)}
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 required
@@ -369,25 +373,36 @@ export function QuickResponsesPopover({
           <div className="space-y-1">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                Texto da Mensagem
+                Conteúdo da Mensagem
               </label>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleInsertVariable("<<1>>")}
-                  className="rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary transition cursor-pointer"
-                  title={`Insere seu nome (${operatorName})`}
-                >
-                  + {"<<1>>"} Meu Nome
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInsertVariable("<<2>>")}
-                  className="rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary transition cursor-pointer"
-                  title={`Insere o nome do cliente (${customerName})`}
-                >
-                  + {"<<2>>"} Nome do Cliente
-                </button>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <SystemTooltip content={`Insere o nome do cliente (${customerName})`}>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertVariable("{{nome}}")}
+                    className="rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary transition cursor-pointer"
+                  >
+                    + {"{{nome}}"} Cliente
+                  </button>
+                </SystemTooltip>
+                <SystemTooltip content={`Insere seu nome (${operatorName})`}>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertVariable("{{operador}}")}
+                    className="rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary transition cursor-pointer"
+                  >
+                    + {"{{operador}}"} Meu Nome
+                  </button>
+                </SystemTooltip>
+                <SystemTooltip content="Insere o nome da nossa empresa automaticamente">
+                  <button
+                    type="button"
+                    onClick={() => handleInsertVariable("{{empresa}}")}
+                    className="rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary transition cursor-pointer"
+                  >
+                    + {"{{empresa}}"} Empresa
+                  </button>
+                </SystemTooltip>
               </div>
             </div>
             <textarea
@@ -396,7 +411,7 @@ export function QuickResponsesPopover({
               rows={3}
               value={formText}
               onChange={(e) => setFormText(e.target.value)}
-              placeholder="Olá <<2>>, tudo bem? Aqui é <<1>>..."
+              placeholder="Olá! {{nome}}, meu nome é {{operador}} faço parte do time da {{empresa}}, como posso te ajudar hoje?"
               className="w-full rounded-xl border border-border bg-background p-2.5 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary resize-none leading-relaxed"
             />
           </div>
@@ -415,7 +430,7 @@ export function QuickResponsesPopover({
               className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition cursor-pointer shadow-soft"
             >
               <Check className="h-3.5 w-3.5" />
-              <span>{saving ? "Salvando..." : "Salvar Resposta"}</span>
+              <span>{saving ? "Salvando..." : "Salvar Template"}</span>
             </button>
           </div>
         </form>
@@ -492,12 +507,12 @@ export function QuickResponsesPopover({
                 </div>
                 <p className="text-xs font-bold text-foreground">
                   {effectiveFilter
-                    ? `Nenhuma resposta rápida encontrada para "${effectiveFilter}"`
-                    : "Nenhuma resposta rápida cadastrada ainda"}
+                    ? `Nenhum template ou resposta encontrada para "${effectiveFilter}"`
+                    : "Nenhum template ou resposta rápida cadastrada"}
                 </p>
                 <p className="text-[11px] text-muted-foreground max-w-sm mt-1 leading-relaxed">
                   {effectiveFilter
-                    ? "Tente outro termo ou crie um novo atalho com este nome agora mesmo."
+                    ? "Tente outro termo ou crie um novo template com este nome agora mesmo."
                     : "Cadastre mensagens prontas para inserir no atendimento com 1 clique ou digitando '/' no campo de mensagem."}
                 </p>
                 <button
@@ -506,7 +521,7 @@ export function QuickResponsesPopover({
                   className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  <span>Criar Resposta Rápida Agora</span>
+                  <span>Criar Template Agora</span>
                 </button>
               </div>
             ) : (
@@ -541,22 +556,24 @@ export function QuickResponsesPopover({
 
                         {canManageGlobalTemplates && (
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
-                            <button
-                              type="button"
-                              onClick={(e) => handleStartEditGlobal(e, qr)}
-                              className="p-1 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition cursor-pointer"
-                              title="Editar resposta global"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => void handleDeleteItem(e, "global", qr.id)}
-                              className="p-1 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition cursor-pointer"
-                              title="Excluir resposta global"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            <SystemTooltip content="Editar resposta global">
+                              <button
+                                type="button"
+                                onClick={(e) => handleStartEditGlobal(e, qr)}
+                                className="p-1 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition cursor-pointer"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                            <SystemTooltip content="Excluir resposta global">
+                              <button
+                                type="button"
+                                onClick={(e) => void handleDeleteItem(e, "global", qr.id)}
+                                className="p-1 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
                           </div>
                         )}
                       </div>
@@ -570,41 +587,55 @@ export function QuickResponsesPopover({
                       <User className="h-3 w-3 text-primary" />
                       <span>Meus Templates Individuais ({filteredTpls.length})</span>
                     </div>
-                    {filteredTpls.map((tpl) => (
-                      <div
-                        key={tpl.id}
-                        data-tour="quick.insert" onClick={() => onSelectResponse(tpl.text)}
-                        className="group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left hover:bg-muted/80 border border-transparent hover:border-border/70 transition cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <span className="shrink-0 rounded-lg bg-muted border border-border px-2 py-0.5 text-xs font-bold text-foreground">
-                            {tpl.title}
-                          </span>
-                          <span className="truncate text-xs text-muted-foreground flex-1">
-                            {tpl.text}
-                          </span>
-                        </div>
+                    {filteredTpls.map((tpl) => {
+                      const shortcutBadge = formatQuickShortcut(tpl.title);
+                      const showSeparateTitle =
+                        tpl.title.trim().toLowerCase() !== shortcutBadge.toLowerCase();
+                      return (
+                        <div
+                          key={tpl.id}
+                          data-tour="quick.insert" onClick={() => onSelectResponse(tpl.text)}
+                          className="group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left hover:bg-muted/80 border border-transparent hover:border-border/70 transition cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <span className="shrink-0 rounded-lg bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-bold text-primary font-mono">
+                              {shortcutBadge}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              {showSeparateTitle && (
+                                <div className="text-[10px] font-bold text-foreground truncate">
+                                  {tpl.title}
+                                </div>
+                              )}
+                              <div className="truncate text-xs text-muted-foreground font-medium">
+                                {tpl.text}
+                              </div>
+                            </div>
+                          </div>
 
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
-                          <button
-                            type="button"
-                            onClick={(e) => handleStartEditPersonal(e, tpl)}
-                            className="p-1 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition cursor-pointer"
-                            title="Editar meu template"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => void handleDeleteItem(e, "personal", tpl.id)}
-                            className="p-1 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition cursor-pointer"
-                            title="Excluir meu template"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
+                            <SystemTooltip content="Editar meu template">
+                              <button
+                                type="button"
+                                onClick={(e) => handleStartEditPersonal(e, tpl)}
+                                className="p-1 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition cursor-pointer"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                            <SystemTooltip content="Excluir meu template">
+                              <button
+                                type="button"
+                                onClick={(e) => void handleDeleteItem(e, "personal", tpl.id)}
+                                className="p-1 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>

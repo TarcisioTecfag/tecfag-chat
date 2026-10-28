@@ -14,6 +14,7 @@ import {
 import { GroupPermissions, DEFAULT_ADMIN_PERMISSIONS, normalizeGroupPermissions } from "@/lib/rbac";
 import { parseAppRoute } from "@/lib/app-routes";
 import { getAiPersona } from "@/lib/ai-persona";
+import { resolveTemplateVariables } from "@/lib/utils";
 import {
   buildAgenticThoughtTrace,
   isCasualConversationQuery,
@@ -1718,7 +1719,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }),
             unreadCount: 0,
             operatorId: currentOperatorId,
-            walletOperatorId: currentOperatorId,
+            walletOperatorId: null,
             sectorId: null,
             sectorName: null,
             responsibleName: `${aiPersona.name} IA`,
@@ -2223,7 +2224,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     metaTemplate?: { name: string; language: string; parameters: string[] },
     intent?: { id: string; conversationId: string; tenantId: string; expectedContextVersion?: number; noteScope?: "current" | "general" },
   ) => {
-    const safeInputText =
+    const rawInputText =
       typeof text === "string" && text.trim() !== "[object Object]" ? text : "";
     const targetChatId = intent?.conversationId || selectedChatId;
     if (intent && intent.tenantId !== tenant) return false;
@@ -2231,6 +2232,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const currentChat = conversations.find((c) => c.id === targetChatId);
     if (!currentChat) return false;
+
+    const safeInputText =
+      targetChatId !== "valentina" && rawInputText
+        ? resolveTemplateVariables(rawInputText, {
+            clientName: currentChat.name,
+            operatorName: operatorProfile.name,
+            tenantId: tenant,
+            clientCompanyName:
+              (currentChat as any)?.companyName ||
+              currentChat.cnpjDetails?.nomeFantasia ||
+              currentChat.cnpjDetails?.razaoSocial ||
+              null,
+          })
+        : rawInputText;
 
     if (targetChatId === "valentina") {
       const nowDate = new Date();
@@ -3204,13 +3219,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(error.error || `HTTP ${res.status}`);
       }
       const updated = await res.json();
-      setConversations((prev) => prev.map((c) => c.id === id ? {
-        ...c,
-        queue: updated.queueState,
-        operatorId: updated.operatorId,
-        responsibleName: updated.responsibleName,
-        version: updated.version,
-      } : c));
+      const capturedContactId = updated.contactId || previousState?.contactId;
+      const nextWalletOpId = updated.walletOperatorId ?? updated.operatorId ?? currentOperatorId;
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === id) {
+            return {
+              ...c,
+              queue: updated.queueState,
+              operatorId: updated.operatorId,
+              walletOperatorId: nextWalletOpId,
+              responsibleName: updated.responsibleName,
+              version: updated.version,
+            };
+          }
+          if (capturedContactId && c.contactId === capturedContactId && c.id !== "valentina") {
+            return { ...c, walletOperatorId: nextWalletOpId };
+          }
+          return c;
+        }),
+      );
       setActiveQueue("meus");
       setSelectedChatId(id);
       void refreshConversations(id).catch((error) => console.warn("Atendimento capturado; falha ao atualizar detalhes:", error));
@@ -3276,15 +3304,38 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(error.error || `HTTP ${res.status}`);
       }
       const updated = await res.json();
-      setConversations((prev) => prev.map((chat) => chat.id === id ? {
-        ...chat,
-        queue: updated.queueState,
-        operatorId: updated.operatorId,
-        responsibleName: updated.responsibleName,
-        sectorId: updated.sectorId,
-        sectorName: sectorName || chat.sectorName,
-        version: updated.version,
-      } : chat));
+      const transferredContactId = updated.contactId || previousState?.contactId;
+      const nextTransferWalletId =
+        updated.walletOperatorId !== undefined
+          ? updated.walletOperatorId
+          : targetQueueState === "meus" && updated.operatorId
+            ? updated.operatorId
+            : undefined;
+      setConversations((prev) =>
+        prev.map((chat) => {
+          if (chat.id === id) {
+            return {
+              ...chat,
+              queue: updated.queueState,
+              operatorId: updated.operatorId,
+              ...(nextTransferWalletId !== undefined ? { walletOperatorId: nextTransferWalletId } : {}),
+              responsibleName: updated.responsibleName,
+              sectorId: updated.sectorId,
+              sectorName: sectorName || chat.sectorName,
+              version: updated.version,
+            };
+          }
+          if (
+            nextTransferWalletId !== undefined &&
+            transferredContactId &&
+            chat.contactId === transferredContactId &&
+            chat.id !== "valentina"
+          ) {
+            return { ...chat, walletOperatorId: nextTransferWalletId };
+          }
+          return chat;
+        }),
+      );
       setActiveQueue("todos");
       setSelectedChatId(id);
       void refreshConversations(id).catch((error) => console.warn("Atendimento transferido; falha ao recarregar o histórico:", error));
@@ -4361,7 +4412,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         });
         } else if (data.type === "queue_update") {
-          const { conversationId, queueState, operatorId: newOperatorId, sectorId: newSectorId, responsibleName, version } = data;
+          const {
+            conversationId,
+            contactId: eventContactId,
+            queueState,
+            operatorId: newOperatorId,
+            walletOperatorId: newWalletOperatorId,
+            sectorId: newSectorId,
+            responsibleName,
+            version,
+          } = data;
 
           if (queueState === "meus" && newOperatorId === currentOperatorIdRef.current &&
             !conversationsRef.current.some((chat) => chat.id === conversationId)) {
@@ -4370,18 +4430,38 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
         }
 
+          const resolvedWalletOperatorId =
+            newWalletOperatorId !== undefined
+              ? newWalletOperatorId
+              : queueState === "meus" && newOperatorId
+                ? newOperatorId
+                : undefined;
+
           setConversations((prev) =>
             prev.map((c) => {
-              if (c.id !== conversationId) return c;
-              return {
-                ...c,
-                queue: queueState,
-                operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
-                sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
-                responsibleName:
-                  responsibleName !== undefined ? responsibleName : c.responsibleName,
-                version: version !== undefined ? version : c.version ? c.version + 1 : 1,
-              };
+              if (c.id === conversationId) {
+                return {
+                  ...c,
+                  queue: queueState,
+                  operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
+                  ...(resolvedWalletOperatorId !== undefined
+                    ? { walletOperatorId: resolvedWalletOperatorId }
+                    : {}),
+                  sectorId: newSectorId !== undefined ? newSectorId : (c as any).sectorId,
+                  responsibleName:
+                    responsibleName !== undefined ? responsibleName : c.responsibleName,
+                  version: version !== undefined ? version : c.version ? c.version + 1 : 1,
+                };
+              }
+              if (
+                resolvedWalletOperatorId !== undefined &&
+                eventContactId &&
+                c.contactId === eventContactId &&
+                c.id !== "valentina"
+              ) {
+                return { ...c, walletOperatorId: resolvedWalletOperatorId };
+              }
+              return c;
             }),
           );
 
