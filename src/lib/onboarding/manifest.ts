@@ -101,7 +101,7 @@ const RAW_STEPS: readonly StepSeed[] = [
     routePath: "/chat",
     surface: "welcome.modal",
     selector: "tour.controls",
-    mode: "I",
+    mode: "D",
     scenarioId: "welcome.controls",
     placement: "top",
   },

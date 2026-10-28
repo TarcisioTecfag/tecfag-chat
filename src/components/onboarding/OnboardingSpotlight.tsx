@@ -94,23 +94,6 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
   } : null;
 
   const isInteractive = currentStep.mode === "I" || currentStep.mode === "interactive_demo";
-  const isSimulated = currentStep.mode === "D" || currentStep.mode === "simulated";
-
-  const modeBadge = isInteractive
-    ? {
-        label: "Exercício Guiado",
-        color:
-          "bg-amber-500/15 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-500/35",
-      }
-    : isSimulated
-      ? {
-          label: "Simulação Segura",
-          color: "bg-primary-soft text-primary border-primary/30",
-        }
-      : {
-          label: "Explicação Guiada",
-          color: "bg-muted text-muted-foreground border-border",
-        };
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[10090]" aria-live="polite">
@@ -158,11 +141,6 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-bold text-foreground">{persona.name}</span>
-                <span
-                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${modeBadge.color}`}
-                >
-                  {modeBadge.label}
-                </span>
               </div>
               <p className="truncate text-[11px] text-muted-foreground">
                 {currentChapter
