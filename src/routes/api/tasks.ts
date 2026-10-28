@@ -3,7 +3,6 @@ import { db } from "../../db";
 import {
   contacts,
   conversations,
-  tasks as dbTasks,
   crmDealActivities,
   crmDeals,
   crmDealContacts,
@@ -11,14 +10,6 @@ import {
   crmAccounts,
   operators,
 } from "../../db/schema";
-import {
-  rdRequest,
-  buildPhoneSearchTerms,
-  getCachedDeal,
-  getCachedContact,
-  getCachedUsers,
-  isRdCrmConfigured,
-} from "../../lib/rdCrmService";
 import { eq, and, sql, desc, inArray, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireSession } from "../../lib/auth-session";
@@ -26,45 +17,83 @@ import { crmService } from "../../lib/crm/crm-service";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-// Cache do endpoint de listagem de tarefas para evitar múltiplos cliques rápidos (TTL: 15s)
-const tasksListCache = new Map<string, { data: any[]; expiresAt: number }>();
-const LIST_CACHE_TTL = 15 * 1000; // 15 segundos
-
 /**
  * Consulta tarefas e compromissos comerciais nativos do Kanban/CRM (crm_deal_activities)
- * com joins em negociações, contatos, contas, etapas e operadores, assegurando isolamento estrito de tenant.
+ * com joins em negociações, contatos (priorizando isPrimary), contas, etapas e operadores,
+ * assegurando isolamento estrito de tenant e excluindo tarefas canceladas.
  */
-async function getNativeKanbanTasks(
+export async function getNativeKanbanTasks(
   tenantId: string,
   options: {
     operatorId?: string | null;
     email?: string | null;
     isAdmin?: boolean;
     all?: boolean;
+    scope?: "all_visible" | "mine" | "delegated" | "all";
+    filterOperatorId?: string | null;
   }
 ) {
   const conditions = [
     eq(crmDealActivities.tenantId, tenantId),
     sql`${crmDealActivities.type} NOT IN ('note', 'system_event')`,
+    sql`${crmDealActivities.status} != 'cancelled'`,
   ];
 
-  // Se não for solicitado 'all' explicitamente por um administrador, filtra estritamente por tarefas do operador logado
-  if (!(options.all && options.isAdmin) && options.operatorId) {
+  const canSeeAll = Boolean(options.isAdmin && (options.all || options.scope === "all"));
+
+  if (options.filterOperatorId && options.filterOperatorId !== "all") {
     conditions.push(
       or(
-        eq(crmDealActivities.assignedToOperatorId, options.operatorId),
-        eq(crmDealActivities.operatorId, options.operatorId),
-        eq(crmDeals.operatorId, options.operatorId)
+        eq(crmDealActivities.assignedToOperatorId, options.filterOperatorId),
+        and(
+          sql`${crmDealActivities.assignedToOperatorId} IS NULL`,
+          or(
+            eq(crmDealActivities.operatorId, options.filterOperatorId),
+            eq(crmDeals.operatorId, options.filterOperatorId)
+          )
+        )
       )!
     );
+  } else if (!canSeeAll && options.operatorId) {
+    if (options.scope === "mine") {
+      conditions.push(
+        or(
+          eq(crmDealActivities.assignedToOperatorId, options.operatorId),
+          and(
+            sql`${crmDealActivities.assignedToOperatorId} IS NULL`,
+            or(
+              eq(crmDealActivities.operatorId, options.operatorId),
+              eq(crmDeals.operatorId, options.operatorId)
+            )
+          )
+        )!
+      );
+    } else if (options.scope === "delegated") {
+      conditions.push(
+        and(
+          eq(crmDealActivities.operatorId, options.operatorId),
+          sql`${crmDealActivities.assignedToOperatorId} IS NOT NULL`,
+          sql`${crmDealActivities.assignedToOperatorId} != ${options.operatorId}`
+        )!
+      );
+    } else {
+      conditions.push(
+        or(
+          eq(crmDealActivities.assignedToOperatorId, options.operatorId),
+          eq(crmDealActivities.operatorId, options.operatorId),
+          eq(crmDeals.operatorId, options.operatorId)
+        )!
+      );
+    }
   }
 
   const assignedOp = alias(operators, "task_assigned_op");
   const creatorOp = alias(operators, "task_creator_op");
+  const dealOwnerOp = alias(operators, "task_deal_owner_op");
 
   const rows = await db
     .select({
@@ -80,10 +109,12 @@ async function getNativeKanbanTasks(
       dealId: crmDealActivities.dealId,
       dealTitle: crmDeals.title,
       dealValue: crmDeals.value,
+      dealOperatorId: crmDeals.operatorId,
       pipelineId: crmDeals.pipelineId,
       stageId: crmDeals.stageId,
       stageName: crmStages.name,
       contactId: crmDealContacts.contactId,
+      contactIsPrimary: crmDealContacts.isPrimary,
       contactName: contacts.name,
       contactPhone: contacts.phone,
       accountId: crmDeals.accountId,
@@ -92,8 +123,15 @@ async function getNativeKanbanTasks(
       accountPhone: crmAccounts.phone,
       assignedOperatorId: crmDealActivities.assignedToOperatorId,
       assignedOperatorName: assignedOp.name,
+      assignedOperatorEmail: assignedOp.email,
+      assignedOperatorAvatar: assignedOp.avatar,
       creatorOperatorId: crmDealActivities.operatorId,
       creatorOperatorName: creatorOp.name,
+      creatorOperatorEmail: creatorOp.email,
+      creatorOperatorAvatar: creatorOp.avatar,
+      dealOwnerName: dealOwnerOp.name,
+      dealOwnerEmail: dealOwnerOp.email,
+      dealOwnerAvatar: dealOwnerOp.avatar,
     })
     .from(crmDealActivities)
     .innerJoin(crmDeals, and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
@@ -106,11 +144,16 @@ async function getNativeKanbanTasks(
     .leftJoin(crmAccounts, and(eq(crmDeals.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)))
     .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
     .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
+    .leftJoin(dealOwnerOp, eq(crmDeals.operatorId, dealOwnerOp.id))
     .where(and(...conditions))
-    .orderBy(sql`${crmDealActivities.dueDate} ASC NULLS LAST`, desc(crmDealActivities.createdAt));
+    .orderBy(
+      sql`${crmDealActivities.dueDate} ASC NULLS LAST`,
+      desc(crmDealContacts.isPrimary),
+      desc(crmDealActivities.createdAt)
+    );
 
-  // Deduplica linhas por ID da atividade (caso um negócio tenha mais de um contato associado)
-  const uniqueActivitiesMap = new Map<string, typeof rows[0]>();
+  // Deduplica linhas por ID da atividade (priorizando o contato principal graças ao ORDER BY isPrimary DESC)
+  const uniqueActivitiesMap = new Map<string, (typeof rows)[0]>();
   for (const r of rows) {
     if (!uniqueActivitiesMap.has(r.id)) {
       uniqueActivitiesMap.set(r.id, r);
@@ -155,12 +198,18 @@ async function getNativeKanbanTasks(
     const clientPhone = r.contactPhone || r.accountPhone || null;
     const resolvedConvId = r.conversationId || (r.contactId ? contactToConvMap.get(r.contactId) || null : null);
 
+    const effectiveOperatorId = r.assignedOperatorId || r.creatorOperatorId || r.dealOperatorId || null;
+    const effectiveOperatorName = r.assignedOperatorName || r.creatorOperatorName || r.dealOwnerName || "Sem operador";
+    const effectiveOperatorEmail = r.assignedOperatorEmail || r.creatorOperatorEmail || r.dealOwnerEmail || null;
+    const effectiveOperatorAvatar = r.assignedOperatorAvatar || r.creatorOperatorAvatar || r.dealOwnerAvatar || null;
+
     return {
       id: r.id,
       name: r.title || "Sem título",
       type: r.type || "task",
-      status: r.status === "completed" ? "done" : "pending",
+      status: r.status === "completed" ? ("done" as const) : ("pending" as const),
       dueDate: r.dueDate ? r.dueDate.toISOString() : null,
+      completedAt: r.completedAt ? r.completedAt.toISOString() : null,
       description: r.description || null,
       createdAt: r.createdAt ? r.createdAt.toISOString() : null,
       deal: {
@@ -178,8 +227,15 @@ async function getNativeKanbanTasks(
       chatContactId: r.contactId || null,
       chatConversationId: resolvedConvId,
       source: "kanban" as const,
-      operatorId: r.assignedOperatorId || r.creatorOperatorId || null,
-      operatorName: r.assignedOperatorName || r.creatorOperatorName || null,
+      operatorId: effectiveOperatorId,
+      operatorName: effectiveOperatorName,
+      operatorEmail: effectiveOperatorEmail,
+      operatorAvatar: effectiveOperatorAvatar,
+      assignedOperatorId: r.assignedOperatorId || null,
+      assignedOperatorName: r.assignedOperatorName || null,
+      creatorOperatorId: r.creatorOperatorId || null,
+      creatorOperatorName: r.creatorOperatorName || null,
+      dealOperatorId: r.dealOperatorId || null,
     };
   });
 }
@@ -191,9 +247,7 @@ export const Route = createFileRoute("/api/tasks")({
 
       /**
        * GET /api/tasks
-       * 
-       * Lista tarefas e compromissos. Se o RD CRM estiver integrado, busca da API do RD;
-       * caso contrário, reconhece e utiliza diretamente as tarefas e compromissos do nosso Kanban nativo.
+       * Lista todas as tarefas e compromissos locais (crm_deal_activities) do tenant.
        */
       GET: async ({ request }) => {
         try {
@@ -203,303 +257,40 @@ export const Route = createFileRoute("/api/tasks")({
           const tenantId = session.tenantId;
 
           const url = new URL(request.url);
-          const queryEmail = url.searchParams.get("email");
           const viewAll = url.searchParams.get("all") === "true";
-          const isAdmin = session.operator.role === "admin";
-          const email = (isAdmin && queryEmail) ? queryEmail : session.operator.email;
+          const scopeParam = (url.searchParams.get("scope") || "all_visible") as
+            | "all_visible"
+            | "mine"
+            | "delegated"
+            | "all";
+          const filterOperatorId = url.searchParams.get("operatorId") || null;
+          const isAdmin = session.operator.role === "admin" || Boolean(session.permissions?.monitor?.canAccessTeamTasks);
 
-          // 1. Verifica se a integração com o RD Station CRM está configurada para este tenant
-          const rdConfigured = await isRdCrmConfigured(tenantId);
+          const kanbanTasks = await getNativeKanbanTasks(tenantId, {
+            operatorId: session.operator.id,
+            email: session.operator.email,
+            isAdmin,
+            all: viewAll,
+            scope: scopeParam,
+            filterOperatorId: isAdmin ? filterOperatorId : null,
+          });
 
-          if (!rdConfigured) {
-            // RD CRM NÃO integrado: reconhece e usa exclusivamente tarefas e compromissos do nosso Kanban
-            const kanbanTasks = await getNativeKanbanTasks(tenantId, {
-              operatorId: session.operator.id,
-              email,
-              isAdmin,
-              all: viewAll,
-            });
-
-            return new Response(JSON.stringify({ tasks: kanbanTasks, configured: false, source: "kanban" }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-
-        const debug = url.searchParams.get("debug");
-        if (debug === "true" && !isAdmin) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
-        if (debug === "true") {
-          const debugInfo: any = {
-            tenantId,
-            email,
-            timestamp: new Date().toISOString(),
-          };
-
-          try {
-            const users = await getCachedUsers(tenantId);
-            debugInfo.usersCount = users.length;
-            debugInfo.users = users;
-          } catch (e: any) {
-            debugInfo.usersError = e.message;
-          }
-
-          try {
-            const rawTasks = await rdRequest(tenantId, "GET", "/tasks?sort[updated_at]=desc&page[size]=50");
-            debugInfo.tasksCount = Array.isArray(rawTasks) ? rawTasks.length : 0;
-            debugInfo.tasks = rawTasks;
-          } catch (e: any) {
-            debugInfo.tasksError = e.message;
-          }
-
-          return new Response(JSON.stringify(debugInfo), {
-            status: 200,
+          return new Response(JSON.stringify({ tasks: kanbanTasks, configured: true, source: "kanban" }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } catch (fatalErr: any) {
+          console.error("[Tasks API] Erro fatal no GET:", fatalErr);
+          return new Response(JSON.stringify({ error: fatalErr.message || "Erro interno" }), {
+            status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-
-        const cacheKey = `${tenantId}:${email || "all"}`;
-
-        // 1. Tenta recuperar do cache de listagem
-        const cached = tasksListCache.get(cacheKey);
-        if (cached && cached.expiresAt > Date.now()) {
-          console.log(`[Tasks API] Retornando listagem de tarefas do cache para key: ${cacheKey}`);
-          return new Response(JSON.stringify({ tasks: cached.data }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-
-        // Helper local para obter as tarefas persistidas no banco
-        const getLocalPersistedTasks = async () => {
-          const conditions = [eq(dbTasks.tenantId, tenantId)];
-          if (email) {
-            conditions.push(eq(dbTasks.operatorEmail, email.toLowerCase()));
-          }
-          const stored = await db.select().from(dbTasks).where(and(...conditions));
-          return stored.map((t) => ({
-            id: t.id,
-            name: t.name,
-            type: t.type,
-            status: t.status,
-            dueDate: t.dueDate ? t.dueDate.toISOString() : null,
-            description: t.description,
-            createdAt: t.createdAt ? t.createdAt.toISOString() : null,
-            deal: t.dealId ? { id: t.dealId, name: t.dealName } : null,
-            client: { name: t.clientName, phone: t.clientPhone },
-            chatContactId: t.chatContactId,
-            chatConversationId: t.chatConversationId,
-          }));
-        };
-
-        try {
-          // 2. E-mail do operador local para busca correspondente no CRM
-          const localEmail = email ? email.toLowerCase() : "";
-          const crmTargetEmail = localEmail;
-
-          // Mapeia o e-mail para o ID de usuário do RD Station CRM
-          let crmUserId: string | null = null;
-          if (crmTargetEmail) {
-            try {
-              const users = await getCachedUsers(tenantId);
-              const matchedUser = users.find((u: any) => u.email?.toLowerCase() === crmTargetEmail);
-              if (matchedUser) {
-                crmUserId = matchedUser.id;
-              }
-            } catch (e: any) {
-              console.warn("[Tasks API] Falha ao mapear usuário por e-mail no CRM:", e.message);
-            }
-          }
-
-          // 3. Busca tarefas no RD CRM via API v2 (Se mapeamos o ID do dono, filtramos no endpoint, ordenado por data de modificação mais recente)
-          const queryPath = crmUserId 
-            ? `/tasks?user_id=${crmUserId}&sort[updated_at]=desc&page[size]=200` 
-            : `/tasks?sort[updated_at]=desc&page[size]=200`;
-          const rdTasks = await rdRequest<any[]>(
-            tenantId,
-            "GET",
-            queryPath
-          );
-
-          if (!rdTasks || !Array.isArray(rdTasks)) {
-            return new Response(JSON.stringify({ tasks: [] }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-
-          // Filtragem extra em memória de segurança (caso o parâmetro user_id não seja mapeado perfeitamente no CRM)
-          const filteredTasks = crmUserId
-            ? rdTasks.filter((t: any) => {
-                const ownerIds = t.owner_ids || [];
-                return ownerIds.includes(crmUserId) || t.user_id === crmUserId;
-              })
-            : rdTasks;
-
-          if (filteredTasks.length === 0) {
-            return new Response(JSON.stringify({ tasks: [] }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-
-          // 4. Para cada tarefa, buscar o deal e seus contatos de forma otimizada (caches e try/catch isolados)
-          const enrichedTasks = await Promise.all(
-            filteredTasks.map(async (task: any) => {
-              let dealName: string | null = null;
-              let clientName: string | null = null;
-              let clientPhone: string | null = null;
-              let chatContactId: string | null = null;
-              let chatConversationId: string | null = null;
-
-              // Buscar dados do deal (se a tarefa tem deal_id E está ativa/pendente)
-              const isClosed = task.status === "completed" || task.status === "done" || task.status === "canceled";
-              if (task.deal_id && !isClosed) {
-                try {
-                  const deal = await getCachedDeal(tenantId, task.deal_id);
-                  if (deal) {
-                    dealName = deal.name || null;
-
-                    // Buscar contatos do deal
-                    const dealContacts = deal.contacts || deal.contact_ids || [];
-                    const contactIdList: string[] = Array.isArray(dealContacts)
-                      ? dealContacts.map((c: any) => (typeof c === "string" ? c : c.id)).filter(Boolean)
-                      : [];
-
-                    // Buscar dados do primeiro contato
-                    for (const cId of contactIdList.slice(0, 1)) {
-                      try {
-                        const contact = await getCachedContact(tenantId, cId);
-                        if (contact) {
-                          clientName = contact.name || null;
-                          const phones = contact.phones || [];
-                          if (phones.length > 0) {
-                            clientPhone = phones[0].phone || null;
-                          }
-                        }
-                      } catch (err: any) {
-                        console.warn(`[Tasks API] Erro ao enriquecer contato ${cId}:`, err.message);
-                      }
-                    }
-                  }
-                } catch (err: any) {
-                  console.warn(`[Tasks API] Erro ao enriquecer deal ${task.deal_id}:`, err.message);
-                }
-              }
-
-              // 5. Se temos telefone, buscar no banco local com filtro estrito de tenant
-              // NOTA MANDATÓRIA (Fase 0): Tarefas importadas do RD com conversa desconhecida permanecem
-              // com chatConversationId = null até vinculação explícita. É proibido inferir conversas por telefone.
-              if (clientPhone) {
-                const phoneTerms = buildPhoneSearchTerms(clientPhone);
-                try {
-                  for (const term of phoneTerms) {
-                    const localContact = await db.query.contacts.findFirst({
-                      where: and(eq(contacts.tenantId, tenantId), eq(contacts.phone, term)),
-                    });
-                    if (localContact) {
-                      chatContactId = localContact.id;
-                      // Mantém conversa sem vínculo até haver evidência explícita
-                      chatConversationId = null;
-                      break;
-                    }
-                  }
-                } catch (err: any) {
-                  console.warn(`[Tasks API] Erro ao buscar telefone local ${clientPhone}:`, err.message);
-                }
-              }
-
-              // 6. Persistência de Dados no Banco Local (Salva/Sincroniza para uso futuro)
-              try {
-                await db
-                  .insert(dbTasks)
-                  .values({
-                    id: task.id,
-                    tenantId,
-                    name: task.name || "Sem título",
-                    type: task.type || "task",
-                    status: task.status || "pending",
-                    dueDate: task.due_date ? new Date(task.due_date) : null,
-                    description: task.description || null,
-                    dealId: task.deal_id || null,
-                    dealName,
-                    clientName,
-                    clientPhone,
-                    chatContactId,
-                    chatConversationId,
-                    operatorEmail: email ? email.toLowerCase() : null,
-                    createdAt: task.created_at ? new Date(task.created_at) : null,
-                    updatedAt: new Date(),
-                  })
-                  .onConflictDoUpdate({
-                    target: dbTasks.id,
-                    set: {
-                      name: task.name || "Sem título",
-                      type: task.type || "task",
-                      status: task.status || "pending",
-                      dueDate: task.due_date ? new Date(task.due_date) : null,
-                      description: task.description || null,
-                      dealId: task.deal_id || null,
-                      dealName,
-                      clientName,
-                      clientPhone,
-                      chatContactId,
-                      chatConversationId,
-                      operatorEmail: email ? email.toLowerCase() : null,
-                      updatedAt: new Date(),
-                    },
-                  });
-              } catch (dbErr: any) {
-                console.error(`[Tasks API] Falha ao persistir tarefa ${task.id} no banco local:`, dbErr.message);
-              }
-
-              return {
-                id: task.id,
-                name: task.name || "Sem título",
-                type: task.type || "task",
-                status: task.status || "pending",
-                dueDate: task.due_date || null,
-                description: task.description || null,
-                createdAt: task.created_at || null,
-                deal: task.deal_id ? { id: task.deal_id, name: dealName } : null,
-                client: { name: clientName, phone: clientPhone },
-                chatContactId,
-                chatConversationId,
-              };
-            })
-          );
-
-          // Salva no cache de listagem
-          tasksListCache.set(cacheKey, { data: enrichedTasks, expiresAt: Date.now() + LIST_CACHE_TTL });
-
-          return new Response(JSON.stringify({ tasks: enrichedTasks }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        } catch (e: any) {
-          console.warn("[Tasks API] Falha ao buscar da API da RD CRM, buscando do banco local persistido:", e.message);
-          try {
-            // Em caso de falha da API (ex: 429 ou rede offline), buscamos do banco local persistido!
-            const localTasks = await getLocalPersistedTasks();
-            return new Response(JSON.stringify({ tasks: localTasks }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          } catch (localErr: any) {
-            console.error("[Tasks API] Falha crítica ao ler banco local:", localErr.message);
-            return new Response(JSON.stringify({ error: e.message }), {
-              status: 500,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-        }
-      } catch (fatalErr: any) {
-        console.error("[Tasks API] Erro fatal no GET:", fatalErr);
-        return new Response(JSON.stringify({ error: fatalErr.message || "Erro interno" }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    },
+      },
 
       /**
        * PUT /api/tasks
-       * 
-       * Atualiza o status de uma tarefa no RD CRM e na base local.
-       * Body: { taskId, status: "done" | "pending" }
+       * Atualiza uma tarefa local (concluir com confirmação/nota/próximo passo, editar, reagendar, cancelar ou reagendar em lote).
+       * Tarefas já concluídas NÃO podem ser reativadas.
        */
       PUT: async ({ request }) => {
         try {
@@ -507,73 +298,268 @@ export const Route = createFileRoute("/api/tasks")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
-          if (session.operator.role !== "admin" && !session.permissions?.views?.tasks) return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
+          const isAdmin = session.operator.role === "admin" || Boolean(session.permissions?.monitor?.canAccessTeamTasks);
+          if (!isAdmin && !session.permissions?.views?.tasks && !session.permissions?.views?.crm) {
+            return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
+          }
 
           const body = await request.json();
-          const { taskId, status } = body;
 
-          if (!taskId || !status) {
+          // Ação em lote: Reagendar várias tarefas pendentes/atrasadas
+          if (body.action === "bulk_reschedule") {
+            const taskIds: string[] = Array.isArray(body.taskIds) ? body.taskIds : [];
+            const dueDateRaw: string | undefined = body.dueDate;
+            if (!taskIds.length || !dueDateRaw) {
+              return new Response(
+                JSON.stringify({ error: "Selecione ao menos uma tarefa e informe a nova data." }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
+            const targetActivities = await db
+              .select()
+              .from(crmDealActivities)
+              .where(
+                and(
+                  eq(crmDealActivities.tenantId, tenantId),
+                  inArray(crmDealActivities.id, taskIds)
+                )
+              );
+
+            let updatedCount = 0;
+            for (const act of targetActivities) {
+              if (act.status === "completed") continue;
+              if (
+                !isAdmin &&
+                act.operatorId !== session.operator.id &&
+                act.assignedToOperatorId !== session.operator.id
+              ) {
+                continue;
+              }
+              await crmService.updateDealActivity(
+                tenantId,
+                act.dealId,
+                act.id,
+                session.operator.id,
+                { dueDate: new Date(dueDateRaw) }
+              );
+              updatedCount++;
+            }
+
+            return new Response(JSON.stringify({ success: true, updatedCount }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const taskId = body.taskId || body.id;
+          if (!taskId) {
             return new Response(
-              JSON.stringify({ error: "taskId e status são obrigatórios" }),
+              JSON.stringify({ error: "taskId é obrigatório" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 
-          // 1. Verifica se a tarefa pertence ao Kanban nativo (crm_deal_activities)
           const [kanbanActivity] = await db
             .select()
             .from(crmDealActivities)
             .where(and(eq(crmDealActivities.id, taskId), eq(crmDealActivities.tenantId, tenantId)))
             .limit(1);
 
-          if (kanbanActivity) {
-            if (session.operator.role !== "admin" && kanbanActivity.operatorId !== session.operator.id && kanbanActivity.assignedToOperatorId !== session.operator.id) return Response.json({ error: "Tarefa não encontrada." }, { status: 404 });
-            const newStatus = status === "done" || status === "completed" ? "completed" : "pending";
-            await crmService.updateDealActivity(
-              tenantId,
-              kanbanActivity.dealId,
-              kanbanActivity.id,
-              session.operator.id,
-              { status: newStatus }
+          if (!kanbanActivity) {
+            return new Response(
+              JSON.stringify({ error: "Tarefa não encontrada." }),
+              { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
-
-            return new Response(JSON.stringify({ success: true, source: "kanban" }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
           }
 
-          if (session.operator.role !== "admin") {
-            const [task] = await db.select({ operatorEmail: dbTasks.operatorEmail }).from(dbTasks).where(and(eq(dbTasks.id, taskId), eq(dbTasks.tenantId, tenantId))).limit(1);
-            if (!task?.operatorEmail || task.operatorEmail.toLowerCase() !== session.operator.email.toLowerCase()) return Response.json({ error: "Tarefa não encontrada." }, { status: 404 });
-          }
-
-          // 2. Se não for do Kanban nativo, sincroniza com RD CRM (se configurado) e base local
-          const rdConfigured = await isRdCrmConfigured(tenantId);
-          const rdStatus = status === "done" ? "done" : "pending";
-
-          if (rdConfigured) {
-            try {
-              await rdRequest(tenantId, "PUT", `/tasks/${taskId}`, { status: rdStatus });
-            } catch (err: any) {
-              console.warn(`[Tasks API] Erro ao sincronizar status no RD CRM:`, err.message);
+          if (
+            !isAdmin &&
+            kanbanActivity.operatorId !== session.operator.id &&
+            kanbanActivity.assignedToOperatorId !== session.operator.id
+          ) {
+            // Verifica se o operador é dono da negociação
+            const [dealRow] = await db
+              .select({ operatorId: crmDeals.operatorId })
+              .from(crmDeals)
+              .where(and(eq(crmDeals.id, kanbanActivity.dealId), eq(crmDeals.tenantId, tenantId)))
+              .limit(1);
+            if (!dealRow || dealRow.operatorId !== session.operator.id) {
+              return Response.json({ error: "Permissão insuficiente para alterar esta tarefa." }, { status: 403 });
             }
           }
 
-          // Atualiza também na base local com isolamento de tenant
-          try {
-            await db
-              .update(dbTasks)
-              .set({ status: rdStatus, updatedAt: new Date() })
-              .where(and(eq(dbTasks.id, taskId), eq(dbTasks.tenantId, tenantId)));
-          } catch (syncErr: any) {
-            console.warn(`[Tasks API] Aviso ao atualizar tarefa local ${taskId}:`, syncErr.message);
+          // REGRA ESTRITA: Tarefa já concluída não pode voltar para pendente
+          if (
+            kanbanActivity.status === "completed" &&
+            body.status &&
+            body.status !== "done" &&
+            body.status !== "completed"
+          ) {
+            return new Response(
+              JSON.stringify({
+                error: "Esta tarefa já está concluída e não pode ser reativada.",
+                code: "COMPLETED_TASK_CANNOT_REOPEN",
+              }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
 
-          return new Response(JSON.stringify({ success: true, source: "rd" }), {
+          const updates: {
+            status?: "pending" | "completed" | "cancelled";
+            title?: string;
+            description?: string | null;
+            dueDate?: Date | string | null;
+            type?: "task" | "call" | "meeting" | "whatsapp" | "email" | "lunch" | "visit";
+            assignedToOperatorId?: string | null;
+          } = {};
+
+          if (body.status !== undefined) {
+            if (body.status === "done" || body.status === "completed") {
+              updates.status = "completed";
+            } else if (body.status === "cancelled") {
+              updates.status = "cancelled";
+            } else {
+              updates.status = "pending";
+            }
+          }
+
+          if (body.title !== undefined) updates.title = body.title;
+          if (body.description !== undefined) updates.description = body.description;
+          if (body.dueDate !== undefined) updates.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+          if (body.type !== undefined) updates.type = body.type;
+          if (body.assignedToOperatorId !== undefined) updates.assignedToOperatorId = body.assignedToOperatorId;
+
+          const updatedActivity = await crmService.updateDealActivity(
+            tenantId,
+            kanbanActivity.dealId,
+            kanbanActivity.id,
+            session.operator.id,
+            updates
+          );
+
+          // Se o operador registrou uma anotação de conclusão, cria nota histórica na negociação
+          if (updates.status === "completed" && typeof body.completionNote === "string" && body.completionNote.trim()) {
+            try {
+              await crmService.createDealActivity(tenantId, {
+                dealId: kanbanActivity.dealId,
+                operatorId: session.operator.id,
+                type: "note",
+                title: `Conclusão da tarefa: ${kanbanActivity.title}`,
+                description: body.completionNote.trim(),
+              });
+            } catch (noteErr: any) {
+              console.warn("[Tasks API] Aviso ao registrar nota de conclusão:", noteErr.message);
+            }
+          }
+
+          // Se o operador agendou o próximo passo no modal de conclusão, cria a nova atividade
+          let createdNextTask = null;
+          if (
+            updates.status === "completed" &&
+            body.nextTask &&
+            typeof body.nextTask.title === "string" &&
+            body.nextTask.title.trim() &&
+            body.nextTask.dueDate
+          ) {
+            try {
+              createdNextTask = await crmService.createDealActivity(tenantId, {
+                dealId: kanbanActivity.dealId,
+                operatorId: session.operator.id,
+                assignedToOperatorId:
+                  body.nextTask.assignedToOperatorId ||
+                  kanbanActivity.assignedToOperatorId ||
+                  session.operator.id,
+                type: body.nextTask.type || "task",
+                title: body.nextTask.title.trim(),
+                description: body.nextTask.description?.trim() || null,
+                dueDate: new Date(body.nextTask.dueDate),
+                conversationId: kanbanActivity.conversationId || null,
+              });
+            } catch (nextErr: any) {
+              console.warn("[Tasks API] Aviso ao criar próxima tarefa:", nextErr.message);
+            }
+          }
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              source: "kanban",
+              activity: updatedActivity,
+              nextTask: createdNextTask,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        } catch (e: any) {
+          console.error("[Tasks API] Erro PUT:", e.message);
+          return new Response(JSON.stringify({ error: e.message }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      },
+
+      /**
+       * DELETE /api/tasks
+       * Exclui uma tarefa local (crm_deal_activities).
+       */
+      DELETE: async ({ request }) => {
+        try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+          const isAdmin = session.operator.role === "admin" || Boolean(session.permissions?.monitor?.canAccessTeamTasks);
+          if (!isAdmin && !session.permissions?.views?.tasks && !session.permissions?.views?.crm) {
+            return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
+          }
+
+          const url = new URL(request.url);
+          let taskId = url.searchParams.get("taskId") || url.searchParams.get("id");
+          if (!taskId) {
+            const body = await request.json().catch(() => ({}));
+            taskId = body.taskId || body.id;
+          }
+
+          if (!taskId) {
+            return new Response(
+              JSON.stringify({ error: "taskId é obrigatório" }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          const [kanbanActivity] = await db
+            .select()
+            .from(crmDealActivities)
+            .where(and(eq(crmDealActivities.id, taskId), eq(crmDealActivities.tenantId, tenantId)))
+            .limit(1);
+
+          if (!kanbanActivity) {
+            return new Response(
+              JSON.stringify({ error: "Tarefa não encontrada." }),
+              { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          if (
+            !isAdmin &&
+            kanbanActivity.operatorId !== session.operator.id &&
+            kanbanActivity.assignedToOperatorId !== session.operator.id
+          ) {
+            return Response.json({ error: "Permissão insuficiente para excluir esta tarefa." }, { status: 403 });
+          }
+
+          await crmService.deleteDealActivity(
+            tenantId,
+            kanbanActivity.dealId,
+            kanbanActivity.id,
+            session.operator.id
+          );
+
+          return new Response(JSON.stringify({ success: true }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (e: any) {
-          console.error("[Tasks API] Erro PUT:", e.message);
+          console.error("[Tasks API] Erro DELETE:", e.message);
           return new Response(JSON.stringify({ error: e.message }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -583,3 +569,4 @@ export const Route = createFileRoute("/api/tasks")({
     },
   },
 });
+

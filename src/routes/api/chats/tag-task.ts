@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../../db";
-import { crmDealActivities, crmDealEvents, messages } from "../../../db/schema";
+import { crmDealActivities, crmDealEvents, crmDeals, messages } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
 import {
@@ -8,7 +9,6 @@ import {
   assertDealContextVersion,
   DealContextError,
 } from "../../../lib/crm/conversation-deal-context";
-import { rdRequest, getCachedDeal } from "../../../lib/rdCrmService";
 
 export const Route = createFileRoute("/api/chats/tag-task")({
   server: {
@@ -31,7 +31,7 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             typeof conversationId !== "string" ||
             typeof tagName !== "string" ||
             !tagName.trim() ||
-            !["task", "call", "meeting", "email", "lunch"].includes(taskType)
+            !["task", "call", "meeting", "email", "lunch", "whatsapp", "visit"].includes(taskType)
           )
             return Response.json(
               { error: "Atendimento, nome ou tipo de tarefa inválido." },
@@ -63,6 +63,7 @@ export const Route = createFileRoute("/api/chats/tag-task")({
               );
             const activityId = `task-${crypto.randomUUID()}`;
             const messageId = `sys-${crypto.randomUUID()}`;
+            const now = new Date();
             await tx.insert(crmDealActivities).values({
               id: activityId,
               tenantId,
@@ -74,6 +75,10 @@ export const Route = createFileRoute("/api/chats/tag-task")({
               operatorId: session.operator.id,
               assignedToOperatorId: deal.operatorId || session.operator.id,
             });
+            await tx
+              .update(crmDeals)
+              .set({ lastActivityAt: now, updatedAt: now })
+              .where(and(eq(crmDeals.id, deal.id), eq(crmDeals.tenantId, tenantId)));
             await tx.insert(crmDealEvents).values({
               id: `evt-${crypto.randomUUID()}`,
               tenantId,
@@ -94,28 +99,8 @@ export const Route = createFileRoute("/api/chats/tag-task")({
               direction: "outbound",
               status: "accepted",
             });
-            return { activityId, rdDealId: deal.rdDealId };
+            return { activityId };
           });
-          // Compatibilidade com RD: o destino externo é o do card atual validado, nunca o do contato.
-          if (result.rdDealId) {
-            try {
-              const deal = await getCachedDeal(tenantId, result.rdDealId);
-              const ownerId = deal?.user_id || deal?.user?.id || deal?.owner?.id;
-              await rdRequest(tenantId, "POST", "/tasks", {
-                name: tagName.trim(),
-                type: taskType,
-                deal_id: result.rdDealId,
-                due_date: dueAt.toISOString(),
-                user_id: ownerId,
-                created_by: ownerId,
-              });
-            } catch (error) {
-              console.warn(
-                "[TagTask] Tarefa local salva; falha na integração RD:",
-                error instanceof Error ? error.message : "erro",
-              );
-            }
-          }
           return Response.json({ success: true, taskCreated: true, activityId: result.activityId });
         } catch (error) {
           if (error instanceof DealContextError)

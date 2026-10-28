@@ -4958,7 +4958,7 @@ export class CrmService {
       title?: string;
       description?: string | null;
       dueDate?: Date | string | null;
-      type?: "task" | "call" | "meeting" | "whatsapp" | "note";
+      type?: "task" | "call" | "meeting" | "whatsapp" | "email" | "lunch" | "visit" | "note";
       assignedToOperatorId?: string | null;
     }
   ): Promise<
@@ -5009,9 +5009,15 @@ export class CrmService {
         updatedAt: now,
       };
 
-      // Transição de status (concluir, reabrir, cancelar)
+      // Transição de status (concluir, cancelar; tarefas concluídas NÃO podem ser reativadas)
       let statusChanged = false;
       if (updates.status && updates.status !== current.status) {
+        if (current.status === "completed" && updates.status === "pending") {
+          throw new CrmValidationError(
+            "Tarefas já concluídas não podem ser reativadas.",
+            "COMPLETED_TASK_CANNOT_REOPEN"
+          );
+        }
         setPayload.status = updates.status;
         statusChanged = true;
         if (updates.status === "completed") {
@@ -6840,7 +6846,8 @@ export class CrmService {
   > {
     const conditions = [
       eq(crmDealActivities.tenantId, tenantId),
-      eq(crmDealActivities.type, "task"),
+      sql`${crmDealActivities.type} NOT IN ('note', 'system_event')`,
+      sql`${crmDealActivities.status} != 'cancelled'`,
       sql`${crmDealActivities.dueDate} IS NOT NULL`,
     ];
 
@@ -6851,13 +6858,20 @@ export class CrmService {
       conditions.push(lte(crmDealActivities.dueDate, new Date(filters.endDate)));
     }
     if (filters.operatorId) {
-      conditions.push(eq(crmDealActivities.operatorId, filters.operatorId));
+      conditions.push(
+        or(
+          eq(crmDealActivities.assignedToOperatorId, filters.operatorId),
+          eq(crmDealActivities.operatorId, filters.operatorId)
+        )!
+      );
     }
     if (filters.status === "pending") {
-      conditions.push(sql`${crmDealActivities.completedAt} IS NULL`);
+      conditions.push(eq(crmDealActivities.status, "pending"));
     } else if (filters.status === "completed") {
-      conditions.push(sql`${crmDealActivities.completedAt} IS NOT NULL`);
+      conditions.push(eq(crmDealActivities.status, "completed"));
     }
+
+    const assignedOp = alias(operators, "calendar_assigned_op");
 
     const rows = await db
       .select({
@@ -6867,8 +6881,8 @@ export class CrmService {
         description: crmDealActivities.description,
         dueDate: crmDealActivities.dueDate,
         completedAt: crmDealActivities.completedAt,
-        operatorId: crmDealActivities.operatorId,
-        operatorName: operators.name,
+        operatorId: sql<string | null>`COALESCE(${crmDealActivities.assignedToOperatorId}, ${crmDealActivities.operatorId})`,
+        operatorName: sql<string | null>`COALESCE(${assignedOp.name}, ${operators.name})`,
         dealTitle: crmDeals.title,
         dealValue: crmDeals.value,
         pipelineId: crmDeals.pipelineId,
@@ -6879,6 +6893,7 @@ export class CrmService {
       .innerJoin(crmDeals, and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
       .leftJoin(crmStages, eq(crmDeals.stageId, crmStages.id))
       .leftJoin(operators, eq(crmDealActivities.operatorId, operators.id))
+      .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
       .where(and(...conditions))
       .orderBy(asc(crmDealActivities.dueDate));
 

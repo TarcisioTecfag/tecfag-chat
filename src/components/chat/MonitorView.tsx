@@ -2441,29 +2441,41 @@ function GlobalTasksTab() {
     fetchTasks();
   }, [fetchTasks]);
 
-  // ─── Task completion toggle ─────────────────────────────────────────────
-  const toggleTaskStatus = async (task: GlobalTaskData) => {
-    const newStatus = task.status === "done" || task.status === "completed" ? "pending" : "done";
-    // Optimistic update
-    setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t))
-    );
+  const [taskToComplete, setTaskToComplete] = useState<GlobalTaskData | null>(null);
+  const [isConfirmingComplete, setIsConfirmingComplete] = useState(false);
+
+  // ─── Task completion (sem reativação de tarefas já concluídas + modal de confirmação) ───
+  const toggleTaskStatus = (task: GlobalTaskData) => {
+    if (task.status === "done" || task.status === "completed") {
+      toast.info("Esta tarefa já foi concluída e não pode ser reativada.");
+      return;
+    }
+    setTaskToComplete(task);
+  };
+
+  const confirmCompleteGlobalTask = async () => {
+    if (!taskToComplete) return;
+    setIsConfirmingComplete(true);
+    const target = taskToComplete;
     try {
       const response = await fetch("/api/tasks", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId: tenant, taskId: task.id, status: newStatus }),
+        body: JSON.stringify({ tenantId: tenant, taskId: target.id, status: "done" }),
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(result.error || "Não foi possível atualizar a tarefa.");
+        throw new Error(result.error || "Não foi possível concluir a tarefa.");
       }
-    } catch (error) {
-      // Revert on error
       setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t))
+        prev.map((t) => (t.id === target.id ? { ...t, status: "done" } : t))
       );
+      toast.success("Tarefa concluída com sucesso!");
+      setTaskToComplete(null);
+    } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível atualizar a tarefa.");
+    } finally {
+      setIsConfirmingComplete(false);
     }
   };
 
@@ -3094,6 +3106,75 @@ function GlobalTasksTab() {
                     );
                   });
                 })()}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Confirmação de Conclusão de Tarefa */}
+      <AnimatePresence>
+        {taskToComplete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4"
+            onClick={() => !isConfirmingComplete && setTaskToComplete(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-3xl bg-card border border-border shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-5 border-b border-border flex items-center justify-between bg-primary/5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-foreground">
+                      Concluir Tarefa?
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Confirme a conclusão desta atividade
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isConfirmingComplete}
+                  onClick={() => setTaskToComplete(null)}
+                  className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="p-6 space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Tem certeza que deseja marcar a tarefa <strong>"{taskToComplete.name}"</strong> como concluída? Após concluída, ela não poderá ser reativada.
+                </p>
+              </div>
+              <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  disabled={isConfirmingComplete}
+                  onClick={() => setTaskToComplete(null)}
+                  className="rounded-xl border border-border px-4 py-2 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-card transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={isConfirmingComplete}
+                  onClick={confirmCompleteGlobalTask}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 text-xs font-bold shadow-sm transition cursor-pointer disabled:opacity-60"
+                >
+                  {isConfirmingComplete && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Sim, concluir tarefa
+                </button>
               </div>
             </motion.div>
           </motion.div>

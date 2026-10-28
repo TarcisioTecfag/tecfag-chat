@@ -73,6 +73,18 @@ interface DealOption {
   account?: { id: string; name: string } | null;
 }
 
+export interface EditingTaskData {
+  id: string;
+  dealId: string;
+  dealTitle?: string | null;
+  accountName?: string | null;
+  name: string;
+  description?: string | null;
+  type: string;
+  dueDate?: string | null;
+  assignedOperatorId?: string | null;
+}
+
 export interface CreateTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -83,6 +95,8 @@ export interface CreateTaskModalProps {
   accountName?: string | null;
   operators: Array<{ id: string; name: string }>;
   currentOperatorId?: string | null;
+  defaultDate?: Date | null;
+  editingTask?: EditingTaskData | null;
 }
 
 export function CreateTaskModal({
@@ -95,11 +109,15 @@ export function CreateTaskModal({
   accountName: initialAccountName,
   operators: initialOperators,
   currentOperatorId,
+  defaultDate,
+  editingTask,
 }: CreateTaskModalProps) {
+  const isEditMode = Boolean(editingTask);
+
   // Negociação selecionada
-  const [selectedDealId, setSelectedDealId] = useState<string | null>(initialDealId || null);
-  const [selectedDealTitle, setSelectedDealTitle] = useState<string>(initialDealTitle || "");
-  const [selectedAccountName, setSelectedAccountName] = useState<string>(initialAccountName || "");
+  const [selectedDealId, setSelectedDealId] = useState<string | null>(editingTask?.dealId || initialDealId || null);
+  const [selectedDealTitle, setSelectedDealTitle] = useState<string>(editingTask?.dealTitle || initialDealTitle || "");
+  const [selectedAccountName, setSelectedAccountName] = useState<string>(editingTask?.accountName || initialAccountName || "");
 
   // Campos do formulário
   const [subject, setSubject] = useState("");
@@ -129,12 +147,48 @@ export function CreateTaskModal({
   const [calendarMonth, setCalendarMonth] = useState<number>(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState<number>(new Date().getFullYear());
 
-  // Trava o campo de negociação apenas quando o modal foi aberto a partir de uma negociação específica
-  const isDealLocked = Boolean(initialDealId);
+  // Trava o campo de negociação quando o modal foi aberto a partir de uma negociação específica ou em modo edição
+  const isDealLocked = Boolean(initialDealId || editingTask?.dealId);
 
   // Reset e inicialização ao abrir o drawer
   useEffect(() => {
     if (!isOpen) return;
+
+    if (editingTask) {
+      setSelectedDealId(editingTask.dealId);
+      setSelectedDealTitle(editingTask.dealTitle || initialDealTitle || "");
+      setSelectedAccountName(editingTask.accountName || initialAccountName || "");
+      setSubject(editingTask.name || "");
+      setDescription(editingTask.description || "");
+      const validType = CRM_TASK_TYPES.some((t) => t.id === editingTask.type)
+        ? (editingTask.type as CrmTaskType)
+        : "task";
+      setTaskType(validType);
+      setMarkAsCompleted(false);
+
+      const baseDate = editingTask.dueDate ? new Date(editingTask.dueDate) : new Date();
+      const validDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
+      setScheduledDate(validDate);
+      setCalendarMonth(validDate.getMonth());
+      setCalendarYear(validDate.getFullYear());
+
+      const hours = String(validDate.getHours()).padStart(2, "0");
+      const minutes = String(validDate.getMinutes()).padStart(2, "0");
+      setScheduledTime(`${hours}:${minutes}`);
+
+      if (editingTask.assignedOperatorId) {
+        setSelectedOperatorIds([editingTask.assignedOperatorId]);
+      } else if (currentOperatorId) {
+        setSelectedOperatorIds([currentOperatorId]);
+      } else if (initialOperators.length > 0) {
+        setSelectedOperatorIds([initialOperators[0].id]);
+      } else {
+        setSelectedOperatorIds([]);
+      }
+      setDealQuery("");
+      setOperatorSearch("");
+      return;
+    }
 
     setSelectedDealId(initialDealId || null);
     setSelectedDealTitle(initialDealTitle || "");
@@ -145,11 +199,12 @@ export function CreateTaskModal({
     setTaskType("task");
     setMarkAsCompleted(false);
 
-    // Inicializa data atual
+    // Inicializa data a partir de defaultDate (dia clicado no calendário) ou data atual
     const now = new Date();
-    setScheduledDate(now);
-    setCalendarMonth(now.getMonth());
-    setCalendarYear(now.getFullYear());
+    const baseDate = defaultDate && !Number.isNaN(defaultDate.getTime()) ? new Date(defaultDate) : now;
+    setScheduledDate(baseDate);
+    setCalendarMonth(baseDate.getMonth());
+    setCalendarYear(baseDate.getFullYear());
 
     // Hora atual formatada HH:mm
     const hours = String(now.getHours()).padStart(2, "0");
@@ -167,7 +222,7 @@ export function CreateTaskModal({
 
     setDealQuery("");
     setOperatorSearch("");
-  }, [isOpen, initialDealId, initialDealTitle, initialAccountId, initialAccountName, currentOperatorId, initialOperators]);
+  }, [isOpen, initialDealId, initialDealTitle, initialAccountId, initialAccountName, currentOperatorId, initialOperators, defaultDate, editingTask]);
 
   // Se tem initialDealId mas não tem initialAccountName, busca dados da negociação para exibir subtítulo
   useEffect(() => {
@@ -397,33 +452,75 @@ export function CreateTaskModal({
         minutes
       );
 
-      const payload = {
-        type: taskType,
-        title: subject.trim(),
-        description: description.trim() || undefined,
-        dueDate: dueDateTime.toISOString(),
-        assignedToOperatorId: selectedOperatorIds[0] || currentOperatorId || undefined,
-        status: markAsCompleted ? "completed" : "pending",
-        completed: markAsCompleted,
-      };
+      if (editingTask) {
+        const res = await fetch("/api/tasks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskId: editingTask.id,
+            type: taskType,
+            title: subject.trim(),
+            description: description.trim() || null,
+            dueDate: dueDateTime.toISOString(),
+            assignedToOperatorId: selectedOperatorIds[0] || currentOperatorId || null,
+          }),
+        });
 
-      const res = await fetch(`/api/crm/deals/${selectedDealId}/activities`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Não foi possível atualizar a tarefa.");
+        }
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Não foi possível criar a tarefa.");
+        const data = await res.json();
+        toast.success("Tarefa atualizada com sucesso!");
+        onTaskCreated?.(data.activity);
+        onClose();
+        return;
       }
 
-      const data = await res.json();
-      toast.success(markAsCompleted ? "Tarefa criada e concluída!" : "Tarefa agendada com sucesso!");
-      onTaskCreated?.(data.activity);
+      const targetOperators =
+        selectedOperatorIds.length > 0
+          ? selectedOperatorIds
+          : [currentOperatorId || undefined];
+
+      let lastCreatedActivity: any = null;
+      for (const assignedOpId of targetOperators) {
+        const payload = {
+          type: taskType,
+          title: subject.trim(),
+          description: description.trim() || undefined,
+          dueDate: dueDateTime.toISOString(),
+          assignedToOperatorId: assignedOpId,
+          status: markAsCompleted ? "completed" : "pending",
+          completed: markAsCompleted,
+        };
+
+        const res = await fetch(`/api/crm/deals/${selectedDealId}/activities`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Não foi possível criar a tarefa.");
+        }
+
+        const data = await res.json();
+        lastCreatedActivity = data.activity;
+      }
+
+      toast.success(
+        markAsCompleted
+          ? "Tarefa criada e concluída!"
+          : targetOperators.length > 1
+            ? `${targetOperators.length} tarefas agendadas com sucesso!`
+            : "Tarefa agendada com sucesso!"
+      );
+      onTaskCreated?.(lastCreatedActivity);
       onClose();
     } catch (err: any) {
-      toast.error(err.message || "Erro ao criar tarefa.");
+      toast.error(err.message || (editingTask ? "Erro ao atualizar tarefa." : "Erro ao criar tarefa."));
     } finally {
       setSaving(false);
     }
@@ -438,7 +535,7 @@ export function CreateTaskModal({
         {/* Cabeçalho do Drawer (o ícone X padrão já é renderizado pelo SheetContent) */}
         <div className="flex items-center justify-between px-6 py-4 pr-12 border-b border-border/80 shrink-0">
           <SheetTitle className="text-base font-bold text-foreground">
-            Criar Tarefa
+            {isEditMode ? "Editar Tarefa" : "Criar Tarefa"}
           </SheetTitle>
         </div>
 
@@ -824,20 +921,22 @@ export function CreateTaskModal({
             </div>
 
             {/* 9. Checkbox: Marcar como concluída ao criar */}
-            <div className="flex items-center gap-2.5 pt-1">
-              <Checkbox
-                id="mark-task-completed"
-                checked={markAsCompleted}
-                onCheckedChange={(val) => setMarkAsCompleted(!!val)}
-                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-              />
-              <Label
-                htmlFor="mark-task-completed"
-                className="text-xs font-normal text-muted-foreground cursor-pointer select-none"
-              >
-                Marcar como concluída ao criar
-              </Label>
-            </div>
+            {!isEditMode && (
+              <div className="flex items-center gap-2.5 pt-1">
+                <Checkbox
+                  id="mark-task-completed"
+                  checked={markAsCompleted}
+                  onCheckedChange={(val) => setMarkAsCompleted(!!val)}
+                  className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                />
+                <Label
+                  htmlFor="mark-task-completed"
+                  className="text-xs font-normal text-muted-foreground cursor-pointer select-none"
+                >
+                  Marcar como concluída ao criar
+                </Label>
+              </div>
+            )}
           </div>
 
           {/* Rodapé com botões de ação na paleta vermelha */}
@@ -859,7 +958,7 @@ export function CreateTaskModal({
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs px-5 shadow-xs cursor-pointer disabled:opacity-50"
             >
               {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              Criar tarefa
+              {isEditMode ? "Salvar alterações" : "Criar tarefa"}
             </Button>
           </div>
         </form>

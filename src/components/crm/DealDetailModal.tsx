@@ -62,7 +62,7 @@ import { DealLinkAccountDrawer } from "./DealLinkAccountDrawer";
 import { DealStatusBadge } from "./deal-status-config";
 import { useChat } from "@/hooks/useChatState";
 import { AccountDetailModal } from "./AccountDetailModal";
-import { CreateTaskModal } from "./CreateTaskModal";
+import { CreateTaskModal, type EditingTaskData } from "./CreateTaskModal";
 import { CustomFieldsEditor, CustomFieldsSummary, changedCustomFieldValues } from "./CustomFieldsEditor";
 import { CrmDatePicker } from "./CrmDatePicker";
 import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
@@ -1445,11 +1445,59 @@ export function DealDetailModal({
     }
   };
 
-  // Concluir Atividade Comercial
-  const handleCompleteActivity = async (activityId: string) => {
+  const [editingDealTask, setEditingDealTask] = useState<EditingTaskData | null>(null);
+  const [activityToCompleteConfirm, setActivityToCompleteConfirm] = useState<{
+    id: string;
+    title: string;
+    type?: string;
+    dueDate?: string | null;
+  } | null>(null);
+  const [isConfirmingActivityComplete, setIsConfirmingActivityComplete] = useState(false);
+
+  const handleOpenEditDealActivity = (act: any) => {
+    if (!deal || !act) return;
+    if (act.status === "completed" || act.status === "done") {
+      toast.info("Tarefas concluídas não podem ser editadas.");
+      return;
+    }
+    setEditingDealTask({
+      id: act.id,
+      name: act.title || "Tarefa",
+      type: act.type || "task",
+      dueDate: act.dueDate || null,
+      description: act.description || null,
+      assignedOperatorId: act.assignedToOperatorId || act.operatorId || deal.operatorId || null,
+      dealId: deal.id,
+      dealTitle: deal.title,
+      accountName: deal.account?.name || null,
+      deal: { id: deal.id, name: deal.title },
+    });
+    setIsCreateTaskModalOpen(true);
+  };
+
+  // Solicitar Confirmação antes de Concluir Atividade Comercial
+  const handleCompleteActivity = (activityId: string) => {
     if (!deal) return;
+    const found =
+      deal.activities?.find((a: any) => a.id === activityId) ||
+      (deal.nextTask?.id === activityId ? deal.nextTask : null);
+    if (found && (found.status === "completed" || found.status === "done")) {
+      toast.info("Esta tarefa já foi concluída e não pode ser reativada.");
+      return;
+    }
+    setActivityToCompleteConfirm({
+      id: activityId,
+      title: found?.title || "Tarefa comercial",
+      type: found?.type || "task",
+      dueDate: found?.dueDate || null,
+    });
+  };
+
+  const confirmCompleteActivity = async () => {
+    if (!deal || !activityToCompleteConfirm) return;
+    setIsConfirmingActivityComplete(true);
     try {
-      const res = await fetch(`/api/crm/deals/${deal.id}/activities/${activityId}`, {
+      const res = await fetch(`/api/crm/deals/${deal.id}/activities/${activityToCompleteConfirm.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "completed" }),
@@ -1459,14 +1507,17 @@ export function DealDetailModal({
         throw new Error(err.error || "Erro ao concluir tarefa.");
       }
       toast.success("Tarefa concluída!");
+      setActivityToCompleteConfirm(null);
       await loadDealDetail();
       if (onDealUpdated && deal) onDealUpdated(deal);
     } catch (err: any) {
       toast.error(err.message || "Falha ao concluir tarefa.");
+    } finally {
+      setIsConfirmingActivityComplete(false);
     }
   };
 
-  // Reabrir Atividade Comercial
+  // Reabrir Atividade Comercial (apenas para tarefas canceladas — tarefas concluídas são permanentes)
   const handleReopenActivity = async (activityId: string) => {
     if (!deal) return;
     try {
@@ -2668,7 +2719,7 @@ export function DealDetailModal({
                                 deal.nextTask.isOverdue
                                   ? "bg-primary text-primary-foreground"
                                   : deal.nextTask.isToday
-                                  ? "bg-amber-600 text-white"
+                                  ? "bg-primary/15 text-primary border border-primary/25"
                                   : "bg-muted text-muted-foreground"
                               }`}
                             >
@@ -2698,10 +2749,7 @@ export function DealDetailModal({
                           <SystemTooltip content="Editar tarefa">
                             <button
                               type="button"
-                              onClick={() => {
-                                setActiveTab("tasks");
-                                setTasksSubTab("pending");
-                              }}
+                              onClick={() => handleOpenEditDealActivity(deal.nextTask)}
                               className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
                             >
                               <Pencil className="h-4 w-4" />
@@ -2914,7 +2962,7 @@ export function DealDetailModal({
                                 onClick={() => setTasksSubTab("cancelled")}
                                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
                                   tasksSubTab === "cancelled"
-                                    ? "bg-slate-700 text-white shadow-xs"
+                                    ? "bg-primary text-primary-foreground shadow-xs"
                                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                                 }`}
                               >
@@ -3042,6 +3090,17 @@ export function DealDetailModal({
                                               </button>
                                             </SystemTooltip>
 
+                                            <SystemTooltip content="Editar tarefa">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleOpenEditDealActivity(act)}
+                                                className="flex h-7 items-center gap-1 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                              >
+                                                <Pencil className="h-3 w-3 text-muted-foreground" />
+                                                <span>Editar</span>
+                                              </button>
+                                            </SystemTooltip>
+
                                             <SystemTooltip content="Reagendar prazo">
                                               <button
                                                 type="button"
@@ -3073,8 +3132,8 @@ export function DealDetailModal({
                                           </>
                                         )}
 
-                                        {(isCompleted || isCancelled) && (
-                                          <SystemTooltip content="Reabrir tarefa como pendente">
+                                        {isCancelled && (
+                                          <SystemTooltip content="Reabrir tarefa cancelada como pendente">
                                             <button
                                               type="button"
                                               onClick={() => handleReopenActivity(act.id)}
@@ -4688,19 +4747,97 @@ export function DealDetailModal({
         onDelete={handleDeleteFile}
       />
 
-      {/* Modal Criar Tarefa Idêntico ao RD Station */}
+      {/* Modal Criar / Editar Tarefa */}
       <CreateTaskModal
         isOpen={isCreateTaskModalOpen}
-        onClose={() => setIsCreateTaskModalOpen(false)}
+        onClose={() => {
+          setIsCreateTaskModalOpen(false);
+          setEditingDealTask(null);
+        }}
         dealId={deal?.id}
         dealTitle={deal?.title}
         accountId={deal?.accountId || deal?.account?.id}
         accountName={deal?.account?.name}
         operators={Array.from(operatorsMap.entries()).map(([id, name]) => ({ id, name }))}
+        editingTask={editingDealTask}
         onTaskCreated={() => {
+          setEditingDealTask(null);
           loadDealDetail(true);
         }}
       />
+
+      {/* Modal Obrigatório de Confirmação de Conclusão de Tarefa */}
+      <AnimatePresence>
+        {activityToCompleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4"
+            onClick={() => !isConfirmingActivityComplete && setActivityToCompleteConfirm(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-3xl bg-card border border-border shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-5 border-b border-border flex items-center justify-between bg-primary/5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-foreground">
+                      Concluir Tarefa?
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Confirme a conclusão desta atividade comercial
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isConfirmingActivityComplete}
+                  onClick={() => setActivityToCompleteConfirm(null)}
+                  className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="p-6 space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Tem certeza que deseja marcar a tarefa <strong>"{activityToCompleteConfirm.title}"</strong> como concluída? Após concluída, ela não poderá ser reativada.
+                </p>
+              </div>
+              <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  disabled={isConfirmingActivityComplete}
+                  onClick={() => setActivityToCompleteConfirm(null)}
+                  className="rounded-xl border border-border px-4 py-2 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-card transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={isConfirmingActivityComplete}
+                  onClick={confirmCompleteActivity}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 text-xs font-bold shadow-sm transition cursor-pointer disabled:opacity-60"
+                >
+                  {isConfirmingActivityComplete ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" />
+                  )}
+                  Sim, concluir tarefa
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Drawer Lateral de Adicionar/Vincular/Editar Contato ao Negócio */}
       {deal && (

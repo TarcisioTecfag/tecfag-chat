@@ -71,6 +71,8 @@ import {
   Paperclip,
   MousePointerClick,
   ExternalLink,
+  MessageSquare,
+  MapPin,
 } from "lucide-react";
 
 
@@ -578,7 +580,14 @@ export function SharedFiles() {
       void taskDealContext.refresh();
       return;
     }
-    if (!activeChat.tags.includes(label)) updateTags(activeChat.id, [...activeChat.tags, label]);
+    if (
+      typeof document !== "undefined" &&
+      document.documentElement.dataset.trainingInstalled &&
+      !activeChat.tags.includes(label)
+    ) {
+      updateTags(activeChat.id, [...activeChat.tags, label]);
+    }
+    void taskDealContext.refresh();
     window.dispatchEvent(new Event("crm-deals-changed"));
 
     // Reset form
@@ -1056,11 +1065,13 @@ export function SharedFiles() {
               {/* Tipo da tarefa — dropdown customizado com ícones */}
               {(() => {
                 const TASK_TYPES = [
-                  { value: "task",    label: "Tarefa",          Icon: CheckSquare    },
-                  { value: "call",    label: "Ligação",         Icon: PhoneCall      },
-                  { value: "meeting", label: "Reunião",         Icon: Users          },
-                  { value: "email",   label: "E-mail",          Icon: AtSign         },
-                  { value: "lunch",   label: "Almoço / Visita", Icon: UtensilsCrossed},
+                  { value: "task",     label: "Tarefa",   Icon: CheckSquare     },
+                  { value: "call",     label: "Ligação",  Icon: PhoneCall       },
+                  { value: "whatsapp", label: "WhatsApp", Icon: MessageSquare   },
+                  { value: "meeting",  label: "Reunião",  Icon: Users           },
+                  { value: "email",    label: "E-mail",   Icon: AtSign          },
+                  { value: "lunch",    label: "Almoço",   Icon: UtensilsCrossed },
+                  { value: "visit",    label: "Visita",   Icon: MapPin          },
                 ] as const;
                 const selected = TASK_TYPES.find((t) => t.value === taskType) ?? TASK_TYPES[0];
                 return (
@@ -1079,7 +1090,7 @@ export function SharedFiles() {
                           </button>
                         </TooltipTrigger>
                         <TooltipContent side="left" className="bg-primary text-white text-[10px] font-semibold">
-                          Tipo da atividade no RD CRM
+                          Tipo da atividade comercial
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
