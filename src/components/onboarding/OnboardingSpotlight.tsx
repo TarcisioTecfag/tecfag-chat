@@ -42,6 +42,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
     satisfyCurrentInteractiveStep,
     setTargetNotFoundReason,
     progress,
+    isCompletionOpen,
   } = useOnboarding();
 
   const persona = getAiPersona(eligibilityContext.tenantId);
@@ -69,7 +70,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
     const observer = new ResizeObserver(() => setCardHeight(element.getBoundingClientRect().height)); observer.observe(element); return () => observer.disconnect();
   }, [isRunnerActive, currentStep?.id]);
 
-  if (!isRunnerActive || !currentStep) return null;
+  if (!isRunnerActive || !currentStep || isCompletionOpen) return null;
 
   const pad = 8;
   const isBoundary = ["X", "informational_boundary"].includes(currentStep.mode);
@@ -182,7 +183,12 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
         <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
             className="h-full rounded-full bg-primary transition-all duration-300"
-            style={{ width: `${Math.max(3, coverage.completionPct)}%` }}
+            style={{
+              width: `${Math.max(
+                5,
+                Math.round(((currentStepIndex + 1) / Math.max(1, applicableSteps.length)) * 100),
+              )}%`,
+            }}
           />
         </div>
 

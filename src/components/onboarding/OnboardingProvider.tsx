@@ -26,6 +26,15 @@ import type {
   TourCommand,
 } from "@/lib/onboarding/types";
 
+const VIEW_TO_CHAPTER_ID: Partial<Record<string, TourChapterId>> = {
+  commercialHome: "home",
+  chat: "chat",
+  crm: "crm",
+  tasks: "tasks",
+  contacts: "contacts",
+  wallet: "wallet",
+};
+
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const {
     isAuthenticated,
@@ -36,6 +45,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     sessionRole,
     sessionPermissions,
     isCommercialConsultant,
+    activeView,
   } = useChat();
   const [progress, setProgress] = useState<OnboardingProgressDTO | null>(null);
   const [isLoading, setIsLoading] = useState(false),
@@ -44,6 +54,9 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
   const [isCompletionOpen, setIsCompletionOpen] = useState(false),
     [isChapterDrawerOpen, setIsChapterDrawerOpen] = useState(false);
+  const [scopedChapterId, setScopedChapterId] = useState<TourChapterId | null>(null);
+  const [isPeekingMascotVisible, setIsPeekingMascotVisible] = useState(false);
+  const [completedModuleIds, setCompletedModuleIds] = useState<TourChapterId[]>([]);
   const [demoState, setDemoState] = useState(() =>
     createInitialDemoRuntimeState(tenant, operatorProfile?.name),
   );
@@ -56,26 +69,60 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const identity = JSON.stringify([tenant, currentOperatorId]);
   const identityRef = useRef(identity);
   identityRef.current = identity;
-  const prompted = useRef<string | null>(null);
+  const promptedModulesRef = useRef<Set<TourChapterId>>(new Set());
+  const storageReadyRef = useRef(false);
+
+  const storagePrefix = useMemo(
+    () => (tenant && currentOperatorId ? `fagner_mod_tour_v2:${tenant}:${currentOperatorId}` : null),
+    [tenant, currentOperatorId],
+  );
+
   const updateProgress = useCallback((dto: OnboardingProgressDTO) => {
     if (JSON.stringify([dto.tenantId, dto.operatorId]) !== identityRef.current) return;
     progressRef.current = dto;
     setProgress(dto);
   }, []);
+
   useEffect(() => {
     setGlobalTourRunnerActive(isRunnerActive);
     return () => setGlobalTourRunnerActive(false);
   }, [isRunnerActive]);
+
   useEffect(() => {
     setIsRunnerActive(false);
     setProgress(null);
     progressRef.current = null;
     setIsWelcomeOpen(false);
     setIsCompletionOpen(false);
+    setScopedChapterId(null);
+    setIsPeekingMascotVisible(false);
+    setCompletedModuleIds([]);
+    promptedModulesRef.current = new Set();
+    storageReadyRef.current = false;
     readyRef.current = null;
     setReadyInteraction(null);
     setIsLoading(false);
     if (!isAuthenticated || isRestoringSession || !tenant || !currentOperatorId) return;
+
+    try {
+      const prefix = `fagner_mod_tour_v2:${tenant}:${currentOperatorId}`;
+      const rawPrompted = localStorage.getItem(`${prefix}:prompted`);
+      if (rawPrompted) {
+        const parsed = JSON.parse(rawPrompted);
+        if (Array.isArray(parsed)) promptedModulesRef.current = new Set(parsed);
+      }
+      const rawCompleted = localStorage.getItem(`${prefix}:completed`);
+      if (rawCompleted) {
+        const parsed = JSON.parse(rawCompleted);
+        if (Array.isArray(parsed)) setCompletedModuleIds(parsed);
+      }
+      const rawPeeking = localStorage.getItem(`${prefix}:peeking`);
+      if (rawPeeking === "1") {
+        setIsPeekingMascotVisible(true);
+      }
+    } catch {}
+    storageReadyRef.current = true;
+
     const controller = new AbortController();
     setIsLoading(true);
     void fetch("/api/operators/onboarding", { signal: controller.signal, cache: "no-store" })
@@ -84,15 +131,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         const dto: OnboardingProgressDTO = await res.json();
         if (controller.signal.aborted || identity !== identityRef.current) return;
         updateProgress(dto);
-        if (
-          dto.enabled &&
-          prompted.current !== identity &&
-          (!dto.deferredUntil || Date.parse(dto.deferredUntil) <= Date.now()) &&
-          dto.status !== "completed"
-        ) {
-          prompted.current = identity;
-          setIsWelcomeOpen(true);
-        }
       })
       .catch(() => {
         if (!controller.signal.aborted) toast.error("Não foi possível carregar o treinamento.");
@@ -102,6 +140,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       });
     return () => controller.abort();
   }, [identity, isAuthenticated, isRestoringSession, tenant, currentOperatorId, updateProgress]);
+
   const eligibilityContext = useMemo<OnboardingEligibilityContext>(
     () => ({
       tenantId: tenant || "",
@@ -124,11 +163,88 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       isCommercialConsultant,
     ],
   );
-  const applicableSteps = useMemo(
+
+  const allApplicableSteps = useMemo(
     () =>
       ONBOARDING_STEPS.filter((step) => evaluateStepEligibility(step, eligibilityContext).eligible),
     [eligibilityContext],
   );
+
+  const eligibleChapters = useMemo(
+    () =>
+       ONBOARDING_CHAPTERS.filter(
+        (ch) =>
+          ch.id !== "welcome" &&
+          allApplicableSteps.some((step) => step.chapterId === ch.id),
+      ),
+    [allApplicableSteps],
+  );
+
+  const currentViewChapterId = useMemo<TourChapterId>(() => {
+    const mapped = VIEW_TO_CHAPTER_ID[activeView];
+    if (mapped && eligibleChapters.some((ch) => ch.id === mapped)) {
+      return mapped;
+    }
+    return eligibleChapters[0]?.id ?? "chat";
+  }, [activeView, eligibleChapters]);
+
+  // First-time module visit detector: when the operator clicks a module for the first time,
+  // Fagner pops up asking if they want to do the tour of THAT module now or later.
+  useEffect(() => {
+    if (!progress?.enabled || !storageReadyRef.current) return;
+    if (isRunnerActive || isCompletionOpen) return;
+
+    // Only auto-prompt on primary operator module views that exist in VIEW_TO_CHAPTER_ID
+    const mappedChapter = VIEW_TO_CHAPTER_ID[activeView];
+    if (!mappedChapter || !eligibleChapters.some((ch) => ch.id === mappedChapter)) return;
+
+    if (!isWelcomeOpen) {
+      setScopedChapterId(mappedChapter);
+    }
+
+    if (
+      !promptedModulesRef.current.has(mappedChapter) &&
+      !completedModuleIds.includes(mappedChapter)
+    ) {
+      promptedModulesRef.current.add(mappedChapter);
+      if (storagePrefix) {
+        try {
+          localStorage.setItem(
+            `${storagePrefix}:prompted`,
+            JSON.stringify(Array.from(promptedModulesRef.current)),
+          );
+        } catch {}
+      }
+      setScopedChapterId(mappedChapter);
+      setIsWelcomeOpen(true);
+    }
+  }, [
+    progress?.enabled,
+    activeView,
+    eligibleChapters,
+    isRunnerActive,
+    isCompletionOpen,
+    isWelcomeOpen,
+    completedModuleIds,
+    storagePrefix,
+  ]);
+
+  const activeModuleChapterId = scopedChapterId ?? currentViewChapterId;
+  const activeModuleChapter = useMemo(
+    () =>
+      ONBOARDING_CHAPTERS.find((ch) => ch.id === activeModuleChapterId) ??
+      eligibleChapters[0] ??
+      ONBOARDING_CHAPTERS[0] ??
+      null,
+    [activeModuleChapterId, eligibleChapters],
+  );
+
+  const applicableSteps = useMemo(() => {
+    if (!scopedChapterId) return allApplicableSteps;
+    const filtered = allApplicableSteps.filter((step) => step.chapterId === scopedChapterId);
+    return filtered.length > 0 ? filtered : allApplicableSteps;
+  }, [allApplicableSteps, scopedChapterId]);
+
   const currentStep =
     applicableSteps.find((step) => step.id === progress?.currentStepId) ??
     applicableSteps[0] ??
@@ -140,6 +256,22 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     () => computeOnboardingCoverage(eligibilityContext, progress?.completedStepIds ?? []),
     [eligibilityContext, progress?.completedStepIds],
   );
+
+  // Record module completion when completion dialog opens for a scoped module
+  useEffect(() => {
+    if (!isCompletionOpen || !scopedChapterId) return;
+    setCompletedModuleIds((prev) => {
+      if (prev.includes(scopedChapterId)) return prev;
+      const next = [...prev, scopedChapterId];
+      if (storagePrefix) {
+        try {
+          localStorage.setItem(`${storagePrefix}:completed`, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+  }, [isCompletionOpen, scopedChapterId, storagePrefix]);
+
   const persona = tenant ? getAiPersona(tenant) : { name: "Assistente" };
   const sendPatch = useCallback(
     async (input: OnboardingPatchInput) => {
@@ -182,6 +314,44 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     setReadyInteraction(null);
     setTargetNotFoundReason(null);
   }, []);
+  const startModuleTour = useCallback(
+    async (chapterId?: TourChapterId) => {
+      if (!progressRef.current?.enabled || !allApplicableSteps.length) return;
+      const targetChapter = chapterId ?? scopedChapterId ?? currentViewChapterId;
+      setScopedChapterId(targetChapter);
+      const moduleSteps = allApplicableSteps.filter((step) => step.chapterId === targetChapter);
+      const stepsToUse = moduleSteps.length > 0 ? moduleSteps : allApplicableSteps;
+      const firstStep = stepsToUse[0];
+      if (!firstStep) return;
+
+      const welcomeIds = allApplicableSteps
+        .filter((s) => s.chapterId === "welcome" && !s.isControlStep)
+        .map((s) => s.id);
+
+      const dto = await sendPatch({
+        action: "start",
+        currentStepId: firstStep.id,
+        visitedStepIds: [firstStep.id, ...welcomeIds],
+        completedStepIds: welcomeIds,
+      });
+      if (!dto) return;
+      resetExercise();
+      setDemoState(createInitialDemoRuntimeState(tenant, operatorProfile?.name));
+      setIsWelcomeOpen(false);
+      setIsCompletionOpen(false);
+      setIsChapterDrawerOpen(false);
+      setIsRunnerActive(true);
+    },
+    [
+      allApplicableSteps,
+      scopedChapterId,
+      currentViewChapterId,
+      sendPatch,
+      resetExercise,
+      tenant,
+      operatorProfile?.name,
+    ],
+  );
   const activate = useCallback(
     async (action: "start" | "resume" | "restart") => {
       if (!progressRef.current?.enabled || !applicableSteps.length) return;
@@ -201,26 +371,54 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     },
     [sendPatch, applicableSteps, resetExercise, tenant, operatorProfile?.name],
   );
-  const startTour = useCallback(() => activate("start"), [activate]);
-  const resumeTour = useCallback(() => activate("resume"), [activate]);
-  const restartTour = useCallback(() => activate("restart"), [activate]);
+  const startTour = useCallback(() => startModuleTour(), [startModuleTour]);
+  const resumeTour = useCallback(() => startModuleTour(), [startModuleTour]);
+  const restartTour = useCallback(() => startModuleTour(), [startModuleTour]);
   const pauseTour = useCallback(async () => {
     const dto = await sendPatch({ action: "pause", currentStepId: currentStep?.id });
     if (dto) {
       setIsRunnerActive(false);
       setIsChapterDrawerOpen(false);
+      setIsPeekingMascotVisible(true);
+      if (storagePrefix) {
+        try {
+          localStorage.setItem(`${storagePrefix}:peeking`, "1");
+        } catch {}
+      }
       resetExercise();
     }
-  }, [sendPatch, currentStep?.id, resetExercise]);
+  }, [sendPatch, currentStep?.id, resetExercise, storagePrefix]);
+  const deferModuleTour = useCallback(async () => {
+    setIsRunnerActive(false);
+    setIsWelcomeOpen(false);
+    setIsPeekingMascotVisible(true);
+    if (storagePrefix) {
+      try {
+        localStorage.setItem(`${storagePrefix}:peeking`, "1");
+      } catch {}
+    }
+    resetExercise();
+    if (progressRef.current?.enabled) {
+      void sendPatch({ action: "defer", deferMinutes: 240 });
+    }
+  }, [resetExercise, sendPatch, storagePrefix]);
   const deferTour = useCallback(
     async (minutes = 240) => {
+      setIsPeekingMascotVisible(true);
+      if (storagePrefix) {
+        try {
+          localStorage.setItem(`${storagePrefix}:peeking`, "1");
+        } catch {}
+      }
       if (await sendPatch({ action: "defer", deferMinutes: minutes })) {
         setIsRunnerActive(false);
         setIsWelcomeOpen(false);
         resetExercise();
+      } else {
+        setIsWelcomeOpen(false);
       }
     },
-    [sendPatch, resetExercise],
+    [sendPatch, resetExercise, storagePrefix],
   );
   const dispatchCommand = useCallback(async (command: TourCommand) => {
     const p = progressRef.current;
@@ -297,10 +495,21 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, [currentStepIndex, goToStep, applicableSteps]);
   const goToChapter = useCallback(
     async (id: TourChapterId) => {
-      const step = applicableSteps.find((s) => s.chapterId === id);
-      if (step) await goToStep(step.id);
+      setScopedChapterId(id);
+      const step = allApplicableSteps.find((s) => s.chapterId === id);
+      if (step) {
+        const dto = await sendPatch({
+          action: "checkpoint",
+          currentStepId: step.id,
+          visitedStepIds: [step.id],
+        });
+        if (dto) {
+          resetExercise();
+          setIsRunnerActive(true);
+        }
+      }
     },
-    [goToStep, applicableSteps],
+    [allApplicableSteps, sendPatch, resetExercise],
   );
   const completeTour = useCallback(async () => {
     if (!coverage.canComplete) {
@@ -319,6 +528,13 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     setIsChapterDrawerOpen(false);
     resetExercise();
   }, [resetExercise]);
+  const openTourEntryModal = useCallback(
+    (chapterId?: TourChapterId) => {
+      setScopedChapterId(chapterId ?? currentViewChapterId);
+      setIsWelcomeOpen(true);
+    },
+    [currentViewChapterId],
+  );
   const value: OnboardingContextValue = {
     enabled: Boolean(progress?.enabled),
     isLoading,
@@ -334,11 +550,17 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     progress,
     eligibilityContext,
     coverage,
-    chapters: ONBOARDING_CHAPTERS,
+    chapters: eligibleChapters,
     applicableSteps,
+    allApplicableSteps,
     currentStep,
     currentStepIndex,
     currentChapter,
+    activeModuleChapter,
+    scopedChapterId,
+    setScopedChapterId,
+    isPeekingMascotVisible,
+    completedModuleIds,
     demoState,
     personaName: persona.name,
     operatorFirstName: operatorProfile?.name?.split(/\s+/)[0] || "Operador",
@@ -346,13 +568,15 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     setTargetNotFoundReason,
     interactiveReady: readyInteraction === JSON.stringify([progress?.runId, currentStep?.id]),
     startTour,
+    startModuleTour,
     resumeTour,
     pauseTour,
     deferTour,
+    deferModuleTour,
     restartTour,
     completeTour,
     returnToRealOperation,
-    openTourEntryModal: () => setIsWelcomeOpen(true),
+    openTourEntryModal,
     nextStep,
     prevStep,
     goToStep,

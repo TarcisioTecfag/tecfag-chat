@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { PortalScope, usePortalScope } from "@/components/ui/portal-scope";
 import { isolateOnboardingDom } from "@/lib/onboarding/dom-isolation";
-import { Sparkles } from "lucide-react";
+import { getAiPersona } from "@/lib/ai-persona";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { useOptionalOnboarding } from "@/hooks/useOnboarding";
 import { useTourTarget, type TourTargetState } from "@/hooks/useTourTarget";
@@ -79,12 +79,22 @@ function OnboardingHostContent() {
     return null;
   }
 
-  const showResumePill =
+  const persona = getAiPersona(onboarding.eligibilityContext.tenantId);
+  const mascotSrc =
+    onboarding.eligibilityContext.tenantId === "tecfag"
+      ? "/fagner-onboarding.png"
+      : persona.avatarFullUrl || persona.avatarHdUrl || persona.avatarUrl;
+
+  const moduleTitle =
+    onboarding.activeModuleChapter?.shortTitle ||
+    onboarding.activeModuleChapter?.title ||
+    "Módulo Atual";
+
+  const showPeekingMascot =
     !onboarding.isRunnerActive &&
     !onboarding.isWelcomeOpen &&
     !onboarding.isCompletionOpen &&
-    onboarding.progress &&
-    (onboarding.progress.status === "in_progress" || onboarding.progress.status === "paused");
+    onboarding.isPeekingMascotVisible;
 
   return (
     <>
@@ -94,20 +104,24 @@ function OnboardingHostContent() {
       <OnboardingWorkspace onTargetChange={setFrameTarget} />
       <OnboardingSpotlight rect={target.rect} found={target.found} avoidRect={target.avoidRect} />
 
-      {showResumePill && (
-        <div className="fixed bottom-4 left-20 z-[10070]">
-          <SystemTooltip
-            content={`Retomar treinamento guiado com ${onboarding.personaName} (${onboarding.coverage.completionPct}%)`}
-          >
+      {showPeekingMascot && (
+        <div className="fixed left-0 top-[56%] -translate-y-1/2 z-[10070] pointer-events-none">
+          <SystemTooltip content={`Iniciar tour do módulo ${moduleTitle}`}>
             <button
               type="button"
-              onClick={onboarding.openTourEntryModal}
-              className="flex items-center gap-2 rounded-full border border-primary/40 bg-card/95 px-3.5 py-1.5 text-xs font-bold text-foreground shadow-card backdrop-blur-md transition hover:border-primary hover:bg-muted cursor-pointer"
+              data-tour="onboarding.peeking-mascot"
+              aria-label={`Iniciar tour do módulo ${moduleTitle} com ${onboarding.personaName}`}
+              onClick={() => onboarding.openTourEntryModal()}
+              className="group pointer-events-auto relative flex items-center -translate-x-[48%] rotate-[10deg] transition-all duration-300 ease-out hover:translate-x-[-6%] hover:rotate-0 focus:outline-none cursor-pointer"
             >
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
-              <span>
-                Continuar Tour do {onboarding.personaName} ({onboarding.coverage.completionPct}%)
-              </span>
+              <img
+                src={mascotSrc}
+                alt={onboarding.personaName}
+                className="h-24 w-24 md:h-28 md:w-28 object-contain drop-shadow-[0_8px_18px_rgba(0,0,0,0.55)] select-none"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = persona.avatarUrl;
+                }}
+              />
             </button>
           </SystemTooltip>
         </div>

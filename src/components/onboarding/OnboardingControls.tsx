@@ -8,12 +8,13 @@ export function OnboardingControls() {
     isChapterDrawerOpen,
     setIsChapterDrawerOpen,
     chapters,
-    applicableSteps,
+    allApplicableSteps,
     currentStep,
     progress,
     coverage,
     goToChapter,
     goToStep,
+    setScopedChapterId,
     pauseTour,
     restartTour,
     setIsCompletionOpen,
@@ -52,7 +53,7 @@ export function OnboardingControls() {
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           {chapters.map((chapter) => {
-            const chapterSteps = applicableSteps.filter((s) => s.chapterId === chapter.id);
+            const chapterSteps = allApplicableSteps.filter((s) => s.chapterId === chapter.id);
             const completedCount = chapterSteps.filter((s) => completedSet.has(s.id)).length;
             const isCurrentChapter = currentStep?.chapterId === chapter.id;
 
@@ -94,6 +95,7 @@ export function OnboardingControls() {
                         type="button"
                         onClick={() => {
                           setIsChapterDrawerOpen(false);
+                          setScopedChapterId(step.chapterId);
                           void goToStep(step.id);
                         }}
                         className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs transition cursor-pointer ${
