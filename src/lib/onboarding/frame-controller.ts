@@ -56,7 +56,7 @@ export function installTrainingController(win: Window, config: TrainingFrameConf
   };
   const schedule = () => { if (!scheduled) scheduled = win.requestAnimationFrame(measure); };
   const observer = new MutationObserver(schedule);
-  observer.observe(win.document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "data-state", "hidden", "aria-hidden"] });
+  observer.observe(win.document.body || win.document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "data-state", "hidden", "aria-hidden"] });
   win.addEventListener("resize", schedule); win.addEventListener("scroll", schedule, true);
   const interaction = (event: Event) => {
     if (!step || !target || disposed || !(event.target instanceof Element)) return;

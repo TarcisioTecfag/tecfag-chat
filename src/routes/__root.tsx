@@ -1,4 +1,4 @@
-import "@/lib/onboarding/frame-bootstrap";
+import { bootstrapTrainingFrameIfPresent } from "@/lib/onboarding/frame-bootstrap";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -37,6 +37,7 @@ import { OnboardingHost } from "@/components/onboarding/OnboardingHost";
 import { TrainingNavigation } from "@/components/onboarding/TrainingNavigation";
 import { Index } from "./index";
 
+bootstrapTrainingFrameIfPresent();
 installAssetRecovery();
 
 const CrmChatWidget = lazy(() =>

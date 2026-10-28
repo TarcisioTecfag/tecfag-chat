@@ -1,7 +1,11 @@
 {
   "name": "tanstack_start_ts",
   "private": true,
-  "sideEffects": false,
+  "sideEffects": [
+    "*.css",
+    "./src/lib/onboarding/frame-bootstrap.ts",
+    "./src/lib/error-capture.ts"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22.0.0",

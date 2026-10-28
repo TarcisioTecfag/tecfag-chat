@@ -115,8 +115,17 @@ export function usePermissions() {
     }
   };
 
+  const hasPermission = (section: keyof GroupPermissions | string, key: string): boolean => {
+    if (key === "canManageGlobalQuickResponses") {
+      return Boolean(permissions?.security?.canManageGlobalTemplates);
+    }
+    const groupSection = (permissions as Record<string, Record<string, unknown>> | undefined)?.[section];
+    return Boolean(groupSection?.[key]);
+  };
+
   return {
     permissions,
+    hasPermission,
     canAccessView,
     canAccessValentinaTab,
     canAccessMonitorTab,

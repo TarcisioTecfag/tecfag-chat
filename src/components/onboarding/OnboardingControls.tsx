@@ -41,6 +41,7 @@ export function OnboardingControls() {
           <SystemTooltip content="Fechar índice do tour">
             <button
               type="button"
+              aria-label="Fechar índice do tour"
               onClick={() => setIsChapterDrawerOpen(false)}
               className="rounded-xl border border-border bg-card/80 p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground cursor-pointer"
             >

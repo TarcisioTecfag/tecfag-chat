@@ -67,8 +67,7 @@ export function WalletView() {
     setActiveView,
     setActiveQueue,
   } = useChat();
-  const { hasPermission } = usePermissions();
-  const canManageGlobalTemplates = hasPermission("chat", "canManageGlobalQuickResponses");
+  const { canManageGlobalTemplates } = usePermissions();
 
   const aiPersona = getAiPersona(tenant || "valem");
 

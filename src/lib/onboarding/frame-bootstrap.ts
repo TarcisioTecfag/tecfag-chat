@@ -89,14 +89,20 @@ export function installTrainingFrame(win: Window, config: TrainingFrameConfig) {
 }
 
 // Runs before the normal app providers mount. Nothing is installed in the operational window.
-if (typeof window !== "undefined" && window.parent !== window) {
-  const frame = window.frameElement as TrainingFrameElement | null;
+export function bootstrapTrainingFrameIfPresent(win: Window | undefined = typeof window !== "undefined" ? window : undefined) {
+  if (!win || win.parent === win) return false;
+  const frame = win.frameElement as TrainingFrameElement | null;
   if (frame?.dataset.onboardingFrame === "true") {
     const config = frame.trainingConfig;
-    if (config) installTrainingFrame(window, config);
-    else {
-      window.fetch = async () => { throw Error("Ambiente de treinamento não inicializado."); };
-      throw Error("O treinamento não recebeu um contexto válido.");
+    if (config) {
+      installTrainingFrame(win, config);
+      return true;
     }
+    win.fetch = async () => { throw Error("Ambiente de treinamento não inicializado."); };
+    throw Error("O treinamento não recebeu um contexto válido.");
   }
+  return false;
 }
+
+bootstrapTrainingFrameIfPresent();
+

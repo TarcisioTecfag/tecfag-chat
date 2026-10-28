@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { loadOnboardingSource as load } from "./helpers/onboarding-harness.mjs";
 
 const { mapTrainingRect } = load("src/lib/onboarding/frame-geometry.ts");
@@ -130,5 +131,19 @@ test("training store normalizes conversation channels and supports chat task, ca
   const connRes = await (await handleTrainingRequest(memory, "/api/whatsapp/connections")).json();
   assert.equal(connRes.canSwitchDuringAttendance, true);
   assert.equal(connRes.connections.length, 2);
+
+  const resolveRes = await (await handleTrainingRequest(memory, "/api/chats/resolve?key=qualquer-chave")).json();
+  assert.equal(resolveRes.conversationId, memory.conversations[0].id);
+});
+
+test("frame-bootstrap is explicitly invoked by __root.tsx and protected from production tree-shaking in package.json", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  assert.notEqual(pkg.sideEffects, false, "package.json must not set sideEffects: false globally or Rollup will strip frame-bootstrap");
+  assert.ok(
+    Array.isArray(pkg.sideEffects) && pkg.sideEffects.includes("./src/lib/onboarding/frame-bootstrap.ts"),
+    "package.json sideEffects must include ./src/lib/onboarding/frame-bootstrap.ts",
+  );
+  const rootSource = readFileSync("src/routes/__root.tsx", "utf8");
+  assert.match(rootSource, /bootstrapTrainingFrameIfPresent\(\)/, "__root.tsx must explicitly invoke bootstrapTrainingFrameIfPresent()");
 });
 
