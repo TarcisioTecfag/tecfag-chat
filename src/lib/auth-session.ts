@@ -1,6 +1,6 @@
 import { db } from "../db/index.js";
 import { authSessions, operators, accessGroups } from "../db/schema.js";
-import { eq, and, gt, isNull } from "drizzle-orm";
+import { eq, and, gt, isNull, ne } from "drizzle-orm";
 import { generateSessionToken, hashSessionToken } from "./auth-crypto.js";
 import { normalizeGroupPermissions } from "./rbac.js";
 import { getAvailableTenants } from "./platform-access.js";
@@ -87,11 +87,15 @@ export async function revokeSessionByToken(token: string): Promise<void> {
 /**
  * Revoga todas as sessões de um operador (ao alterar senha ou excluir operador).
  */
-export async function revokeAllOperatorSessions(operatorId: string): Promise<void> {
+export async function revokeAllOperatorSessions(operatorId: string, exceptSessionId?: string): Promise<void> {
+  const conditions = [eq(authSessions.operatorId, operatorId), isNull(authSessions.revokedAt)];
+  if (exceptSessionId) {
+    conditions.push(ne(authSessions.id, exceptSessionId));
+  }
   await db
     .update(authSessions)
     .set({ revokedAt: new Date() })
-    .where(and(eq(authSessions.operatorId, operatorId), isNull(authSessions.revokedAt)));
+    .where(and(...conditions));
 }
 
 /**

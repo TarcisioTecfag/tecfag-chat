@@ -149,7 +149,7 @@ type ChatContextType = {
 
   // Operator Profile State
   operatorProfile: OperatorProfile;
-  updateOperatorProfile: (profile: Partial<OperatorProfile>) => void;
+  updateOperatorProfile: (profile: Partial<OperatorProfile> & { password?: string }) => Promise<boolean>;
   isProfileModalOpen: boolean;
   setIsProfileModalOpen: (open: boolean) => void;
 
@@ -164,13 +164,21 @@ type ChatContextType = {
   isCommercialConsultant: boolean;
   commercialDivision: string | null;
   impersonateOperator: (id: string) => void;
-  createOperator: (operator: Omit<Operator, "id" | "status" | "avatar">) => void;
-  updateOperator: (id: string, fields: Partial<Operator>) => void;
+  createOperator: (
+    operator: Omit<Operator, "id" | "status" | "avatar">,
+  ) => Promise<{ success: boolean; operator?: Operator; error?: string }>;
+  updateOperator: (
+    id: string,
+    fields: Partial<Operator> & { password?: string },
+  ) => Promise<{ success: boolean; error?: string }>;
   deleteOperator: (
     id: string,
     transferToOperatorId?: string,
   ) => Promise<{ success: boolean; stats?: any }>;
-  resetOperatorPassword: (id: string, newPasswordHash: string) => void;
+  resetOperatorPassword: (
+    id: string,
+    newPasswordHash: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   createAccessGroup: (group: Omit<AccessGroup, "id">) => void;
   updateAccessGroup: (id: string, fields: Partial<AccessGroup>) => Promise<boolean>;
   deleteAccessGroup: (id: string) => void;
@@ -953,7 +961,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     status: currentOperator.status,
   };
 
-  const updateOperatorProfile = async (fields: Partial<OperatorProfile>) => {
+  const updateOperatorProfile = async (
+    fields: Partial<OperatorProfile> & { password?: string },
+  ): Promise<boolean> => {
     // Snapshot do estado antes da atualização otimista — necessário para rollback
     const previousOperators = operators;
 
@@ -972,9 +982,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     try {
-      // PATCH /api/operators/profile — rota específica para auto-edição de perfil
-      // Não requer admin; tenantId e operatorId vêm da sessão no servidor.
-      // passwordHash NUNCA é enviado.
+      const cleanPassword =
+        typeof fields.password === "string" &&
+        fields.password.trim().length > 0 &&
+        fields.password.trim() !== "********"
+          ? fields.password.trim()
+          : undefined;
+
       const res = await fetch(`${BACKEND_URL}/api/operators/profile`, {
         method: "PATCH",
         credentials: "include",
@@ -984,6 +998,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: fields.email,
           avatar: fields.avatar,
           status: fields.status,
+          ...(cleanPassword ? { password: cleanPassword } : {}),
         }),
       });
 
@@ -993,11 +1008,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error("[updateOperatorProfile] Servidor rejeitou a atualização:", errBody);
         setOperators(previousOperators);
         toast.error(`Erro ao salvar perfil: ${errBody.error || res.statusText}`);
+        return false;
       }
+      return true;
     } catch (err) {
       console.error("Erro ao sincronizar atualização de perfil de operador no DB:", err);
       setOperators(previousOperators);
       toast.error("Erro de conexão ao salvar perfil.");
+      return false;
     }
   };
 
@@ -1009,7 +1027,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // CRUD Operators
-  const createOperator = async (opData: Omit<Operator, "id" | "status" | "avatar">) => {
+  const createOperator = async (
+    opData: Omit<Operator, "id" | "status" | "avatar">,
+  ): Promise<{ success: boolean; operator?: Operator; error?: string }> => {
     // Extrair passwordHash do opData — não deve entrar no estado React nem no localStorage
     const { passwordHash, ...opFields } = opData;
 
@@ -1034,21 +1054,42 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
         console.error("[createOperator] Falha na API:", errBody);
-        toast.error(`Erro ao criar operador: ${errBody.error || res.statusText}`);
-        return; // Não atualiza o estado — operador não foi criado
+        const errMsg = errBody.error || res.statusText;
+        toast.error(`Erro ao criar operador: ${errMsg}`);
+        return { success: false, error: errMsg };
       }
 
-      // Só adiciona ao estado local após confirmação do servidor
-      setOperators((prev) => [...prev, newOp]);
+      const data = await res.json().catch(() => ({}));
+      const savedOp: Operator = data?.operator
+        ? {
+            ...newOp,
+            ...data.operator,
+            avatar: data.operator.avatar || newOp.avatar,
+            groupId: data.operator.groupId ?? newOp.groupId,
+          }
+        : newOp;
+
+      setOperators((prev) => [...prev, savedOp]);
+      return { success: true, operator: savedOp };
     } catch (err) {
       console.error("Erro ao criar operador no DB:", err);
       toast.error("Erro de conexão ao criar operador.");
+      return { success: false, error: "Erro de conexão ao criar operador." };
     }
   };
 
-  const updateOperator = async (id: string, fields: Partial<Operator>) => {
-    // Strippear passwordHash dos fields antes de aplicar ao estado local
-    const { passwordHash: _ph, ...safeFields } = fields;
+  const updateOperator = async (
+    id: string,
+    fields: Partial<Operator> & { password?: string },
+  ): Promise<{ success: boolean; error?: string }> => {
+    const previousOperators = operators;
+    const { passwordHash: _ph, password, ...safeFields } = fields;
+    const cleanPassword =
+      typeof password === "string" && password.trim().length > 0
+        ? password.trim()
+        : typeof _ph === "string" && _ph.trim().length > 0
+          ? _ph.trim()
+          : undefined;
 
     setOperators((prev) => {
       const updated = prev.map((op) => (op.id === id ? { ...op, ...safeFields } : op));
@@ -1061,19 +1102,56 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     const targetOp = operators.find((op) => op.id === id);
-    if (targetOp) {
-      try {
-        // Strippear passwordHash do payload — nunca enviar hash ao servidor via update
-        const { passwordHash: _hash, ...safeTarget } = targetOp;
-        await fetch(`${BACKEND_URL}/api/operators`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...safeTarget, ...safeFields }),
-        });
-      } catch (err) {
-        console.error("Erro ao atualizar operador no DB:", err);
+    const { passwordHash: _hash, ...safeTarget } = targetOp || ({ id } as Operator);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/operators`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...safeTarget,
+          ...safeFields,
+          id,
+          ...(cleanPassword ? { password: cleanPassword } : {}),
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        const errMsg = errBody.error || res.statusText;
+        console.error("[updateOperator] Erro ao atualizar operador:", errBody);
+        setOperators(previousOperators);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("rbac_operators", JSON.stringify(previousOperators));
+          } catch (e) {}
+        }
+        toast.error(`Erro ao atualizar operador: ${errMsg}`);
+        return { success: false, error: errMsg };
       }
+
+      const data = await res.json().catch(() => ({}));
+      if (data?.operator) {
+        setOperators((prev) =>
+          prev.map((op) =>
+            op.id === id
+              ? {
+                  ...op,
+                  ...data.operator,
+                  avatar: data.operator.avatar || op.avatar,
+                  groupId: data.operator.groupId ?? safeFields.groupId ?? op.groupId,
+                }
+              : op,
+          ),
+        );
+      }
+      return { success: true };
+    } catch (err) {
+      console.error("Erro ao atualizar operador no DB:", err);
+      setOperators(previousOperators);
+      toast.error("Erro de conexão ao atualizar operador.");
+      return { success: false, error: "Erro de conexão ao atualizar operador." };
     }
   };
 
@@ -1145,26 +1223,44 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const resetOperatorPassword = async (id: string, newPasswordHash: string) => {
-    // NÃO salvar passwordHash no estado React/localStorage — o servidor faz o hash
-    // O estado local do operador permanece inalterado (sem campo de senha)
+  const resetOperatorPassword = async (
+    id: string,
+    newPasswordHash: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    const cleanPassword = newPasswordHash.trim();
+    if (!cleanPassword) {
+      toast.error("Informe uma nova senha válida.");
+      return { success: false, error: "Senha vazia" };
+    }
 
     const targetOp = operators.find((op) => op.id === id);
-    if (targetOp) {
-      try {
-        await fetch(`${BACKEND_URL}/api/operators`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          // Envia como 'password' (texto plano) para o servidor fazer o hash
-          body: JSON.stringify({
-            ...targetOp,
-            password: newPasswordHash,
-          }),
-        });
-      } catch (err) {
-        console.error("Erro ao redefinir senha de operador no DB:", err);
+    const { passwordHash: _hash, ...safeTarget } = targetOp || ({ id } as Operator);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/operators`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...safeTarget,
+          id,
+          password: cleanPassword,
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        const errMsg = errBody.error || res.statusText;
+        console.error("[resetOperatorPassword] Erro na API:", errBody);
+        toast.error(`Erro ao redefinir senha: ${errMsg}`);
+        return { success: false, error: errMsg };
       }
+
+      return { success: true };
+    } catch (err) {
+      console.error("Erro ao redefinir senha de operador no DB:", err);
+      toast.error("Erro de conexão ao redefinir senha.");
+      return { success: false, error: "Erro de conexão ao redefinir senha." };
     }
   };
 

@@ -46,7 +46,14 @@ export const Route = createFileRoute("/api/sectors")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
-        if (request.method !== "GET" && session.operator.role !== "admin") return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
+          const canManageSectors =
+            session.operator.role === "admin" ||
+            session.operator.groupId === "group-admin" ||
+            Boolean(session.permissions?.security?.canManageSectors) ||
+            Boolean(session.permissions?.security?.canManageUsers);
+          if (!canManageSectors) {
+            return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
+          }
 
           const body = await request.json().catch(() => ({}));
           const { id, name, operatorIds } = body;
@@ -104,7 +111,14 @@ export const Route = createFileRoute("/api/sectors")({
         if ("response" in auth) return auth.response; // retorna 401 automaticamente
         const { session } = auth;
         const tenantId = session.tenantId;
-        if (request.method !== "GET" && session.operator.role !== "admin") return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 }); // SEMPRE da sessão
+        const canManageSectors =
+          session.operator.role === "admin" ||
+          session.operator.groupId === "group-admin" ||
+          Boolean(session.permissions?.security?.canManageSectors) ||
+          Boolean(session.permissions?.security?.canManageUsers);
+        if (!canManageSectors) {
+          return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
+        }
 
         const url = new URL(request.url);
         const id = url.searchParams.get("id");

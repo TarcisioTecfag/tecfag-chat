@@ -339,12 +339,16 @@ body,
   --color-warning-foreground: var(--warning-foreground);
   --color-critical: var(--critical);
   --color-critical-foreground: var(--critical-foreground);
+  --color-destructive: var(--critical);
+  --color-destructive-foreground: var(--critical-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
+  --color-input: var(--border);
+  --color-ring: var(--primary);
 }
 
 :root {
@@ -929,4 +933,19 @@ html.dark.theme-voice [data-sonner-toaster] [data-sonner-toast][data-styled="tru
 .animate-slide-up        { animation: cm-slide-up       0.2s cubic-bezier(0.22,1,0.36,1) both; }
 .animate-slide-in-right  { animation: cm-slide-in-right 0.2s cubic-bezier(0.22,1,0.36,1) both; }
 .animate-stagger-in      { animation: cm-stagger-in     0.22s cubic-bezier(0.22,1,0.36,1) both; }
+
+/* ── 10. Blindagem Global contra Autofill Branco do Navegador & Paleta Adaptativa ── */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--foreground) !important;
+  caret-color: var(--foreground) !important;
+  -webkit-box-shadow: 0 0 0px 1000px var(--muted) inset !important;
+  box-shadow: 0 0 0px 1000px var(--muted) inset !important;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
 

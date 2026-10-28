@@ -228,14 +228,25 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
     }
     try {
       setIsSubmitting(true);
-      await updateOperatorProfile({
+      const cleanPassword =
+        password && password.trim().length > 0 && password.trim() !== "********"
+          ? password.trim()
+          : undefined;
+      const ok = await updateOperatorProfile({
         name,
         email,
         avatar,
         status,
+        ...(cleanPassword ? { password: cleanPassword } : {}),
       });
-      toast.success("Perfil atualizado com sucesso!");
-      onClose();
+      if (ok) {
+        toast.success(
+          cleanPassword
+            ? "Perfil e senha atualizados com sucesso!"
+            : "Perfil atualizado com sucesso!",
+        );
+        onClose();
+      }
     } catch {
       toast.error("Erro ao salvar alterações de perfil.");
     } finally {

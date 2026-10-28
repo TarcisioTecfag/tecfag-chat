@@ -11,7 +11,7 @@ import {
   contacts,
   crmDealActivities,
 } from "../../db/schema.js";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, ne, sql } from "drizzle-orm";
 import {
   requireSession,
   sanitizeOperator,
@@ -169,8 +169,13 @@ export const Route = createFileRoute("/api/operators")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
-          // Apenas admin pode criar/editar operadores
-          if (session.operator.role !== "admin") {
+          const canManageOperators =
+            session.operator.role === "admin" ||
+            session.operator.groupId === "group-admin" ||
+            Boolean(session.permissions?.security?.canManageUsers) ||
+            Boolean(session.permissions?.security?.canResetUserPasswords);
+
+          if (!canManageOperators) {
             return new Response(
               JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }),
               { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -180,9 +185,9 @@ export const Route = createFileRoute("/api/operators")({
           const body = await request.json().catch(() => ({}));
           const { id, name, email, passwordHash, password, role, avatar, status, groupId } = body;
 
-          if (!id || !name || !email) {
+          if (!id) {
             return new Response(
-              JSON.stringify({ error: "id, name e email são obrigatórios" }),
+              JSON.stringify({ error: "id é obrigatório" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
@@ -191,9 +196,40 @@ export const Route = createFileRoute("/api/operators")({
           const existing = await db.query.operators.findFirst({
             where: and(eq(operators.id, id), eq(operators.tenantId, tenantId)),
           });
-          if (groupId) {
+
+          const finalName = typeof name === "string" && name.trim().length > 0 ? name.trim() : existing?.name;
+          const finalEmail =
+            typeof email === "string" && email.trim().length > 0
+              ? email.trim().toLowerCase()
+              : existing?.email?.trim().toLowerCase();
+
+          if (!finalName || !finalEmail) {
+            return new Response(
+              JSON.stringify({ error: "id, name e email são obrigatórios" }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          // Verificar duplicidade de e-mail no mesmo tenant
+          const duplicateInTenant = await db.query.operators.findFirst({
+            where: and(
+              eq(operators.tenantId, tenantId),
+              sql`lower(${operators.email}) = ${finalEmail}`,
+              ne(operators.id, id),
+            ),
+          });
+          if (duplicateInTenant) {
+            return new Response(
+              JSON.stringify({ error: "Já existe outro operador cadastrado com este e-mail neste ambiente." }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          const finalGroupId = groupId !== undefined ? (groupId || null) : (existing?.groupId ?? null);
+
+          if (finalGroupId) {
             const group = await db.query.accessGroups.findFirst({
-              where: and(eq(accessGroups.id, groupId), eq(accessGroups.tenantId, tenantId)),
+              where: and(eq(accessGroups.id, finalGroupId), eq(accessGroups.tenantId, tenantId)),
             });
             if (!group) return new Response(JSON.stringify({ error: "Grupo não encontrado neste tenant." }), {
               status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -201,7 +237,12 @@ export const Route = createFileRoute("/api/operators")({
           }
 
           // Tratar senha: se veio 'password' ou 'passwordHash' em texto simples, migrar para scrypt
-          const incomingSecret = password || passwordHash;
+          const incomingSecret =
+            typeof password === "string" && password.trim().length > 0
+              ? password.trim()
+              : typeof passwordHash === "string" && passwordHash.trim().length > 0
+                ? passwordHash.trim()
+                : undefined;
           let safePasswordHash: string | undefined = undefined;
           if (incomingSecret) {
             safePasswordHash = needsPasswordMigration(incomingSecret)
@@ -210,11 +251,6 @@ export const Route = createFileRoute("/api/operators")({
           }
 
           if (existing) {
-            if (existing.accountId && existing.email !== email.trim().toLowerCase()) {
-              return new Response(JSON.stringify({ error: "O e-mail de uma conta multiempresa deve ser alterado pela gestão de acesso global." }), {
-                status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-              });
-            }
             // SEGURANÇA: Impedir que um operador existente tenha seu tenant alterado!
             if (existing.tenantId !== tenantId) {
               return new Response(
@@ -223,25 +259,75 @@ export const Route = createFileRoute("/api/operators")({
               );
             }
 
+            const previousEmail = existing.email.trim().toLowerCase();
+            if (existing.accountId && finalEmail !== previousEmail) {
+              const conflictingGlobalAccount = await db.query.platformAccounts.findFirst({
+                where: and(
+                  sql`lower(${platformAccounts.email}) = ${finalEmail}`,
+                  ne(platformAccounts.id, existing.accountId),
+                ),
+              });
+              if (conflictingGlobalAccount) {
+                return new Response(
+                  JSON.stringify({ error: "Este e-mail já está vinculado a outra conta global na plataforma." }),
+                  { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+              }
+              await db
+                .update(platformAccounts)
+                .set({ email: finalEmail })
+                .where(eq(platformAccounts.id, existing.accountId));
+              await db
+                .update(operators)
+                .set({ email: finalEmail })
+                .where(eq(operators.accountId, existing.accountId));
+            }
+
+            const resolvedRole =
+              finalGroupId === "group-admin"
+                ? "admin"
+                : role || (existing.groupId === "group-admin" && finalGroupId !== "group-admin" ? "agent" : existing.role || "agent");
+
             // Atualizar operador existente preservando tenantId
             const updatePayload: any = {
-              name,
-              email: email.trim().toLowerCase(),
-              role: role || existing.role,
+              name: finalName,
+              email: finalEmail,
+              role: resolvedRole,
               avatar: avatar !== undefined ? avatar : existing.avatar,
               status: status || existing.status,
-              groupId: groupId !== undefined ? groupId : existing.groupId,
+              groupId: finalGroupId,
             };
 
             if (safePasswordHash) {
               updatePayload.passwordHash = safePasswordHash;
-              // Revogar sessões antigas deste operador por segurança
+              const keepCurrentSessionId =
+                existing.id === session.operator.id ? session.sessionId : undefined;
+
+              // Atualizar senha em platformAccounts se vinculada por accountId ou por e-mail
               if (existing.accountId) {
-                await db.update(platformAccounts).set({ passwordHash: safePasswordHash })
+                await db
+                  .update(platformAccounts)
+                  .set({ passwordHash: safePasswordHash })
                   .where(eq(platformAccounts.id, existing.accountId));
-                await revokeAccountSessions(existing.accountId);
+                await db
+                  .update(operators)
+                  .set({ passwordHash: safePasswordHash })
+                  .where(eq(operators.accountId, existing.accountId));
+                await revokeAccountSessions(existing.accountId, keepCurrentSessionId);
               } else {
-                await revokeAllOperatorSessions(existing.id);
+                const matchedPlatformAccount = await db.query.platformAccounts.findFirst({
+                  where: or(
+                    sql`lower(${platformAccounts.email}) = ${previousEmail}`,
+                    sql`lower(${platformAccounts.email}) = ${finalEmail}`,
+                  ),
+                });
+                if (matchedPlatformAccount) {
+                  await db
+                    .update(platformAccounts)
+                    .set({ passwordHash: safePasswordHash })
+                    .where(eq(platformAccounts.id, matchedPlatformAccount.id));
+                }
+                await revokeAllOperatorSessions(existing.id, keepCurrentSessionId);
               }
             }
 
@@ -266,17 +352,20 @@ export const Route = createFileRoute("/api/operators")({
               );
             }
 
+            const resolvedRole =
+              finalGroupId === "group-admin" ? "admin" : (role || "agent");
+
             // Criar novo operador vinculado incondicionalmente ao tenant da sessão
             await db.insert(operators).values({
               id,
               tenantId,
-              name,
-              email: email.trim().toLowerCase(),
+              name: finalName,
+              email: finalEmail,
               passwordHash: safePasswordHash,
-              role: role || "agent",
+              role: resolvedRole,
               avatar: avatar || null,
               status: status || "disponivel",
-              groupId: groupId || null,
+              groupId: finalGroupId,
               isOnline: true,
               createdAt: new Date(),
             });
@@ -303,8 +392,12 @@ export const Route = createFileRoute("/api/operators")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        // Apenas admin pode excluir operadores
-        if (session.operator.role !== "admin") {
+        const canDeleteOperators =
+          session.operator.role === "admin" ||
+          session.operator.groupId === "group-admin" ||
+          Boolean(session.permissions?.security?.canManageUsers);
+
+        if (!canDeleteOperators) {
           return new Response(
             JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }

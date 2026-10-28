@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
   authSessions,
@@ -66,7 +66,7 @@ export async function getAvailableTenants(accountId: string): Promise<string[]> 
   return available;
 }
 
-export async function revokeAccountSessions(accountId: string): Promise<void> {
+export async function revokeAccountSessions(accountId: string, exceptSessionId?: string): Promise<void> {
   const tenantRows = await db.select({ id: tenants.id }).from(tenants);
   for (const row of tenantRows) {
     const members = await db
@@ -74,16 +74,18 @@ export async function revokeAccountSessions(accountId: string): Promise<void> {
       .from(operators)
       .where(and(eq(operators.tenantId, row.id), eq(operators.accountId, accountId)));
     for (const member of members) {
+      const conditions = [
+        eq(authSessions.tenantId, row.id),
+        eq(authSessions.operatorId, member.id),
+        isNull(authSessions.revokedAt),
+      ];
+      if (exceptSessionId) {
+        conditions.push(ne(authSessions.id, exceptSessionId));
+      }
       await db
         .update(authSessions)
         .set({ revokedAt: new Date() })
-        .where(
-          and(
-            eq(authSessions.tenantId, row.id),
-            eq(authSessions.operatorId, member.id),
-            isNull(authSessions.revokedAt),
-          ),
-        );
+        .where(and(...conditions));
     }
   }
 }

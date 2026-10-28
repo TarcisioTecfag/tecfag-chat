@@ -347,6 +347,11 @@ import {
   AlertCircle, 
   UserPlus, 
   FolderLock, 
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  LayoutGrid,
+  Loader2,
   Smartphone, 
   Instagram, 
   Send,
@@ -587,12 +592,37 @@ export function GroupsView() {
 
   // Operator Form States
   const [showOpForm, setShowOpForm] = useState(false);
+  const [isCreatingOperator, setIsCreatingOperator] = useState(false);
   const [opForm, setOpForm] = useState({
     name: "",
     email: "",
     password: "",
-    groupId: accessGroups[0]?.id || ""
+    groupId: accessGroups[0]?.id || "",
+    sectorIds: [] as string[],
   });
+
+  // Search & Filtering States for Operators & Users Tab
+  const [operatorSearch, setOperatorSearch] = useState("");
+  const [selectedSectorFolder, setSelectedSectorFolder] = useState<string>("all"); // "all" | "unassigned" | sector.id
+  const [operatorGroupFilter, setOperatorGroupFilter] = useState<string>("all"); // "all" | group.id
+  const [operatorViewMode, setOperatorViewMode] = useState<"folders" | "grid">("folders");
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
+  const [sectorMemberSearch, setSectorMemberSearch] = useState("");
+  const [walletOperatorSearch, setWalletOperatorSearch] = useState("");
+
+  // Edit Operator Modal State
+  const [editingOperator, setEditingOperator] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    avatar: string;
+    groupId: string;
+    status: "disponivel" | "pausa" | "desconectado";
+    password: string;
+    sectorIds: string[];
+  } | null>(null);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [isSavingOperatorEdit, setIsSavingOperatorEdit] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedOpIdForAvatar, setSelectedOpIdForAvatar] = useState<string | null>(null);
@@ -627,8 +657,11 @@ export function GroupsView() {
               ctx.drawImage(img, sx, sy, minSize, minSize, 0, 0, size, size);
               const compressedBase64 = canvas.toDataURL("image/jpeg", 0.75);
               
-              updateOperator(selectedOpIdForAvatar, { avatar: compressedBase64 });
-              toast.success("Foto de perfil atualizada!");
+              void updateOperator(selectedOpIdForAvatar, { avatar: compressedBase64 }).then((res) => {
+                if (res.success) {
+                  toast.success("Foto de perfil atualizada!");
+                }
+              });
             }
           };
           img.src = reader.result;
@@ -679,6 +712,7 @@ export function GroupsView() {
   const [resetOpId, setResetOpId] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   const emptyGroup: AccessGroup = {
     id: "",
@@ -700,26 +734,116 @@ export function GroupsView() {
   const [selectedGroupId, setSelectedGroupId] = useState<string>(accessGroups[0]?.id || "");
   const selectedGroupObj = accessGroups.find(g => g.id === selectedGroupId) || accessGroups[0] || emptyGroup;
 
-  const handleCreateOperator = (e: React.FormEvent) => {
+  const handleCreateOperator = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!opForm.name || !opForm.email || !opForm.password || !opForm.groupId) {
+    if (!opForm.name.trim() || !opForm.email.trim() || !opForm.password.trim() || !opForm.groupId) {
       toast.error("Por favor, preencha todos os campos obrigatórios.");
       return;
     }
-    createOperator({
-      name: opForm.name,
-      email: opForm.email,
-      passwordHash: opForm.password,
-      groupId: opForm.groupId
-    });
-    setOpForm({
-      name: "",
-      email: "",
+    setIsCreatingOperator(true);
+    try {
+      const result = await createOperator({
+        name: opForm.name.trim(),
+        email: opForm.email.trim(),
+        passwordHash: opForm.password.trim(),
+        groupId: opForm.groupId,
+      });
+      if (!result.success) return;
+
+      const createdId = result.operator?.id;
+      if (createdId && opForm.sectorIds.length > 0) {
+        for (const sectorId of opForm.sectorIds) {
+          const sec = sectors.find((s) => s.id === sectorId);
+          if (sec && !sec.operatorIds.includes(createdId)) {
+            updateSector(sec.id, { operatorIds: [...sec.operatorIds, createdId] });
+          }
+        }
+      }
+
+      setOpForm({
+        name: "",
+        email: "",
+        password: "",
+        groupId: accessGroups[0]?.id || "",
+        sectorIds: [],
+      });
+      setShowOpForm(false);
+      toast.success("Operador criado com sucesso!");
+    } finally {
+      setIsCreatingOperator(false);
+    }
+  };
+
+  const handleOpenEditOperator = (op: Operator) => {
+    const opSectorIds = sectors
+      .filter((s) => s.operatorIds.includes(op.id))
+      .map((s) => s.id);
+    setEditingOperator({
+      id: op.id,
+      name: op.name,
+      email: op.email,
+      avatar: op.avatar || "",
+      groupId: op.groupId || accessGroups[0]?.id || "",
+      status: op.status || "disponivel",
       password: "",
-      groupId: accessGroups[0]?.id || ""
+      sectorIds: opSectorIds,
     });
-    setShowOpForm(false);
-    toast.success("Operador criado com sucesso!");
+    setShowEditPassword(false);
+  };
+
+  const handleSaveOperatorEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOperator) return;
+    if (!editingOperator.name.trim() || !editingOperator.email.trim() || !editingOperator.groupId) {
+      toast.error("Nome, e-mail e grupo de acesso são obrigatórios.");
+      return;
+    }
+
+    setIsSavingOperatorEdit(true);
+    try {
+      const cleanPassword = editingOperator.password.trim();
+      const res = await updateOperator(editingOperator.id, {
+        name: editingOperator.name.trim(),
+        email: editingOperator.email.trim().toLowerCase(),
+        avatar: editingOperator.avatar.trim() || undefined,
+        groupId: editingOperator.groupId,
+        status: editingOperator.status,
+        ...(cleanPassword ? { password: cleanPassword } : {}),
+      });
+
+      if (!res.success) return;
+
+      // Sincronizar vínculo com setores (pastas)
+      for (const sec of sectors) {
+        const currentlyIn = sec.operatorIds.includes(editingOperator.id);
+        const shouldBeIn = editingOperator.sectorIds.includes(sec.id);
+        if (shouldBeIn && !currentlyIn) {
+          updateSector(sec.id, { operatorIds: [...sec.operatorIds, editingOperator.id] });
+        } else if (!shouldBeIn && currentlyIn) {
+          updateSector(sec.id, {
+            operatorIds: sec.operatorIds.filter((id) => id !== editingOperator.id),
+          });
+        }
+      }
+
+      toast.success(
+        cleanPassword
+          ? `Dados e senha de "${editingOperator.name.trim()}" atualizados com sucesso!`
+          : `Operador "${editingOperator.name.trim()}" atualizado com sucesso!`,
+      );
+      setEditingOperator(null);
+    } finally {
+      setIsSavingOperatorEdit(false);
+    }
+  };
+
+  const handleQuickGroupChange = async (op: Operator, newGroupId: string) => {
+    if (!newGroupId || newGroupId === op.groupId) return;
+    const targetGroup = accessGroups.find((g) => g.id === newGroupId);
+    const res = await updateOperator(op.id, { groupId: newGroupId });
+    if (res.success) {
+      toast.success(`Grupo de "${op.name}" alterado para "${targetGroup?.name || newGroupId}"!`);
+    }
   };
 
   const handleCreateGroup = (e: React.FormEvent) => {
@@ -759,16 +883,26 @@ export function GroupsView() {
       canOverrideChat: false,
     });
     setShowGroupForm(false);
-    toast.success("Grupo de acesso criado com sucesso!");
   };
 
-  const handleResetPassword = (e: React.FormEvent) => {
+  const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resetOpId || !newPassword) return;
-    resetOperatorPassword(resetOpId, newPassword);
-    setResetOpId(null);
-    setNewPassword("");
-    toast.success("Senha redefinida com sucesso!");
+    if (!resetOpId || !newPassword.trim()) {
+      toast.error("Informe uma nova senha para o operador.");
+      return;
+    }
+    setIsResettingPassword(true);
+    try {
+      const res = await resetOperatorPassword(resetOpId, newPassword.trim());
+      if (res.success) {
+        const opName = operators.find((o) => o.id === resetOpId)?.name || "Operador";
+        setResetOpId(null);
+        setNewPassword("");
+        toast.success(`Senha de "${opName}" redefinida com sucesso!`);
+      }
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   const handleCreateSector = (e: React.FormEvent) => {
@@ -1009,160 +1143,64 @@ export function GroupsView() {
       {/* Tab Contents */}
       {activeTab === "users" ? (
         /* USERS / OPERATORS TAB */
-        <div className="space-y-6">
-          {/* Header Action */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-extrabold text-foreground">Operadores Cadastrados</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Gerenciamento de contas e credenciais dos atendentes.</p>
-            </div>
-            <button
-              onClick={() => setShowOpForm(!showOpForm)}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer transition-transform duration-150 active:scale-95"
-            >
-              <UserPlus className="h-4 w-4" />
-              {showOpForm ? "Fechar Cadastro" : "Adicionar Operador"}
-            </button>
-          </div>
+        (() => {
+          const searchNormalized = operatorSearch.trim().toLowerCase();
+          const getOperatorSectors = (opId: string) =>
+            sectors.filter((sec) => sec.operatorIds.includes(opId));
 
-          {/* New Operator Form */}
-          {showOpForm && (
-            <form onSubmit={handleCreateOperator} className="p-5 rounded-2xl bg-card border border-border shadow-soft grid grid-cols-1 md:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-3 duration-200">
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">Nome Completo</label>
-                <input
-                  type="text"
-                  required
-                  value={opForm.name}
-                  onChange={(e) => setOpForm({ ...opForm, name: e.target.value })}
-                  placeholder="Ex: Carlos Santos"
-                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">E-mail Corporativo</label>
-                <input
-                  type="email"
-                  required
-                  value={opForm.email}
-                  onChange={(e) => setOpForm({ ...opForm, email: e.target.value })}
-                  placeholder="carlos@empresa.com"
-                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">Senha Inicial</label>
-                <input
-                  type="password"
-                  required
-                  value={opForm.password}
-                  onChange={(e) => setOpForm({ ...opForm, password: e.target.value })}
-                  placeholder="******"
-                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent"
-                />
-              </div>
-              <div className="space-y-1 flex flex-col justify-between">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">Grupo de Acesso</label>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <Select
-                      value={opForm.groupId}
-                      onValueChange={(val) => setOpForm({ ...opForm, groupId: val })}
-                    >
-                      <SelectTrigger className="h-10 w-full rounded-xl bg-muted border-transparent text-xs text-foreground px-3.5 focus:ring-1 focus:ring-primary">
-                        <SelectValue placeholder="Selecione um grupo..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {accessGroups.map(g => (
-                          <SelectItem key={g.id} value={g.id} className="text-xs">
-                            {g.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="submit"
-                        className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0"
-                      >
-                        <Check className="h-5 w-5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Confirmar Cadastro</TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-            </form>
-          )}
+          const unassignedOperatorsCount = operators.filter(
+            (op) => getOperatorSectors(op.id).length === 0,
+          ).length;
 
-          {/* Password Reset Modal Panel */}
-          {resetOpId && (
-            <div className="p-5 rounded-2xl bg-card border-2 border-primary/20 bg-primary-soft/10 shadow-card animate-in zoom-in-95 duration-150">
-              <form onSubmit={handleResetPassword} className="flex flex-col md:flex-row items-end gap-4">
-                <div className="flex-1 space-y-1.5">
-                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-primary">
-                    Redefinir Senha do Operador: {operators.find(o => o.id === resetOpId)?.name}
-                  </h4>
-                  <div className="relative mt-1">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Insira a nova senha segura..."
-                      className="h-10 w-full rounded-xl bg-muted px-3.5 pr-10 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-transparent bg-card"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="h-10 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer"
-                  >
-                    Salvar Nova Senha
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setResetOpId(null);
-                      setNewPassword("");
-                    }}
-                    className="h-10 rounded-xl border border-border bg-card px-4 text-xs font-bold text-muted-foreground hover:bg-muted cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
+          const filteredOperators = operators.filter((op) => {
+            const opGroup = accessGroups.find((g) => g.id === op.groupId);
+            const opSectors = getOperatorSectors(op.id);
 
-          {/* Operators Grid/List */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {operators.map((op) => {
-              const group = accessGroups.find(g => g.id === op.groupId);
-              const isMe = op.id === currentOperatorId;
-              
-              return (
-                <div 
-                  key={op.id} 
-                  className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-card p-4 border transition-all duration-200 ${
-                    isMe ? "border-primary/40 shadow-soft bg-primary-soft/5" : "border-border shadow-xs hover:border-muted-foreground/30"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
+            if (operatorGroupFilter !== "all" && op.groupId !== operatorGroupFilter) {
+              return false;
+            }
+
+            if (selectedSectorFolder === "unassigned") {
+              if (opSectors.length > 0) return false;
+            } else if (selectedSectorFolder !== "all") {
+              if (!opSectors.some((s) => s.id === selectedSectorFolder)) return false;
+            }
+
+            if (searchNormalized) {
+              const matchName = op.name.toLowerCase().includes(searchNormalized);
+              const matchEmail = op.email.toLowerCase().includes(searchNormalized);
+              const matchGroup = (opGroup?.name || "").toLowerCase().includes(searchNormalized);
+              const matchSector = opSectors.some((s) =>
+                s.name.toLowerCase().includes(searchNormalized),
+              );
+              if (!matchName && !matchEmail && !matchGroup && !matchSector) {
+                return false;
+              }
+            }
+
+            return true;
+          });
+
+          const renderOperatorCard = (op: Operator) => {
+            const group = accessGroups.find((g) => g.id === op.groupId);
+            const opSectors = getOperatorSectors(op.id);
+            const isMe = op.id === currentOperatorId;
+
+            return (
+              <div
+                key={op.id}
+                className={`flex flex-col justify-between gap-3.5 rounded-2xl bg-card p-4 border transition-all duration-200 ${
+                  isMe
+                    ? "border-primary/40 shadow-soft bg-primary-soft/5"
+                    : "border-border shadow-xs hover:border-primary/30"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div 
-                          onClick={() => handleAvatarClick(op.id)} 
+                        <div
+                          onClick={() => handleAvatarClick(op.id)}
                           className="relative group cursor-pointer h-12 w-12 shrink-0 rounded-full overflow-hidden border border-border shadow-xs"
                         >
                           {op.avatar ? (
@@ -1174,7 +1212,9 @@ export function GroupsView() {
                                 (e.currentTarget as HTMLImageElement).style.display = "none";
                                 const parent = e.currentTarget.parentElement;
                                 if (parent) {
-                                  const fallback = parent.querySelector('[data-initials]') as HTMLElement;
+                                  const fallback = parent.querySelector(
+                                    "[data-initials]",
+                                  ) as HTMLElement;
                                   if (fallback) fallback.style.display = "flex";
                                 }
                               }}
@@ -1185,7 +1225,14 @@ export function GroupsView() {
                             style={{ display: op.avatar ? "none" : "flex" }}
                             className="absolute inset-0 items-center justify-center bg-primary/10 text-primary font-black text-sm select-none"
                           >
-                            {op.name.trim().split(/\s+/).map((w: string) => w[0]).filter(Boolean).join("").toUpperCase().slice(0, 2)}
+                            {op.name
+                              .trim()
+                              .split(/\s+/)
+                              .map((w: string) => w[0])
+                              .filter(Boolean)
+                              .join("")
+                              .toUpperCase()
+                              .slice(0, 2)}
                           </div>
                           <div className="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <Camera className="h-4 w-4 text-white animate-in zoom-in-75 duration-100" />
@@ -1194,47 +1241,118 @@ export function GroupsView() {
                       </TooltipTrigger>
                       <TooltipContent side="top">Alterar Foto do Operador</TooltipContent>
                     </Tooltip>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-sm text-foreground">{op.name}</span>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-sm text-foreground truncate">
+                          {op.name}
+                        </span>
                         {isMe && (
                           <span className="rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[8px] font-black uppercase text-primary tracking-wide">
                             Você / Ativo
                           </span>
                         )}
-                      </div>
-                      <span className="text-xs text-muted-foreground block">{op.email}</span>
-                      
-                      {/* Active Permissions Badges */}
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold text-foreground capitalize border border-border">
-                          Grupo: {group?.name || "Sem Grupo"}
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold border ${
+                            op.status === "disponivel"
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                              : op.status === "pausa"
+                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                : "bg-muted text-muted-foreground border-border"
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              op.status === "disponivel"
+                                ? "bg-emerald-500"
+                                : op.status === "pausa"
+                                  ? "bg-amber-500"
+                                  : "bg-muted-foreground"
+                            }`}
+                          />
+                          {op.status === "disponivel"
+                            ? "Disponível"
+                            : op.status === "pausa"
+                              ? "Em Pausa"
+                              : "Offline"}
                         </span>
-                        
-                        {/* Display channels allowed */}
-                        {group?.allowedChannels.map(c => (
-                          <span 
+                      </div>
+                      <span className="text-xs text-muted-foreground block truncate mt-0.5">
+                        {op.email}
+                      </span>
+
+                      {/* Pastas / Setores & Canais Permitidos */}
+                      <div className="flex flex-wrap items-center gap-1 mt-2">
+                        {opSectors.length > 0 ? (
+                          opSectors.map((sec) => (
+                            <button
+                              key={sec.id}
+                              type="button"
+                              onClick={() => setSelectedSectorFolder(sec.id)}
+                              className="inline-flex items-center gap-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 px-1.5 py-0.5 text-[9px] font-bold transition cursor-pointer"
+                              title={`Filtrar pela pasta do setor ${sec.name}`}
+                            >
+                              <Folder className="h-2.5 w-2.5 shrink-0" />
+                              {sec.name}
+                            </button>
+                          ))
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditOperator(op)}
+                            className="inline-flex items-center gap-1 rounded-md bg-muted hover:bg-muted/80 text-muted-foreground border border-border px-1.5 py-0.5 text-[9px] font-semibold transition cursor-pointer"
+                            title="Clique para vincular este operador a um setor"
+                          >
+                            <FolderPlus className="h-2.5 w-2.5 shrink-0" />
+                            Sem Setor
+                          </button>
+                        )}
+
+                        {group?.allowedChannels.map((c) => (
+                          <span
                             key={c}
-                            className={`rounded px-1.5 py-0.5 text-[9px] font-bold border ${
-                              c === "whatsapp" 
-                                ? "bg-emerald-50 text-emerald-600 border-emerald-100" 
-                                : c === "instagram" 
-                                ? "bg-purple-50 text-purple-600 border-purple-100"
-                                : "bg-blue-50 text-blue-600 border-blue-100"
+                            className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold border ${
+                              c === "whatsapp"
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                : c === "instagram"
+                                  ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                                  : c === "messenger"
+                                    ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                                    : "bg-primary/10 text-primary border-primary/20"
                             }`}
                           >
-                            {c === "whatsapp" ? "whats" : c}
+                            {c === "whatsapp"
+                              ? "whats"
+                              : c === "livechat"
+                                ? "site"
+                                : c}
                           </span>
                         ))}
                       </div>
                     </div>
                   </div>
 
-                  {/* Actions Buttons */}
-                  <div className="flex items-center gap-1.5 self-end sm:self-auto pt-2 sm:pt-0">
+                  {/* Botões de Ação */}
+                  <div className="flex items-center gap-1 shrink-0">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
+                          type="button"
+                          onClick={() => handleOpenEditOperator(op)}
+                          className="grid h-8 w-8 place-items-center rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition cursor-pointer"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        Editar Usuário (Nome, E-mail, Grupo, Setores e Senha)
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
                           onClick={() => {
                             setResetOpId(op.id);
                             setNewPassword("");
@@ -1245,29 +1363,760 @@ export function GroupsView() {
                           <Key className="h-4 w-4" />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Redefinir Senha</TooltipContent>
+                      <TooltipContent side="top">Redefinir Senha Rápida</TooltipContent>
                     </Tooltip>
-                    
-                    <button
-                      disabled={isMe}
-                      onClick={() => {
-                        if (!isMe) handleDeleteClick(op);
-                      }}
-                      className={`grid h-8 w-8 place-items-center rounded-lg transition ${
-                        isMe 
-                          ? "text-muted-foreground/30 cursor-not-allowed" 
-                          : "hover:bg-red-50 text-red-500 hover:text-red-600 cursor-pointer"
-                      }`}
-                      title={isMe ? "Você não pode se excluir" : "Excluir Atendente"}
-                    >
-                      <Trash className="h-4 w-4" />
-                    </button>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          disabled={isMe}
+                          onClick={() => {
+                            if (!isMe) handleDeleteClick(op);
+                          }}
+                          className={`grid h-8 w-8 place-items-center rounded-lg transition ${
+                            isMe
+                              ? "text-muted-foreground/30 cursor-not-allowed"
+                              : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive cursor-pointer"
+                          }`}
+                        >
+                          <Trash className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {isMe ? "Você não pode excluir sua própria conta" : "Excluir Operador"}
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+
+                {/* Rodapé do Card: Troca Direta de Grupo de Acesso + Atalho Editar */}
+                <div className="pt-2.5 border-t border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground shrink-0 flex items-center gap-1">
+                      <Shield className="h-3 w-3 text-primary" />
+                      Grupo:
+                    </span>
+                    <div className="flex-1 max-w-[230px]">
+                      <Select
+                        value={op.groupId || ""}
+                        onValueChange={(val) => void handleQuickGroupChange(op, val)}
+                      >
+                        <SelectTrigger className="h-7 w-full rounded-lg bg-muted/60 hover:bg-muted border border-border/70 text-[11px] font-bold text-foreground px-2.5 py-0 focus:ring-1 focus:ring-primary">
+                          <SelectValue placeholder="Selecionar grupo..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accessGroups.map((g) => (
+                            <SelectItem key={g.id} value={g.id} className="text-xs">
+                              {g.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditOperator(op)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer self-end sm:self-auto"
+                  >
+                    <Edit className="h-3 w-3" />
+                    Editar cadastro / senha
+                  </button>
+                </div>
+              </div>
+            );
+          };
+
+          return (
+            <div className="space-y-6">
+              {/* Header Action */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground">
+                    Operadores & Usuários Cadastrados
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Gerencie contas, credenciais, grupos de acesso e organize atendentes em pastas por setor.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("sectors")}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border bg-card hover:bg-muted px-3.5 text-xs font-bold text-foreground shadow-xs cursor-pointer transition"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5 text-primary" />
+                    Gerenciar Setores
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOpForm(!showOpForm)}
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer transition-transform duration-150 active:scale-95"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    {showOpForm ? "Fechar Cadastro" : "Adicionar Operador"}
+                  </button>
+                </div>
+              </div>
+
+              {/* New Operator Form */}
+              {showOpForm && (
+                <form
+                  onSubmit={handleCreateOperator}
+                  className="p-5 rounded-2xl bg-card border border-border shadow-soft space-y-4 animate-in fade-in slide-in-from-top-3 duration-200"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                        Nome Completo
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={opForm.name}
+                        onChange={(e) => setOpForm({ ...opForm, name: e.target.value })}
+                        placeholder="Ex: Carlos Santos"
+                        className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-border/60"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                        E-mail Corporativo
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={opForm.email}
+                        onChange={(e) => setOpForm({ ...opForm, email: e.target.value })}
+                        placeholder="carlos@empresa.com"
+                        className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-border/60"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                        Senha Inicial
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={opForm.password}
+                        onChange={(e) => setOpForm({ ...opForm, password: e.target.value })}
+                        placeholder="******"
+                        className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-border/60"
+                      />
+                    </div>
+                    <div className="space-y-1 flex flex-col justify-between">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                        Grupo de Acesso
+                      </label>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <Select
+                            value={opForm.groupId}
+                            onValueChange={(val) => setOpForm({ ...opForm, groupId: val })}
+                          >
+                            <SelectTrigger className="h-10 w-full rounded-xl bg-muted border-border/60 text-xs text-foreground px-3.5 focus:ring-1 focus:ring-primary">
+                              <SelectValue placeholder="Selecione um grupo..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {accessGroups.map((g) => (
+                                <SelectItem key={g.id} value={g.id} className="text-xs">
+                                  {g.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="submit"
+                              disabled={isCreatingOperator}
+                              className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-soft transition-transform active:scale-95 shrink-0 disabled:opacity-50"
+                            >
+                              {isCreatingOperator ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Check className="h-5 w-5" />
+                              )}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Confirmar Cadastro</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Seletor de Pastas / Setores já na criação */}
+                  {sectors.length > 0 && (
+                    <div className="pt-3 border-t border-border/60 space-y-2">
+                      <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                        <Folder className="h-3 w-3 text-primary" />
+                        Vincular às Pastas de Setores (Opcional):
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {sectors.map((sec) => {
+                          const selected = opForm.sectorIds.includes(sec.id);
+                          return (
+                            <button
+                              key={sec.id}
+                              type="button"
+                              onClick={() =>
+                                setOpForm((prev) => ({
+                                  ...prev,
+                                  sectorIds: selected
+                                    ? prev.sectorIds.filter((id) => id !== sec.id)
+                                    : [...prev.sectorIds, sec.id],
+                                }))
+                              }
+                              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border transition cursor-pointer ${
+                                selected
+                                  ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                                  : "bg-muted/60 text-muted-foreground border-border hover:text-foreground hover:bg-muted"
+                              }`}
+                            >
+                              {selected ? (
+                                <FolderOpen className="h-3.5 w-3.5" />
+                              ) : (
+                                <Folder className="h-3.5 w-3.5" />
+                              )}
+                              {sec.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </form>
+              )}
+
+              {/* Password Reset Inline Panel */}
+              {resetOpId && (
+                <div className="p-5 rounded-2xl bg-card border-2 border-primary/30 shadow-card animate-in zoom-in-95 duration-150">
+                  <form
+                    onSubmit={handleResetPassword}
+                    className="flex flex-col md:flex-row items-end gap-4"
+                  >
+                    <div className="flex-1 space-y-1.5 w-full">
+                      <h4 className="text-xs font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                        <Key className="h-3.5 w-3.5" />
+                        Redefinir Senha do Operador:{" "}
+                        {operators.find((o) => o.id === resetOpId)?.name}
+                      </h4>
+                      <div className="relative mt-1">
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          required
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Insira a nova senha segura..."
+                          className="h-10 w-full rounded-xl bg-muted px-3.5 pr-10 text-xs text-foreground outline-none focus:ring-1 focus:ring-primary border border-border"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={isResettingPassword}
+                        className="inline-flex items-center gap-2 h-10 rounded-xl bg-primary px-5 text-xs font-bold text-primary-foreground hover:opacity-90 shadow-soft cursor-pointer disabled:opacity-50"
+                      >
+                        {isResettingPassword && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                        Salvar Nova Senha
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResetOpId(null);
+                          setNewPassword("");
+                        }}
+                        className="h-10 rounded-xl border border-border bg-card px-4 text-xs font-bold text-muted-foreground hover:bg-muted cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Barra de Busca + Filtro de Grupo + Alternador de Visão (Pastas vs Grade) */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-2xl border border-border bg-muted/20 p-3.5">
+                {/* Search Input */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    value={operatorSearch}
+                    onChange={(e) => setOperatorSearch(e.target.value)}
+                    placeholder="Buscar operador por nome, e-mail, grupo de acesso ou setor..."
+                    className="h-10 w-full rounded-xl bg-card pl-10 pr-9 text-xs text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition"
+                  />
+                  {operatorSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setOperatorSearch("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                      title="Limpar busca"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filters & View Mode */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Filtro por Grupo de Acesso */}
+                  <div className="w-full sm:w-52">
+                    <Select
+                      value={operatorGroupFilter}
+                      onValueChange={(val) => setOperatorGroupFilter(val)}
+                    >
+                      <SelectTrigger className="h-10 w-full rounded-xl bg-card border border-border text-xs font-semibold text-foreground px-3.5">
+                        <SelectValue placeholder="Filtrar por grupo..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all" className="text-xs font-semibold">
+                          Todos os Grupos ({operators.length})
+                        </SelectItem>
+                        {accessGroups.map((g) => {
+                          const count = operators.filter((o) => o.groupId === g.id).length;
+                          return (
+                            <SelectItem key={g.id} value={g.id} className="text-xs">
+                              {g.name} ({count})
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Alternador: Visão em Pastas vs Grade */}
+                  <div className="inline-flex items-center rounded-xl border border-border bg-card p-1">
+                    <button
+                      type="button"
+                      onClick={() => setOperatorViewMode("folders")}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition cursor-pointer ${
+                        operatorViewMode === "folders"
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      title="Agrupar operadores dentro das pastas de cada Setor"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      Pastas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOperatorViewMode("grid")}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition cursor-pointer ${
+                        operatorViewMode === "grid"
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      title="Exibir operadores em grade contínua"
+                    >
+                      <LayoutGrid className="h-3.5 w-3.5" />
+                      Grade
+                    </button>
+                  </div>
+
+                  {(operatorSearch ||
+                    selectedSectorFolder !== "all" ||
+                    operatorGroupFilter !== "all") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOperatorSearch("");
+                        setSelectedSectorFolder("all");
+                        setOperatorGroupFilter("all");
+                      }}
+                      className="inline-flex items-center gap-1 h-10 rounded-xl border border-border bg-card hover:bg-muted px-3 text-xs font-bold text-muted-foreground hover:text-foreground transition cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Limpar Filtros
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Navegação de Pastas por Setor (Cada Setor criado na aba Setores = 1 Pasta) */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <FolderOpen className="h-3.5 w-3.5 text-primary" />
+                    Pastas por Setor ({sectors.length} setor{sectors.length === 1 ? "" : "es"})
+                  </span>
+                  <span className="text-[11px] text-muted-foreground font-semibold">
+                    Exibindo <strong className="text-foreground">{filteredOperators.length}</strong>{" "}
+                    de <strong className="text-foreground">{operators.length}</strong> operador(es)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                  {/* Pasta: Todos os Operadores */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSectorFolder("all")}
+                    className={`group flex flex-col justify-between rounded-2xl border p-3 text-left transition-all cursor-pointer ${
+                      selectedSectorFolder === "all"
+                        ? "border-primary bg-primary/10 text-foreground shadow-soft"
+                        : "border-border bg-card hover:border-primary/40 hover:bg-muted/30 text-muted-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div
+                        className={`grid h-8 w-8 place-items-center rounded-xl transition ${
+                          selectedSectorFolder === "all"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground group-hover:text-primary"
+                        }`}
+                      >
+                        {selectedSectorFolder === "all" ? (
+                          <FolderOpen className="h-4 w-4" />
+                        ) : (
+                          <Folder className="h-4 w-4" />
+                        )}
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                          selectedSectorFolder === "all"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-foreground"
+                        }`}
+                      >
+                        {operators.length}
+                      </span>
+                    </div>
+                    <div className="mt-2.5">
+                      <span className="text-xs font-extrabold text-foreground block truncate">
+                        Todos os Setores
+                      </span>
+                      <span className="text-[10px] text-muted-foreground block truncate">
+                        Visão completa
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Pastas Dinâmicas de cada Setor criado na aba Setores */}
+                  {sectors.map((sec) => {
+                    const isSelected = selectedSectorFolder === sec.id;
+                    const sectorOps = operators.filter((op) =>
+                      sec.operatorIds.includes(op.id),
+                    );
+                    return (
+                      <button
+                        key={sec.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedSectorFolder(isSelected ? "all" : sec.id)
+                        }
+                        className={`group flex flex-col justify-between rounded-2xl border p-3 text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? "border-primary bg-primary/10 text-foreground shadow-soft"
+                            : "border-border bg-card hover:border-primary/40 hover:bg-muted/30 text-muted-foreground"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div
+                            className={`grid h-8 w-8 place-items-center rounded-xl transition ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted text-muted-foreground group-hover:text-primary"
+                            }`}
+                          >
+                            {isSelected ? (
+                              <FolderOpen className="h-4 w-4" />
+                            ) : (
+                              <Folder className="h-4 w-4" />
+                            )}
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted text-foreground"
+                            }`}
+                          >
+                            {sectorOps.length}
+                          </span>
+                        </div>
+                        <div className="mt-2.5">
+                          <span
+                            className="text-xs font-extrabold text-foreground block truncate"
+                            title={sec.name}
+                          >
+                            {sec.name}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground block truncate">
+                            {sectorOps.length === 1
+                              ? "1 operador na pasta"
+                              : `${sectorOps.length} operadores`}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+
+                  {/* Pasta: Sem Setor */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedSectorFolder(
+                        selectedSectorFolder === "unassigned" ? "all" : "unassigned",
+                      )
+                    }
+                    className={`group flex flex-col justify-between rounded-2xl border p-3 text-left transition-all cursor-pointer ${
+                      selectedSectorFolder === "unassigned"
+                        ? "border-primary bg-primary/10 text-foreground shadow-soft"
+                        : "border-dashed border-border bg-card/70 hover:border-primary/40 hover:bg-muted/30 text-muted-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div
+                        className={`grid h-8 w-8 place-items-center rounded-xl transition ${
+                          selectedSectorFolder === "unassigned"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground group-hover:text-primary"
+                        }`}
+                      >
+                        <Folder className="h-4 w-4" />
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                          selectedSectorFolder === "unassigned"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-foreground"
+                        }`}
+                      >
+                        {unassignedOperatorsCount}
+                      </span>
+                    </div>
+                    <div className="mt-2.5">
+                      <span className="text-xs font-extrabold text-foreground block truncate">
+                        Sem Setor
+                      </span>
+                      <span className="text-[10px] text-muted-foreground block truncate">
+                        Não alocados
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Listagem de Operadores: Agrupada por Pastas de Setores ou em Grade */}
+              {filteredOperators.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center space-y-2">
+                  <Users className="h-10 w-10 text-muted-foreground/40 mx-auto" />
+                  <h4 className="text-sm font-bold text-foreground">
+                    Nenhum operador encontrado para os filtros aplicados
+                  </h4>
+                  <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                    Tente ajustar o termo de busca ou selecionar outra pasta de setor / grupo de acesso.
+                  </p>
+                </div>
+              ) : operatorViewMode === "folders" && selectedSectorFolder === "all" && sectors.length > 0 ? (
+                <div className="space-y-4">
+                  {sectors.map((sec) => {
+                    const opsInFolder = filteredOperators.filter((op) =>
+                      sec.operatorIds.includes(op.id),
+                    );
+                    if (opsInFolder.length === 0 && (operatorSearch || operatorGroupFilter !== "all")) {
+                      return null;
+                    }
+                    const isCollapsed = !!collapsedFolders[sec.id];
+                    return (
+                      <div
+                        key={sec.id}
+                        className="rounded-2xl border border-border bg-card/60 overflow-hidden shadow-xs"
+                      >
+                        <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-b border-border/60">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCollapsedFolders((prev) => ({
+                                ...prev,
+                                [sec.id]: !prev[sec.id],
+                              }))
+                            }
+                            className="flex items-center gap-2.5 text-left flex-1 cursor-pointer"
+                          >
+                            <div className="grid h-8 w-8 place-items-center rounded-xl bg-primary/10 text-primary border border-primary/20">
+                              {isCollapsed ? (
+                                <Folder className="h-4 w-4" />
+                              ) : (
+                                <FolderOpen className="h-4 w-4" />
+                              )}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-extrabold text-foreground">
+                                  {sec.name}
+                                </span>
+                                <span className="rounded-full bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 text-[10px] font-black">
+                                  {opsInFolder.length} operador(es)
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground block">
+                                Pasta do setor · Clique para {isCollapsed ? "expandir" : "recolher"}
+                              </span>
+                            </div>
+                          </button>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSectorId(sec.id);
+                                setActiveTab("sectors");
+                              }}
+                              className="text-[10px] font-bold text-primary hover:underline cursor-pointer px-2 py-1"
+                            >
+                              Gerenciar membros
+                            </button>
+                            <ChevronDown
+                              onClick={() =>
+                                setCollapsedFolders((prev) => ({
+                                  ...prev,
+                                  [sec.id]: !prev[sec.id],
+                                }))
+                              }
+                              className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${
+                                isCollapsed ? "-rotate-90" : ""
+                              }`}
+                            />
+                          </div>
+                        </div>
+
+                        {!isCollapsed && (
+                          <div className="p-4">
+                            {opsInFolder.length > 0 ? (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {opsInFolder.map((op) => renderOperatorCard(op))}
+                              </div>
+                            ) : (
+                              <div className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                                Nenhum operador vinculado a esta pasta ainda.{" "}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedSectorId(sec.id);
+                                    setActiveTab("sectors");
+                                  }}
+                                  className="font-bold text-primary hover:underline cursor-pointer ml-1"
+                                >
+                                  Adicionar membros
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Pasta Sem Setor na visão de pastas */}
+                  {(() => {
+                    const unassignedFiltered = filteredOperators.filter(
+                      (op) => getOperatorSectors(op.id).length === 0,
+                    );
+                    if (unassignedFiltered.length === 0) return null;
+                    const isCollapsed = !!collapsedFolders["__unassigned__"];
+                    return (
+                      <div className="rounded-2xl border border-dashed border-border bg-card/40 overflow-hidden">
+                        <div className="flex items-center justify-between px-4 py-3 bg-muted/20 border-b border-border/60">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCollapsedFolders((prev) => ({
+                                ...prev,
+                                __unassigned__: !prev["__unassigned__"],
+                              }))
+                            }
+                            className="flex items-center gap-2.5 text-left flex-1 cursor-pointer"
+                          >
+                            <div className="grid h-8 w-8 place-items-center rounded-xl bg-muted text-muted-foreground border border-border">
+                              <Folder className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-extrabold text-foreground">
+                                  Sem Setor Vinculado
+                                </span>
+                                <span className="rounded-full bg-muted text-foreground border border-border px-2 py-0.5 text-[10px] font-black">
+                                  {unassignedFiltered.length} operador(es)
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground block">
+                                Operadores que ainda não foram alocados em uma pasta de setor
+                              </span>
+                            </div>
+                          </button>
+                          <ChevronDown
+                            onClick={() =>
+                              setCollapsedFolders((prev) => ({
+                                ...prev,
+                                __unassigned__: !prev["__unassigned__"],
+                              }))
+                            }
+                            className={`h-4 w-4 text-muted-foreground cursor-pointer transition-transform ${
+                              isCollapsed ? "-rotate-90" : ""
+                            }`}
+                          />
+                        </div>
+                        {!isCollapsed && (
+                          <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {unassignedFiltered.map((op) => renderOperatorCard(op))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {selectedSectorFolder !== "all" && (
+                    <div className="flex items-center justify-between rounded-2xl border border-primary/25 bg-primary/5 px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <FolderOpen className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-extrabold text-foreground">
+                          Pasta ativa:{" "}
+                          {selectedSectorFolder === "unassigned"
+                            ? "Sem Setor Vinculado"
+                            : sectors.find((s) => s.id === selectedSectorFolder)?.name || "Setor"}
+                        </span>
+                        <span className="rounded-full bg-primary/15 text-primary px-2 py-0.5 text-[10px] font-black">
+                          {filteredOperators.length} operador(es)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSectorFolder("all")}
+                        className="text-xs font-bold text-primary hover:underline cursor-pointer"
+                      >
+                        Ver todas as pastas
+                      </button>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filteredOperators.map((op) => renderOperatorCard(op))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()
       ) : activeTab === "groups" ? (
         /* ACCESS GROUPS TAB */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1405,7 +2254,7 @@ export function GroupsView() {
                           setSelectedGroupId("group-admin");
                           toast.success("Grupo de acesso excluído.");
                         }}
-                        className="h-7 w-7 grid place-items-center rounded hover:bg-red-50 text-red-500 transition cursor-pointer"
+                        className="h-7 w-7 grid place-items-center rounded hover:bg-destructive/15 text-destructive transition cursor-pointer"
                       >
                         <Trash className="h-3.5 w-3.5" />
                       </button>
@@ -1518,7 +2367,7 @@ export function GroupsView() {
                         <p className="text-[11px] text-muted-foreground">
                           Habilite ou desabilite canais de atendimento. O operador não verá chats dos canais não autorizados.
                         </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                           {/* WhatsApp */}
                           <div 
                             onClick={() => {
@@ -1530,8 +2379,8 @@ export function GroupsView() {
                             }}
                             className={`rounded-xl p-3 border transition cursor-pointer flex items-center gap-3 ${
                               selectedGroupObj.allowedChannels.includes("whatsapp")
-                                ? "border-emerald-500 bg-emerald-50/10 text-emerald-600 font-bold"
-                                : "border-border bg-card text-muted-foreground opacity-60"
+                                ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-500 font-bold"
+                                : "border-border bg-card text-muted-foreground opacity-60 hover:opacity-100"
                             }`}
                           >
                             <Smartphone className="h-4 w-4 shrink-0" />
@@ -1552,8 +2401,8 @@ export function GroupsView() {
                             }}
                             className={`rounded-xl p-3 border transition cursor-pointer flex items-center gap-3 ${
                               selectedGroupObj.allowedChannels.includes("instagram")
-                                ? "border-purple-500 bg-purple-50/10 text-purple-600 font-bold"
-                                : "border-border bg-card text-muted-foreground opacity-60"
+                                ? "border-purple-500/60 bg-purple-500/10 text-purple-500 font-bold"
+                                : "border-border bg-card text-muted-foreground opacity-60 hover:opacity-100"
                             }`}
                           >
                             <Instagram className="h-4 w-4 shrink-0" />
@@ -1574,8 +2423,8 @@ export function GroupsView() {
                             }}
                             className={`rounded-xl p-3 border transition cursor-pointer flex items-center gap-3 ${
                               selectedGroupObj.allowedChannels.includes("messenger")
-                                ? "border-blue-500 bg-blue-50/10 text-blue-600 font-bold"
-                                : "border-border bg-card text-muted-foreground opacity-60"
+                                ? "border-blue-500/60 bg-blue-500/10 text-blue-500 font-bold"
+                                : "border-border bg-card text-muted-foreground opacity-60 hover:opacity-100"
                             }`}
                           >
                             <Send className="h-4 w-4 shrink-0" />
@@ -1584,12 +2433,29 @@ export function GroupsView() {
                               <span className="text-[9px] text-muted-foreground block font-normal">Facebook Mensagens</span>
                             </div>
                           </div>
-                          <button type="button" onClick={() => {
-                            const channels = selectedGroupObj.allowedChannels;
-                            updateGroupPermission(selectedGroupId, "allowedChannels", channels.includes("livechat") ? channels.filter(c => c !== "livechat") : [...channels, "livechat"]);
-                          }} className={`rounded-xl p-3 border text-left text-xs font-bold ${selectedGroupObj.allowedChannels.includes("livechat") ? "border-primary bg-primary/10" : "border-border text-muted-foreground"}`}>
-                            Site / Live Chat
-                          </button>
+
+                          {/* Site / Live Chat */}
+                          <div
+                            onClick={() => {
+                              const channels = selectedGroupObj.allowedChannels;
+                              updateGroupPermission(
+                                selectedGroupId,
+                                "allowedChannels",
+                                channels.includes("livechat") ? channels.filter(c => c !== "livechat") : [...channels, "livechat"],
+                              );
+                            }}
+                            className={`rounded-xl p-3 border transition cursor-pointer flex items-center gap-3 ${
+                              selectedGroupObj.allowedChannels.includes("livechat")
+                                ? "border-primary/60 bg-primary/10 text-primary font-bold"
+                                : "border-border bg-card text-muted-foreground opacity-60 hover:opacity-100"
+                            }`}
+                          >
+                            <Globe className="h-4 w-4 shrink-0" />
+                            <div>
+                              <span className="text-xs font-bold block text-foreground">Site / Live Chat</span>
+                              <span className="text-[9px] text-muted-foreground block font-normal">Widget na Loja</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -1731,17 +2597,17 @@ export function GroupsView() {
                           const isAdminOnly = key === "canOverrideChat";
                           return (
                             <label key={key} className={`flex items-start gap-3 rounded-xl border p-3 transition cursor-pointer ${
-                              isAdminOnly ? "border-red-200 bg-red-50/20 hover:bg-red-50/40" : "border-border bg-muted/20 hover:bg-muted/30"
+                              isAdminOnly ? "border-destructive/30 bg-destructive/10 hover:bg-destructive/15" : "border-border bg-muted/20 hover:bg-muted/30"
                             }`}>
                               <Checkbox
                                 checked={isChecked}
                                 onCheckedChange={(checked) => updateGroupGranular(selectedGroupId, "chat", key, !!checked)}
-                                className={`shrink-0 mt-0.5 ${isAdminOnly ? "border-red-400 data-[state=checked]:bg-red-500 data-[state=checked]:text-white" : ""}`}
+                                className={`shrink-0 mt-0.5 ${isAdminOnly ? "border-destructive data-[state=checked]:bg-destructive data-[state=checked]:text-destructive-foreground" : ""}`}
                               />
                               <div>
                                 <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                                   {label}
-                                  {isAdminOnly && <span className="text-[9px] font-bold text-red-500 bg-red-100 px-1 py-0.2 rounded">Crítico</span>}
+                                  {isAdminOnly && <span className="text-[9px] font-bold text-destructive bg-destructive/15 border border-destructive/20 px-1.5 py-0.5 rounded">Crítico</span>}
                                 </span>
                                 <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
                               </div>
@@ -2083,7 +2949,7 @@ export function GroupsView() {
                           const isCost = key === "canAccessCosts";
                           return (
                             <label key={key} className={`flex items-start gap-3 rounded-xl border p-3 transition cursor-pointer ${
-                              isCost ? "border-amber-200 bg-amber-50/20 hover:bg-amber-50/40" : "border-border bg-muted/20 hover:bg-muted/30"
+                              isCost ? "border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15" : "border-border bg-muted/20 hover:bg-muted/30"
                             }`}>
                               <Checkbox
                                 checked={isChecked}
@@ -2093,7 +2959,7 @@ export function GroupsView() {
                               <div>
                                 <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                                   {label}
-                                  {isCost && <span className="text-[9px] font-bold text-amber-600 bg-amber-100 px-1 py-0.2 rounded">Financeiro</span>}
+                                  {isCost && <span className="text-[9px] font-bold text-amber-500 bg-amber-500/15 border border-amber-500/20 px-1.5 py-0.5 rounded">Financeiro</span>}
                                 </span>
                                 <span className="text-[10px] text-muted-foreground block leading-snug">{desc}</span>
                               </div>
@@ -2328,7 +3194,7 @@ export function GroupsView() {
                             deleteSector(s.id);
                             setSelectedSectorId(sectors.find(sec => sec.id !== s.id)?.id || "");
                           }}
-                          className="h-7 w-7 grid place-items-center rounded hover:bg-red-50 text-red-500 transition cursor-pointer"
+                          className="h-7 w-7 grid place-items-center rounded hover:bg-destructive/15 text-destructive transition cursor-pointer"
                         >
                           <Trash className="h-3.5 w-3.5" />
                         </button>
@@ -2362,44 +3228,78 @@ export function GroupsView() {
                 </header>
 
                 <div className="space-y-4">
-                  <div className="flex items-center gap-1.5">
-                    <Users className="h-4 w-4 text-primary" />
-                    <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Membros do Setor</h5>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <Users className="h-4 w-4 text-primary" />
+                        <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Membros do Setor</h5>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Selecione quais operadores realizam atendimentos neste setor. Eles aparecerão na pasta deste setor e no fluxo de transferência.
+                      </p>
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Buscar operador no setor..."
+                        value={sectorMemberSearch}
+                        onChange={(e) => setSectorMemberSearch(e.target.value)}
+                        className="h-9 w-full rounded-xl bg-muted/60 pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground outline-none border border-border focus:border-primary focus:bg-card transition"
+                      />
+                      {sectorMemberSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setSectorMemberSearch("")}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Selecione quais operadores realizam atendimentos neste setor. Eles aparecerão no fluxo de transferência.
-                  </p>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {operators.map((op) => {
-                      const isMember = selectedSectorObj.operatorIds.includes(op.id);
-                      const group = accessGroups.find(g => g.id === op.groupId);
-                      
-                      return (
-                        <label
-                          key={op.id}
-                          className={`flex items-center gap-3 rounded-xl border p-3 hover:bg-muted/30 transition cursor-pointer ${
-                            isMember ? "border-primary bg-primary-soft/5" : "border-border bg-card"
-                          }`}
-                        >
-                          <Checkbox
-                            checked={isMember}
-                            onCheckedChange={(checked) => {
-                              const isChecked = !!checked;
-                              const newOperatorIds = isChecked
-                                ? [...selectedSectorObj.operatorIds, op.id]
-                                : selectedSectorObj.operatorIds.filter(id => id !== op.id);
-                              updateSector(selectedSectorObj.id, { operatorIds: newOperatorIds });
-                            }}
-                          />
-                          <img src={op.avatar} alt={op.name} className="h-8 w-8 rounded-full object-cover shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <span className="text-xs font-bold block text-foreground truncate">{op.name}</span>
-                            <span className="text-[10px] text-muted-foreground block truncate">{group?.name || "Sem Grupo"}</span>
-                          </div>
-                        </label>
-                      );
-                    })}
+                    {operators
+                      .filter((op) => {
+                        const q = sectorMemberSearch.toLowerCase().trim();
+                        if (!q) return true;
+                        const group = accessGroups.find(g => g.id === op.groupId);
+                        return (
+                          op.name.toLowerCase().includes(q) ||
+                          op.email.toLowerCase().includes(q) ||
+                          (group?.name || "").toLowerCase().includes(q)
+                        );
+                      })
+                      .map((op) => {
+                        const isMember = selectedSectorObj.operatorIds.includes(op.id);
+                        const group = accessGroups.find(g => g.id === op.groupId);
+                        
+                        return (
+                          <label
+                            key={op.id}
+                            className={`flex items-center gap-3 rounded-xl border p-3 hover:bg-muted/30 transition cursor-pointer ${
+                              isMember ? "border-primary bg-primary/10" : "border-border bg-card"
+                            }`}
+                          >
+                            <Checkbox
+                              checked={isMember}
+                              onCheckedChange={(checked) => {
+                                const isChecked = !!checked;
+                                const newOperatorIds = isChecked
+                                  ? [...selectedSectorObj.operatorIds, op.id]
+                                  : selectedSectorObj.operatorIds.filter(id => id !== op.id);
+                                updateSector(selectedSectorObj.id, { operatorIds: newOperatorIds });
+                              }}
+                            />
+                            <img src={op.avatar} alt={op.name} className="h-8 w-8 rounded-full object-cover shrink-0 border border-border" />
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold block text-foreground truncate">{op.name}</span>
+                              <span className="text-[10px] text-muted-foreground block truncate">{group?.name || "Sem Grupo"}</span>
+                            </div>
+                          </label>
+                        );
+                      })}
                   </div>
                 </div>
               </>
@@ -2415,18 +3315,45 @@ export function GroupsView() {
       ) : activeTab === "wallets" ? (
         /* TAB CARTEIRAS GLOBAIS */
         <div className="space-y-6">
-          <div>
-            <h3 className="text-base font-extrabold text-foreground">Carteirização Global</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Gerencie os clientes associados à carteira de cada vendedor.</p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-extrabold text-foreground">Carteirização Global</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Gerencie os clientes associados à carteira de cada vendedor.</p>
+            </div>
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar vendedor por nome ou e-mail..."
+                value={walletOperatorSearch}
+                onChange={(e) => setWalletOperatorSearch(e.target.value)}
+                className="h-10 w-full rounded-xl bg-card pl-9 pr-8 text-xs text-foreground placeholder:text-muted-foreground outline-none border border-border focus:border-primary transition shadow-2xs"
+              />
+              {walletOperatorSearch && (
+                <button
+                  type="button"
+                  onClick={() => setWalletOperatorSearch("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {operators.map((op) => (
-              <OperatorWalletCard
-                key={op.id}
-                op={op}
-              />
-            ))}
+            {operators
+              .filter((op) => {
+                const q = walletOperatorSearch.toLowerCase().trim();
+                if (!q) return true;
+                return op.name.toLowerCase().includes(q) || op.email.toLowerCase().includes(q);
+              })
+              .map((op) => (
+                <OperatorWalletCard
+                  key={op.id}
+                  op={op}
+                />
+              ))}
           </div>
         </div>
       ) : canManageGlobalTemplates ? (
@@ -2603,7 +3530,271 @@ export function GroupsView() {
           </div>
         </div>
       )}
-      {/* Modal de Confirmação de Exclusão de Operador */}
+
+      {/* Modal Completo de Edição de Operador / Usuário */}
+      {editingOperator && createPortal(
+        <div
+          className="fixed inset-0 z-[9998] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(6px)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isSavingOperatorEdit) {
+              setEditingOperator(null);
+            }
+          }}
+        >
+          <div className="relative w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden bg-card border border-border text-foreground animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
+            {/* Cabeçalho */}
+            <div className="flex items-center gap-3.5 px-6 pt-5 pb-4 border-b border-border bg-muted/20 shrink-0">
+              <div className="relative shrink-0">
+                <img
+                  src={editingOperator.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(editingOperator.name || "OP")}`}
+                  alt={editingOperator.name}
+                  className="h-12 w-12 rounded-full object-cover border-2 border-primary/30 bg-muted"
+                />
+                <span
+                  className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full ring-2 ring-card ${
+                    editingOperator.status === "disponivel"
+                      ? "bg-emerald-500"
+                      : editingOperator.status === "pausa"
+                        ? "bg-amber-500"
+                        : "bg-muted-foreground"
+                  }`}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary px-2 py-0.5 rounded-md border border-primary/20">
+                    Editar Usuário
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono truncate">
+                    ID: {editingOperator.id}
+                  </span>
+                </div>
+                <h3 className="text-base font-extrabold text-foreground truncate mt-0.5">
+                  {editingOperator.name || "Operador"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={isSavingOperatorEdit}
+                onClick={() => setEditingOperator(null)}
+                className="h-8 w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Formulário de Edição */}
+            <form onSubmit={handleSaveOperatorEdit} className="flex flex-col flex-1 overflow-hidden">
+              <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Nome */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                      Nome Completo
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editingOperator.name}
+                      onChange={(e) => setEditingOperator({ ...editingOperator, name: e.target.value })}
+                      placeholder="Ex: Maria Oliveira"
+                      className="h-10 w-full rounded-xl bg-muted/60 px-3.5 text-xs text-foreground placeholder:text-muted-foreground outline-none border border-border focus:border-primary focus:bg-card transition"
+                    />
+                  </div>
+
+                  {/* E-mail */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                      E-mail de Login
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={editingOperator.email}
+                      onChange={(e) => setEditingOperator({ ...editingOperator, email: e.target.value })}
+                      placeholder="maria@empresa.com.br"
+                      className="h-10 w-full rounded-xl bg-muted/60 px-3.5 text-xs text-foreground placeholder:text-muted-foreground outline-none border border-border focus:border-primary focus:bg-card transition"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Grupo de Acesso */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider flex items-center gap-1">
+                      <Shield className="h-3 w-3 text-primary" />
+                      Grupo de Acesso (RBAC)
+                    </label>
+                    <Select
+                      value={editingOperator.groupId}
+                      onValueChange={(val) => setEditingOperator({ ...editingOperator, groupId: val })}
+                    >
+                      <SelectTrigger className="h-10 w-full rounded-xl bg-muted/60 px-3.5 text-xs font-bold text-foreground border border-border focus:ring-1 focus:ring-primary">
+                        <SelectValue placeholder="Selecione o Grupo" />
+                      </SelectTrigger>
+                      <SelectContent className="z-[10000]">
+                        {accessGroups.map((g) => (
+                          <SelectItem key={g.id} value={g.id} className="text-xs">
+                            {g.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Status Operacional */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                      Status Operacional
+                    </label>
+                    <Select
+                      value={editingOperator.status}
+                      onValueChange={(val: Operator["status"]) =>
+                        setEditingOperator({ ...editingOperator, status: val })
+                      }
+                    >
+                      <SelectTrigger className="h-10 w-full rounded-xl bg-muted/60 px-3.5 text-xs font-bold text-foreground border border-border focus:ring-1 focus:ring-primary">
+                        <SelectValue placeholder="Selecione o status" />
+                      </SelectTrigger>
+                      <SelectContent className="z-[10000]">
+                        <SelectItem value="disponivel" className="text-xs">Online (Disponível)</SelectItem>
+                        <SelectItem value="pausa" className="text-xs">Pausado (Ausente)</SelectItem>
+                        <SelectItem value="desconectado" className="text-xs">Offline (Desconectado)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Pastas / Setores de Atendimento */}
+                <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-extrabold uppercase text-foreground tracking-wider flex items-center gap-1.5">
+                      <Folder className="h-3.5 w-3.5 text-primary" />
+                      Pastas de Setores Vinculadas
+                    </label>
+                    <span className="text-[10px] font-semibold text-muted-foreground">
+                      {editingOperator.sectorIds.length} selecionado(s)
+                    </span>
+                  </div>
+                  {sectors.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {sectors.map((sec) => {
+                        const isSelected = editingOperator.sectorIds.includes(sec.id);
+                        return (
+                          <button
+                            key={sec.id}
+                            type="button"
+                            onClick={() => {
+                              setEditingOperator({
+                                ...editingOperator,
+                                sectorIds: isSelected
+                                  ? editingOperator.sectorIds.filter((id) => id !== sec.id)
+                                  : [...editingOperator.sectorIds, sec.id],
+                              });
+                            }}
+                            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border transition cursor-pointer ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                                : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+                            }`}
+                          >
+                            {isSelected ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
+                            <span>{sec.name}</span>
+                            {isSelected && <Check className="h-3 w-3 ml-0.5" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      Nenhum setor criado. Crie setores na aba Setores para organizá-los em pastas.
+                    </p>
+                  )}
+                </div>
+
+                {/* Alterar Senha Direto na Edição */}
+                <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-extrabold uppercase text-foreground tracking-wider flex items-center gap-1.5">
+                      <KeyRound className="h-3.5 w-3.5 text-primary" />
+                      Alterar Senha de Acesso (Opcional)
+                    </label>
+                    <span className="text-[10px] text-muted-foreground">
+                      Deixe em branco para manter a atual
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showEditPassword ? "text" : "password"}
+                      value={editingOperator.password}
+                      onChange={(e) => setEditingOperator({ ...editingOperator, password: e.target.value })}
+                      placeholder="Digite a nova senha (mín. 4 caracteres)..."
+                      autoComplete="new-password"
+                      className="h-10 w-full rounded-xl bg-card px-3.5 pr-9 text-xs text-foreground placeholder:text-muted-foreground outline-none border border-border focus:border-primary transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditPassword(!showEditPassword)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      {showEditPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Ao definir uma nova senha, a credencial do usuário e a conta multiempresa vinculada são atualizadas imediatamente.
+                  </p>
+                </div>
+
+                {/* URL da Foto / Avatar (Opcional) */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider block">
+                    URL da Foto de Perfil (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editingOperator.avatar}
+                    onChange={(e) => setEditingOperator({ ...editingOperator, avatar: e.target.value })}
+                    placeholder="https://..."
+                    className="h-9 w-full rounded-xl bg-muted/60 px-3.5 text-xs text-foreground placeholder:text-muted-foreground outline-none border border-border focus:border-primary focus:bg-card transition"
+                  />
+                </div>
+              </div>
+
+              {/* Rodapé */}
+              <div className="flex items-center justify-end gap-3 px-6 py-4 bg-muted/20 border-t border-border shrink-0">
+                <button
+                  type="button"
+                  disabled={isSavingOperatorEdit}
+                  onClick={() => setEditingOperator(null)}
+                  className="h-10 rounded-xl px-4 text-xs font-bold border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingOperatorEdit}
+                  className="inline-flex items-center gap-2 h-10 rounded-xl px-5 text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 shadow-soft transition cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingOperatorEdit ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      <span>Salvar Alterações</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* Modal de Confirmação de Exclusão de Operador com Transferência de Custódia (Opção A) */}
       {deleteConfirm && createPortal(
         <div

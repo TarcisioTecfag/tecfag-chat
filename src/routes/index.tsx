@@ -203,6 +203,18 @@ export function Index() {
     tenant,
   ]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (tenant === "tecfag") {
+      root.style.setProperty("--primary", "#df3d3d");
+      root.style.setProperty("--primary-soft", "rgba(223, 61, 61, 0.15)");
+    } else {
+      root.style.setProperty("--primary", "#2dc4a0");
+      root.style.setProperty("--primary-soft", "rgba(45, 196, 160, 0.15)");
+    }
+  }, [tenant]);
+
   if (!isMounted || isRestoringSession) {
     return <div className="fixed inset-0 flex h-full w-full items-center justify-center bg-background text-primary"><Loader2 className="h-7 w-7 animate-spin" aria-label="Abrindo atendimento" /></div>;
   }
