@@ -341,6 +341,7 @@ import {
   Shield, 
   Users, 
   Key, 
+  KeyRound,
   Trash, 
   Plus, 
   Check, 

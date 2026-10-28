@@ -201,7 +201,7 @@ export function MetaTemplateSelectModal({
           </div>
         </div>
 
-        {mode === "inline" && (
+        {inline && (
           <button
             type="button"
             onClick={handleClose}
