@@ -20,14 +20,15 @@ export function TrainingNavigation() {
     if (chat.isProfileModalOpen !== profile) chat.setIsProfileModalOpen(profile);
     if (view === "chat") {
       const assistant = step.surface === "chat.assistant" || ["chat.message-source", "chat.message-source-states"].includes(step.id);
-      const selected = assistant ? "valentina" : step.id === "chat.capture" ? "demo:conv-2" : step.id === "chat.other-owner" ? "demo:conv-3" : config.store.conversations[0].id;
-      if (chat.selectedChatId !== selected) chat.setSelectedChatId(selected);
-      const queue = step.id === "chat.queue-all" ? "todos" : step.id === "chat.queue-waiting" || step.id === "chat.capture" ? "fila" : step.id === "chat.queue-bot" ? "automacao" : step.id === "chat.queue-closed" ? "finalizados" : "meus";
+      const queue = step.id === "chat.queue-all" || step.id === "chat.other-owner" ? "todos" : step.id === "chat.queue-waiting" || step.id === "chat.capture" ? "fila" : step.id === "chat.queue-bot" ? "automacao" : step.id === "chat.queue-closed" || step.id === "chat.reopen" ? "finalizados" : "meus";
+      const selected = step.id === "profile.mobile" ? null : assistant ? "valentina" : step.id === "chat.other-owner" ? "demo:conv-3" : queue === "fila" ? "demo:conv-2" : queue === "automacao" ? "demo:conv-4" : queue === "finalizados" ? "demo:conv-5" : config.store.conversations[0].id;
       if (chat.activeQueue !== queue) chat.setActiveQueue(queue);
+      if (chat.selectedChatId !== selected) chat.setSelectedChatId(selected);
       const details = step.surface === "chat.details-panel" || step.surface === "chat.journey-modal";
       if (chat.rightSidebarOpen !== details) chat.setRightSidebarOpen(details);
+      if (chat.activeQueue !== queue || chat.selectedChatId !== selected || chat.rightSidebarOpen !== details) return false;
     }
-    return chat.activeView === view && chat.isProfileModalOpen === profile && (location.pathname === path || (view === "chat" && location.pathname.startsWith("/chat/")));
+    return chat.activeView === view && chat.isProfileModalOpen === profile && (location.pathname === path || (view === "chat" && (location.pathname === "/chat" || location.pathname.startsWith("/chat/"))));
   });
   return null;
 }

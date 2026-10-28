@@ -29,6 +29,7 @@ import {
   Lock,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 
 // Ícone SVG do WhatsApp
 function WhatsAppIcon({ className = "h-4 w-4" }: { className?: string }) {
@@ -224,6 +225,12 @@ export function CreateTaskModal({
     setSelectedAccountName(deal.account?.name || "");
     setIsDealOpen(false);
   };
+
+  useTrainingSurface("tasks.create-modal", (step) => {
+    if (!isOpen) return false;
+    setIsDealOpen(step.id === "tasks.new-context");
+    return true;
+  });
 
   // Toggle responsável (multi-seleção com checkboxes)
   const toggleOperator = (opId: string) => {

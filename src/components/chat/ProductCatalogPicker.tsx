@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 
 export interface CatalogImageItem {
   id: string;
@@ -122,6 +123,14 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
   useEffect(() => {
     fetchCatalogImages(false);
   }, [tenantId]);
+
+  useTrainingSurface("chat.catalog-picker", (step) => {
+    if (isLoading) return false;
+    if (step.id === "chat.catalog-attach" && images[0] && !selectedIds.has(images[0].id)) {
+      setSelectedIds(new Set([images[0].id]));
+    }
+    return true;
+  });
 
   // Resetar limite de paginação ao filtrar
   useEffect(() => {
@@ -499,6 +508,7 @@ export const ProductCatalogPicker: React.FC<ProductCatalogPickerProps> = ({
 
           <button
             type="button"
+            data-tour="catalog.attach"
             onClick={handleAttachSelected}
             disabled={selectedIds.size === 0 || isAttaching}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-xs cursor-pointer ${

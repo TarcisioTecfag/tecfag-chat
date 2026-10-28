@@ -751,7 +751,7 @@ export function DealList({
       {/* ──────────────────────────────────────────────────────────────────────────
           BARRA DE PAGINAÇÃO (ESTILO RD CRM COM BOTÕES NUMÉRICOS)
           ────────────────────────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between border-t border-border px-4 py-2.5 bg-muted/20 gap-2 select-none">
+      <div data-tour="crm.pagination" className="flex flex-wrap items-center justify-between border-t border-border px-4 py-2.5 bg-muted/20 gap-2 select-none">
         {/* Esquerda: Exibindo [10 v] de X negociações */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>Exibindo</span>

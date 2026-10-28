@@ -325,7 +325,7 @@ export function WalletView() {
             </div>
 
             {/* KPI de Inatividade ≥50 dias — sempre visível */}
-            <div className={`flex items-center gap-3 rounded-2xl border p-3.5 shadow-soft col-span-1 sm:col-span-3 transition-colors ${
+            <div data-tour="wallet.inactivity" className={`flex items-center gap-3 rounded-2xl border p-3.5 shadow-soft col-span-1 sm:col-span-3 transition-colors ${
               inactivityKpi === null
                 ? "border-border bg-muted/30 animate-pulse"
                 : inactivityKpi.over50Count > 0

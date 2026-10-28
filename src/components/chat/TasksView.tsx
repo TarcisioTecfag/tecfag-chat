@@ -555,6 +555,7 @@ export function TasksView() {
         <div className="mt-3 pt-2">
           {task.chatConversationId ? (
             <button
+              data-tour="tasks.chat"
               onClick={() => openChat(task)}
               className="flex w-full items-center justify-center gap-1.5 rounded-xl py-1.5 text-xs font-semibold text-white transition-all cursor-pointer shadow-2xs"
               style={{ background: "var(--primary)" }}
@@ -564,6 +565,7 @@ export function TasksView() {
             </button>
           ) : task.chatContactId ? (
             <button
+              data-tour="tasks.chat"
               onClick={() => handleStartChatWithContact(task.chatContactId!)}
               className="flex w-full items-center justify-center gap-1.5 rounded-xl py-1.5 text-xs font-semibold text-primary bg-primary/10 border border-primary/20 hover:bg-primary/20 transition-all cursor-pointer"
             >
@@ -964,7 +966,7 @@ export function TasksView() {
 
               {/* Filtros em Abas de Status */}
               {selectedTasks.length > 0 && (
-                <div className="mt-3 flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl overflow-x-auto">
+                <div data-tour="tasks.day-filters" className="mt-3 flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl overflow-x-auto">
                   <button
                     onClick={() => setSelectedDayStatus("all")}
                     className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer shrink-0 ${
@@ -1215,6 +1217,7 @@ export function TasksView() {
                       {/* Botão de Atendimento */}
                       {task.chatConversationId ? (
                         <motion.button
+                          data-tour="tasks.chat"
                           whileHover={{ scale: 1.02 }}
                           whileTap={{ scale: 0.98 }}
                           onClick={() => openChat(task)}
@@ -1226,6 +1229,7 @@ export function TasksView() {
                         </motion.button>
                       ) : task.chatContactId ? (
                         <motion.button
+                          data-tour="tasks.chat"
                           whileHover={{ scale: 1.02 }}
                           whileTap={{ scale: 0.98 }}
                           onClick={() => handleStartChatWithContact(task.chatContactId!)}
@@ -1428,7 +1432,7 @@ export function TasksView() {
             return (
               <>
                 {/* Cards de Resumo no Topo */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div data-tour="tasks.day-filters" className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div className="rounded-2xl border border-border bg-card p-4 shadow-2xs">
                     <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Total do Dia</span>
                     <p className="text-2xl font-extrabold text-foreground mt-1">{dayTotal}</p>

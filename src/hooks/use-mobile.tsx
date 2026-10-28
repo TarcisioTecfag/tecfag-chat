@@ -8,11 +8,15 @@ export function useIsMobile() {
   React.useEffect(() => {
     const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
     const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+      setIsMobile(document.documentElement.dataset.trainingStep === "profile.mobile" || window.innerWidth < MOBILE_BREAKPOINT);
     };
     mql.addEventListener("change", onChange);
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
-    return () => mql.removeEventListener("change", onChange);
+    window.addEventListener("resize", onChange);
+    onChange();
+    return () => {
+      mql.removeEventListener("change", onChange);
+      window.removeEventListener("resize", onChange);
+    };
   }, []);
 
   return !!isMobile;

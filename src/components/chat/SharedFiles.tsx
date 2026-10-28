@@ -871,7 +871,7 @@ export function SharedFiles() {
         <div className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden pr-1 space-y-5 [&::-webkit-scrollbar]:w-0 [&::-webkit-scrollbar-thumb]:invisible scrollbar-none">
 
           {/* Contact Fields */}
-          <div className="space-y-3 bg-muted/40 p-3 rounded-2xl border border-line">
+          <div data-tour="details.registration" className="space-y-3 bg-muted/40 p-3 rounded-2xl border border-line">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-muted-foreground uppercase">
                 Informações

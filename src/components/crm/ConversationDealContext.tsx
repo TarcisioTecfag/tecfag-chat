@@ -162,6 +162,7 @@ export function ConversationDealContext({
 
   return (
     <div
+      data-tour="chat.deal-context"
       role={needsSelection ? "alert" : undefined}
       className={`w-full rounded-xl border transition-all text-xs ${
         isSidebarDiscreet

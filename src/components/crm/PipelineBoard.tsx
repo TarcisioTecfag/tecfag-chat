@@ -8,6 +8,7 @@ import React, {
   forwardRef,
 } from "react";
 import { createPortal } from "react-dom";
+import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { PipelineColumn, PipelineStageData, PipelineStageSummary } from "./PipelineColumn";
 import { DealCard, DealCardData, hideSharedCardTooltip } from "./DealCard";
 import { StageTerminalConfirmDialog } from "./StageTerminalConfirmDialog";
@@ -157,6 +158,28 @@ export const PipelineBoard = React.memo(function PipelineBoard({
     currentValue?: string | number | null;
     type: "win" | "loss";
   } | null>(null);
+
+  const prepareBoardSurface = (step: { id: string }) => {
+    if (step.id === "crm.move-terminal") {
+      const deal = dealsRef.current[0];
+      const stage = sortedStagesRef.current.at(-1) || sortedStagesRef.current[0];
+      if (!deal || !stage) return false;
+      setTerminalConfirm({
+        dealId: deal.id,
+        version: deal.version || 1,
+        targetStageId: stage.id,
+        targetStageName: stage.name,
+        dealTitle: deal.title || "Negociação de demonstração",
+        currentValue: deal.value,
+        type: "win",
+      });
+    } else if (terminalConfirm) {
+      setTerminalConfirm(null);
+    }
+    return true;
+  };
+  useTrainingSurface("crm.terminal-dialog", prepareBoardSurface);
+  useTrainingSurface("crm.board", prepareBoardSurface);
 
   // Agrupa deals por stageId preservando a referência do array de etapas não alteradas (mantém React.memo 100% intacto!)
   const prevDealsByStageRef = useRef<Map<string, DealCardData[]>>(new Map());

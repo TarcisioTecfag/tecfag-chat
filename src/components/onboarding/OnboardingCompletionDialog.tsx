@@ -19,6 +19,7 @@ export function OnboardingCompletionDialog() {
     coverage,
     chapters,
     progress,
+    currentStep,
     personaName,
     operatorFirstName,
     completeTour,
@@ -138,7 +139,7 @@ export function OnboardingCompletionDialog() {
           </button>
 
           <div className="flex items-center gap-2">
-            {!isCompleted && coverage.canComplete && (
+            {!isCompleted && (coverage.canComplete || currentStep?.id === "finish.complete") && (
               <button
                 type="button"
                 data-tour="onboarding.complete-tour"

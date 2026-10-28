@@ -44,60 +44,82 @@ export function registerTrainingSurface(win: Window, key: string, prepare: Prepa
   return () => { if (registry?.get(key) === prepare) registry.delete(key); };
 }
 export function installTrainingController(win: Window, config: TrainingFrameConfig) {
-  let step: TourStep | null = null, target: HTMLElement | null = null, epoch = 0, scheduled = 0, disposed = false;
+  let step: TourStep | null = null, target: HTMLElement | null = null;
+  let epoch = 0, scheduled = 0, disposed = false, measurementEnabled = false;
   let armedSave: { stepId: string; epoch: number; at: number } | null = null;
-  const measure = () => { scheduled = 0; if (!step || disposed) return; target = resolveTrainingTarget(win.document, step.id); win.document.documentElement.dataset.trainingTarget = target ? step.id : "missing"; config.onTarget(target); };
+  const measure = () => {
+    scheduled = 0;
+    if (!step || disposed || !measurementEnabled) return;
+    target = resolveTrainingTarget(win.document, step.id);
+    win.document.documentElement.dataset.trainingTarget = target ? step.id : "missing";
+    config.onTarget(target);
+  };
   const schedule = () => { if (!scheduled) scheduled = win.requestAnimationFrame(measure); };
   const observer = new MutationObserver(schedule);
   observer.observe(win.document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "data-state", "hidden", "aria-hidden"] });
   win.addEventListener("resize", schedule); win.addEventListener("scroll", schedule, true);
   const interaction = (event: Event) => {
-    if (!step || !target || !(event.target instanceof Element)) return;
-    const spec = TRAINING_TARGETS[step.id]; if (!spec) return;
+    if (!step || !target || disposed || !(event.target instanceof Element)) return;
+    const spec = TRAINING_TARGETS[step.id];
+    if (!spec) return;
     const source = event.target as HTMLElement;
-    // Select options live in a portal; only the open picker controls its own selection.
+    // Capture sees the open picker before its React handler closes the portal.
     const option = source.closest('[role="option"],[role="menuitemradio"]');
     const relevant = target === source || target.contains(source) || Boolean(option && target.getAttribute("aria-expanded") === "true");
     if (!relevant) return;
     if (spec.event === "save") {
-      // A successful background request cannot certify an exercise. First require
-      // a click on the actual form's submit control, then the matching mutation.
       const submit = source.closest<HTMLButtonElement>('button[type="submit"],button[data-training-save]');
       if (event.type === "click" && submit && !submit.disabled) armedSave = { stepId: step.id, epoch, at: Date.now() };
       return;
     }
     if (spec.event === "input" && (event.type !== "input" || !String((source as HTMLInputElement).value || (source.isContentEditable ? source.textContent : "") || "").trim())) return;
-    if (spec.event === "change" && !(["input", "change", "drop"].includes(event.type) || (event.type === "click" && Boolean(option || source.closest('[role="checkbox"],[role="switch"],input[type="checkbox"],input[type="radio"]'))))) return;
+    if (spec.event === "change" && !(["input", "change", "drop"].includes(event.type) || (event.type === "click" && Boolean(option || source.closest('[role="checkbox"],[role="switch"],[role="radio"],input[type="checkbox"],input[type="radio"]'))))) return;
     if ((!spec.event || spec.event === "click") && event.type !== "click") return;
     config.onReceipt(step.id, config.runId);
   };
-  for (const kind of ["click", "input", "change", "drop"]) win.document.addEventListener(kind, interaction, true);
-  // The transport acknowledges a save only after its in-memory validation succeeds.
+  const kinds = ["click", "input", "change", "drop"];
+  for (const kind of kinds) win.document.addEventListener(kind, interaction, true);
   const originalFetch = win.fetch;
-  win.fetch = (async (...args: Parameters<typeof fetch>) => {
+  const wrappedFetch = (async (...args: Parameters<typeof fetch>) => {
     const requestedStep = step, armed = armedSave;
     const url = new URL(typeof args[0] === "object" && "url" in args[0] ? args[0].url : String(args[0]), win.location.href);
     const response = await originalFetch(...args);
     const method = (args[1]?.method || (typeof args[0] === "object" && "method" in args[0] ? args[0].method : "GET")).toUpperCase();
-    if (requestedStep && armed && armed.epoch === epoch && armed.stepId === requestedStep.id && step?.id === requestedStep.id && Date.now() - armed.at < 30000 && isTrainingSaveRequest(requestedStep.id, url.pathname, method) && response.ok) {
-      armedSave = null; config.onReceipt(requestedStep.id, config.runId);
+    if (!disposed && requestedStep && armed && armedSave === armed && armed.epoch === epoch && armed.stepId === requestedStep.id && step?.id === requestedStep.id && Date.now() - armed.at < 30000 && isTrainingSaveRequest(requestedStep.id, url.pathname, method) && response.ok) {
+      armedSave = null;
+      config.onReceipt(requestedStep.id, config.runId);
     }
     return response;
   }) as typeof fetch;
-  const frame = () => new Promise<void>((resolve) => win.requestAnimationFrame(() => resolve()));
+  win.fetch = wrappedFetch;
+  const frame = () => new Promise<void>(resolve => win.requestAnimationFrame(() => resolve()));
   return {
     async prepare(next: TourStep) {
-      const token = ++epoch; step = next; target = null; armedSave = null; win.document.documentElement.dataset.trainingStep = next.id; config.onTarget(null); config.onError(null);
+      const token = ++epoch;
+      step = next; target = null; armedSave = null; measurementEnabled = false;
+      win.document.documentElement.dataset.trainingStep = next.id;
+      win.document.documentElement.dataset.trainingTarget = "preparing";
       win.document.documentElement.dataset.trainingMini = String(next.surface.startsWith("crm.mini"));
-      if (PARENT_TRAINING_TARGETS[next.id]) return;
+      const frameEl = win.frameElement as HTMLElement | null;
+      if (frameEl?.style) {
+        frameEl.style.width = next.id === "profile.mobile" ? "390px" : "100%";
+      }
+      if (typeof win.dispatchEvent === "function" && typeof Event !== "undefined") {
+        win.dispatchEvent(new Event("resize"));
+      }
+      config.onTarget(null); config.onError(null);
+      if (PARENT_TRAINING_TARGETS[next.id]) { win.document.documentElement.dataset.trainingTarget = next.id; return; }
+      let navigated = false;
       for (let i = 0; i < 300 && !disposed && epoch === token; i++) {
         const navigation = surfaces.get(win)?.get("navigation");
-        if (navigation && (await navigation(next)) !== false) break;
+        if (navigation && (await navigation(next)) !== false) { navigated = true; break; }
         await frame();
       }
       if (disposed || epoch !== token) return;
+      if (!navigated) { config.onError("Não foi possível abrir o módulo deste exercício."); return; }
+      if (["X", "informational_boundary"].includes(next.mode)) return;
       await frame();
-      const key = next.surface.startsWith("crm.deal") || next.id === "tasks.reschedule" ? "deal" : next.surface.startsWith("crm.mini") ? "mini" : ["profile.entry", "profile.keyboard", "profile.mobile", "profile.notifications", "profile.quick-status", "profile.status-help"].includes(next.id) ? "navigation" : next.chapterId === "profile" ? "profile" : next.view === "commercialHome" ? "home" : next.view;
+      const key = next.surface.startsWith("crm.deal") || next.id === "tasks.reschedule" || next.id === "crm.file-preview" ? "deal" : next.surface.startsWith("crm.mini") ? "mini" : ["profile.entry", "profile.keyboard", "profile.mobile", "profile.notifications", "profile.quick-status", "profile.status-help"].includes(next.id) ? "navigation" : next.chapterId === "profile" ? "profile" : next.view === "commercialHome" ? "home" : next.view;
       let prepared = false;
       for (let i = 0; i < 300 && !disposed && epoch === token; i++) {
         const prepare = surfaces.get(win)?.get(key);
@@ -106,22 +128,35 @@ export function installTrainingController(win: Window, config: TrainingFrameConf
         await frame();
       }
       if (disposed || epoch !== token) return;
-      let specificPrepared = false;
-      let extraPrepared = false;
+      if (!prepared) { config.onError("A tela deste exercício ainda não está pronta."); return; }
+      let specificPrepared = false, extraPrepared = false, selectionPrepared = false;
       for (let i = 0; i < 120 && !disposed && epoch === token; i++) {
-        if (next.surface === "crm.bulk-suite") { const select = surfaces.get(win)?.get("crm.selection"); if (select) await select(next); }
+        if (next.surface === "crm.bulk-suite" && !selectionPrepared) {
+          const select = surfaces.get(win)?.get("crm.selection");
+          if (select) { selectionPrepared = (await select(next)) !== false; await frame(); }
+        }
         const specific = surfaces.get(win)?.get(next.surface);
         if (specific && !specificPrepared) { specificPrepared = (await specific(next)) !== false; await frame(); }
-        if (next.surface === "chat.journey-modal" && specificPrepared) { const journey = surfaces.get(win)?.get("journey"); if (journey) await journey(next); }
-        const extraKey = next.id.startsWith("chat.quick-") ? "quick" : next.id.startsWith("chat.inline-") ? "inline" : ["chat.message-source", "chat.message-source-states"].includes(next.id) ? "source" : ["chat.meta-search", "chat.meta-preview", "chat.meta-send", "crm.mini-meta"].includes(next.id) ? "meta" : null;
+        const extraKey = next.surface === "chat.journey-modal" ? "journey" : next.id.startsWith("chat.quick-") ? "quick" : next.id.startsWith("chat.inline-") ? "inline" : next.id.startsWith("chat.linked-deal") ? "linked-deals" : ["chat.message-source", "chat.message-source-states"].includes(next.id) ? "source" : ["chat.meta-search", "chat.meta-preview", "chat.meta-send", "crm.mini-meta"].includes(next.id) ? "meta" : null;
         const extra = extraKey ? surfaces.get(win)?.get(extraKey) : null;
         if (extra && !extraPrepared) { extraPrepared = (await extra(next)) !== false; await frame(); }
-        target = resolveTrainingTarget(win.document, next.id); if (target) break; await frame();
+        target = resolveTrainingTarget(win.document, next.id);
+        if (target) break;
+        await frame();
       }
       if (epoch !== token || disposed) return;
-      if (!prepared || !target) { config.onError("Não foi possível abrir e localizar este controle na tela. O avanço foi bloqueado."); config.onTarget(null); return; }
-      target.scrollIntoView({ block: "nearest", inline: "nearest" }); measure();
+      measurementEnabled = true;
+      if (!target) { config.onError("Não foi possível localizar este controle na tela. O avanço foi bloqueado."); measure(); return; }
+      target.scrollIntoView({ block: "nearest", inline: "nearest" });
+      measure();
     },
-    dispose() { disposed = true; epoch++; observer.disconnect(); if (scheduled) win.cancelAnimationFrame(scheduled); win.removeEventListener("resize", schedule); win.removeEventListener("scroll", schedule, true); for (const kind of ["click", "input", "change", "drop"]) win.document.removeEventListener(kind, interaction, true); },
+    dispose() {
+      disposed = true; epoch++; armedSave = null;
+      observer.disconnect();
+      if (scheduled) win.cancelAnimationFrame(scheduled);
+      win.removeEventListener("resize", schedule); win.removeEventListener("scroll", schedule, true);
+      for (const kind of kinds) win.document.removeEventListener(kind, interaction, true);
+      if (win.fetch === wrappedFetch) win.fetch = originalFetch;
+    },
   };
 }

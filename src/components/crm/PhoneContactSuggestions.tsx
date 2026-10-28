@@ -202,6 +202,7 @@ export function PhoneContactSuggestions({
 
   return (
     <div
+      data-tour="contact-create.duplicate"
       className="rounded-2xl border border-primary/25 bg-gradient-to-b from-primary/[0.06] to-card p-3.5 shadow-xs space-y-3 animate-in fade-in duration-150"
       role="status"
     >

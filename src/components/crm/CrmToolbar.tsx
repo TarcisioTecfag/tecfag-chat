@@ -576,6 +576,7 @@ export function CrmToolbar({
 
       {filterChips.length > 0 && (
         <div
+          data-tour="crm.filter-chips"
           aria-label="Filtros avançados aplicados"
           className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2.5"
         >

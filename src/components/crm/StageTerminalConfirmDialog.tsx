@@ -46,6 +46,7 @@ export function StageTerminalConfirmDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in">
       <div
+        data-tour="crm.terminal-dialog"
         onClick={(e) => e.stopPropagation()}
         className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4"
       >

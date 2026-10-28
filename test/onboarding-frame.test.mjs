@@ -62,3 +62,73 @@ test("training API respects session identity and exposes real CRM response shape
   assert.equal(summary.stages.length,3);
   assert.ok(Array.isArray(await(await handleTrainingRequest(memory,"/api/valentina/messages")).json()));
 });
+
+test("saving a task retains the DTO required to render it in the operator agenda", async () => {
+  const memory=store(),deal=memory.deals[0];
+  const response=await handleTrainingRequest(memory,`/api/crm/deals/${deal.id}/activities`,post({title:"Retorno fictício",dueDate:new Date(Date.now()+86400000).toISOString(),assignedToOperatorId:"training-op"}));
+  assert.equal(response.status,200);const {activity}=await response.json();
+  const agenda=await(await handleTrainingRequest(memory,"/api/tasks")).json();
+  const task=agenda.tasks.find(t=>t.id===activity.id);
+  assert.equal(task.name,"Retorno fictício");assert.equal(task.deal.id,deal.id);
+  assert.ok(task.client.name);assert.ok(task.client.phone);assert.ok(task.chatConversationId);
+});
+
+test("save receipts reject background, failed, duplicate, stale and disposed requests", async () => {
+  const previousElement=globalThis.Element, previousObserver=globalThis.MutationObserver;
+  class Control extends EventTarget {
+    disabled=false; submit=true; option=false; expanded=false;
+    contains(el){return el===this;}
+    closest(selector){return selector.includes('button[')&&this.submit || selector.includes('[role="option"]')&&this.option ? this : null;}
+    getAttribute(key){return key==="aria-expanded"&&this.expanded ? "true" : null;}
+    scrollIntoView(){}
+  }
+  globalThis.Element=Control;
+  globalThis.MutationObserver=class{observe(){}disconnect(){}};
+  try {
+    const control=new Control(), doc=Object.assign(new EventTarget(),{documentElement:{dataset:{trainingInstalled:"run"}},body:{}});
+    let status=200,release,delay=false;
+    const originalFetch=async()=> delay ? new Promise(resolve=>{release=()=>resolve(new Response("{}",{status}));}) : new Response("{}",{status});
+    const win=Object.assign(new EventTarget(),{document:doc,location:{href:"https://training.invalid/chat"},fetch:originalFetch,requestAnimationFrame:fn=>{queueMicrotask(fn);return 1;},cancelAnimationFrame(){}});
+    const controllerCode=load("src/lib/onboarding/frame-controller.ts",{"./frame-targets":{resolveTrainingTarget:()=>control,TRAINING_TARGETS:{"crm.new-deal-save":{event:"save"},"crm.search":{event:"input"},"crm.pipeline":{event:"change"}},PARENT_TRAINING_TARGETS:{}}});
+    const receipts=[];
+    controllerCode.registerTrainingSurface(win,"navigation",()=>true);
+    controllerCode.registerTrainingSurface(win,"crm",()=>true);
+    const bridge=controllerCode.installTrainingController(win,{runId:"run",onReceipt:(id)=>receipts.push(id),onTarget(){},onError(){}});
+    const step=id=>({id,view:"crm",chapterId:"crm",surface:"crm.toolbar",mode:"I"});
+    const click=(target=control)=>{const event=new Event("click");Object.defineProperty(event,"target",{value:target});doc.dispatchEvent(event);};
+    await bridge.prepare(step("crm.new-deal-save"));
+    await win.fetch("/api/crm/deals",{method:"POST"}); assert.equal(receipts.length,0,"A background POST is not practice");
+    click();await win.fetch("/api/chats",{method:"POST"});assert.equal(receipts.length,0,"Wrong operation");
+    status=422;await win.fetch("/api/crm/deals",{method:"POST"});assert.equal(receipts.length,0,"Validation failure");
+    status=200;click();await Promise.all([win.fetch("/api/crm/deals",{method:"POST"}),win.fetch("/api/crm/deals",{method:"POST"})]);assert.deepEqual(receipts,["crm.new-deal-save"],"Single practice, single receipt");
+    click();delay=true;const stale=win.fetch("/api/crm/deals",{method:"POST"});await bridge.prepare(step("crm.search"));release();await stale;assert.equal(receipts.length,1,"Previous step response");
+    delay=false;await bridge.prepare(step("crm.pipeline"));control.submit=false;control.expanded=true;click();assert.equal(receipts.length,1,"Opening a picker is not changing it");
+    const option=new Control();option.option=true;option.submit=false;click(option);assert.equal(receipts.length,2,"A portal option selection is recognized");
+    control.submit=true;await bridge.prepare(step("crm.new-deal-save"));click();delay=true;const pending=win.fetch("/api/crm/deals",{method:"POST"});bridge.dispose();release();await pending;assert.equal(receipts.length,2,"No receipt after pause/unmount");assert.equal(win.fetch,originalFetch,"Child transport wrapper removed");
+  } finally {globalThis.Element=previousElement;globalThis.MutationObserver=previousObserver;}
+});
+
+test("training store normalizes conversation channels and supports chat task, catalog, and connection endpoints", async () => {
+  const memory = store();
+  assert.ok(memory.conversations.every(c => memory.allowedChannels.includes(c.channel)), "All demo conversations must match allowedChannels");
+  assert.ok(memory.conversations[0].messages.some(m => m.text.includes("[LOCAL_MEDIA:image:")));
+  assert.ok(memory.conversations[0].messages.some(m => m.text.includes("[LOCAL_MEDIA:audio:")));
+
+  const tagTaskFail = await handleTrainingRequest(memory, "/api/chats/tag-task", post({ conversationId: memory.conversations[0].id, tagName: "" }));
+  assert.equal(tagTaskFail.status, 422);
+
+  const beforeTasks = memory.tasks.length;
+  const tagTaskOk = await handleTrainingRequest(memory, "/api/chats/tag-task", post({ conversationId: memory.conversations[0].id, tagName: "Enviar ficha VSF", dueDate: "2026-10-30", dueTime: "10:00", taskType: "task" }));
+  assert.equal(tagTaskOk.status, 200);
+  assert.equal(memory.tasks.length, beforeTasks + 1);
+  assert.ok(memory.conversations[0].tags.includes("Enviar ficha VSF"));
+
+  const catalogRes = await (await handleTrainingRequest(memory, "/api/valentina/catalog-images?tenantId=tenant-a")).json();
+  assert.equal(catalogRes.items.length, 1);
+  assert.equal(catalogRes.items[0].sku, "PAMQGPAU079");
+
+  const connRes = await (await handleTrainingRequest(memory, "/api/whatsapp/connections")).json();
+  assert.equal(connRes.canSwitchDuringAttendance, true);
+  assert.equal(connRes.connections.length, 2);
+});
+

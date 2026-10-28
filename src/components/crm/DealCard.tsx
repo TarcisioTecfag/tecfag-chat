@@ -537,7 +537,7 @@ export const DealCard = React.memo(function DealCard({
 
       {/* ── 4. PRÓXIMA TAREFA / AÇÕES RÁPIDAS (Ícones discretos substituindo + Tarefa) ── */}
       <div className="mt-1.5 pt-1.5 border-t border-border/50">
-        <div className="flex items-center justify-between gap-2 h-7 px-2 rounded-lg border bg-muted/40 border-border/50 text-xs">
+        <div data-tour="crm.card-task" className="flex items-center justify-between gap-2 h-7 px-2 rounded-lg border bg-muted/40 border-border/50 text-xs">
           {deal.nextTask ? (
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
               <Clock

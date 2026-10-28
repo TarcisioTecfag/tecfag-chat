@@ -230,12 +230,12 @@ export function CrmView() {
     const id = step.id;
     setIsCreateDialogOpen(id.startsWith("crm.new-deal-"));
     setIsAdvancedFiltersOpen(id.startsWith("crm.advanced-"));
+    setAdvancedFilters(id === "crm.filter-chips" ? { hasOverdueTask: true } : {});
     setIsSearchOpen(id === "crm.global-search");
     setQuickCreateKind(id === "crm.quick-company" ? "company" : id === "crm.quick-contact" ? "contact" : null);
-    setIsTaskModalOpen(id === "crm.card-task");
-    if (id === "crm.card-task") setTaskModalDeal(deals[0] || null);
+    setIsTaskModalOpen(false);
     if (step.surface === "crm.list" || step.surface === "crm.bulk-suite") setViewMode("list");
-    else if (step.surface === "crm.board" && id !== "crm.views") setViewMode("kanban");
+    else if ((step.surface === "crm.board" || step.surface === "crm.terminal-dialog") && id !== "crm.views") setViewMode("kanban");
     return true;
   });
 

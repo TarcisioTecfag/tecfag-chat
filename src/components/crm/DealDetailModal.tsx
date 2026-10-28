@@ -3028,7 +3028,7 @@ export function DealDetailModal({
                                       </div>
 
                                       {/* Ações Rápidas por Tipo */}
-                                      <div className="flex items-center gap-1.5 shrink-0">
+                                      <div data-tour="deal.task-actions" className="flex items-center gap-1.5 shrink-0">
                                         {isPending && !isNote && (
                                           <>
                                             <SystemTooltip content="Marcar como concluída">
@@ -4076,6 +4076,7 @@ export function DealDetailModal({
                                   <SystemTooltip content="Visualizar arquivo em tamanho grande">
                                     <button
                                       type="button"
+                                      data-tour="deal.file-preview"
                                       onClick={() => {
                                         setPreviewFile(file);
                                         setIsPreviewOpen(true);
