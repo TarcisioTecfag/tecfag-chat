@@ -158,6 +158,7 @@ export function CommercialEvidenceDialog({
     setStep(tourStep.id.startsWith("home.outcome-") ? "outcome" : "evidence");
     setChannel(tourStep.id === "home.evidence-call" ? "call" : "whatsapp");
     setNextAction(tourStep.id === "home.outcome-won" ? "won" : tourStep.id === "home.outcome-lost" ? "lost" : "continue");
+    setSummary((prev) => prev.trim() ? prev : "Alinhamento técnico registrado na demonstração.");
     return true;
   });
 
@@ -327,6 +328,10 @@ export function CommercialEvidenceDialog({
             ? "Perda registrada com motivo no CRM."
             : "Próxima ação agendada e evidência salva com sucesso!",
       );
+
+      if (typeof document !== "undefined" && document.documentElement.dataset.trainingInstalled) {
+        return;
+      }
 
       onCompleted();
     } catch (cause) {
@@ -691,7 +696,7 @@ export function CommercialEvidenceDialog({
 
             {/* Campos Específicos de EM ANDAMENTO (Foto 5) */}
             {nextAction === "continue" && (
-              <div className="space-y-3 pt-1">
+              <div data-tour="home.outcome-next" className="space-y-3 pt-1">
                 {/* Data e Hora com Tooltip */}
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-300 mb-1 font-mono">
@@ -713,7 +718,7 @@ export function CommercialEvidenceDialog({
                   <input
                     required
                     type="text"
-                    data-tour="home.outcome-next" value={nextTaskTitle}
+                    value={nextTaskTitle}
                     onFocus={() => setShowTaskSuggestions(true)}
                     onChange={(e) => {
                       setNextTaskTitle(e.target.value);

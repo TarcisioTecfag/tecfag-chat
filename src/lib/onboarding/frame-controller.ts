@@ -64,16 +64,24 @@ export function installTrainingController(win: Window, config: TrainingFrameConf
     if (!spec) return;
     const source = event.target as HTMLElement;
     // Capture sees the open picker before its React handler closes the portal.
-    const option = source.closest('[role="option"],[role="menuitemradio"]');
-    const relevant = target === source || target.contains(source) || Boolean(option && target.getAttribute("aria-expanded") === "true");
+    const option = source.closest('[role="option"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="radio"],[role="checkbox"],[role="switch"],[data-radix-popper-content-wrapper] button');
+    const expanded = target.getAttribute("aria-expanded") === "true" || Boolean(target.querySelector?.('[aria-expanded="true"],[data-state="open"]'));
+    const relevant = target === source || target.contains(source) || Boolean(option && (expanded || target.closest?.('[role="dialog"],form')));
     if (!relevant) return;
     if (spec.event === "save") {
       const submit = source.closest<HTMLButtonElement>('button[type="submit"],button[data-training-save]');
       if (event.type === "click" && submit && !submit.disabled) armedSave = { stepId: step.id, epoch, at: Date.now() };
       return;
     }
-    if (spec.event === "input" && (event.type !== "input" || !String((source as HTMLInputElement).value || (source.isContentEditable ? source.textContent : "") || "").trim())) return;
-    if (spec.event === "change" && !(["input", "change", "drop"].includes(event.type) || (event.type === "click" && Boolean(option || source.closest('[role="checkbox"],[role="switch"],[role="radio"],input[type="checkbox"],input[type="radio"]'))))) return;
+    if (spec.event === "input") {
+      const hasText = String((source as HTMLInputElement).value || (source.isContentEditable ? source.textContent : "") || "").trim().length > 0;
+      const clickedSuggestionOrAction = event.type === "click" && Boolean(option || source.closest('button,[role="button"],[role="option"]'));
+      if (!((event.type === "input" && hasText) || event.type === "change" || clickedSuggestionOrAction)) return;
+    }
+    if (spec.event === "change") {
+      const isOpeningTrigger = event.type === "click" && source === target && target.getAttribute("aria-expanded") === "true" && !option;
+      if (isOpeningTrigger || !["input", "change", "drop", "click"].includes(event.type)) return;
+    }
     if ((!spec.event || spec.event === "click") && event.type !== "click") return;
     config.onReceipt(step.id, config.runId);
   };

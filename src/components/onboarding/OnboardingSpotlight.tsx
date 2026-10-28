@@ -40,6 +40,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
     interactiveReady,
     isSaving,
     satisfyCurrentInteractiveStep,
+    setTargetNotFoundReason,
     progress,
   } = useOnboarding();
 
@@ -92,8 +93,6 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
     endX: Math.max(box.left, Math.min(placement.left + placement.width / 2, box.left + box.width)),
     endY: Math.max(box.top, Math.min(placement.top + placement.height / 2, box.top + box.height)),
   } : null;
-
-  const isInteractive = currentStep.mode === "I" || currentStep.mode === "interactive_demo";
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[10090]" aria-live="polite">
@@ -216,23 +215,16 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
           </button>
 
           <div className="flex items-center gap-1.5">
-            {isInteractive && (
-              <span
-                role="status"
-                className={`text-xs font-medium ${
-                  interactiveReady
-                    ? "text-emerald-600 dark:text-emerald-400 font-semibold"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {interactiveReady ? "Exercício validado" : "Pratique no painel"}
-              </span>
-            )}
-
             <button
               type="button"
-              onClick={() => void nextStep()}
-              disabled={isSaving || (!isBoundary && !found && !interactiveReady) || (isInteractive && !interactiveReady)}
+              onClick={() => {
+                if (currentStep && progress?.runId) {
+                  satisfyCurrentInteractiveStep(currentStep.id, progress.runId);
+                }
+                setTargetNotFoundReason(null);
+                void nextStep();
+              }}
+              disabled={isSaving}
               className="flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground shadow-soft transition hover:opacity-95 disabled:opacity-40 cursor-pointer"
             >
               <span>
