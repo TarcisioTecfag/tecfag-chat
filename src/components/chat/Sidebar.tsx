@@ -52,6 +52,18 @@ export function Sidebar() {
   };
 
   const { navItems, decorativeItems } = getDesktopSidebarModules(moduleAccessCtx);
+  const totalVisibleModules = navItems.length + decorativeItems.length;
+  const isCompactModuleSet = totalVisibleModules > 0 && totalVisibleModules <= 7;
+
+  const navButtonSizeClass = isCompactModuleSet
+    ? "h-11 w-11 md:h-12 md:w-12 rounded-2xl"
+    : "h-9 w-9 xl:h-10 xl:w-10 rounded-xl md:rounded-2xl";
+  const navIconSizeClass = isCompactModuleSet
+    ? "h-5 w-5 md:h-[22px] md:w-[22px]"
+    : "h-4 w-4 xl:h-[18px] xl:w-[18px]";
+  const activeIndicatorSizeClass = isCompactModuleSet
+    ? "-left-2 md:-left-3 h-6 md:h-7 w-[3.5px]"
+    : "-left-2.5 md:-left-3.5 h-5 md:h-6 w-[3px]";
 
   // Redirecionamento automático caso a view atual não seja permitida
   useEffect(() => {
@@ -188,8 +200,16 @@ export function Sidebar() {
         </div>
 
         {/* Navigation Items */}
-        <div className="flex-1 min-h-0 w-full overflow-visible flex flex-col items-center py-0.5">
-          <nav className="flex flex-col items-center gap-1 xl:gap-2 w-full">
+        <div
+          className={`flex-1 min-h-0 w-full overflow-visible flex flex-col items-center ${
+            isCompactModuleSet ? "justify-center -mt-2 md:-mt-3" : "py-0.5"
+          }`}
+        >
+          <nav
+            className={`flex flex-col items-center w-full ${
+              isCompactModuleSet ? "gap-2.5 md:gap-3.5" : "gap-1 xl:gap-2"
+            }`}
+          >
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeView === item.id;
@@ -201,7 +221,7 @@ export function Sidebar() {
                   whileTap={{ scale: 0.94 }}
                   onClick={() => setActiveView(item.id as any)}
                   aria-label={item.label}
-                  className={`relative grid h-9 w-9 xl:h-10 xl:w-10 place-items-center rounded-xl md:rounded-2xl cursor-pointer group transition-colors duration-150 shrink-0 ${
+                  className={`relative grid ${navButtonSizeClass} place-items-center cursor-pointer group transition-colors duration-150 shrink-0 ${
                     isActive
                       ? "bg-primary-soft text-primary font-semibold"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -210,11 +230,11 @@ export function Sidebar() {
                   {isActive && (
                     <motion.span
                       layoutId="activeTabIndicator"
-                      className="absolute -left-2.5 md:-left-3.5 top-1/2 h-5 md:h-6 w-[3px] -translate-y-1/2 rounded-r bg-primary"
+                      className={`absolute ${activeIndicatorSizeClass} top-1/2 -translate-y-1/2 rounded-r bg-primary`}
                       transition={{ type: "spring", stiffness: 350, damping: 25 }}
                     />
                   )}
-                  <Icon className="h-4 w-4 xl:h-[18px] xl:w-[18px]" strokeWidth={isActive ? 2.25 : 1.75} />
+                  <Icon className={navIconSizeClass} strokeWidth={isActive ? 2.25 : 1.75} />
                   {/* Floating tooltip — mesmo padrão dos módulos inferiores */}
                   <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
                     {item.label}
@@ -223,7 +243,9 @@ export function Sidebar() {
               );
             })}
 
-            <div className="my-0.5 xl:my-1 h-[1px] w-6 md:w-8 bg-line shrink-0" />
+            {navItems.length > 0 && decorativeItems.length > 0 && (
+              <div className="my-0.5 xl:my-1 h-[1px] w-6 md:w-8 bg-line shrink-0" />
+            )}
 
             {/* Decorative / Future Navigation Items */}
             {decorativeItems.map((item, index) => {
@@ -239,7 +261,7 @@ export function Sidebar() {
                     whileTap={{ scale: 0.94 }}
                     onClick={() => setActiveView(item.id as any)}
                     aria-label={item.label}
-                    className={`relative grid h-9 w-9 xl:h-10 xl:w-10 place-items-center rounded-xl md:rounded-2xl cursor-pointer group transition-colors duration-150 shrink-0 ${
+                    className={`relative grid ${navButtonSizeClass} place-items-center cursor-pointer group transition-colors duration-150 shrink-0 ${
                       isActive
                         ? "bg-primary-soft text-primary font-semibold"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -248,11 +270,11 @@ export function Sidebar() {
                     {isActive && (
                       <motion.span
                         layoutId="activeTabIndicator"
-                        className="absolute -left-2.5 md:-left-3.5 top-1/2 h-5 md:h-6 w-[3px] -translate-y-1/2 rounded-r bg-primary"
+                        className={`absolute ${activeIndicatorSizeClass} top-1/2 -translate-y-1/2 rounded-r bg-primary`}
                         transition={{ type: "spring", stiffness: 350, damping: 25 }}
                       />
                     )}
-                    <Icon className="h-4 w-4 xl:h-[18px] xl:w-[18px]" strokeWidth={isActive ? 2.25 : 1.75} />
+                    <Icon className={navIconSizeClass} strokeWidth={isActive ? 2.25 : 1.75} />
                     {/* Floating tooltip */}
                     <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded-xl bg-foreground px-3 py-1.5 text-xs font-semibold text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none shadow-lg z-50">
                       {item.label}
@@ -265,10 +287,10 @@ export function Sidebar() {
                 <motion.button
                   key={index}
                   whileHover={{ scale: 0.98 }}
-                  className="relative grid h-9 w-9 xl:h-10 xl:w-10 place-items-center rounded-xl md:rounded-2xl text-muted-foreground/50 hover:bg-muted/40 cursor-not-allowed group transition-colors duration-150 shrink-0"
+                  className={`relative grid ${navButtonSizeClass} place-items-center text-muted-foreground/50 hover:bg-muted/40 cursor-not-allowed group transition-colors duration-150 shrink-0`}
                   disabled
                 >
-                  <Icon className="h-4 w-4 xl:h-[18px] xl:w-[18px]" strokeWidth={1.75} />
+                  <Icon className={navIconSizeClass} strokeWidth={1.75} />
                   {/* Floating tooltip */}
                   <span className="absolute left-[calc(100%+14px)] md:left-[calc(100%+20px)] scale-0 opacity-0 rounded bg-foreground px-2 py-1 text-xs text-background group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 ease-out whitespace-nowrap pointer-events-none">
                     {item.label}

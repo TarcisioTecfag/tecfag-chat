@@ -318,7 +318,7 @@ export function Index() {
 
   return (
     <div className="fixed inset-0 h-full w-full overflow-hidden bg-background transition-colors duration-500 ease-in-out" style={themeStyles}>
-      <div className={`flex h-full w-full gap-3 md:gap-5 ${activeView === "crm" ? "pl-3 pt-3 md:pl-5 md:pt-5 pb-0 pr-0" : "p-3 md:p-5"} overflow-hidden`}>
+      <div className={`flex h-full w-full gap-3 md:gap-5 ${activeView === "crm" ? "pl-3 py-3 md:pl-5 md:py-5 pr-0" : "p-3 md:p-5"} overflow-hidden`}>
         <Sidebar />
         <div className="flex flex-1 h-full overflow-hidden relative">
           <AnimatePresence mode="wait" initial={false}>

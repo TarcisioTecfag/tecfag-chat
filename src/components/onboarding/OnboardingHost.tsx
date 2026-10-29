@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
@@ -13,6 +13,8 @@ import { OnboardingControls } from "./OnboardingControls";
 import { OnboardingSpotlight } from "./OnboardingSpotlight";
 import { OnboardingWelcomeDialog } from "./OnboardingWelcomeDialog";
 import { OnboardingWorkspace } from "./OnboardingWorkspace";
+
+const MASCOT_POS_STORAGE_KEY = "onboarding:v1:mascot-pos";
 
 export function OnboardingHost() {
   const [root, setRoot] = useState<HTMLElement | null>(null);
@@ -65,6 +67,47 @@ function OnboardingHostContent({ inverseZoom }: { inverseZoom: number }) {
   const onboarding = useOptionalOnboarding();
   const scope = usePortalScope();
   const [isMascotHovered, setIsMascotHovered] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [mascotPos, setMascotPos] = useState<{ x: number; y: number } | null>(null);
+
+  const dragStateRef = useRef<{
+    active: boolean;
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  }>({
+    active: false,
+    pointerId: -1,
+    startClientX: 0,
+    startClientY: 0,
+    originX: 0,
+    originY: 0,
+    moved: false,
+  });
+
+  // Restore saved mascot position from localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(MASCOT_POS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
+          const maxW = window.innerWidth * inverseZoom - 80;
+          const maxH = window.innerHeight * inverseZoom - 80;
+          setMascotPos({
+            x: Math.max(-44, Math.min(parsed.x, maxW)),
+            y: Math.max(8, Math.min(parsed.y, maxH)),
+          });
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [inverseZoom]);
 
   const [frameTarget, setFrameTarget] = useState<TourTargetState>({
     element: null,
@@ -146,6 +189,75 @@ function OnboardingHostContent({ inverseZoom }: { inverseZoom: number }) {
     !currentModuleCompleted &&
     !allModulesCompleted;
 
+  const viewportW = (typeof window !== "undefined" ? window.innerWidth : 1280) * inverseZoom;
+  const viewportH = (typeof window !== "undefined" ? window.innerHeight : 800) * inverseZoom;
+  const defaultX = -38;
+  const defaultY = Math.round(viewportH * 0.62 - 64);
+
+  const effectiveX = mascotPos ? mascotPos.x : defaultX;
+  const effectiveY = mascotPos ? mascotPos.y : defaultY;
+  const isNearLeftWall = effectiveX <= 10;
+  const isOnRightHalf = effectiveX > viewportW * 0.55;
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStateRef.current = {
+      active: true,
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      originX: effectiveX,
+      originY: effectiveY,
+      moved: false,
+    };
+    setIsDragging(true);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const st = dragStateRef.current;
+    if (!st.active || st.pointerId !== e.pointerId) return;
+    const rawDx = e.clientX - st.startClientX;
+    const rawDy = e.clientY - st.startClientY;
+    if (!st.moved && Math.hypot(rawDx, rawDy) > 5) {
+      st.moved = true;
+    }
+    if (st.moved) {
+      const nextX = Math.max(-44, Math.min(st.originX + rawDx * inverseZoom, viewportW - 88));
+      const nextY = Math.max(8, Math.min(st.originY + rawDy * inverseZoom, viewportH - 110));
+      setMascotPos({ x: Math.round(nextX), y: Math.round(nextY) });
+    }
+  };
+
+  const finishDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const st = dragStateRef.current;
+    if (!st.active || st.pointerId !== e.pointerId) return;
+    st.active = false;
+    setIsDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    if (st.moved && mascotPos && typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(MASCOT_POS_STORAGE_KEY, JSON.stringify(mascotPos));
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleMascotClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (dragStateRef.current.moved) {
+      dragStateRef.current.moved = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    onboarding.openTourEntryModal();
+  };
+
   return (
     <>
       {/* Viewport-locked coordinate layer for active tour workspace, spotlight & modals */}
@@ -157,63 +269,67 @@ function OnboardingHostContent({ inverseZoom }: { inverseZoom: number }) {
         <OnboardingSpotlight rect={target.rect} found={target.found} avoidRect={target.avoidRect} />
       </div>
 
-      {/* Peeking Mascot rendered at native DPI so rotation/floating transforms never pixelate */}
-
+      {/* Peeking & Draggable Mascot rendered at native DPI without polluting shadows */}
       <AnimatePresence>
         {showPeekingMascot && (
           <motion.div
             key="peeking-mascot-host"
-            initial={{ x: "-115%", opacity: 0 }}
-            animate={{ x: "0%", opacity: 1 }}
-            exit={{ x: "-115%", opacity: 0 }}
+            initial={{ x: -120, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -120, opacity: 0 }}
             transition={{ type: "spring", stiffness: 210, damping: 22 }}
-            className="fixed left-0 top-[56%] -translate-y-1/2 z-[10070] pointer-events-none"
+            style={{
+              left: `${effectiveX}px`,
+              top: `${effectiveY}px`,
+            }}
+            className="fixed z-[10070] pointer-events-none select-none"
           >
-            <SystemTooltip content={`Iniciar tour do módulo ${moduleTitle}`}>
+            <SystemTooltip
+              content={`Clique para iniciar o tour de ${moduleTitle} • Arraste para mover`}
+            >
               <motion.button
                 type="button"
                 data-tour="onboarding.peeking-mascot"
                 aria-label={`Iniciar tour do módulo ${moduleTitle} com ${onboarding.personaName}`}
                 onMouseEnter={() => setIsMascotHovered(true)}
                 onMouseLeave={() => setIsMascotHovered(false)}
-                onClick={() => onboarding.openTourEntryModal()}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={finishDrag}
+                onPointerCancel={finishDrag}
+                onClick={handleMascotClick}
                 animate={{
-                  x: isMascotHovered ? "-4%" : "-30%",
-                  rotate: isMascotHovered ? 0 : 7,
-                  scale: isMascotHovered ? 1.07 : 1,
+                  x: !isDragging && isNearLeftWall && isMascotHovered ? 18 : 0,
+                  rotate: isDragging ? 0 : isNearLeftWall ? (isMascotHovered ? 0 : 6) : 0,
+                  scale: isDragging ? 1.08 : isMascotHovered ? 1.05 : 1,
                 }}
-                whileTap={{ scale: 0.94 }}
-                transition={{ type: "spring", stiffness: 280, damping: 20 }}
-                className="group pointer-events-auto relative flex items-center focus:outline-none cursor-pointer"
+                transition={
+                  isDragging
+                    ? { duration: 0.05 }
+                    : { type: "spring", stiffness: 280, damping: 20 }
+                }
+                className={`group pointer-events-auto relative flex items-center focus:outline-none touch-none ${
+                  isDragging ? "cursor-grabbing" : "cursor-grab"
+                }`}
               >
-                {/* Soft ambient glow behind mascot (separate from <img> so GPU texture stays razor-sharp) */}
-                <motion.div
-                  animate={{
-                    scale: isMascotHovered ? [1.05, 1.18, 1.05] : [0.95, 1.08, 0.95],
-                    opacity: isMascotHovered ? 0.85 : 0.5,
-                  }}
-                  transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
-                  className="pointer-events-none absolute inset-3 rounded-full bg-primary/30 blur-2xl"
-                />
-                <div className="pointer-events-none absolute inset-4 rounded-full bg-black/55 blur-xl" />
-
                 {/* Continuous living idle float & peek motion */}
                 <motion.div
                   animate={
-                    isMascotHovered
-                      ? { y: -3, rotate: 0 }
+                    isDragging || isMascotHovered
+                      ? { y: 0, rotate: 0 }
                       : {
-                          y: [0, -7, 0],
-                          rotate: [0, 2.5, -1, 0],
-                          x: [0, 4, 0],
+                          y: [0, -6, 0],
+                          rotate: [0, 2, -1, 0],
                         }
                   }
                   transition={
-                    isMascotHovered
+                    isDragging || isMascotHovered
                       ? { type: "spring", stiffness: 300, damping: 20 }
                       : { duration: 3.4, repeat: Infinity, ease: "easeInOut" }
                   }
-                  className="relative flex items-center"
+                  className={`relative flex items-center ${
+                    isOnRightHalf ? "flex-row-reverse" : "flex-row"
+                  }`}
                 >
                   <img
                     src={mascotSrc}
@@ -221,7 +337,7 @@ function OnboardingHostContent({ inverseZoom }: { inverseZoom: number }) {
                     alt={onboarding.personaName}
                     decoding="async"
                     draggable={false}
-                    className="h-32 w-32 md:h-36 md:w-36 object-contain select-none"
+                    className="h-28 w-28 md:h-32 md:w-32 object-contain select-none pointer-events-none [mask-image:linear-gradient(to_bottom,black_84%,transparent_100%)]"
                     onError={(e) => {
                       const img = e.currentTarget as HTMLImageElement;
                       img.srcset = "";
@@ -231,22 +347,23 @@ function OnboardingHostContent({ inverseZoom }: { inverseZoom: number }) {
 
                   {/* Animated callout pill that invites the operator */}
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.8, x: -8 }}
+                    initial={{ opacity: 0, scale: 0.85 }}
                     animate={{
                       opacity: 1,
-                      scale: isMascotHovered ? 1.04 : [1, 1.05, 1],
-                      x: isMascotHovered ? 2 : 0,
+                      scale: isMascotHovered ? 1.04 : [1, 1.04, 1],
                     }}
                     transition={
                       isMascotHovered
                         ? { type: "spring", stiffness: 320, damping: 20 }
                         : { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
                     }
-                    className="pointer-events-none -ml-4 mb-10 flex items-center gap-1.5 rounded-full border border-primary/40 bg-card/95 px-2.5 py-1 text-[11px] font-bold text-foreground shadow-lg backdrop-blur-md"
+                    className={`pointer-events-none mb-8 flex items-center gap-1.5 rounded-full border border-primary/35 bg-card/95 px-2.5 py-1 text-[11px] font-bold text-foreground shadow-soft backdrop-blur-md ${
+                      isOnRightHalf ? "-mr-3" : "-ml-3"
+                    }`}
                   >
                     <Sparkles className="h-3 w-3 shrink-0 text-primary animate-pulse" />
                     <span className="whitespace-nowrap">
-                      {isMascotHovered ? `Iniciar Tour: ${moduleTitle}` : "Tour"}
+                      {isMascotHovered ? `Tour: ${moduleTitle}` : "Tour"}
                     </span>
                   </motion.div>
                 </motion.div>
@@ -258,4 +375,5 @@ function OnboardingHostContent({ inverseZoom }: { inverseZoom: number }) {
     </>
   );
 }
+
 
