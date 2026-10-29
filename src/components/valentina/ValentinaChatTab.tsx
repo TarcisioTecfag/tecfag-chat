@@ -18,6 +18,7 @@ import { AgenticThoughtTrace } from "./chat-blocks/AgenticThoughtTrace";
 import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
 import {
   buildAgenticThoughtTrace,
+  buildInitialLiveTraceForIntent,
   isCasualConversationQuery,
   type AgenticThoughtTraceData,
 } from "@/lib/valentina/agentic-thought-trace";
@@ -411,8 +412,16 @@ export function ValentinaChatTab() {
     }
 
     const myGeneration = ++generationRef.current;
-    setIsTyping(false);
-    setLiveThoughtTrace(null);
+    setLiveThoughtTrace({
+      taskTitle: "Trabalhando",
+      finishedTitle: "Resposta enviada",
+      totalDurationSeconds: 1,
+      scope: "admin",
+      isWaitingPhase: true,
+      isMinimalWorking: true,
+      steps: [],
+    });
+    setIsTyping(true);
 
     queuedAdminInputsRef.current.push({
       text,
@@ -420,6 +429,13 @@ export function ValentinaChatTab() {
       fileSnap,
       imageSnap,
     });
+
+    const isSingleCasualWait =
+      !fileSnap &&
+      !imageSnap &&
+      queuedAdminInputsRef.current.length === 1 &&
+      isCasualConversationQuery(text);
+    const debounceWaitMs = isSingleCasualWait ? 2000 : 8000;
 
     debounceTimerRef.current = setTimeout(() => {
       debounceTimerRef.current = null;
@@ -440,63 +456,14 @@ export function ValentinaChatTab() {
       const batchFile = [...batch].reverse().find((b) => b.fileSnap)?.fileSnap || null;
       const batchImage = [...batch].reverse().find((b) => b.imageSnap)?.imageSnap || null;
 
-      const isCasualMsg =
-        !batchFile && !batchImage && isCasualConversationQuery(combinedUserMessageText);
-      const initialTrace: AgenticThoughtTraceData = {
-        taskTitle: isCasualMsg
-          ? "Respondendo mensagem"
-          : `Analisando indicadores da operação em tempo real`,
-        finishedTitle: isCasualMsg ? "Resposta direta enviada" : "Consulta executiva concluída",
-        totalDurationSeconds: 1,
+      const initialTrace = buildInitialLiveTraceForIntent({
+        userQuery: combinedUserMessageText,
         scope: "admin",
-        isRealTimeStream: true,
-        steps: isCasualMsg
-          ? [
-              {
-                id: "step-admin-thought-1",
-                kind: "thought",
-                actionVerb: "Pensou por 1s",
-                targetLabel: "Reconhecendo mensagem rápida sem necessidade de varrer tabelas",
-                detailText: `Iniciando processamento direto de "${combinedUserMessageText.slice(0, 80)}".`,
-              },
-            ]
-          : [
-              {
-                id: "step-admin-thought-1",
-                kind: "thought",
-                actionVerb: "Pensou por 2s",
-                targetLabel: "Planejando consulta 360º nos indicadores operacionais e comerciais",
-                detailText: `Analisando "${combinedUserMessageText.slice(0, 80)}" para selecionar as tabelas de BI, funis do CRM, metas e fila de atendimento.`,
-              },
-              {
-                id: "step-admin-crm-analyze",
-                kind: "analyze",
-                actionVerb: "Analisou",
-                targetLabel: "crm_deals, crm_stages & commercial_goals",
-                scopeTag: `#${selectedBase || tenant}`,
-                badgeType: "crm",
-                detailText: "Consolidação de pipeline aberto, vendas ganhas/perdidas, ritmo de metas e distribuição por consultor.",
-              },
-              {
-                id: "step-admin-bi-done",
-                kind: "query",
-                actionVerb: "Consultou",
-                targetLabel: "director_bi_context & conversations",
-                scopeTag: "#dossie-360",
-                badgeType: "bi",
-                detailText: "Leitura em tempo real das filas de atendimento, TMA, SLA, triagens SDR e Base de Conhecimento.",
-              },
-              {
-                id: "step-vertex-synthesize",
-                kind: "synthesize",
-                actionVerb: "Sintetizando",
-                targetLabel: `resposta com ${persona.name}`,
-                scopeTag: "#gemini-2.5-pro • em execução",
-                badgeType: "ai",
-                detailText: `Cruzando todas as informações e métricas coletadas para estruturar a resposta executiva de ${persona.name} via Google Vertex AI (gemini-2.5-pro).`,
-              },
-            ],
-      };
+        personaName: persona.name,
+        knowledgeBase: selectedBase || tenant || "tecfag",
+        hasAttachedImage: Boolean(batchImage),
+        attachedFileName: batchFile?.name || batchImage?.name || null,
+      });
 
       setLiveThoughtTrace(initialTrace);
       setIsTyping(true);
@@ -555,6 +522,15 @@ export function ValentinaChatTab() {
                 )
               : undefined;
 
+            const shouldIncludeTrace =
+              i === 0 &&
+              Boolean(
+                resolvedTrace &&
+                  !resolvedTrace.isMinimalWorking &&
+                  Array.isArray(resolvedTrace.steps) &&
+                  resolvedTrace.steps.length > 0
+              );
+
             const botMsg: ValentinaChatMessage = {
               id: fragments[i].id || `val-${Date.now()}-${i}`,
               sender: "valentina",
@@ -565,7 +541,7 @@ export function ValentinaChatTab() {
               vtexProductPreviews: Array.isArray(fragments[i].vtexProductPreviews)
                 ? fragments[i].vtexProductPreviews
                 : undefined,
-              thoughtTrace: i === 0 ? resolvedTrace : undefined,
+              thoughtTrace: shouldIncludeTrace ? resolvedTrace : undefined,
               knowledgeSources: Array.isArray(fragments[i].knowledgeSources)
                 ? fragments[i].knowledgeSources
                 : undefined,
@@ -613,7 +589,7 @@ export function ValentinaChatTab() {
           }
         }
       })();
-    }, 8000);
+    }, debounceWaitMs);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

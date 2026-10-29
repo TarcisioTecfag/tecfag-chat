@@ -3436,17 +3436,21 @@ export function CrmChatWidget() {
                                       className="mt-2.5 flex flex-wrap gap-1.5"
                                       onClick={(e) => e.stopPropagation()}
                                     >
-                                      {[
-                                        "Quais minhas prioridades agora?",
-                                        "Quais tarefas e ligações tenho hoje?",
-                                        "Tenho clientes esperando resposta?",
-                                        "Como estão minhas metas do mês?",
-                                      ].map((suggestion) => (
+                                      {(Array.isArray(message.welcomeSuggestions) &&
+                                      message.welcomeSuggestions.length > 0
+                                        ? message.welcomeSuggestions
+                                        : [
+                                            "Quais minhas prioridades agora?",
+                                            "Quais tarefas e ligações tenho hoje?",
+                                            "Tenho clientes esperando resposta?",
+                                            "Como estão minhas metas do mês?",
+                                          ]
+                                      ).map((suggestion, sIdx) => (
                                         <button
-                                          key={suggestion}
+                                          key={`${suggestion}-${sIdx}`}
                                           type="button"
                                           onClick={() => void sendMessage(suggestion)}
-                                          className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-[10.5px] font-semibold transition cursor-pointer"
+                                          className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-[10.5px] font-semibold transition cursor-pointer text-left"
                                         >
                                           {suggestion}
                                         </button>

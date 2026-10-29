@@ -1918,17 +1918,27 @@ function ChatMessageBubbleComponent({
               </div>
             )}
 
-          {/* Sugestões dinâmicas para mensagem de boas-vindas da IA */}
+          {/* Sugestões dinâmicas por setor para mensagem de boas-vindas da IA */}
           {m.id === "val_welcome" && (
             <div data-tour="chat.assistant-suggestions" className="mt-2.5 flex flex-col gap-1.5 max-w-sm">
-              {[
-                "Como está minha meta do mês e meu ritmo hoje?",
-                "Quais são minhas tarefas e ligações agendadas para hoje?",
-                "Quais negociações minhas estão paradas ou esfriando?",
-                "Quais clientes estão aguardando minha resposta agora?",
-              ].map((q, idx) => (
+              {m.welcomeSectorName && (
+                <div className="mb-0.5 flex items-center gap-1.5 px-1">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-primary">
+                    Setor: {m.welcomeSectorName}
+                  </span>
+                </div>
+              )}
+              {(Array.isArray(m.welcomeSuggestions) && m.welcomeSuggestions.length > 0
+                ? m.welcomeSuggestions
+                : [
+                    "Como está minha meta do mês e meu ritmo hoje?",
+                    "Quais são minhas tarefas e ligações agendadas para hoje?",
+                    "Quais negociações minhas estão paradas ou esfriando?",
+                    "Quais clientes estão aguardando minha resposta agora?",
+                  ]
+              ).map((q, idx) => (
                 <button
-                  key={idx}
+                  key={`${q}-${idx}`}
                   type="button"
                   onClick={() => onSendWelcomeSuggestion && onSendWelcomeSuggestion(q)}
                   className="text-left text-[11px] font-semibold text-primary hover:text-primary-foreground bg-primary/5 hover:bg-primary border border-primary/20 hover:border-primary px-3 py-2 rounded-xl transition duration-150 shadow-soft cursor-pointer flex items-center justify-between group/btn w-full"

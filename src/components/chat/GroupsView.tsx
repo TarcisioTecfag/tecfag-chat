@@ -19,6 +19,11 @@ import { MetaTemplatesManager } from "./MetaTemplatesManager";
 import { getAiPersona } from "@/lib/ai-persona";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import {
+  getDefaultSectorCopilotConfig,
+  interpolateCopilotWelcomeMessage,
+  resolveSectorCopilotConfig,
+} from "@/lib/valentina/sector-copilot-config";
 
 interface OperatorWalletCardProps {
   op: Operator;
@@ -396,6 +401,7 @@ import {
   ChevronRight,
   Clock,
   LogOut,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -795,9 +801,82 @@ export function GroupsView() {
     tenantId: "" as any,
     name: "Carregando Setor...",
     operatorIds: [] as string[],
+    copilotWelcomeMessage: "",
+    copilotSuggestions: [] as string[],
   };
 
   const selectedSectorObj = sectors.find(s => s.id === selectedSectorId) || sectors[0] || emptySector;
+
+  // Sector Copilot Configuration States
+  const [sectorWelcomeDraft, setSectorWelcomeDraft] = useState<string>("");
+  const [sectorSuggestionsDraft, setSectorSuggestionsDraft] = useState<string[]>([]);
+  const [isSavingSectorCopilot, setIsSavingSectorCopilot] = useState(false);
+
+  React.useEffect(() => {
+    if (!selectedSectorObj?.id) return;
+    const resolved = resolveSectorCopilotConfig({
+      name: selectedSectorObj.name,
+      copilotWelcomeMessage: selectedSectorObj.copilotWelcomeMessage,
+      copilotSuggestions: selectedSectorObj.copilotSuggestions,
+    });
+    setSectorWelcomeDraft(resolved.welcomeMessage);
+    setSectorSuggestionsDraft(resolved.suggestions);
+  }, [
+    selectedSectorObj?.id,
+    selectedSectorObj?.name,
+    selectedSectorObj?.copilotWelcomeMessage,
+    selectedSectorObj?.copilotSuggestions,
+  ]);
+
+  const handleSaveSectorCopilot = async () => {
+    if (!selectedSectorObj?.id || isSavingSectorCopilot) return;
+    const cleanedWelcome = sectorWelcomeDraft.trim();
+    const cleanedSuggestions = sectorSuggestionsDraft
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    if (!cleanedWelcome) {
+      toast.warning("A mensagem inicial do copiloto não pode ficar vazia.");
+      return;
+    }
+    if (cleanedSuggestions.length === 0) {
+      toast.warning("Adicione pelo menos 1 sugestão de pergunta para o setor.");
+      return;
+    }
+
+    setIsSavingSectorCopilot(true);
+    try {
+      await updateSector(selectedSectorObj.id, {
+        copilotWelcomeMessage: cleanedWelcome,
+        copilotSuggestions: cleanedSuggestions,
+      });
+      setSectorSuggestionsDraft(cleanedSuggestions);
+      toast.success(`Copiloto ${aiPersona.name} configurado para o setor "${selectedSectorObj.name}"!`);
+    } finally {
+      setIsSavingSectorCopilot(false);
+    }
+  };
+
+  const handleRestoreSectorCopilotDefault = async () => {
+    if (!selectedSectorObj?.id || isSavingSectorCopilot) return;
+    const defaults = getDefaultSectorCopilotConfig(selectedSectorObj.name);
+    setSectorWelcomeDraft(defaults.welcomeMessage);
+    setSectorSuggestionsDraft(defaults.suggestions);
+    setIsSavingSectorCopilot(true);
+    try {
+      await updateSector(selectedSectorObj.id, {
+        copilotWelcomeMessage: defaults.welcomeMessage,
+        copilotSuggestions: defaults.suggestions,
+      });
+      toast.success(`Padrão recomendado do setor "${selectedSectorObj.name}" restaurado!`);
+    } finally {
+      setIsSavingSectorCopilot(false);
+    }
+  };
+
+  const handleInsertSectorWelcomeVar = (token: string) => {
+    setSectorWelcomeDraft((prev) => `${prev}${prev.endsWith(" ") || !prev ? "" : " "}${token}`);
+  };
 
   // Group Form States
   const [showGroupForm, setShowGroupForm] = useState(false);
@@ -3497,17 +3576,190 @@ export function GroupsView() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <Building2 className="h-5 w-5 text-primary shrink-0" />
-                      <input
-                        type="text"
-                        value={selectedSectorObj.name}
-                        onChange={(e) => updateSector(selectedSectorObj.id, { name: e.target.value })}
-                        className="text-sm font-extrabold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-none px-1 py-0.5 transition w-full max-w-sm"
-                        title="Clique para editar o nome do setor"
-                      />
+                      <SystemTooltip content="Clique para editar o nome do setor">
+                        <input
+                          type="text"
+                          value={selectedSectorObj.name}
+                          onChange={(e) => updateSector(selectedSectorObj.id, { name: e.target.value })}
+                          className="text-sm font-extrabold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-none px-1 py-0.5 transition w-full max-w-sm"
+                        />
+                      </SystemTooltip>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">Gerencie os atendentes associados a este setor de operação.</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Gerencie os atendentes e a personalização do Copiloto {aiPersona.name} para este setor de operação.
+                    </p>
                   </div>
                 </header>
+
+                {/* Configuração do Copiloto IA do Setor */}
+                <div className="rounded-2xl border border-primary/20 bg-primary/[0.03] p-4 sm:p-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-border/60 pb-3">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                        <h5 className="text-xs font-black text-foreground uppercase tracking-wide">
+                          Copiloto {aiPersona.name} — Boas-vindas &amp; Sugestões do Setor
+                        </h5>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary">
+                          Setor: {selectedSectorObj.name}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Personalize a mensagem inicial e os botões de perguntas sugeridas exibidos quando um colaborador deste setor abre o Copiloto {aiPersona.name}.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <SystemTooltip content="Restaurar mensagem inicial e perguntas recomendadas originalmente para este setor">
+                        <button
+                          type="button"
+                          onClick={handleRestoreSectorCopilotDefault}
+                          disabled={isSavingSectorCopilot || !selectedSectorObj.id}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-[11px] font-bold text-muted-foreground hover:text-foreground hover:border-primary/40 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Restaurar padrão
+                        </button>
+                      </SystemTooltip>
+                      <button
+                        type="button"
+                        onClick={handleSaveSectorCopilot}
+                        disabled={isSavingSectorCopilot || !selectedSectorObj.id}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-[11px] font-bold text-primary-foreground shadow-sm hover:opacity-95 transition cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingSectorCopilot ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Check className="h-3.5 w-3.5" />
+                        )}
+                        Salvar Copiloto
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mensagem Inicial */}
+                  <div className="space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                      <label className="text-[11px] font-extrabold text-foreground uppercase tracking-wide">
+                        Mensagem Inicial do Copiloto
+                      </label>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-muted-foreground font-medium">Variáveis:</span>
+                        {[
+                          { token: "{{saudacao}}", desc: "Insere Bom dia / Boa tarde / Boa noite automaticamente" },
+                          { token: "{{nome}}", desc: "Insere o primeiro nome do operador logado" },
+                          { token: "{{ia}}", desc: `Insere o nome do copiloto (${aiPersona.name})` },
+                          { token: "{{setor}}", desc: `Insere o nome deste setor (${selectedSectorObj.name})` },
+                        ].map((v) => (
+                          <SystemTooltip key={v.token} content={v.desc}>
+                            <button
+                              type="button"
+                              onClick={() => handleInsertSectorWelcomeVar(v.token)}
+                              className="rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-mono font-bold text-primary hover:bg-primary/20 transition cursor-pointer"
+                            >
+                              + {v.token}
+                            </button>
+                          </SystemTooltip>
+                        ))}
+                      </div>
+                    </div>
+
+                    <textarea
+                      rows={3}
+                      value={sectorWelcomeDraft}
+                      onChange={(e) => setSectorWelcomeDraft(e.target.value)}
+                      placeholder="Digite a mensagem inicial que o copiloto enviará para os colaboradores deste setor..."
+                      className="w-full rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition resize-y"
+                    />
+
+                    {/* Pré-visualização ao vivo */}
+                    <div className="rounded-xl border border-border/70 bg-card/80 px-3 py-2.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Pré-visualização para o operador
+                        </span>
+                        <span className="text-[10px] text-primary font-semibold">
+                          {aiPersona.name} • {selectedSectorObj.name}
+                        </span>
+                      </div>
+                      <p className="text-xs text-foreground/90 leading-relaxed">
+                        {interpolateCopilotWelcomeMessage(sectorWelcomeDraft || "", {
+                          operatorName:
+                            operators.find((o) => o.id === currentOperatorId)?.name || "Colaborador",
+                          aiName: aiPersona.name,
+                          sectorName: selectedSectorObj.name,
+                        })}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Sugestões de Perguntas Iniciais */}
+                  <div className="space-y-2.5 pt-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <label className="text-[11px] font-extrabold text-foreground uppercase tracking-wide block">
+                          Sugestões de Perguntas Iniciais ({sectorSuggestionsDraft.length})
+                        </label>
+                        <span className="text-[10px] text-muted-foreground">
+                          Botões rápidos exibidos logo abaixo da mensagem inicial do Copiloto {aiPersona.name}.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSectorSuggestionsDraft((prev) => [
+                            ...prev,
+                            `Nova sugestão para ${selectedSectorObj.name}`,
+                          ])
+                        }
+                        disabled={sectorSuggestionsDraft.length >= 8}
+                        className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary hover:bg-primary/20 transition cursor-pointer disabled:opacity-40"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Adicionar pergunta
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {sectorSuggestionsDraft.map((suggestion, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 py-1.5 focus-within:border-primary transition"
+                        >
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-[10px] font-extrabold text-primary">
+                            {idx + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={suggestion}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSectorSuggestionsDraft((prev) =>
+                                prev.map((item, i) => (i === idx ? val : item)),
+                              );
+                            }}
+                            placeholder="Ex: Quais chamados estão aguardando retorno?"
+                            className="flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                          />
+                          {sectorSuggestionsDraft.length > 1 && (
+                            <SystemTooltip content="Remover esta sugestão">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSectorSuggestionsDraft((prev) =>
+                                    prev.filter((_, i) => i !== idx),
+                                  )
+                                }
+                                className="p-1 text-muted-foreground hover:text-destructive transition cursor-pointer shrink-0"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
 
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -3517,7 +3769,7 @@ export function GroupsView() {
                         <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Membros do Setor</h5>
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        Selecione quais operadores realizam atendimentos neste setor. Eles aparecerão na pasta deste setor e no fluxo de transferência.
+                        Selecione quais operadores realizam atendimentos neste setor. Eles aparecerão na pasta deste setor e receberão o Copiloto configurado acima.
                       </p>
                     </div>
                     <div className="relative w-full sm:w-64">

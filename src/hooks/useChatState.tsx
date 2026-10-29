@@ -17,9 +17,11 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { resolveTemplateVariables } from "@/lib/utils";
 import {
   buildAgenticThoughtTrace,
+  buildInitialLiveTraceForIntent,
   isCasualConversationQuery,
   type AgenticThoughtTraceData,
 } from "@/lib/valentina/agentic-thought-trace";
+import { buildOperatorCopilotWelcome } from "@/lib/valentina/sector-copilot-config";
 import { playNotificationSound } from "@/lib/sound-notifications";
 import {
   renderFormattedNotificationText,
@@ -105,6 +107,8 @@ export type Sector = {
   name: string;
   operatorIds: string[];
   tenantId?: "tecfag" | "valem";
+  copilotWelcomeMessage?: string | null;
+  copilotSuggestions?: string[] | null;
 };
 
 type ChatContextType = {
@@ -375,25 +379,21 @@ export function isValentinaMessageArchived(
   return false;
 }
 
+type SectorWelcomeContext = {
+  operatorId?: string | null;
+  groupName?: string | null;
+  role?: string | null;
+  sectors?: Sector[];
+};
+
 function buildValentinaWelcomeMessage(
   tenant: string | null | undefined,
   operatorName: string | undefined,
   nowDateObj: Date = new Date(),
-  firstTodayMsg?: Message
+  firstTodayMsg?: Message,
+  sectorContext?: SectorWelcomeContext
 ): Message {
   const aiPersona = getAiPersona(tenant || undefined);
-  const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-    hour: "numeric",
-    hour12: false,
-  }).format(nowDateObj);
-  const hour = parseInt(brtHourStr, 10);
-  const greeting =
-    hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
-  const cleanName =
-    operatorName && operatorName.trim() && operatorName.trim() !== "Operador"
-      ? operatorName.trim()
-      : "consultor";
   const todayDateStr = getBrtTodayDateStr(nowDateObj);
   const welcomeTimeStr =
     firstTodayMsg?.time ||
@@ -404,10 +404,22 @@ function buildValentinaWelcomeMessage(
     });
   const welcomeIsoStr = firstTodayMsg?.sentAtISO || nowDateObj.toISOString();
 
+  const resolved = buildOperatorCopilotWelcome({
+    tenantId: tenant,
+    operatorId: sectorContext?.operatorId,
+    operatorName,
+    operatorGroupName: sectorContext?.groupName,
+    operatorRole: sectorContext?.role,
+    sectors: sectorContext?.sectors || [],
+    nowDate: nowDateObj,
+  });
+
   return {
     id: "val_welcome",
     author: aiPersona.name,
-    text: `Olá! ${greeting} ${cleanName}, sou seu copiloto comercial. Acompanho suas metas, tarefas, ligações agendadas, negociações paradas e te aviso sempre que um cliente for transferido ou passar do SLA. Como posso te ajudar agora?`,
+    text: resolved.welcomeMessage,
+    welcomeSuggestions: resolved.suggestions,
+    welcomeSectorName: resolved.sectorName,
     time: welcomeTimeStr,
     date: todayDateStr,
     sentAtISO: welcomeIsoStr,
@@ -421,7 +433,8 @@ function composeValentinaMessagesWithTodayWelcome(
   tenant: string | null | undefined,
   operatorName: string | undefined,
   nowDateObj: Date = new Date(),
-  resetAtISO?: string | null
+  resetAtISO?: string | null,
+  sectorContext?: SectorWelcomeContext
 ): Message[] {
   const cleanReal = realMessages.filter((m) => m.id !== "val_welcome");
   const todayDateStr = getBrtTodayDateStr(nowDateObj);
@@ -440,7 +453,8 @@ function composeValentinaMessagesWithTodayWelcome(
     tenant,
     operatorName,
     nowDateObj,
-    todayMessages[0]
+    todayMessages[0],
+    sectorContext
   );
 
   return [...olderMessages, welcomeMsg, ...todayMessages];
@@ -1527,11 +1541,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSectors((prev) => [...prev, newSector]);
 
     try {
-      await fetch(`${BACKEND_URL}/api/sectors`, {
+      const res = await fetch(`${BACKEND_URL}/api/sectors`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...newSector, tenantId: tenant }),
       });
+      const data = await res.json().catch(() => null);
+      if (data?.sector) {
+        setSectors((prev) => prev.map((s) => (s.id === id ? { ...s, ...data.sector } : s)));
+      }
       toast.success("Setor criado com sucesso!");
     } catch (err) {
       console.error("Erro ao criar setor no DB:", err);
@@ -1545,8 +1564,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targetSector = sectors.find((s) => s.id === id);
     if (targetSector) {
       try {
-        await fetch(`${BACKEND_URL}/api/sectors`, {
+        const res = await fetch(`${BACKEND_URL}/api/sectors`, {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...targetSector,
@@ -1554,6 +1574,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             tenantId: tenant,
           }),
         });
+        const data = await res.json().catch(() => null);
+        if (data?.sector) {
+          setSectors((prev) => prev.map((s) => (s.id === id ? { ...s, ...data.sector } : s)));
+        }
       } catch (err) {
         console.error("Erro ao atualizar setor no DB:", err);
       }
@@ -1566,6 +1590,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await fetch(`${BACKEND_URL}/api/sectors?id=${id}`, {
         method: "DELETE",
+        credentials: "include",
       });
       toast.success("Setor excluído com sucesso!");
     } catch (err) {
@@ -1876,7 +1901,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             tenant,
             operatorProfile?.name,
             nowDateObj,
-            valentinaResetAtRef.current
+            valentinaResetAtRef.current,
+            sectorWelcomeContextRef.current
           );
           const lastValMsg = initialValMessages[initialValMessages.length - 1];
 
@@ -1946,6 +1972,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     operatorNameRef.current = operatorProfile?.name;
   }, [operatorProfile?.name]);
+
+  const sectorWelcomeContextRef = useRef<SectorWelcomeContext>({
+    operatorId: currentOperatorId,
+    groupName: currentGroup?.name,
+    role: sessionRole,
+    sectors,
+  });
+  useEffect(() => {
+    sectorWelcomeContextRef.current = {
+      operatorId: currentOperatorId,
+      groupName: currentGroup?.name,
+      role: sessionRole,
+      sectors,
+    };
+  }, [currentOperatorId, currentGroup?.name, sessionRole, sectors]);
 
   const mapInternalRowToMessage = useCallback(
     (r: any): Message => {
@@ -2180,7 +2221,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 tenant,
                 operatorNameRef.current,
                 new Date(),
-                valentinaResetAtRef.current
+                valentinaResetAtRef.current,
+                sectorWelcomeContextRef.current
               );
               const lastMsg = merged[merged.length - 1];
               return {
@@ -2200,7 +2242,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 tenant,
                 operatorNameRef.current,
                 new Date(),
-                valentinaResetAtRef.current
+                valentinaResetAtRef.current,
+                sectorWelcomeContextRef.current
               );
               const lastMsg = merged[merged.length - 1];
               return {
@@ -2266,7 +2309,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenant,
           operatorNameRef.current,
           nowDate,
-          resetIso
+          resetIso,
+          sectorWelcomeContextRef.current
         );
         const lastMsg = merged[merged.length - 1];
         return {
@@ -2312,7 +2356,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void reloadValentinaHistory(150);
   }, [tenant, currentOperatorId, reloadValentinaHistory]);
 
-  // Atualiza a mensagem de boas-vindas do dia quando o nome do operador for carregado/alterado
+  // Atualiza a mensagem de boas-vindas do dia e sugestões quando o nome do operador, setor ou grupo for carregado/alterado
   useEffect(() => {
     if (!tenant) return;
     setConversations((prev) =>
@@ -2323,7 +2367,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenant,
           operatorProfile?.name,
           new Date(),
-          valentinaResetAtRef.current
+          valentinaResetAtRef.current,
+          {
+            operatorId: currentOperatorId,
+            groupName: currentGroup?.name,
+            role: sessionRole,
+            sectors,
+          }
         );
         return {
           ...c,
@@ -2331,7 +2381,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       })
     );
-  }, [operatorProfile?.name, tenant, setConversations]);
+  }, [operatorProfile?.name, tenant, currentOperatorId, currentGroup?.name, sessionRole, sectors, setConversations]);
 
   // Monitora virada de dia no fuso America/Sao_Paulo: reposiciona val_welcome no novo dia e notifica a UI para ocultar dias anteriores
   const currentBrtDateRef = useRef<string>(getBrtTodayDateStr());
@@ -2348,7 +2398,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               tenant,
               operatorNameRef.current,
               new Date(),
-              valentinaResetAtRef.current
+              valentinaResetAtRef.current,
+              sectorWelcomeContextRef.current
             );
             const lastMsg = merged[merged.length - 1];
             return {
@@ -2510,10 +2561,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const myGeneration = ++valentinaGenerationRef.current;
-      // Enquanto aguarda os 8 segundos para ver se o operador vai digitar mais mensagens,
-      // mantém a animação recolhida/oculta para ficar 100% natural como conversa humana
-      setValentinaThoughtTrace(null);
-      setIsValentinaTyping(false);
+      // Exibe imediatamente a animação limpa "Trabalhando" (gradiente suave) durante a espera inicial,
+      // e depois converte para a árvore de pesquisa apenas se a pergunta exigir coleta de dados!
+      setValentinaThoughtTrace({
+        taskTitle: "Trabalhando",
+        finishedTitle: "Resposta enviada",
+        totalDurationSeconds: 1,
+        scope: "operator",
+        isWaitingPhase: true,
+        isMinimalWorking: true,
+        steps: [],
+      });
+      setIsValentinaTyping(true);
 
       valentinaQueuedInputsRef.current.push({
         tempUserMsgId,
@@ -2522,6 +2581,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         nowISO,
         firstAttachment,
       });
+
+      const isSingleCasualWait =
+        !firstAttachment &&
+        valentinaQueuedInputsRef.current.length === 1 &&
+        isCasualConversationQuery(safeInputText);
+      const debounceWaitMs = isSingleCasualWait ? 2000 : 8000;
 
       valentinaDebounceTimerRef.current = setTimeout(() => {
         valentinaDebounceTimerRef.current = null;
@@ -2550,74 +2615,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const controller = new AbortController();
         valentinaPendingRef.current = { controller, generation: myGeneration };
 
-        // Chamar API real /api/valentina/messages após os 8s naturais (com signal de cancelamento)
+        // Chamar API real /api/valentina/messages após o tempo de espera (com signal de cancelamento)
         (async () => {
           const currentPersona = getAiPersona(tenantRef.current || tenant || "valem");
-          const isCasualMsg =
-            !batchAttachment && isCasualConversationQuery(combinedDisplayUserText);
-          const initialTrace: AgenticThoughtTraceData = {
-            taskTitle: batchAttachment
-              ? `Inspecionando imagem anexada (${batchAttachment.name})`
-              : isCasualMsg
-              ? "Respondendo mensagem"
-              : `Analisando solicitação para ${currentPersona.name}`,
-            finishedTitle: batchAttachment
-              ? "Análise visual concluída"
-              : isCasualMsg
-              ? "Resposta direta enviada"
-              : "Consulta concluída",
-            totalDurationSeconds: 1,
+          const initialTrace = buildInitialLiveTraceForIntent({
+            userQuery: combinedDisplayUserText,
             scope: "operator",
-            isRealTimeStream: true,
-            steps: isCasualMsg
-              ? [
-                  {
-                    id: "step-op-thought-1",
-                    kind: "thought",
-                    actionVerb: "Pensou por 1s",
-                    targetLabel: "Reconhecendo mensagem rápida sem necessidade de varrer tabelas",
-                    detailText: `Iniciando processamento direto de "${combinedDisplayUserText.slice(0, 80)}".`,
-                  },
-                ]
-              : [
-                  {
-                    id: "step-op-thought-1",
-                    kind: "thought",
-                    actionVerb: "Pensou por 2s",
-                    targetLabel: batchAttachment
-                      ? `Carregando imagem "${batchAttachment.name}" para inspeção visual multimodal`
-                      : "Selecionando consultas necessárias para responder à sua pergunta",
-                    detailText: `Analisando "${combinedDisplayUserText.slice(0, 80)}" para consultar as tabelas e manuais relevantes da sua operação.`,
-                  },
-                  {
-                    id: "step-op-deals",
-                    kind: "analyze",
-                    actionVerb: "Analisou",
-                    targetLabel: "crm_deals, crm_accounts & parâmetros da consulta",
-                    scopeTag: "#sua-carteira",
-                    badgeType: "crm",
-                    detailText: "Verificando registros vinculados à sua carteira comercial e especificações aplicáveis ao seu pedido.",
-                  },
-                  {
-                    id: "step-op-kb",
-                    kind: "search",
-                    actionVerb: "Consultou",
-                    targetLabel: "knowledge_base & conversations",
-                    scopeTag: "#catalogo-tecnico",
-                    badgeType: "kb",
-                    detailText: "Consultando Base de Conhecimento técnico (manuais em PDF e Catálogo Oficial) e histórico de interações.",
-                  },
-                  {
-                    id: "step-vertex-synthesize",
-                    kind: "synthesize",
-                    actionVerb: "Sintetizando",
-                    targetLabel: `resposta com ${currentPersona.name}`,
-                    scopeTag: "#gemini-2.5-pro • em execução",
-                    badgeType: "ai",
-                    detailText: `Cruzando todas as informações coletadas para redigir a resposta estruturada de ${currentPersona.name} via Google Vertex AI (gemini-2.5-pro).`,
-                  },
-                ],
-          };
+            personaName: currentPersona.name,
+            knowledgeBase: tenantRef.current || tenant || "tecfag",
+            hasAttachedImage: Boolean(batchAttachment),
+            attachedFileName: batchAttachment?.name || null,
+          });
           setValentinaThoughtTrace(initialTrace);
           setIsValentinaTyping(true);
           try {
@@ -2771,6 +2779,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const respDateStr = validFragDate.toLocaleDateString("pt-BR", {
                 timeZone: "America/Sao_Paulo",
               });
+              const candidateTrace = frag.thoughtTrace || resolvedTrace;
+              const shouldIncludeThoughtTrace =
+                i === 0 &&
+                Boolean(
+                  candidateTrace &&
+                    !candidateTrace.isMinimalWorking &&
+                    Array.isArray(candidateTrace.steps) &&
+                    candidateTrace.steps.length > 0
+                );
               const valentinaMsg: Message = {
                 id: frag.id || `msg-val-${Date.now()}-${i}`,
                 author: currentPersona.name,
@@ -2780,7 +2797,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 sentAtISO: validFragDate.toISOString(),
                 side: "in",
                 isInternalNote: false,
-                ...(i === 0 ? { thoughtTrace: frag.thoughtTrace || resolvedTrace } : {}),
+                ...(shouldIncludeThoughtTrace ? { thoughtTrace: candidateTrace } : {}),
                 ...(frag.catalogPhoto ? { catalogPhoto: frag.catalogPhoto } : {}),
                 ...(frag.vtexProductPreview ? { vtexProductPreview: frag.vtexProductPreview } : {}),
                 ...(Array.isArray(frag.vtexProductPreviews)
@@ -3041,7 +3058,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
         })();
-      }, 8000);
+      }, debounceWaitMs);
 
       return true;
     }
