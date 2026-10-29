@@ -30,9 +30,13 @@ import type {
 
 const SMOOTH_EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
+const SHIMMER_CYCLE_MS = 1500;
+const SHIMMER_WAVE_RADIUS = 3.2;
+
 /**
- * Animação minimalista "Trabalhando" com passagem suave de gradiente/sombra nas letras,
- * fiel à referência visual do Antigravity ("Working").
+ * Animação minimalista "Trabalhando" com passagem contínua de luz/sombra pelas letras.
+ * Atualiza diretamente a opacidade e cor de cada letra via requestAnimationFrame (60fps),
+ * eliminando 100% o bug do Chromium onde `-webkit-background-clip: text` congela o repaint.
  */
 export function WorkingShimmerLabel({
   text = "Trabalhando",
@@ -41,28 +45,68 @@ export function WorkingShimmerLabel({
   text?: string;
   className?: string;
 }) {
+  const chars = React.useMemo(() => Array.from(text), [text]);
+  const charRefs = useRef<Array<HTMLSpanElement | null>>([]);
+
+  useEffect(() => {
+    let rafId = 0;
+    const totalSpan = chars.length + SHIMMER_WAVE_RADIUS * 2;
+    // Inicia com a onda já entrando nas primeiras letras ("Tra")
+    const startTime = performance.now() - SHIMMER_CYCLE_MS * 0.22;
+
+    const tick = (now: number) => {
+      const elapsed = (now - startTime) % SHIMMER_CYCLE_MS;
+      const progress = (elapsed < 0 ? elapsed + SHIMMER_CYCLE_MS : elapsed) / SHIMMER_CYCLE_MS;
+      const centerIndex = -SHIMMER_WAVE_RADIUS + progress * totalSpan;
+
+      for (let i = 0; i < chars.length; i++) {
+        const el = charRefs.current[i];
+        if (!el) continue;
+        const dist = Math.abs(i - centerIndex);
+        let intensity = 0;
+        if (dist < SHIMMER_WAVE_RADIUS) {
+          const normalized = dist / SHIMMER_WAVE_RADIUS;
+          intensity = Math.pow(Math.cos(normalized * (Math.PI / 2)), 1.8);
+        }
+        const mixPct = Math.round(intensity * 100);
+        const alpha = (0.44 + intensity * 0.56).toFixed(3);
+        el.style.opacity = alpha;
+        el.style.color =
+          mixPct > 6
+            ? `color-mix(in srgb, var(--foreground) ${mixPct}%, var(--muted-foreground))`
+            : "var(--muted-foreground)";
+      }
+
+      rafId = window.requestAnimationFrame(tick);
+    };
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, [chars]);
+
   return (
-    <motion.span
-      animate={{
-        backgroundPosition: ["100% 0%", "-100% 0%"],
-      }}
-      transition={{
-        duration: 2.1,
-        repeat: Infinity,
-        ease: "linear",
-      }}
-      style={{
-        backgroundImage:
-          "linear-gradient(110deg, color-mix(in srgb, var(--muted-foreground) 58%, transparent) 0%, color-mix(in srgb, var(--muted-foreground) 58%, transparent) 38%, var(--foreground) 50%, color-mix(in srgb, var(--muted-foreground) 58%, transparent) 62%, color-mix(in srgb, var(--muted-foreground) 58%, transparent) 100%)",
-        backgroundSize: "220% 100%",
-        WebkitBackgroundClip: "text",
-        backgroundClip: "text",
-        color: "transparent",
-      }}
-      className={`inline-block font-medium tracking-tight select-none ${className}`}
+    <span
+      aria-label={text}
+      className={`inline-flex items-center font-medium tracking-tight select-none ${className}`}
     >
-      {text}
-    </motion.span>
+      {chars.map((ch, idx) => (
+        <span
+          key={idx}
+          ref={(node) => {
+            charRefs.current[idx] = node;
+          }}
+          style={{
+            color: "var(--muted-foreground)",
+            opacity: 0.44,
+            willChange: "opacity, color",
+          }}
+        >
+          {ch === " " ? "\u00A0" : ch}
+        </span>
+      ))}
+    </span>
   );
 }
 
