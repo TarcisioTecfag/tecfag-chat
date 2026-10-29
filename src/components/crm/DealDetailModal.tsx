@@ -102,6 +102,11 @@ import {
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { formatDealEvent } from "@/lib/crm/deal-event-format";
 import {
+  filterAndGroupCatalogProducts,
+  formatShortProductCategory,
+  type CrmProductGroupFilter,
+} from "@/lib/crm/product-grouping";
+import {
   fetchDealDetailWithCache,
   fetchPipelinesCached,
   getCachedDealDetailSync,
@@ -588,6 +593,7 @@ export function DealDetailModal({
   const [selectedCatalogId, setSelectedCatalogId] = useState("");
   const [catalogPickerOpen, setCatalogPickerOpen] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogGroupFilter, setCatalogGroupFilter] = useState<CrmProductGroupFilter>("all");
   const [newProductName, setNewProductName] = useState("");
   const [newProductQty, setNewProductQty] = useState("1");
   const [newProductUnitPrice, setNewProductUnitPrice] = useState("");
@@ -3792,85 +3798,211 @@ export function DealDetailModal({
                         </span>
 
                         {/* Atalho Catálogo */}
-                        {catalogProducts.length > 0 && (
-                          <div className="flex items-center gap-1.5">
-                            <ShoppingBag className="h-3 w-3 text-muted-foreground" />
-                            <Popover open={catalogPickerOpen} onOpenChange={setCatalogPickerOpen}>
-                              <SystemTooltip content="Pesquisar e preencher dados a partir de um produto cadastrado no catálogo">
-                                <PopoverTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="flex h-7 items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 text-[11px] text-foreground min-w-[210px] max-w-[320px] hover:bg-muted/40 cursor-pointer"
-                                  >
-                                    <span className="truncate">
-                                      {selectedCatalogId
-                                        ? catalogProducts.find((p) => p.id === selectedCatalogId)?.name || "-- Puxar do Catálogo --"
-                                        : "-- Puxar do Catálogo --"}
-                                    </span>
-                                    <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                  </button>
-                                </PopoverTrigger>
-                              </SystemTooltip>
-                              <PopoverContent align="end" className="w-[360px] p-2">
-                                <div className="relative mb-2">
-                                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                                  <input
-                                    type="text"
-                                    value={catalogSearch}
-                                    onChange={(e) => setCatalogSearch(e.target.value)}
-                                    placeholder={`Buscar entre ${catalogProducts.length} produtos...`}
-                                    className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                                  />
-                                </div>
-                                <div className="max-h-64 overflow-y-auto divide-y divide-border/50">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      handleSelectCatalogItem("");
-                                      setCatalogPickerOpen(false);
-                                    }}
-                                    className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50 cursor-pointer"
-                                  >
-                                    <span>-- Puxar do Catálogo --</span>
-                                  </button>
-                                  {catalogProducts
-                                    .filter((p) => {
-                                      const q = catalogSearch.trim().toLowerCase();
-                                      if (!q) return true;
+                        {catalogProducts.length > 0 && (() => {
+                          const grouped = filterAndGroupCatalogProducts(
+                            catalogProducts,
+                            catalogSearch,
+                            catalogGroupFilter,
+                          );
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <ShoppingBag className="h-3 w-3 text-muted-foreground" />
+                              <Popover open={catalogPickerOpen} onOpenChange={setCatalogPickerOpen}>
+                                <SystemTooltip content="Pesquisar e preencher dados a partir de um produto cadastrado no catálogo">
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="flex h-7 items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 text-[11px] text-foreground min-w-[210px] max-w-[320px] hover:bg-muted/40 cursor-pointer"
+                                    >
+                                      <span className="truncate">
+                                        {selectedCatalogId
+                                          ? catalogProducts.find((p) => p.id === selectedCatalogId)?.name || "-- Puxar do Catálogo --"
+                                          : "-- Puxar do Catálogo --"}
+                                      </span>
+                                      <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                    </button>
+                                  </PopoverTrigger>
+                                </SystemTooltip>
+                                <PopoverContent align="end" className="w-[400px] p-2.5">
+                                  <div className="relative mb-2">
+                                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                    <input
+                                      type="text"
+                                      value={catalogSearch}
+                                      onChange={(e) => setCatalogSearch(e.target.value)}
+                                      placeholder={`Buscar máquina ou peça entre ${catalogProducts.length} itens...`}
+                                      className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                    />
+                                  </div>
+
+                                  {/* Abas de Agrupamento: Todos | Máquinas | Peças */}
+                                  <div className="mb-2 flex items-center gap-1 rounded-lg bg-muted/60 p-1">
+                                    {(
+                                      [
+                                        { id: "all" as const, label: "Todos", count: grouped.counts.all },
+                                        { id: "maquinas" as const, label: "Máquinas", count: grouped.counts.maquinas },
+                                        { id: "pecas" as const, label: "Peças", count: grouped.counts.pecas },
+                                        ...(grouped.counts.servicos > 0
+                                          ? [{ id: "servicos" as const, label: "Serviços", count: grouped.counts.servicos }]
+                                          : []),
+                                      ]
+                                    ).map((tab) => {
+                                      const active = catalogGroupFilter === tab.id;
                                       return (
-                                        String(p.name || "").toLowerCase().includes(q) ||
-                                        String(p.sku || "").toLowerCase().includes(q) ||
-                                        String(p.category || "").toLowerCase().includes(q) ||
-                                        String(p.description || "").toLowerCase().includes(q)
+                                        <button
+                                          key={tab.id}
+                                          type="button"
+                                          onClick={() => setCatalogGroupFilter(tab.id)}
+                                          className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition cursor-pointer ${
+                                            active
+                                              ? "bg-card text-primary shadow-sm"
+                                              : "text-muted-foreground hover:text-foreground"
+                                          }`}
+                                        >
+                                          <span>{tab.label}</span>
+                                          <span
+                                            className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                                              active ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                                            }`}
+                                          >
+                                            {tab.count}
+                                          </span>
+                                        </button>
                                       );
-                                    })
-                                    .slice(0, 80)
-                                    .map((p) => (
-                                      <button
-                                        key={p.id}
-                                        type="button"
-                                        onClick={() => {
-                                          handleSelectCatalogItem(p.id);
-                                          setCatalogPickerOpen(false);
-                                        }}
-                                        className={`flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
-                                          selectedCatalogId === p.id ? "bg-primary/10 font-semibold text-primary" : "text-foreground"
-                                        }`}
-                                      >
-                                        <span className="line-clamp-2 flex-1">{p.name}</span>
-                                        <span className="shrink-0 font-semibold text-muted-foreground">
-                                          {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
-                                            style: "currency",
-                                            currency: "BRL",
-                                          })}
-                                        </span>
-                                      </button>
-                                    ))}
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          </div>
-                        )}
+                                    })}
+                                  </div>
+
+                                  <div className="max-h-72 overflow-y-auto divide-y divide-border/40 rounded-md border border-border/60">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleSelectCatalogItem("");
+                                        setCatalogPickerOpen(false);
+                                      }}
+                                      className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50 cursor-pointer"
+                                    >
+                                      <span>-- Limpar seleção --</span>
+                                    </button>
+
+                                    {grouped.filtered.length === 0 && (
+                                      <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                                        Nenhum item encontrado neste grupo para "{catalogSearch}".
+                                      </div>
+                                    )}
+
+                                    {grouped.maquinas.length > 0 && (
+                                      <div>
+                                        <div className="sticky top-0 z-10 flex items-center justify-between bg-muted/90 backdrop-blur px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">
+                                          <span>Máquinas e Equipamentos</span>
+                                          <span>{grouped.maquinas.length}</span>
+                                        </div>
+                                        <div className="divide-y divide-border/40">
+                                          {grouped.maquinas.slice(0, 60).map((p) => (
+                                            <button
+                                              key={p.id}
+                                              type="button"
+                                              onClick={() => {
+                                                handleSelectCatalogItem(p.id);
+                                                setCatalogPickerOpen(false);
+                                              }}
+                                              className={`flex w-full items-start justify-between gap-2 px-2.5 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
+                                                selectedCatalogId === p.id ? "bg-primary/10 font-semibold text-primary" : "text-foreground"
+                                              }`}
+                                            >
+                                              <div className="min-w-0 flex-1">
+                                                <div className="line-clamp-2 font-medium">{p.name}</div>
+                                                <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                                                  {formatShortProductCategory(p.category)}
+                                                </div>
+                                              </div>
+                                              <span className="shrink-0 font-semibold text-foreground">
+                                                {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
+                                                  style: "currency",
+                                                  currency: "BRL",
+                                                })}
+                                              </span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {grouped.servicos.length > 0 && (
+                                      <div>
+                                        <div className="sticky top-0 z-10 flex items-center justify-between bg-muted/90 backdrop-blur px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-foreground">
+                                          <span>Serviços</span>
+                                          <span>{grouped.servicos.length}</span>
+                                        </div>
+                                        <div className="divide-y divide-border/40">
+                                          {grouped.servicos.slice(0, 40).map((p) => (
+                                            <button
+                                              key={p.id}
+                                              type="button"
+                                              onClick={() => {
+                                                handleSelectCatalogItem(p.id);
+                                                setCatalogPickerOpen(false);
+                                              }}
+                                              className={`flex w-full items-start justify-between gap-2 px-2.5 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
+                                                selectedCatalogId === p.id ? "bg-primary/10 font-semibold text-primary" : "text-foreground"
+                                              }`}
+                                            >
+                                              <div className="min-w-0 flex-1">
+                                                <div className="line-clamp-2 font-medium">{p.name}</div>
+                                              </div>
+                                              <span className="shrink-0 font-semibold text-muted-foreground">
+                                                {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
+                                                  style: "currency",
+                                                  currency: "BRL",
+                                                })}
+                                              </span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {grouped.pecas.length > 0 && (
+                                      <div>
+                                        <div className="sticky top-0 z-10 flex items-center justify-between bg-muted/90 backdrop-blur px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                          <span>Peças e Insumos</span>
+                                          <span>{grouped.pecas.length}</span>
+                                        </div>
+                                        <div className="divide-y divide-border/40">
+                                          {grouped.pecas.slice(0, 60).map((p) => (
+                                            <button
+                                              key={p.id}
+                                              type="button"
+                                              onClick={() => {
+                                                handleSelectCatalogItem(p.id);
+                                                setCatalogPickerOpen(false);
+                                              }}
+                                              className={`flex w-full items-start justify-between gap-2 px-2.5 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
+                                                selectedCatalogId === p.id ? "bg-primary/10 font-semibold text-primary" : "text-foreground"
+                                              }`}
+                                            >
+                                              <div className="min-w-0 flex-1">
+                                                <div className="line-clamp-2">{p.name}</div>
+                                                <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                                                  Peças e Insumos{p.sku ? ` • ${p.sku}` : ""}
+                                                </div>
+                                              </div>
+                                              <span className="shrink-0 font-semibold text-muted-foreground">
+                                                {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
+                                                  style: "currency",
+                                                  currency: "BRL",
+                                                })}
+                                              </span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-2 text-xs">

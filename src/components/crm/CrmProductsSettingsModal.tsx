@@ -40,6 +40,13 @@ import {
   changedCustomFieldValues,
   useCustomFields,
 } from "./CustomFieldsEditor";
+import {
+  classifyCrmProductGroup,
+  filterAndGroupCatalogProducts,
+  formatShortProductCategory,
+  type CrmProductGroup,
+  type CrmProductGroupFilter,
+} from "@/lib/crm/product-grouping";
 
 export interface CrmProductItem {
   id: string;
@@ -99,6 +106,7 @@ export function CrmProductsSettingsModal({
   const [canManage, setCanManage] = useState(true);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [groupFilter, setGroupFilter] = useState<CrmProductGroupFilter>("all");
   const [pageSize, setPageSize] = useState<number>(10);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
@@ -109,6 +117,7 @@ export function CrmProductsSettingsModal({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [priceInput, setPriceInput] = useState("");
+  const [productGroup, setProductGroup] = useState<CrmProductGroup>("maquinas");
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
 
@@ -152,29 +161,25 @@ export function CrmProductsSettingsModal({
     if (isOpen) {
       void loadProducts();
       setSearch("");
+      setGroupFilter("all");
       setCurrentPage(1);
       setDrawerOpen(false);
       setEditing(null);
     }
   }, [isOpen, loadProducts]);
 
-  const filteredProducts = useMemo(() => {
-    const q = search.trim().toLocaleLowerCase("pt-BR");
-    if (!q) return products;
-    return products.filter(
-      (item) =>
-        item.name.toLocaleLowerCase("pt-BR").includes(q) ||
-        (item.description || "").toLocaleLowerCase("pt-BR").includes(q) ||
-        (item.sku || "").toLocaleLowerCase("pt-BR").includes(q) ||
-        (item.category || "").toLocaleLowerCase("pt-BR").includes(q)
-    );
-  }, [products, search]);
+  const groupedCatalog = useMemo(
+    () => filterAndGroupCatalogProducts(products, search, groupFilter),
+    [products, search, groupFilter],
+  );
+
+  const filteredProducts = groupedCatalog.filtered;
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, pageSize]);
+  }, [search, groupFilter, pageSize]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -207,6 +212,13 @@ export function CrmProductsSettingsModal({
     setName(product?.name || "");
     setDescription(product?.description || "");
     setPriceInput(product ? formatCurrencyInputDisplay(product.unitPrice) : "");
+    setProductGroup(
+      product
+        ? classifyCrmProductGroup(product)
+        : groupFilter !== "all"
+          ? groupFilter
+          : "maquinas",
+    );
     setCustomFields(product?.customFields || {});
     setShowCustomFieldsBanner(true);
     setDrawerOpen(true);
@@ -222,6 +234,15 @@ export function CrmProductsSettingsModal({
     setSaving(true);
     try {
       const normalizedPrice = parseCurrencyInputToDecimalString(priceInput);
+      const resolvedCategory =
+        productGroup === "pecas"
+          ? "Peças e Insumos"
+          : productGroup === "servicos"
+            ? "Serviços"
+            : editing?.category && classifyCrmProductGroup(editing) === "maquinas"
+              ? editing.category
+              : "Máquinas e Equipamentos";
+
       const response = await fetch(
         editing ? `/api/crm/products/${editing.id}` : "/api/crm/products",
         {
@@ -231,6 +252,7 @@ export function CrmProductsSettingsModal({
             name: name.trim(),
             description: description.trim() || null,
             unitPrice: normalizedPrice,
+            category: resolvedCategory,
             customFields: editing
               ? changedCustomFieldValues(editing.customFields || {}, customFields)
               : customFields,
@@ -475,21 +497,59 @@ export function CrmProductsSettingsModal({
       {/* CONTEÚDO PRINCIPAL: BUSCA + TABELA + PAGINAÇÃO */}
       <main className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         <div className="mx-auto max-w-6xl space-y-5">
-          {/* Barra de Busca (Idêntica à referência) */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative w-full sm:w-72">
-              <input
-                type="text"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar"
-                className="h-9 w-full rounded-lg border border-border bg-card pl-3.5 pr-9 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition"
-              />
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          {/* Barra de Busca + Abas de Agrupamento (Máquinas | Peças | Serviços) */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="relative w-full sm:w-72">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Buscar máquina, peça ou SKU..."
+                  className="h-9 w-full rounded-lg border border-border bg-card pl-3.5 pr-9 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition"
+                />
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              </div>
+
+              <div className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-border bg-muted/50 p-1">
+                {(
+                  [
+                    { id: "all" as const, label: "Todos", count: groupedCatalog.counts.all },
+                    { id: "maquinas" as const, label: "Máquinas", count: groupedCatalog.counts.maquinas },
+                    { id: "pecas" as const, label: "Peças e Insumos", count: groupedCatalog.counts.pecas },
+                    ...(groupedCatalog.counts.servicos > 0
+                      ? [{ id: "servicos" as const, label: "Serviços", count: groupedCatalog.counts.servicos }]
+                      : []),
+                  ]
+                ).map((tab) => {
+                  const active = groupFilter === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setGroupFilter(tab.id)}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                        active
+                          ? "bg-card text-primary shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                          active ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="text-xs text-muted-foreground">
-              Total cadastrado:{" "}
+              Exibindo:{" "}
               <strong className="text-foreground">{filteredProducts.length}</strong>{" "}
               {filteredProducts.length === 1 ? "item" : "itens"}
             </div>
@@ -539,20 +599,45 @@ export function CrmProductsSettingsModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedProducts.map((product) => (
-                    <tr
-                      key={product.id}
-                      className="border-b border-border/60 last:border-0 hover:bg-muted/20 transition-colors"
-                    >
-                      <td className="py-3.5 pl-4 pr-3 align-middle">
-                        <button
-                          type="button"
-                          onClick={() => openDrawer(product)}
-                          className="text-left font-bold text-primary hover:underline cursor-pointer line-clamp-2"
-                        >
-                          {product.name}
-                        </button>
-                      </td>
+                  {paginatedProducts.map((product) => {
+                    const group = classifyCrmProductGroup(product);
+                    return (
+                      <tr
+                        key={product.id}
+                        className="border-b border-border/60 last:border-0 hover:bg-muted/20 transition-colors"
+                      >
+                        <td className="py-3.5 pl-4 pr-3 align-middle">
+                          <button
+                            type="button"
+                            onClick={() => openDrawer(product)}
+                            className="text-left font-bold text-primary hover:underline cursor-pointer line-clamp-2"
+                          >
+                            {product.name}
+                          </button>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <span
+                              className={`rounded-md px-1.5 py-0.5 font-semibold ${
+                                group === "maquinas"
+                                  ? "bg-primary/10 text-primary"
+                                  : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              {group === "maquinas"
+                                ? "Máquina"
+                                : group === "pecas"
+                                  ? "Peça / Insumo"
+                                  : "Serviço"}
+                            </span>
+                            {product.category && group === "maquinas" && (
+                              <span className="truncate max-w-[220px]">
+                                {formatShortProductCategory(product.category)}
+                              </span>
+                            )}
+                            {product.sku && (
+                              <span className="opacity-75">• {product.sku}</span>
+                            )}
+                          </div>
+                        </td>
                       <td className="py-3.5 px-3 align-middle text-muted-foreground">
                         {product.description ? (
                           <SystemTooltip content={product.description.slice(0, 400)}>
@@ -635,7 +720,8 @@ export function CrmProductsSettingsModal({
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -770,6 +856,38 @@ export function CrmProductsSettingsModal({
                     </div>
                   </div>
                 )}
+
+                {/* Grupo / Tipo do item */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-foreground">
+                    Grupo do item
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5 rounded-xl border border-border bg-muted/40 p-1">
+                    {(
+                      [
+                        { id: "maquinas" as const, label: "Máquina" },
+                        { id: "pecas" as const, label: "Peça / Insumo" },
+                        { id: "servicos" as const, label: "Serviço" },
+                      ]
+                    ).map((opt) => {
+                      const active = productGroup === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setProductGroup(opt.id)}
+                          className={`rounded-lg px-2.5 py-2 text-xs font-semibold transition cursor-pointer ${
+                            active
+                              ? "bg-card text-primary shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 {/* Nome do produto ou serviço */}
                 <div className="space-y-1.5">

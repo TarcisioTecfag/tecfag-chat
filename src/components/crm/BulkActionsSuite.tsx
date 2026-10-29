@@ -35,6 +35,11 @@ import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { CatalogSelect } from "./CatalogSelect";
 import {
+  filterAndGroupCatalogProducts,
+  formatShortProductCategory,
+  type CrmProductGroupFilter,
+} from "@/lib/crm/product-grouping";
+import {
   Search,
   ArrowRightLeft,
   UserCheck,
@@ -166,9 +171,10 @@ export function BulkActionsSuite({
   const [catalogSources, setCatalogSources] = useState<Array<{ id: string; name: string }>>([]);
 
   const [productModalOpen, setProductModalOpen] = useState(false);
-  const [catalogProducts, setCatalogProducts] = useState<Array<{ id: string; name: string; unitPrice?: string }>>([]);
+  const [catalogProducts, setCatalogProducts] = useState<Array<{ id: string; name: string; unitPrice?: string; category?: string | null; sku?: string | null; description?: string | null }>>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productSearch, setProductSearch] = useState("");
+  const [productGroupFilter, setProductGroupFilter] = useState<CrmProductGroupFilter>("all");
 
   // Modal de Exclusão
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -1493,48 +1499,139 @@ export function BulkActionsSuite({
           </DialogHeader>
 
           <div className="space-y-3 py-3 text-xs">
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold">Produto do Catálogo ({catalogProducts.length})</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="Buscar produto ou serviço..."
-                  className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div className="max-h-60 overflow-y-auto rounded-lg border border-border bg-card divide-y divide-border/50">
-                {catalogProducts
-                  .filter((p) => {
-                    const q = productSearch.trim().toLowerCase();
-                    if (!q) return true;
-                    return p.name.toLowerCase().includes(q);
-                  })
-                  .slice(0, 80)
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setSelectedProductId(p.id)}
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
-                        selectedProductId === p.id ? "bg-primary/10 font-bold text-primary" : "text-foreground"
-                      }`}
-                    >
-                      <span className="line-clamp-2 flex-1">{p.name}</span>
-                      {p.unitPrice !== undefined && (
-                        <span className="shrink-0 font-semibold text-muted-foreground">
-                          {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                          })}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-              </div>
-            </div>
+            {(() => {
+              const grouped = filterAndGroupCatalogProducts(
+                catalogProducts,
+                productSearch,
+                productGroupFilter,
+              );
+              return (
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold">Produto do Catálogo ({catalogProducts.length})</Label>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      placeholder="Buscar máquina ou peça..."
+                      className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1 rounded-lg bg-muted/60 p-1">
+                    {(
+                      [
+                        { id: "all" as const, label: "Todos", count: grouped.counts.all },
+                        { id: "maquinas" as const, label: "Máquinas", count: grouped.counts.maquinas },
+                        { id: "pecas" as const, label: "Peças", count: grouped.counts.pecas },
+                      ]
+                    ).map((tab) => {
+                      const active = productGroupFilter === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setProductGroupFilter(tab.id)}
+                          className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition cursor-pointer ${
+                            active
+                              ? "bg-card text-primary shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <span>{tab.label}</span>
+                          <span
+                            className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                              active ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {tab.count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-card divide-y divide-border/50">
+                    {grouped.filtered.length === 0 && (
+                      <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                        Nenhum item encontrado para "{productSearch}".
+                      </div>
+                    )}
+                    {grouped.maquinas.length > 0 && (
+                      <div>
+                        <div className="sticky top-0 z-10 flex items-center justify-between bg-muted/90 backdrop-blur px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">
+                          <span>Máquinas e Equipamentos</span>
+                          <span>{grouped.maquinas.length}</span>
+                        </div>
+                        <div className="divide-y divide-border/40">
+                          {grouped.maquinas.slice(0, 60).map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setSelectedProductId(p.id)}
+                              className={`flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
+                                selectedProductId === p.id ? "bg-primary/10 font-bold text-primary" : "text-foreground"
+                              }`}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="line-clamp-2 font-medium">{p.name}</div>
+                                <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                                  {formatShortProductCategory(p.category)}
+                                </div>
+                              </div>
+                              {p.unitPrice !== undefined && (
+                                <span className="shrink-0 font-semibold text-foreground">
+                                  {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
+                                    style: "currency",
+                                    currency: "BRL",
+                                  })}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {grouped.pecas.length > 0 && (
+                      <div>
+                        <div className="sticky top-0 z-10 flex items-center justify-between bg-muted/90 backdrop-blur px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          <span>Peças e Insumos</span>
+                          <span>{grouped.pecas.length}</span>
+                        </div>
+                        <div className="divide-y divide-border/40">
+                          {grouped.pecas.slice(0, 60).map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setSelectedProductId(p.id)}
+                              className={`flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
+                                selectedProductId === p.id ? "bg-primary/10 font-bold text-primary" : "text-foreground"
+                              }`}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="line-clamp-2">{p.name}</div>
+                                <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                                  Peças e Insumos{p.sku ? ` • ${p.sku}` : ""}
+                                </div>
+                              </div>
+                              {p.unitPrice !== undefined && (
+                                <span className="shrink-0 font-semibold text-muted-foreground">
+                                  {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
+                                    style: "currency",
+                                    currency: "BRL",
+                                  })}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <DialogFooter className="flex items-center justify-end gap-2 pt-2 border-t border-border">
