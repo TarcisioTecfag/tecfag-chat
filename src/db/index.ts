@@ -414,6 +414,7 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
       ALTER TABLE operators ADD COLUMN IF NOT EXISTS usage_date TEXT;
       ALTER TABLE operators ADD COLUMN IF NOT EXISTS usage_seconds_today INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE operators ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE crm_deal_activities ADD COLUMN IF NOT EXISTS assigned_to_operator_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {

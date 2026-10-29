@@ -83,6 +83,7 @@ export interface EditingTaskData {
   type: string;
   dueDate?: string | null;
   assignedOperatorId?: string | null;
+  assignedOperatorIds?: string[] | null;
 }
 
 export interface CreateTaskModalProps {
@@ -176,7 +177,9 @@ export function CreateTaskModal({
       const minutes = String(validDate.getMinutes()).padStart(2, "0");
       setScheduledTime(`${hours}:${minutes}`);
 
-      if (editingTask.assignedOperatorId) {
+      if (Array.isArray(editingTask.assignedOperatorIds) && editingTask.assignedOperatorIds.length > 0) {
+        setSelectedOperatorIds(editingTask.assignedOperatorIds.filter(Boolean));
+      } else if (editingTask.assignedOperatorId) {
         setSelectedOperatorIds([editingTask.assignedOperatorId]);
       } else if (currentOperatorId) {
         setSelectedOperatorIds([currentOperatorId]);
@@ -452,6 +455,13 @@ export function CreateTaskModal({
         minutes
       );
 
+      const targetOperators =
+        selectedOperatorIds.length > 0
+          ? selectedOperatorIds.filter(Boolean)
+          : currentOperatorId
+          ? [currentOperatorId]
+          : [];
+
       if (editingTask) {
         const res = await fetch("/api/tasks", {
           method: "PUT",
@@ -462,7 +472,8 @@ export function CreateTaskModal({
             title: subject.trim(),
             description: description.trim() || null,
             dueDate: dueDateTime.toISOString(),
-            assignedToOperatorId: selectedOperatorIds[0] || currentOperatorId || null,
+            assignedToOperatorId: targetOperators[0] || currentOperatorId || null,
+            assignedToOperatorIds: targetOperators,
           }),
         });
 
@@ -478,46 +489,39 @@ export function CreateTaskModal({
         return;
       }
 
-      const targetOperators =
-        selectedOperatorIds.length > 0
-          ? selectedOperatorIds
-          : [currentOperatorId || undefined];
+      const payload = {
+        type: taskType,
+        title: subject.trim(),
+        description: description.trim() || undefined,
+        dueDate: dueDateTime.toISOString(),
+        assignedToOperatorId: targetOperators[0] || undefined,
+        assignedToOperatorIds: targetOperators,
+        status: markAsCompleted ? "completed" : "pending",
+        completed: markAsCompleted,
+      };
 
-      let lastCreatedActivity: any = null;
-      for (const assignedOpId of targetOperators) {
-        const payload = {
-          type: taskType,
-          title: subject.trim(),
-          description: description.trim() || undefined,
-          dueDate: dueDateTime.toISOString(),
-          assignedToOperatorId: assignedOpId,
-          status: markAsCompleted ? "completed" : "pending",
-          completed: markAsCompleted,
-        };
+      const res = await fetch(`/api/crm/deals/${selectedDealId}/activities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-        const res = await fetch(`/api/crm/deals/${selectedDealId}/activities`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || "Não foi possível criar a tarefa.");
-        }
-
-        const data = await res.json();
-        lastCreatedActivity = data.activity;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Não foi possível criar a tarefa.");
       }
+
+      const data = await res.json();
+      const createdActivity = data.activity;
 
       toast.success(
         markAsCompleted
           ? "Tarefa criada e concluída!"
           : targetOperators.length > 1
-            ? `${targetOperators.length} tarefas agendadas com sucesso!`
+            ? `Tarefa compartilhada agendada para ${targetOperators.length} responsáveis!`
             : "Tarefa agendada com sucesso!"
       );
-      onTaskCreated?.(lastCreatedActivity);
+      onTaskCreated?.(createdActivity);
       onClose();
     } catch (err: any) {
       toast.error(err.message || (editingTask ? "Erro ao atualizar tarefa." : "Erro ao criar tarefa."));
@@ -922,20 +926,22 @@ export function CreateTaskModal({
 
             {/* 9. Checkbox: Marcar como concluída ao criar */}
             {!isEditMode && (
-              <div className="flex items-center gap-2.5 pt-1">
-                <Checkbox
-                  id="mark-task-completed"
-                  checked={markAsCompleted}
-                  onCheckedChange={(val) => setMarkAsCompleted(!!val)}
-                  className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                />
-                <Label
-                  htmlFor="mark-task-completed"
-                  className="text-xs font-normal text-muted-foreground cursor-pointer select-none"
-                >
-                  Marcar como concluída ao criar
-                </Label>
-              </div>
+              <SystemTooltip content="Cria a tarefa já marcada como concluída no histórico da negociação">
+                <div className="flex items-center gap-2.5 pt-1 w-fit">
+                  <Checkbox
+                    id="mark-task-completed"
+                    checked={markAsCompleted}
+                    onCheckedChange={(val) => setMarkAsCompleted(!!val)}
+                    className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                  />
+                  <Label
+                    htmlFor="mark-task-completed"
+                    className="text-xs font-normal text-muted-foreground cursor-pointer select-none"
+                  >
+                    Marcar como concluída ao criar
+                  </Label>
+                </div>
+              </SystemTooltip>
             )}
           </div>
 

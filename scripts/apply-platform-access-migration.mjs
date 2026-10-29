@@ -222,6 +222,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0053_shared_deal_activities",
+    url: new URL(
+      "../src/db/migrations/0053_shared_deal_activities.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

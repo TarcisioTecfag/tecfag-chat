@@ -42,8 +42,10 @@ import { CreateTaskModal, type EditingTaskData } from "../crm/CreateTaskModal";
 import { CrmDatePicker } from "../crm/CrmDatePicker";
 import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
@@ -65,6 +67,8 @@ interface TaskData {
   source?: "kanban";
   operatorId?: string | null;
   assignedOperatorId?: string | null;
+  assignedOperatorIds?: string[];
+  isShared?: boolean;
   creatorOperatorId?: string | null;
   dealOperatorId?: string | null;
   operatorName?: string | null;
@@ -267,6 +271,9 @@ export function TasksView() {
     sessionRole,
     refreshConversations,
   } = useChat();
+  const { hasPermission } = usePermissions();
+  const canAccessTeamTasks =
+    sessionRole === "admin" || hasPermission("monitor", "canAccessTeamTasks");
 
   const [tasks, setTasks] = useState<TaskData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -274,7 +281,7 @@ export function TasksView() {
   const [editingTask, setEditingTask] = useState<EditingTaskData | null>(null);
   const [operatorsList, setOperatorsList] = useState<Array<{ id: string; name: string }>>([]);
 
-  // Escopo de visualização e filtro de operador (Admin)
+  // Escopo de visualização e filtro de operador (Admin / permissão de equipe)
   const [taskScope, setTaskScope] = useState<"all" | "mine" | "delegated">("all");
   const [selectedOperatorFilter, setSelectedOperatorFilter] = useState<string>("all");
   const [isOperatorPopoverOpen, setIsOperatorPopoverOpen] = useState(false);
@@ -371,9 +378,9 @@ export function TasksView() {
       const params = new URLSearchParams();
       if (tenant) params.set("tenantId", tenant);
       params.set("scope", taskScope);
-      if (sessionRole === "admin" && selectedOperatorFilter !== "all") {
+      if (canAccessTeamTasks && selectedOperatorFilter !== "all") {
         params.set("operatorFilterId", selectedOperatorFilter);
-      } else if (sessionRole === "admin" && selectedOperatorFilter === "all" && taskScope === "all") {
+      } else if (canAccessTeamTasks && selectedOperatorFilter === "all" && taskScope === "all") {
         params.set("all", "true");
       }
       const res = await fetch(`/api/tasks?${params.toString()}`);
@@ -388,7 +395,7 @@ export function TasksView() {
     } finally {
       setLoading(false);
     }
-  }, [tenant, taskScope, sessionRole, selectedOperatorFilter]);
+  }, [tenant, taskScope, canAccessTeamTasks, selectedOperatorFilter]);
 
   useEffect(() => {
     fetchTasks();
@@ -463,6 +470,10 @@ export function TasksView() {
               ? parsedNextDate.toISOString()
               : null,
           assignedToOperatorId: targetTask.assignedOperatorId || currentOperatorId || null,
+          assignedToOperatorIds:
+            Array.isArray(targetTask.assignedOperatorIds) && targetTask.assignedOperatorIds.length > 0
+              ? targetTask.assignedOperatorIds
+              : undefined,
         };
       }
 
@@ -619,11 +630,15 @@ export function TasksView() {
       dueDate: task.dueDate,
       description: task.description,
       assignedOperatorId: task.assignedOperatorId || task.operatorId || currentOperatorId,
+      assignedOperatorIds:
+        Array.isArray(task.assignedOperatorIds) && task.assignedOperatorIds.length > 0
+          ? task.assignedOperatorIds
+          : task.assignedOperatorId
+          ? [task.assignedOperatorId]
+          : undefined,
       dealId: task.deal?.id || "",
       dealTitle: task.deal?.name || null,
       accountName: task.client?.name || null,
-      deal: task.deal ? { id: task.deal.id, name: task.deal.name } : null,
-      client: task.client,
     });
     setIsCreateTaskModalOpen(true);
   };
@@ -1083,7 +1098,7 @@ export function TasksView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full md:w-auto">
-          {/* Seletor de Escopo: Todas / Minhas / Delegadas */}
+          {/* 1. Seletor de Escopo: Todas / Minhas / Delegadas */}
           <div className="hidden xl:flex bg-muted rounded-xl p-1 shrink-0 border border-border/60">
             {(
               [
@@ -1107,8 +1122,48 @@ export function TasksView() {
             ))}
           </div>
 
-          {/* Seletor de Operador para Admins */}
-          {sessionRole === "admin" && operatorsList.length > 0 && (
+          {/* 2. Seletor de Modo de Visualização: Mês / Semana / Dia */}
+          <div className="flex bg-muted rounded-xl p-1 shrink-0 border border-border/60">
+            <button
+              type="button"
+              onClick={() => setViewMode("month")}
+              className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                viewMode === "month"
+                  ? "bg-card text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Calendar className="h-3.5 w-3.5" />
+              Mês
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("week")}
+              className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                viewMode === "week"
+                  ? "bg-card text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+              Semana
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("day")}
+              className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                viewMode === "day"
+                  ? "bg-card text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ListTodo className="h-3.5 w-3.5" />
+              Dia
+            </button>
+          </div>
+
+          {/* 3. Seletor de Equipe / Operador (ao lado de Todas, para quem tem permissão) */}
+          {canAccessTeamTasks && operatorsList.length > 0 && (
             <Popover open={isOperatorPopoverOpen} onOpenChange={setIsOperatorPopoverOpen}>
               <SystemTooltip content="Filtrar agenda por operador">
                 <PopoverTrigger asChild>
@@ -1164,46 +1219,7 @@ export function TasksView() {
             </Popover>
           )}
 
-          {/* Seletor de Modo de Visualização: Mês / Semana / Dia */}
-          <div className="flex bg-muted rounded-xl p-1 shrink-0 border border-border/60">
-            <button
-              type="button"
-              onClick={() => setViewMode("month")}
-              className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                viewMode === "month"
-                  ? "bg-card text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Calendar className="h-3.5 w-3.5" />
-              Mês
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("week")}
-              className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                viewMode === "week"
-                  ? "bg-card text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Columns3 className="h-3.5 w-3.5" />
-              Semana
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("day")}
-              className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                viewMode === "day"
-                  ? "bg-card text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <ListTodo className="h-3.5 w-3.5" />
-              Dia
-            </button>
-          </div>
-
+          {/* 4. Todas */}
           <button
             type="button"
             onClick={() => {
@@ -1215,6 +1231,8 @@ export function TasksView() {
             <List className="h-3.5 w-3.5" />
             Todas
           </button>
+
+          {/* 5. Hoje */}
           <button
             type="button"
             onClick={goToday}
@@ -1223,6 +1241,7 @@ export function TasksView() {
             Hoje
           </button>
 
+          {/* 6. Nova Tarefa (por último) */}
           <button
             type="button"
             onClick={() => {
@@ -1235,24 +1254,6 @@ export function TasksView() {
             <Plus className="h-4 w-4" />
             Nova Tarefa
           </button>
-
-          <SystemTooltip content="Atualizar lista de tarefas">
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={fetchTasks}
-              disabled={loading}
-              className="flex items-center gap-2 rounded-xl border border-border px-2.5 sm:px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-card disabled:opacity-60 cursor-pointer"
-            >
-              {loading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">Atualizar</span>
-            </motion.button>
-          </SystemTooltip>
         </div>
       </div>
 
@@ -2651,18 +2652,19 @@ export function TasksView() {
                 {/* Agendar próximo Follow-up se houver Negociação */}
                 {taskToComplete.deal?.id && (
                   <div className="rounded-2xl border border-border/80 bg-background/50 p-3.5 space-y-3">
-                    <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={scheduleNextFollowUp}
-                        onChange={(e) => setScheduleNextFollowUp(e.target.checked)}
-                        className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-                      />
-                      <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                        <Sparkles className="h-3.5 w-3.5 text-primary" />
-                        Agendar próximo follow-up para esta negociação
-                      </span>
-                    </label>
+                    <SystemTooltip content="Agenda automaticamente uma nova tarefa vinculada a esta negociação assim que a tarefa atual for concluída">
+                      <label className="flex items-center gap-2.5 cursor-pointer select-none w-fit">
+                        <Checkbox
+                          checked={scheduleNextFollowUp}
+                          onCheckedChange={(checked) => setScheduleNextFollowUp(checked === true)}
+                          className="h-4 w-4 rounded border-muted-foreground/40 data-[state=checked]:bg-primary data-[state=checked]:border-primary data-[state=checked]:text-primary-foreground"
+                        />
+                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5 text-primary" />
+                          Agendar próximo follow-up para esta negociação
+                        </span>
+                      </label>
+                    </SystemTooltip>
 
                     {scheduleNextFollowUp && (
                       <div className="space-y-2.5 pt-1 border-t border-border/50">

@@ -45,10 +45,16 @@ export async function getNativeKanbanTasks(
 
   const canSeeAll = Boolean(options.isAdmin && (options.all || options.scope === "all"));
 
+  const isAssignedToOpSql = (opId: string) =>
+    or(
+      eq(crmDealActivities.assignedToOperatorId, opId),
+      sql`${crmDealActivities.assignedToOperatorIds} @> ${JSON.stringify([opId])}::jsonb`
+    )!;
+
   if (options.filterOperatorId && options.filterOperatorId !== "all") {
     conditions.push(
       or(
-        eq(crmDealActivities.assignedToOperatorId, options.filterOperatorId),
+        isAssignedToOpSql(options.filterOperatorId),
         and(
           sql`${crmDealActivities.assignedToOperatorId} IS NULL`,
           or(
@@ -62,7 +68,7 @@ export async function getNativeKanbanTasks(
     if (options.scope === "mine") {
       conditions.push(
         or(
-          eq(crmDealActivities.assignedToOperatorId, options.operatorId),
+          isAssignedToOpSql(options.operatorId),
           and(
             sql`${crmDealActivities.assignedToOperatorId} IS NULL`,
             or(
@@ -76,14 +82,23 @@ export async function getNativeKanbanTasks(
       conditions.push(
         and(
           eq(crmDealActivities.operatorId, options.operatorId),
-          sql`${crmDealActivities.assignedToOperatorId} IS NOT NULL`,
-          sql`${crmDealActivities.assignedToOperatorId} != ${options.operatorId}`
+          or(
+            and(
+              sql`${crmDealActivities.assignedToOperatorId} IS NOT NULL`,
+              sql`${crmDealActivities.assignedToOperatorId} != ${options.operatorId}`
+            ),
+            sql`jsonb_array_length(${crmDealActivities.assignedToOperatorIds}) > 1`,
+            and(
+              sql`jsonb_array_length(${crmDealActivities.assignedToOperatorIds}) = 1`,
+              sql`NOT (${crmDealActivities.assignedToOperatorIds} @> ${JSON.stringify([options.operatorId])}::jsonb)`
+            )
+          )
         )!
       );
     } else {
       conditions.push(
         or(
-          eq(crmDealActivities.assignedToOperatorId, options.operatorId),
+          isAssignedToOpSql(options.operatorId),
           eq(crmDealActivities.operatorId, options.operatorId),
           eq(crmDeals.operatorId, options.operatorId)
         )!
@@ -95,62 +110,76 @@ export async function getNativeKanbanTasks(
   const creatorOp = alias(operators, "task_creator_op");
   const dealOwnerOp = alias(operators, "task_deal_owner_op");
 
-  const rows = await db
-    .select({
-      id: crmDealActivities.id,
-      title: crmDealActivities.title,
-      type: crmDealActivities.type,
-      status: crmDealActivities.status,
-      dueDate: crmDealActivities.dueDate,
-      completedAt: crmDealActivities.completedAt,
-      description: crmDealActivities.description,
-      createdAt: crmDealActivities.createdAt,
-      conversationId: crmDealActivities.conversationId,
-      dealId: crmDealActivities.dealId,
-      dealTitle: crmDeals.title,
-      dealValue: crmDeals.value,
-      dealOperatorId: crmDeals.operatorId,
-      pipelineId: crmDeals.pipelineId,
-      stageId: crmDeals.stageId,
-      stageName: crmStages.name,
-      contactId: crmDealContacts.contactId,
-      contactIsPrimary: crmDealContacts.isPrimary,
-      contactName: contacts.name,
-      contactPhone: contacts.phone,
-      accountId: crmDeals.accountId,
-      accountName: crmAccounts.name,
-      accountTradeName: crmAccounts.tradeName,
-      accountPhone: crmAccounts.phone,
-      assignedOperatorId: crmDealActivities.assignedToOperatorId,
-      assignedOperatorName: assignedOp.name,
-      assignedOperatorEmail: assignedOp.email,
-      assignedOperatorAvatar: assignedOp.avatar,
-      creatorOperatorId: crmDealActivities.operatorId,
-      creatorOperatorName: creatorOp.name,
-      creatorOperatorEmail: creatorOp.email,
-      creatorOperatorAvatar: creatorOp.avatar,
-      dealOwnerName: dealOwnerOp.name,
-      dealOwnerEmail: dealOwnerOp.email,
-      dealOwnerAvatar: dealOwnerOp.avatar,
-    })
-    .from(crmDealActivities)
-    .innerJoin(crmDeals, and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
-    .leftJoin(crmStages, eq(crmDeals.stageId, crmStages.id))
-    .leftJoin(
-      crmDealContacts,
-      and(eq(crmDealActivities.dealId, crmDealContacts.dealId), eq(crmDealContacts.tenantId, tenantId))
-    )
-    .leftJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
-    .leftJoin(crmAccounts, and(eq(crmDeals.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)))
-    .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
-    .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
-    .leftJoin(dealOwnerOp, eq(crmDeals.operatorId, dealOwnerOp.id))
-    .where(and(...conditions))
-    .orderBy(
-      sql`${crmDealActivities.dueDate} ASC NULLS LAST`,
-      desc(crmDealContacts.isPrimary),
-      desc(crmDealActivities.createdAt)
-    );
+  const [rows, tenantOperators] = await Promise.all([
+    db
+      .select({
+        id: crmDealActivities.id,
+        title: crmDealActivities.title,
+        type: crmDealActivities.type,
+        status: crmDealActivities.status,
+        dueDate: crmDealActivities.dueDate,
+        completedAt: crmDealActivities.completedAt,
+        description: crmDealActivities.description,
+        createdAt: crmDealActivities.createdAt,
+        conversationId: crmDealActivities.conversationId,
+        dealId: crmDealActivities.dealId,
+        dealTitle: crmDeals.title,
+        dealValue: crmDeals.value,
+        dealOperatorId: crmDeals.operatorId,
+        pipelineId: crmDeals.pipelineId,
+        stageId: crmDeals.stageId,
+        stageName: crmStages.name,
+        contactId: crmDealContacts.contactId,
+        contactIsPrimary: crmDealContacts.isPrimary,
+        contactName: contacts.name,
+        contactPhone: contacts.phone,
+        accountId: crmDeals.accountId,
+        accountName: crmAccounts.name,
+        accountTradeName: crmAccounts.tradeName,
+        accountPhone: crmAccounts.phone,
+        assignedOperatorId: crmDealActivities.assignedToOperatorId,
+        assignedOperatorIds: crmDealActivities.assignedToOperatorIds,
+        assignedOperatorName: assignedOp.name,
+        assignedOperatorEmail: assignedOp.email,
+        assignedOperatorAvatar: assignedOp.avatar,
+        creatorOperatorId: crmDealActivities.operatorId,
+        creatorOperatorName: creatorOp.name,
+        creatorOperatorEmail: creatorOp.email,
+        creatorOperatorAvatar: creatorOp.avatar,
+        dealOwnerName: dealOwnerOp.name,
+        dealOwnerEmail: dealOwnerOp.email,
+        dealOwnerAvatar: dealOwnerOp.avatar,
+      })
+      .from(crmDealActivities)
+      .innerJoin(crmDeals, and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
+      .leftJoin(crmStages, eq(crmDeals.stageId, crmStages.id))
+      .leftJoin(
+        crmDealContacts,
+        and(eq(crmDealActivities.dealId, crmDealContacts.dealId), eq(crmDealContacts.tenantId, tenantId))
+      )
+      .leftJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+      .leftJoin(crmAccounts, and(eq(crmDeals.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)))
+      .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
+      .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
+      .leftJoin(dealOwnerOp, eq(crmDeals.operatorId, dealOwnerOp.id))
+      .where(and(...conditions))
+      .orderBy(
+        sql`${crmDealActivities.dueDate} ASC NULLS LAST`,
+        desc(crmDealContacts.isPrimary),
+        desc(crmDealActivities.createdAt)
+      ),
+    db
+      .select({
+        id: operators.id,
+        name: operators.name,
+        email: operators.email,
+        avatar: operators.avatar,
+      })
+      .from(operators)
+      .where(eq(operators.tenantId, tenantId)),
+  ]);
+
+  const operatorsById = new Map(tenantOperators.map((op) => [op.id, op]));
 
   // Deduplica linhas por ID da atividade (priorizando o contato principal graças ao ORDER BY isPrimary DESC)
   const uniqueActivitiesMap = new Map<string, (typeof rows)[0]>();
@@ -198,8 +227,24 @@ export async function getNativeKanbanTasks(
     const clientPhone = r.contactPhone || r.accountPhone || null;
     const resolvedConvId = r.conversationId || (r.contactId ? contactToConvMap.get(r.contactId) || null : null);
 
+    const rawAssignedIds =
+      Array.isArray(r.assignedOperatorIds) && r.assignedOperatorIds.length > 0
+        ? r.assignedOperatorIds.filter(Boolean)
+        : r.assignedOperatorId
+        ? [r.assignedOperatorId]
+        : [];
+    const uniqueAssignedIds = Array.from(new Set(rawAssignedIds));
+    const resolvedAssignedNames = uniqueAssignedIds
+      .map((id) => operatorsById.get(id)?.name)
+      .filter(Boolean) as string[];
+    const combinedAssignedName =
+      resolvedAssignedNames.length > 0
+        ? resolvedAssignedNames.join(", ")
+        : r.assignedOperatorName || null;
+
     const effectiveOperatorId = r.assignedOperatorId || r.creatorOperatorId || r.dealOperatorId || null;
-    const effectiveOperatorName = r.assignedOperatorName || r.creatorOperatorName || r.dealOwnerName || "Sem operador";
+    const effectiveOperatorName =
+      combinedAssignedName || r.creatorOperatorName || r.dealOwnerName || "Sem operador";
     const effectiveOperatorEmail = r.assignedOperatorEmail || r.creatorOperatorEmail || r.dealOwnerEmail || null;
     const effectiveOperatorAvatar = r.assignedOperatorAvatar || r.creatorOperatorAvatar || r.dealOwnerAvatar || null;
 
@@ -232,7 +277,15 @@ export async function getNativeKanbanTasks(
       operatorEmail: effectiveOperatorEmail,
       operatorAvatar: effectiveOperatorAvatar,
       assignedOperatorId: r.assignedOperatorId || null,
-      assignedOperatorName: r.assignedOperatorName || null,
+      assignedOperatorIds:
+        uniqueAssignedIds.length > 0
+          ? uniqueAssignedIds
+          : effectiveOperatorId
+          ? [effectiveOperatorId]
+          : [],
+      assignedOperatorName: combinedAssignedName,
+      assignedOperatorNames: resolvedAssignedNames,
+      isShared: uniqueAssignedIds.length > 1,
       creatorOperatorId: r.creatorOperatorId || null,
       creatorOperatorName: r.creatorOperatorName || null,
       dealOperatorId: r.dealOperatorId || null,
@@ -263,7 +316,10 @@ export const Route = createFileRoute("/api/tasks")({
             | "mine"
             | "delegated"
             | "all";
-          const filterOperatorId = url.searchParams.get("operatorId") || null;
+          const filterOperatorId =
+            url.searchParams.get("operatorId") ||
+            url.searchParams.get("operatorFilterId") ||
+            null;
           const isAdmin = session.operator.role === "admin" || Boolean(session.permissions?.monitor?.canAccessTeamTasks);
 
           const kanbanTasks = await getNativeKanbanTasks(tenantId, {
@@ -329,10 +385,14 @@ export const Route = createFileRoute("/api/tasks")({
             let updatedCount = 0;
             for (const act of targetActivities) {
               if (act.status === "completed") continue;
+              const isShared =
+                Array.isArray(act.assignedToOperatorIds) &&
+                act.assignedToOperatorIds.includes(session.operator.id);
               if (
                 !isAdmin &&
                 act.operatorId !== session.operator.id &&
-                act.assignedToOperatorId !== session.operator.id
+                act.assignedToOperatorId !== session.operator.id &&
+                !isShared
               ) {
                 continue;
               }
@@ -372,10 +432,15 @@ export const Route = createFileRoute("/api/tasks")({
             );
           }
 
+          const isSharedAssignee =
+            Array.isArray(kanbanActivity.assignedToOperatorIds) &&
+            kanbanActivity.assignedToOperatorIds.includes(session.operator.id);
+
           if (
             !isAdmin &&
             kanbanActivity.operatorId !== session.operator.id &&
-            kanbanActivity.assignedToOperatorId !== session.operator.id
+            kanbanActivity.assignedToOperatorId !== session.operator.id &&
+            !isSharedAssignee
           ) {
             // Verifica se o operador é dono da negociação
             const [dealRow] = await db
@@ -411,6 +476,7 @@ export const Route = createFileRoute("/api/tasks")({
             dueDate?: Date | string | null;
             type?: "task" | "call" | "meeting" | "whatsapp" | "email" | "lunch" | "visit";
             assignedToOperatorId?: string | null;
+            assignedToOperatorIds?: string[] | null;
           } = {};
 
           if (body.status !== undefined) {
@@ -428,6 +494,9 @@ export const Route = createFileRoute("/api/tasks")({
           if (body.dueDate !== undefined) updates.dueDate = body.dueDate ? new Date(body.dueDate) : null;
           if (body.type !== undefined) updates.type = body.type;
           if (body.assignedToOperatorId !== undefined) updates.assignedToOperatorId = body.assignedToOperatorId;
+          if (Array.isArray(body.assignedToOperatorIds)) {
+            updates.assignedToOperatorIds = body.assignedToOperatorIds;
+          }
 
           const updatedActivity = await crmService.updateDealActivity(
             tenantId,
@@ -440,13 +509,16 @@ export const Route = createFileRoute("/api/tasks")({
           // Se o operador registrou uma anotação de conclusão, cria nota histórica na negociação
           if (updates.status === "completed" && typeof body.completionNote === "string" && body.completionNote.trim()) {
             try {
-              await crmService.createDealActivity(tenantId, {
-                dealId: kanbanActivity.dealId,
-                operatorId: session.operator.id,
-                type: "note",
-                title: `Conclusão da tarefa: ${kanbanActivity.title}`,
-                description: body.completionNote.trim(),
-              });
+              await crmService.createDealActivity(
+                tenantId,
+                kanbanActivity.dealId,
+                session.operator.id,
+                {
+                  type: "note",
+                  title: `Conclusão da tarefa: ${kanbanActivity.title}`,
+                  description: body.completionNote.trim(),
+                }
+              );
             } catch (noteErr: any) {
               console.warn("[Tasks API] Aviso ao registrar nota de conclusão:", noteErr.message);
             }
@@ -462,19 +534,31 @@ export const Route = createFileRoute("/api/tasks")({
             body.nextTask.dueDate
           ) {
             try {
-              createdNextTask = await crmService.createDealActivity(tenantId, {
-                dealId: kanbanActivity.dealId,
-                operatorId: session.operator.id,
-                assignedToOperatorId:
-                  body.nextTask.assignedToOperatorId ||
-                  kanbanActivity.assignedToOperatorId ||
-                  session.operator.id,
-                type: body.nextTask.type || "task",
-                title: body.nextTask.title.trim(),
-                description: body.nextTask.description?.trim() || null,
-                dueDate: new Date(body.nextTask.dueDate),
-                conversationId: kanbanActivity.conversationId || null,
-              });
+              const inheritedOperatorIds =
+                Array.isArray(body.nextTask.assignedToOperatorIds) && body.nextTask.assignedToOperatorIds.length > 0
+                  ? body.nextTask.assignedToOperatorIds
+                  : Array.isArray(kanbanActivity.assignedToOperatorIds) &&
+                    kanbanActivity.assignedToOperatorIds.length > 0
+                  ? kanbanActivity.assignedToOperatorIds
+                  : undefined;
+
+              createdNextTask = await crmService.createDealActivity(
+                tenantId,
+                kanbanActivity.dealId,
+                session.operator.id,
+                {
+                  assignedToOperatorId:
+                    body.nextTask.assignedToOperatorId ||
+                    kanbanActivity.assignedToOperatorId ||
+                    session.operator.id,
+                  assignedToOperatorIds: inheritedOperatorIds,
+                  type: body.nextTask.type || "task",
+                  title: body.nextTask.title.trim(),
+                  description: body.nextTask.description?.trim() || undefined,
+                  dueDate: new Date(body.nextTask.dueDate),
+                  conversationId: kanbanActivity.conversationId || null,
+                }
+              );
             } catch (nextErr: any) {
               console.warn("[Tasks API] Aviso ao criar próxima tarefa:", nextErr.message);
             }
@@ -540,10 +624,15 @@ export const Route = createFileRoute("/api/tasks")({
             );
           }
 
+          const isSharedAssignee =
+            Array.isArray(kanbanActivity.assignedToOperatorIds) &&
+            kanbanActivity.assignedToOperatorIds.includes(session.operator.id);
+
           if (
             !isAdmin &&
             kanbanActivity.operatorId !== session.operator.id &&
-            kanbanActivity.assignedToOperatorId !== session.operator.id
+            kanbanActivity.assignedToOperatorId !== session.operator.id &&
+            !isSharedAssignee
           ) {
             return Response.json({ error: "Permissão insuficiente para excluir esta tarefa." }, { status: 403 });
           }

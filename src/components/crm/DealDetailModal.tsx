@@ -1467,10 +1467,15 @@ export function DealDetailModal({
       dueDate: act.dueDate || null,
       description: act.description || null,
       assignedOperatorId: act.assignedToOperatorId || act.operatorId || deal.operatorId || null,
+      assignedOperatorIds:
+        Array.isArray(act.assignedToOperatorIds) && act.assignedToOperatorIds.length > 0
+          ? act.assignedToOperatorIds
+          : act.assignedToOperatorId
+          ? [act.assignedToOperatorId]
+          : undefined,
       dealId: deal.id,
       dealTitle: deal.title,
       accountName: deal.account?.name || null,
-      deal: { id: deal.id, name: deal.title },
     });
     setIsCreateTaskModalOpen(true);
   };

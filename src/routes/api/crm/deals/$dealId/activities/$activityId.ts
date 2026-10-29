@@ -48,6 +48,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities/$activit
               dueDate: body.dueDate !== undefined ? (body.dueDate ? new Date(body.dueDate) : null) : undefined,
               type: body.type,
               assignedToOperatorId: body.assignedToOperatorId,
+              assignedToOperatorIds: Array.isArray(body.assignedToOperatorIds)
+                ? body.assignedToOperatorIds
+                : undefined,
             }
           );
 

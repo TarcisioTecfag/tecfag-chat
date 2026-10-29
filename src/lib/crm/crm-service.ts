@@ -4937,11 +4937,29 @@ export class CrmService {
     }
 
     const rows = await query;
-    return rows.map((r) => ({
-      ...r.activity,
-      operatorName: r.operatorName || null,
-      assignedToOperatorName: r.assignedToOperatorName || null,
-    }));
+    const allOps = await db
+      .select({ id: operators.id, name: operators.name })
+      .from(operators)
+      .where(eq(operators.tenantId, tenantId));
+    const opNameMap = new Map(allOps.map((op) => [op.id, op.name]));
+
+    return rows.map((r) => {
+      const rawIds =
+        Array.isArray(r.activity.assignedToOperatorIds) && r.activity.assignedToOperatorIds.length > 0
+          ? r.activity.assignedToOperatorIds.filter(Boolean)
+          : r.activity.assignedToOperatorId
+          ? [r.activity.assignedToOperatorId]
+          : [];
+      const uniqueIds = Array.from(new Set(rawIds));
+      const names = uniqueIds.map((id) => opNameMap.get(id)).filter(Boolean) as string[];
+      return {
+        ...r.activity,
+        assignedToOperatorIds: uniqueIds,
+        operatorName: r.operatorName || null,
+        assignedToOperatorName:
+          names.length > 0 ? names.join(", ") : r.assignedToOperatorName || null,
+      };
+    });
   }
 
   /**
@@ -4960,6 +4978,7 @@ export class CrmService {
       dueDate?: Date | string | null;
       type?: "task" | "call" | "meeting" | "whatsapp" | "email" | "lunch" | "visit" | "note";
       assignedToOperatorId?: string | null;
+      assignedToOperatorIds?: string[] | null;
     }
   ): Promise<
     CrmDealActivity & {
@@ -5054,7 +5073,26 @@ export class CrmService {
         setPayload.type = updates.type;
       }
 
-      if (updates.assignedToOperatorId !== undefined) {
+      if (updates.assignedToOperatorIds !== undefined) {
+        const cleanIds = Array.from(
+          new Set(
+            (updates.assignedToOperatorIds || [])
+              .map((id) => String(id || "").trim())
+              .filter(Boolean)
+          )
+        );
+        if (cleanIds.length > 0) {
+          const validOps = await tx
+            .select({ id: operators.id })
+            .from(operators)
+            .where(and(inArray(operators.id, cleanIds), eq(operators.tenantId, tenantId)));
+          if (validOps.length !== cleanIds.length) {
+            throw new CrmCrossTenantError("Um ou mais operadores atribuídos não pertencem ao tenant.");
+          }
+        }
+        setPayload.assignedToOperatorIds = cleanIds;
+        setPayload.assignedToOperatorId = cleanIds[0] || null;
+      } else if (updates.assignedToOperatorId !== undefined) {
         if (updates.assignedToOperatorId) {
           const [op] = await tx
             .select({ id: operators.id })
@@ -5067,6 +5105,7 @@ export class CrmService {
           }
         }
         setPayload.assignedToOperatorId = updates.assignedToOperatorId || null;
+        setPayload.assignedToOperatorIds = updates.assignedToOperatorId ? [updates.assignedToOperatorId] : [];
       }
 
       await tx.execute(sql`SELECT set_config('app.rd_activity_actor', ${operatorId || ""}, true)`);
@@ -5144,10 +5183,29 @@ export class CrmService {
         .where(eq(crmDealActivities.id, updated.id))
         .limit(1);
 
+      const finalIds =
+        Array.isArray(fullActivity.activity.assignedToOperatorIds) &&
+        fullActivity.activity.assignedToOperatorIds.length > 0
+          ? fullActivity.activity.assignedToOperatorIds
+          : fullActivity.activity.assignedToOperatorId
+          ? [fullActivity.activity.assignedToOperatorId]
+          : [];
+      let combinedAssignedName = fullActivity.assignedToOperatorName || null;
+      if (finalIds.length > 1) {
+        const assignedOps = await tx
+          .select({ id: operators.id, name: operators.name })
+          .from(operators)
+          .where(and(inArray(operators.id, finalIds), eq(operators.tenantId, tenantId)));
+        const mapById = new Map(assignedOps.map((o) => [o.id, o.name]));
+        const orderedNames = finalIds.map((id) => mapById.get(id)).filter(Boolean);
+        if (orderedNames.length > 0) combinedAssignedName = orderedNames.join(", ");
+      }
+
       return {
         ...fullActivity.activity,
+        assignedToOperatorIds: finalIds,
         operatorName: fullActivity.operatorName || null,
-        assignedToOperatorName: fullActivity.assignedToOperatorName || null,
+        assignedToOperatorName: combinedAssignedName,
       };
     });
   }
@@ -5226,6 +5284,7 @@ export class CrmService {
       dueDate?: Date | string | null;
       conversationId?: string | null;
       assignedToOperatorId?: string | null;
+      assignedToOperatorIds?: string[] | null;
       status?: "pending" | "completed" | "cancelled";
       completed?: boolean;
     }
@@ -5267,18 +5326,29 @@ export class CrmService {
         }
       }
 
-      // 3. Se informado assignedToOperatorId, valida no tenant
-      const assignedOpId = data.assignedToOperatorId || operatorId;
-      if (assignedOpId) {
-        const [op] = await tx
-          .select({ id: operators.id })
-          .from(operators)
-          .where(and(eq(operators.id, assignedOpId), eq(operators.tenantId, tenantId)))
-          .limit(1);
+      // 3. Se informado assignedToOperatorIds / assignedToOperatorId, valida no tenant
+      const rawAssignedIds = Array.isArray(data.assignedToOperatorIds)
+        ? data.assignedToOperatorIds.map((id) => String(id || "").trim()).filter(Boolean)
+        : [];
+      const fallbackSingle = data.assignedToOperatorId || operatorId || null;
+      const uniqueAssignedIds = Array.from(
+        new Set(rawAssignedIds.length > 0 ? rawAssignedIds : fallbackSingle ? [fallbackSingle] : [])
+      );
+      const assignedOpId = uniqueAssignedIds[0] || null;
 
-        if (!op) {
-          throw new CrmCrossTenantError(`Operador atribuído (${assignedOpId}) não encontrado no tenant ${tenantId}.`);
+      let assignedOpsById = new Map<string, string>();
+      if (uniqueAssignedIds.length > 0) {
+        const validOps = await tx
+          .select({ id: operators.id, name: operators.name })
+          .from(operators)
+          .where(and(inArray(operators.id, uniqueAssignedIds), eq(operators.tenantId, tenantId)));
+
+        if (validOps.length !== uniqueAssignedIds.length) {
+          throw new CrmCrossTenantError(
+            `Operador atribuído não encontrado no tenant ${tenantId}.`
+          );
         }
+        assignedOpsById = new Map(validOps.map((o) => [o.id, o.name]));
       }
 
       const id = `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -5306,6 +5376,7 @@ export class CrmService {
           dueDate: data.dueDate ? new Date(data.dueDate) : null,
           operatorId,
           assignedToOperatorId: assignedOpId,
+          assignedToOperatorIds: uniqueAssignedIds,
           createdAt: now,
           updatedAt: now,
         })
@@ -5327,6 +5398,7 @@ export class CrmService {
           activityId: activity.id,
           activityTitle: activity.title,
           type: activity.type,
+          assignedToOperatorIds: uniqueAssignedIds,
         },
         tx
       );
@@ -5346,10 +5418,18 @@ export class CrmService {
         .where(eq(crmDealActivities.id, activity.id))
         .limit(1);
 
+      const orderedNames = uniqueAssignedIds
+        .map((opId) => assignedOpsById.get(opId))
+        .filter(Boolean) as string[];
+
       return {
         ...fullActivity.activity,
+        assignedToOperatorIds: uniqueAssignedIds,
         operatorName: fullActivity.operatorName || null,
-        assignedToOperatorName: fullActivity.assignedToOperatorName || null,
+        assignedToOperatorName:
+          orderedNames.length > 0
+            ? orderedNames.join(", ")
+            : fullActivity.assignedToOperatorName || null,
       };
     });
   }
