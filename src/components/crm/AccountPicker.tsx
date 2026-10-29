@@ -61,10 +61,10 @@ export function AccountPicker({
           }
         })
         .catch((err) => console.error("Erro ao buscar conta:", err));
-    } else if (!value && activeAccount) {
+    } else if (!value && !selectedAccount && activeAccount) {
       setActiveAccount(null);
     }
-  }, [value, lookupUrl]);
+  }, [value, selectedAccount, lookupUrl]);
 
   // Debounce search
   useEffect(() => {

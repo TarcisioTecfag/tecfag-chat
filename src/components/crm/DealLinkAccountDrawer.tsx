@@ -569,9 +569,19 @@ export function DealLinkAccountDrawer({
                     }`}
                   />
                   {duplicateEditAccount && (
-                    <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400">
-                      Já existe uma empresa cadastrada com este {editType === "company" ? "CNPJ" : "CPF"}: {duplicateEditAccount.name}.
-                    </p>
+                    <div className="mt-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 p-2.5 text-[11px] text-rose-700 dark:text-rose-300 space-y-1.5">
+                      <p className="font-bold">
+                        Já existe uma empresa cadastrada com este {editType === "company" ? "CNPJ" : "CPF"}:{" "}
+                        <span className="underline">{duplicateEditAccount.name}</span>.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleLinkAccount(duplicateEditAccount as LinkedDealAccount)}
+                        className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
+                      >
+                        Usar empresa existente ({duplicateEditAccount.name})
+                      </button>
+                    </div>
                   )}
                   {(() => {
                     const mismatch = getInlineDocumentMismatch(editType, editDocument);

@@ -4976,7 +4976,10 @@ export function DealDetailModal({
           currentAccountName={deal.account?.name || null}
           linkedContacts={deal.contacts || []}
           initialEditContactId={editingContactIdForDrawer}
-          onContactLinked={() => loadDealDetail(true)}
+          onContactLinked={async () => {
+            await loadDealDetail(true);
+            onDealUpdated();
+          }}
         />
       )}
 
@@ -4988,7 +4991,10 @@ export function DealDetailModal({
           dealId={deal.id}
           currentAccount={deal.account || null}
           initialMode={linkAccountDrawerMode}
-          onAccountChanged={() => loadDealDetail(true)}
+          onAccountChanged={async () => {
+            await loadDealDetail(true);
+            onDealUpdated();
+          }}
         />
       )}
     </div>

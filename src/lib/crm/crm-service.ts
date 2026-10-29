@@ -62,7 +62,7 @@ import {
 } from "./custom-fields";
 import { validateCatalogChoice } from "./catalogs";
 import { validateAccountDocument } from "./account-validation";
-import { syncAccountDealContacts, lockContactDeals, DealRequiredError, assertDealsCanBeRemoved } from "./deal-associations";
+import { syncAccountDealContacts, lockContactDeals, linkContactToDeal, DealRequiredError, assertDealsCanBeRemoved } from "./deal-associations";
 import { enqueueRdCommercial } from "../rd-marketing/commercial-outbox";
 import { isCommercialWinStage } from "../commercial/metrics";
 
@@ -3243,6 +3243,7 @@ export class CrmService {
       campaign?: string;
       rating?: number;
       contactId?: string; // Contato principal a associar
+      contactIds?: string[]; // Múltiplos contatos a associar na criação
       conversationId?: string; // Conversa de origem
       initialNote?: string | null;
       marketingOrigin?: boolean; // Imported RD conversions must not echo a new opportunity.
@@ -3577,6 +3578,19 @@ export class CrmService {
             isActive: true,
             createdAt: now,
           });
+        }
+      }
+
+      if (Array.isArray(data.contactIds) && data.contactIds.length > 0) {
+        const extraContactIds = Array.from(
+          new Set(
+            data.contactIds
+              .map((cid) => String(cid || "").trim())
+              .filter((cid) => Boolean(cid) && cid !== linkedContactId),
+          ),
+        );
+        for (const extraContactId of extraContactIds) {
+          await linkContactToDeal(tx, tenantId, extraContactId, dealId, operatorId);
         }
       }
 

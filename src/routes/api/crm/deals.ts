@@ -168,6 +168,7 @@ export const Route = createFileRoute("/api/crm/deals")({
             campaign: body.campaign,
             rating: body.rating,
             contactId: body.contactId,
+            contactIds: Array.isArray(body.contactIds) ? body.contactIds : undefined,
             conversationId: body.conversationId,
             initialNote: body.initialNote,
             customFields: body.customFields,

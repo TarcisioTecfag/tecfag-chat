@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Building2,
   User,
@@ -390,10 +391,28 @@ export const DealCard = React.memo(function DealCard({
     }
   };
 
-  // Concluir tarefa rapidamente (com trava síncrona e atualização otimista imediata)
-  const handleCompleteTask = async (e: React.MouseEvent) => {
+  const [taskToCompleteConfirm, setTaskToCompleteConfirm] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+
+  // Abrir pop-up de confirmação antes de concluir tarefa pelo atalho do card
+  const handleCompleteTask = (e: React.MouseEvent) => {
     e.stopPropagation();
+    hideSharedCardTooltip();
     const taskId = effectiveNextTask?.id;
+    if (!taskId || completingTaskRef.current || completingTask) return;
+    setTaskToCompleteConfirm({
+      id: taskId,
+      title: (effectiveNextTask?.title || "Tarefa comercial").replace(/^Hoje:\s*/i, ""),
+    });
+  };
+
+  // Confirmar e concluir tarefa rapidamente (com trava síncrona e atualização otimista imediata)
+  const handleConfirmCompleteTask = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const targetTask = taskToCompleteConfirm;
+    const taskId = targetTask?.id || effectiveNextTask?.id;
     if (!taskId || completingTaskRef.current || completingTask) return;
     completingTaskRef.current = true;
     setCompletingTask(true);
@@ -411,6 +430,7 @@ export const DealCard = React.memo(function DealCard({
       invalidateDealCache(deal.id);
       seedDealPreview({ ...deal, nextTask: null });
       toast.success("Tarefa concluída!");
+      setTaskToCompleteConfirm(null);
       onTaskCompleted?.(deal.id, taskId);
       window.dispatchEvent(
         new CustomEvent("crm:deal-task-completed", {
@@ -817,6 +837,87 @@ export const DealCard = React.memo(function DealCard({
           ))}
         </div>
       </div>
+
+      {/* Modal Obrigatório de Confirmação de Conclusão de Tarefa */}
+      {taskToCompleteConfirm &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            data-no-drag
+            className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!completingTask) setTaskToCompleteConfirm(null);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-3xl bg-card border border-border shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
+            >
+              <div className="px-6 py-5 border-b border-border flex items-center justify-between bg-primary/5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-foreground">
+                      Concluir Tarefa?
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Confirme a conclusão desta atividade comercial
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={completingTask}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTaskToCompleteConfirm(null);
+                  }}
+                  className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="p-6 space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Tem certeza que deseja marcar a tarefa{" "}
+                  <strong className="text-foreground">"{taskToCompleteConfirm.title}"</strong> como concluída? Após concluída, ela não poderá ser reativada.
+                </p>
+              </div>
+              <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  disabled={completingTask}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTaskToCompleteConfirm(null);
+                  }}
+                  className="rounded-xl border border-border px-4 py-2 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-card transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={completingTask}
+                  onClick={handleConfirmCompleteTask}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 text-xs font-bold shadow-sm transition cursor-pointer disabled:opacity-60"
+                >
+                  {completingTask ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" />
+                  )}
+                  Sim, concluir tarefa
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 });

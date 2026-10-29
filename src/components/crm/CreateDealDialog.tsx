@@ -142,8 +142,10 @@ export function CreateDealDialog({
   const [source, setSource] = useState(defaultConversationId ? "chat" : "");
   const [campaign, setCampaign] = useState("");
   const [accountSegment, setAccountSegment] = useState("");
-  const [selectedContactId, setSelectedContactId] = useState(defaultContactId || "");
-  const [selectedContactName, setSelectedContactName] = useState("");
+  const [selectedContacts, setSelectedContacts] = useState<
+    Array<{ id: string; name: string; phone?: string | null; email?: string | null; accountId?: string | null }>
+  >(defaultContactId ? [{ id: defaultContactId, name: "Contato do atendimento vinculado" }] : []);
+  const [isAddingMoreContact, setIsAddingMoreContact] = useState(false);
   const [contactQuery, setContactQuery] = useState("");
   const [contactResults, setContactResults] = useState<Array<{ id: string; name: string; phone: string | null; email: string | null; accountId: string | null }>>([]);
   const [rating, setRating] = useState<number>(3);
@@ -175,31 +177,56 @@ export function CreateDealDialog({
   const [accountCustomFields, setAccountCustomFields] = useState<Record<string, unknown>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const showContactSearch = selectedContacts.length === 0 || isAddingMoreContact;
+
   useEffect(() => {
-    setSelectedContactId(defaultContactId || "");
+    if (defaultContactId) {
+      setSelectedContacts([{ id: defaultContactId, name: "Contato do atendimento vinculado" }]);
+    } else {
+      setSelectedContacts([]);
+    }
+    setIsAddingMoreContact(false);
     if (defaultConversationId) setSource("chat");
   }, [defaultContactId, defaultConversationId]);
 
   useEffect(() => {
-    if (!isOpen || selectedContactId || contactQuery.trim().length < 2) {
+    if (!isOpen || !showContactSearch || contactQuery.trim().length < 2) {
       setContactResults([]);
       return;
     }
     const timer = setTimeout(() => {
       fetch(`/api/crm/contacts?search=${encodeURIComponent(contactQuery.trim())}`)
         .then((response) => response.ok ? response.json() : { contacts: [] })
-        .then((data) => setContactResults(data.contacts || []))
+        .then((data) => {
+          const list: Array<{ id: string; name: string; phone: string | null; email: string | null; accountId: string | null }> = data.contacts || [];
+          const existingIds = new Set(selectedContacts.map((c) => c.id));
+          setContactResults(list.filter((c) => !existingIds.has(c.id)));
+        })
         .catch(() => setContactResults([]));
     }, 250);
     return () => clearTimeout(timer);
-  }, [contactQuery, isOpen, selectedContactId]);
+  }, [contactQuery, isOpen, showContactSearch, selectedContacts]);
 
   const applyContactAccountToDeal = (contactId: string, contactNameLabel?: string) => {
     if (!contactId) return;
     fetch(`/api/contacts/${encodeURIComponent(contactId)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.name && !contactNameLabel) setSelectedContactName(data.name);
+        if (data?.name) {
+          setSelectedContacts((prev) =>
+            prev.map((c) =>
+              c.id === contactId
+                ? {
+                    ...c,
+                    name: data.name,
+                    phone: data.phone ?? c.phone,
+                    email: data.email ?? c.email,
+                    accountId: data.account?.id || c.accountId,
+                  }
+                : c,
+            ),
+          );
+        }
         if (data?.account && data.account.id) {
           setContactOriginalAccount({ id: data.account.id, name: data.account.name });
           if (!selectedAccount && !isCreatingNewAccount) {
@@ -215,6 +242,40 @@ export function CreateDealDialog({
         }
       })
       .catch((err) => console.error("Erro ao carregar contato no dialog:", err));
+  };
+
+  const applyAccountContactsToDeal = (account: CrmAccountDTO | null) => {
+    if (!account || !account.id) return;
+    fetch(`/api/crm/accounts/${encodeURIComponent(account.id)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const accountContacts: Array<{ id: string; name: string; phone?: string | null; email?: string | null }> =
+          Array.isArray(data?.contacts) ? data.contacts : [];
+        if (accountContacts.length > 0) {
+          setSelectedContacts((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const toAdd = accountContacts
+              .filter((c) => c.id && !existingIds.has(c.id))
+              .map((c) => ({
+                id: c.id,
+                name: c.name || "Contato sem nome",
+                phone: c.phone || null,
+                email: c.email || null,
+                accountId: account.id,
+              }));
+            if (toAdd.length > 0) {
+              toast.info(
+                toAdd.length === 1
+                  ? `Contato "${toAdd[0].name}" vinculado automaticamente pela empresa.`
+                  : `${toAdd.length} contatos vinculados automaticamente pela empresa.`,
+              );
+              return [...prev, ...toAdd];
+            }
+            return prev;
+          });
+        }
+      })
+      .catch((err) => console.error("Erro ao carregar contatos da empresa:", err));
   };
 
   // Busca conta vinculada ao contato pré-selecionado (se houver)
@@ -359,7 +420,8 @@ export function CreateDealDialog({
         rating,
         source: source || undefined,
         campaign: campaign.trim() || undefined,
-        contactId: selectedContactId || undefined,
+        contactId: selectedContacts[0]?.id || undefined,
+        contactIds: selectedContacts.length > 0 ? selectedContacts.map((c) => c.id) : undefined,
         conversationId: defaultConversationId || undefined,
         initialNote: note.trim() || undefined,
         customFields: dealCustomFields,
@@ -408,8 +470,8 @@ export function CreateDealDialog({
         setDealCustomFields({});
         setAccountCustomFields({});
         if (!defaultContactId) {
-          setSelectedContactId("");
-          setSelectedContactName("");
+          setSelectedContacts([]);
+          setIsAddingMoreContact(false);
           setContactQuery("");
           setSelectedAccount(null);
           setHasAccount(false);
@@ -618,10 +680,14 @@ export function CreateDealDialog({
             {!isCreatingNewAccount ? (
               <div className="space-y-2">
                 <AccountPicker
+                  value={selectedAccount?.id || null}
                   selectedAccount={selectedAccount}
                   onSelectAccount={(acc) => {
                     setSelectedAccount(acc);
                     setHasAccount(!!acc);
+                    if (acc) {
+                      applyAccountContactsToDeal(acc);
+                    }
                   }}
                   onAddNew={() => {
                     setIsCreatingNewAccount(true);
@@ -733,10 +799,22 @@ export function CreateDealDialog({
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedAccount(duplicateAccount as CrmAccountDTO);
+                          const existingAcc: CrmAccountDTO = {
+                            id: duplicateAccount.id,
+                            name: duplicateAccount.name,
+                            tradeName: duplicateAccount.tradeName || null,
+                            document: duplicateAccount.document || null,
+                            type: duplicateAccount.type || accountType,
+                            phone: duplicateAccount.phone || null,
+                            email: duplicateAccount.email || null,
+                            segment: duplicateAccount.segment || null,
+                          };
+                          setSelectedAccount(existingAcc);
                           setHasAccount(true);
                           setIsCreatingNewAccount(false);
                           setAccountDocument("");
+                          applyAccountContactsToDeal(existingAcc);
+                          toast.success(`Empresa "${existingAcc.name}" aderida à negociação.`);
                         }}
                         className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
                       >
@@ -802,16 +880,98 @@ export function CreateDealDialog({
           )}
 
           <div className="border-t border-border/60 pt-3 space-y-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Informações do contato</span>
-            <label className="block text-xs font-bold text-foreground">Contato</label>
-            {selectedContactId ? (
-              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
-                <span>{selectedContactName || (defaultContactId ? "Contato do atendimento vinculado" : "Contato selecionado")}</span>
-                {!defaultContactId && <button type="button" onClick={() => { setSelectedContactId(""); setSelectedContactName(""); }} className="text-primary hover:underline cursor-pointer">Trocar</button>}
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Informações do contato</span>
+              {selectedContacts.length > 0 && !isAddingMoreContact && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingMoreContact(true);
+                    setContactQuery("");
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                >
+                  <Plus className="h-3 w-3" />
+                  <span>Vincular mais contato</span>
+                </button>
+              )}
+            </div>
+            <label className="block text-xs font-bold text-foreground">
+              {selectedContacts.length > 1 ? `Contatos vinculados (${selectedContacts.length})` : "Contato"}
+            </label>
+
+            {selectedContacts.length > 0 && (
+              <div className="space-y-1.5">
+                {selectedContacts.map((contact, idx) => (
+                  <div
+                    key={contact.id}
+                    className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs"
+                  >
+                    <div className="min-w-0 flex-1 pr-2">
+                      <div className="flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <span className="font-semibold text-foreground truncate">
+                          {contact.name || "Contato selecionado"}
+                        </span>
+                        {idx === 0 && (
+                          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-primary shrink-0">
+                            Principal
+                          </span>
+                        )}
+                      </div>
+                      {(contact.phone || contact.email) && (
+                        <p className="text-[10px] text-muted-foreground truncate pl-5">
+                          {contact.phone || contact.email}
+                        </p>
+                      )}
+                    </div>
+                    {!(defaultContactId && defaultContactId === contact.id && selectedContacts.length === 1) && (
+                      <SystemTooltip content="Remover contato da negociação">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedContacts((prev) => prev.filter((c) => c.id !== contact.id));
+                          }}
+                          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-rose-500 transition-colors cursor-pointer shrink-0"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </SystemTooltip>
+                    )}
+                  </div>
+                ))}
               </div>
-            ) : (
-              <div className="relative">
-                <input value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder="Buscar contato por nome, telefone ou e-mail" className="h-9 w-full rounded-lg border border-border bg-card px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary" />
+            )}
+
+            {showContactSearch && (
+              <div className="relative space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={contactQuery}
+                    onChange={(event) => setContactQuery(event.target.value)}
+                    placeholder={
+                      selectedContacts.length > 0
+                        ? "Buscar outro contato por nome, telefone ou e-mail..."
+                        : "Buscar contato por nome, telefone ou e-mail"
+                    }
+                    className="h-9 flex-1 rounded-lg border border-border bg-card px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  {selectedContacts.length > 0 && (
+                    <SystemTooltip content="Cancelar inclusão de contato adicional">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingMoreContact(false);
+                          setContactQuery("");
+                          setContactResults([]);
+                        }}
+                        className="h-9 rounded-lg border border-border bg-card px-2.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </SystemTooltip>
+                  )}
+                </div>
                 {contactQuery.trim().length >= 2 && (
                   <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                     {contactResults.length ? contactResults.map((contact) => (
@@ -819,8 +979,21 @@ export function CreateDealDialog({
                         key={contact.id}
                         type="button"
                         onClick={() => {
-                          setSelectedContactId(contact.id);
-                          setSelectedContactName(contact.name);
+                          setSelectedContacts((prev) =>
+                            prev.some((c) => c.id === contact.id)
+                              ? prev
+                              : [
+                                  ...prev,
+                                  {
+                                    id: contact.id,
+                                    name: contact.name,
+                                    phone: contact.phone,
+                                    email: contact.email,
+                                    accountId: contact.accountId,
+                                  },
+                                ],
+                          );
+                          setIsAddingMoreContact(false);
                           setContactQuery("");
                           setContactResults([]);
                           applyContactAccountToDeal(contact.id, contact.name);
@@ -945,6 +1118,7 @@ export function CreateDealDialog({
                     setSelectedAccount(pendingAccountReplacement.newAccount);
                     setHasAccount(true);
                     setIsCreatingNewAccount(false);
+                    applyAccountContactsToDeal(pendingAccountReplacement.newAccount);
                     toast.success(`Empresa substituída por "${pendingAccountReplacement.newAccount.name}".`);
                   }
                   setPendingAccountReplacement(null);

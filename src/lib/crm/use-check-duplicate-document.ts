@@ -5,6 +5,12 @@ export interface DuplicateAccountMatch {
   name: string;
   tradeName?: string | null;
   document?: string | null;
+  type?: "company" | "person";
+  phone?: string | null;
+  email?: string | null;
+  segment?: string | null;
+  city?: string | null;
+  state?: string | null;
 }
 
 export async function findDuplicateAccountByDocument(
