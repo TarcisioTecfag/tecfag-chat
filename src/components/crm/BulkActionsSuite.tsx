@@ -166,8 +166,9 @@ export function BulkActionsSuite({
   const [catalogSources, setCatalogSources] = useState<Array<{ id: string; name: string }>>([]);
 
   const [productModalOpen, setProductModalOpen] = useState(false);
-  const [catalogProducts, setCatalogProducts] = useState<Array<{ id: string; name: string }>>([]);
+  const [catalogProducts, setCatalogProducts] = useState<Array<{ id: string; name: string; unitPrice?: string }>>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [productSearch, setProductSearch] = useState("");
 
   // Modal de Exclusão
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -1483,31 +1484,56 @@ export function BulkActionsSuite({
           MODAL 7: PRODUTO OU SERVIÇO
           ────────────────────────────────────────────────────────────────────────── */}
       <Dialog open={productModalOpen} onOpenChange={setProductModalOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
-              <Package className="h-4 w-4 text-emerald-500" />
+              <Package className="h-4 w-4 text-primary" />
               <span>Adicionar Produto ou Serviço</span>
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3 py-3 text-xs">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Produto do Catálogo</Label>
-              <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                <SystemTooltip content="Selecionar produto ou serviço do catálogo">
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Selecione um produto..." />
-                  </SelectTrigger>
-                </SystemTooltip>
-                <SelectContent>
-                  {catalogProducts.map((p) => (
-                    <SelectItem key={p.id} value={p.id} className="text-xs">
-                      {p.name}
-                    </SelectItem>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Produto do Catálogo ({catalogProducts.length})</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Buscar produto ou serviço..."
+                  className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div className="max-h-60 overflow-y-auto rounded-lg border border-border bg-card divide-y divide-border/50">
+                {catalogProducts
+                  .filter((p) => {
+                    const q = productSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return p.name.toLowerCase().includes(q);
+                  })
+                  .slice(0, 80)
+                  .map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setSelectedProductId(p.id)}
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
+                        selectedProductId === p.id ? "bg-primary/10 font-bold text-primary" : "text-foreground"
+                      }`}
+                    >
+                      <span className="line-clamp-2 flex-1">{p.name}</span>
+                      {p.unitPrice !== undefined && (
+                        <span className="shrink-0 font-semibold text-muted-foreground">
+                          {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          })}
+                        </span>
+                      )}
+                    </button>
                   ))}
-                </SelectContent>
-              </Select>
+              </div>
             </div>
           </div>
 

@@ -92,11 +92,13 @@ const emptyDraft = (): FieldDraft => ({
 export function CustomFieldsSettingsModal({
   isOpen,
   onClose,
+  initialEntity,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  initialEntity?: CustomFieldEntity;
 }) {
-  const [entity, setEntity] = useState<CustomFieldEntity>("deal");
+  const [entity, setEntity] = useState<CustomFieldEntity>(initialEntity || "deal");
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [pipelines, setPipelines] = useState<PipelineWithStages[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -105,6 +107,12 @@ export function CustomFieldsSettingsModal({
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<FieldDraft | null>(null);
   const [showUniqueBanner, setShowUniqueBanner] = useState(true);
+
+  useEffect(() => {
+    if (isOpen && initialEntity) {
+      setEntity(initialEntity);
+    }
+  }, [isOpen, initialEntity]);
 
   const loadPipelines = useCallback(async () => {
     setLoadingPipelines(true);

@@ -34,8 +34,9 @@ export const Route = createFileRoute("/api/crm/products")({
           const isActive = isActiveParam !== null ? isActiveParam === "true" : undefined;
 
           const products = await crmService.getProducts(tenantId, { search, isActive });
+          const canManageProducts = !requireCrmPermission(session, "canManageProducts");
 
-          return new Response(JSON.stringify({ products }), {
+          return new Response(JSON.stringify({ products, canManageProducts }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } catch (err: any) {
@@ -46,7 +47,7 @@ export const Route = createFileRoute("/api/crm/products")({
 
       /**
        * POST /api/crm/products
-       * Cria novo produto no catálogo do tenant.
+       * Cria novo produto, importa lote ou sincroniza catálogo da VTEX no tenant.
        */
       POST: async ({ request }) => {
         try {
@@ -59,6 +60,32 @@ export const Route = createFileRoute("/api/crm/products")({
           if (permError) return permError;
 
           const body = await request.json();
+
+          if (body.action === "sync_vtex") {
+            const result = await crmService.syncProductsFromVtex(tenantId);
+            return new Response(JSON.stringify(result), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          if (body.action === "import_batch") {
+            if (!Array.isArray(body.items) || body.items.length === 0) {
+              return new Response(
+                JSON.stringify({ error: "Nenhum item válido informado para importação." }),
+                {
+                  status: 400,
+                  headers: { ...corsHeaders, "Content-Type": "application/json" },
+                }
+              );
+            }
+            const result = await crmService.importProductsBatch(tenantId, body.items);
+            return new Response(JSON.stringify(result), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
           if (!body.name || typeof body.name !== "string" || !body.name.trim()) {
             return new Response(JSON.stringify({ error: "Nome do produto é obrigatório" }), {
               status: 400,

@@ -30,6 +30,20 @@ export const Route = createFileRoute("/api/crm/products/$productId")({
           return handleCrmError(error);
         }
       },
+      DELETE: async ({ request, params }) => {
+        try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const permission = requireCrmPermission(session, "canManageProducts");
+          if (permission) return permission;
+          const productId = (params as unknown as { productId: string }).productId;
+          const result = await crmService.deleteProduct(session.tenantId, productId);
+          return Response.json(result);
+        } catch (error) {
+          return handleCrmError(error);
+        }
+      },
     },
   },
 });

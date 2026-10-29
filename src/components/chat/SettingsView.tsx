@@ -14,8 +14,10 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
 import { PipelineSettingsModal } from "@/components/crm/PipelineSettingsModal";
 import { CrmCatalogSettingsModal } from "@/components/crm/CrmCatalogSettingsModal";
+import { CrmProductsSettingsModal } from "@/components/crm/CrmProductsSettingsModal";
 import { CrmActionHistoryModal } from "@/components/crm/CrmActionHistoryModal";
 import type { CatalogKind } from "@/lib/crm/catalogs";
+import type { CustomFieldEntity } from "@/lib/crm/custom-fields";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { RdMarketingSettings } from "./RdMarketingSettings";
@@ -43,6 +45,8 @@ export function SettingsView() {
     getInitialTabFromUrl("settings", "whatsapp", SETTINGS_TABS),
   );
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
+  const [customFieldsInitialEntity, setCustomFieldsInitialEntity] = useState<CustomFieldEntity | undefined>(undefined);
+  const [productsSettingsOpen, setProductsSettingsOpen] = useState(false);
   const [pipelineSettingsOpen, setPipelineSettingsOpen] = useState(() => {
     if (typeof window === "undefined") return false;
     const parsed = parseAppRoute(window.location.pathname);
@@ -1075,10 +1079,26 @@ export function SettingsView() {
               </div>
               <button
                 type="button"
-                onClick={() => setCustomFieldsOpen(true)}
+                onClick={() => {
+                  setCustomFieldsInitialEntity(undefined);
+                  setCustomFieldsOpen(true);
+                }}
                 className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer self-start shadow-soft"
               >
                 Configurar campos de cadastro
+              </button>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-soft flex flex-col justify-between">
+              <div>
+                <h3 className="text-base font-bold text-foreground">Produtos e serviços</h3>
+                <p className="mt-2 text-xs text-muted-foreground">Cadastre e gerencie o catálogo de produtos e serviços para vinculá-los às negociações e propostas comerciais.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProductsSettingsOpen(true)}
+                className="mt-5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition hover:opacity-90 cursor-pointer self-start shadow-soft"
+              >
+                Configurar produtos e serviços
               </button>
             </div>
             <div className="rounded-2xl border border-border bg-card p-6 shadow-soft flex flex-col justify-between">
@@ -1527,7 +1547,23 @@ export function SettingsView() {
         {/* ABA 6: CONECTOR MCP (CLAUDE / IA) */}
         {activeTab === "mcp" && <McpSettingsTab />}
       </div>
-      <CustomFieldsSettingsModal isOpen={customFieldsOpen} onClose={() => setCustomFieldsOpen(false)} />
+      <CustomFieldsSettingsModal
+        isOpen={customFieldsOpen}
+        onClose={() => {
+          setCustomFieldsOpen(false);
+          setCustomFieldsInitialEntity(undefined);
+        }}
+        initialEntity={customFieldsInitialEntity}
+      />
+      <CrmProductsSettingsModal
+        isOpen={productsSettingsOpen}
+        onClose={() => setProductsSettingsOpen(false)}
+        onOpenCustomFields={() => {
+          setProductsSettingsOpen(false);
+          setCustomFieldsInitialEntity("product");
+          setCustomFieldsOpen(true);
+        }}
+      />
       <CrmActionHistoryModal isOpen={actionHistoryOpen} onClose={() => setActionHistoryOpen(false)} />
       <PipelineSettingsModal isOpen={pipelineSettingsOpen} onClose={() => setPipelineSettingsOpen(false)} />
       <CrmCatalogSettingsModal

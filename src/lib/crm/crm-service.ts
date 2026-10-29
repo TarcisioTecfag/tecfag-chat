@@ -5625,6 +5625,26 @@ export class CrmService {
   // 7. CATÁLOGO DE PRODUTOS & SERVIÇOS
   // ═══════════════════════════════════════════════════════════════════════════
 
+  private normalizeUnitPriceInput(raw: string | number | null | undefined): string {
+    if (typeof raw === "number") {
+      return Number.isFinite(raw) && raw >= 0 ? raw.toFixed(2) : "0.00";
+    }
+    if (!raw) return "0.00";
+    const cleaned = String(raw)
+      .replace(/[R$\s]/gi, "")
+      .trim();
+    if (!cleaned) return "0.00";
+    // Suporta tanto "14.373,14" (pt-BR) quanto "14373.14" (padrão decimal)
+    const normalized =
+      cleaned.includes(",") && cleaned.includes(".")
+        ? cleaned.replace(/\./g, "").replace(",", ".")
+        : cleaned.includes(",")
+          ? cleaned.replace(",", ".")
+          : cleaned;
+    const parsed = Number.parseFloat(normalized);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed.toFixed(2) : "0.00";
+  }
+
   /**
    * Lista catálogo de produtos/itens com filtro de busca e tenant isolado.
    */
@@ -5641,7 +5661,7 @@ export class CrmService {
     if (options?.search) {
       const term = `%${options.search.trim()}%`;
       conditions.push(
-        sql`(${crmProducts.name} ILIKE ${term} OR ${crmProducts.sku} ILIKE ${term} OR ${crmProducts.category} ILIKE ${term})`
+        sql`(${crmProducts.name} ILIKE ${term} OR ${crmProducts.description} ILIKE ${term} OR ${crmProducts.sku} ILIKE ${term} OR ${crmProducts.category} ILIKE ${term})`
       );
     }
 
@@ -5670,7 +5690,7 @@ export class CrmService {
   ): Promise<CrmProduct> {
     const id = `prod-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date();
-    const price = typeof data.unitPrice === "number" ? data.unitPrice.toFixed(2) : (data.unitPrice || "0.00");
+    const price = this.normalizeUnitPriceInput(data.unitPrice);
     const customFields = validateFieldValues(await listCustomFields(tenantId, "product"), data.customFields, { requireOnCreate: true });
 
     const [product] = await db
@@ -5717,7 +5737,7 @@ export class CrmService {
     if (data.sku !== undefined) updates.sku = data.sku?.trim() || null;
     if (data.description !== undefined) updates.description = data.description?.trim() || null;
     if (data.unitPrice !== undefined) {
-      updates.unitPrice = typeof data.unitPrice === "number" ? data.unitPrice.toFixed(2) : data.unitPrice;
+      updates.unitPrice = this.normalizeUnitPriceInput(data.unitPrice);
     }
     if (data.unit !== undefined) updates.unit = data.unit;
     if (data.category !== undefined) updates.category = data.category?.trim() || null;
@@ -5737,10 +5757,273 @@ export class CrmService {
       .returning();
 
     if (!updated) {
-      throw new Error(`Produto ${productId} não encontrado para tenant ${tenantId}`);
+      throw new CrmNotFoundError(`Produto não encontrado.`);
     }
 
     return updated;
+  }
+
+  /**
+   * Remove produto do catálogo do tenant com isolamento estrito.
+   */
+  async deleteProduct(tenantId: string, productId: string): Promise<{ deletedId: string }> {
+    const [deleted] = await db
+      .delete(crmProducts)
+      .where(and(eq(crmProducts.id, productId), eq(crmProducts.tenantId, tenantId)))
+      .returning({ id: crmProducts.id });
+
+    if (!deleted) {
+      throw new CrmNotFoundError("Produto ou serviço não encontrado.");
+    }
+
+    return { deletedId: deleted.id };
+  }
+
+  /**
+   * Importa um lote de produtos/serviços (CSV/JSON/Planilha) no catálogo do tenant.
+   */
+  async importProductsBatch(
+    tenantId: string,
+    items: Array<{
+      id?: string;
+      name: string;
+      description?: string | null;
+      unitPrice?: string | number;
+      sku?: string | null;
+      unit?: string | null;
+      category?: string | null;
+      isActive?: boolean;
+    }>
+  ): Promise<{ imported: number }> {
+    const validItems = (items || []).filter(
+      (it) => it && typeof it.name === "string" && it.name.trim().length > 0
+    );
+    if (validItems.length === 0) {
+      return { imported: 0 };
+    }
+
+    const now = new Date();
+    const BATCH = 200;
+    let imported = 0;
+
+    for (let i = 0; i < validItems.length; i += BATCH) {
+      const slice = validItems.slice(i, i + BATCH).map((item, idx) => ({
+        id:
+          item.id && String(item.id).trim()
+            ? String(item.id).trim()
+            : `prod-imp-${Date.now()}-${i + idx}-${Math.random().toString(36).slice(2, 6)}`,
+        tenantId,
+        name: item.name.trim(),
+        sku: item.sku?.trim() || null,
+        description: item.description?.trim() || null,
+        unitPrice: this.normalizeUnitPriceInput(item.unitPrice),
+        unit: item.unit?.trim() || "UN",
+        category: item.category?.trim() || null,
+        customFields: {},
+        isActive: item.isActive !== false,
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+      await db
+        .insert(crmProducts)
+        .values(slice)
+        .onConflictDoUpdate({
+          target: crmProducts.id,
+          set: {
+            name: sql`EXCLUDED.name`,
+            sku: sql`COALESCE(EXCLUDED.sku, ${crmProducts.sku})`,
+            description: sql`COALESCE(EXCLUDED.description, ${crmProducts.description})`,
+            unitPrice: sql`EXCLUDED.unit_price`,
+            category: sql`COALESCE(EXCLUDED.category, ${crmProducts.category})`,
+            updatedAt: now,
+          },
+        });
+
+      imported += slice.length;
+    }
+
+    return { imported };
+  }
+
+  /**
+   * Sincroniza todos os produtos da loja VTEX configurada para o tenant (Nome, Descrição, Valor, SKU, Categoria).
+   */
+  async syncProductsFromVtex(tenantId: string): Promise<{ synced: number; source: "live" | "seed" }> {
+    const { readVtexConfig } = await import("../vtex/store");
+    const { decodeHtmlEntities } = await import("../valentina/vtex-assistant-service");
+
+    let account = "";
+    let salesChannel = "1";
+    let sellerId = "1";
+
+    try {
+      const state = await readVtexConfig(db as any, tenantId);
+      account = state.settings.account || "";
+      salesChannel = state.settings.salesChannel || "1";
+      sellerId = state.settings.sellerId || "1";
+    } catch {
+      // Fallback para o catálogo configurado
+    }
+
+    if (!account && tenantId === "tecfag") {
+      account = "tecfag";
+    }
+
+    const cleanHtml = (html: unknown, maxChars = 4000): string => {
+      if (!html) return "";
+      return decodeHtmlEntities(
+        String(html)
+          .replace(/<script[\s\S]*?<\/script>/gi, " ")
+          .replace(/<style[\s\S]*?<\/style>/gi, " ")
+          .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+          .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+          .replace(/<(?:br|\/p|\/div|\/li|\/tr|\/h[1-6])\b[^>]*>/gi, "\n")
+          .replace(/<li\b[^>]*>/gi, "• ")
+          .replace(/<td\b[^>]*>/gi, " | ")
+          .replace(/<[^>]+>/g, " ")
+      )
+        .split("\n")
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter((line) => line.length > 0)
+        .join("\n")
+        .slice(0, maxChars)
+        .trim();
+    };
+
+    const records: Array<{
+      id: string;
+      name: string;
+      sku: string | null;
+      description: string | null;
+      unitPrice: string;
+      unit: string;
+      category: string | null;
+      isActive: boolean;
+    }> = [];
+
+    let source: "live" | "seed" = "live";
+
+    if (account) {
+      try {
+        const step = 50;
+        const byId = new Map<string, (typeof records)[number]>();
+
+        for (let from = 0; from < 2500; from += step) {
+          const to = from + step - 1;
+          const url = `https://${account}.vtexcommercestable.com.br/api/catalog_system/pub/products/search?sc=${salesChannel}&_from=${from}&_to=${to}`;
+          const res = await fetch(url, {
+            headers: {
+              Accept: "application/json",
+              "User-Agent": "Tecfag-CRM-Sync/1.0",
+            },
+            signal: AbortSignal.timeout(12000),
+          });
+          if (!res.ok && res.status !== 206) break;
+          const batch = await res.json();
+          if (!Array.isArray(batch) || batch.length === 0) break;
+
+          for (const row of batch) {
+            const productId = String(row?.productId || "").trim();
+            const rawName = cleanHtml(row?.productName || "", 300).replace(/\s+/g, " ");
+            if (!productId || !rawName) continue;
+
+            const items = Array.isArray(row?.items) ? row.items : [];
+            let chosenItem = items[0] || null;
+            let chosenPrice = 0;
+
+            for (const item of items) {
+              const sellers = Array.isArray(item?.sellers) ? item.sellers : [];
+              const seller =
+                sellers.find((s: any) => String(s?.sellerId || "") === sellerId) ||
+                sellers.find((s: any) => s?.sellerDefault) ||
+                sellers[0];
+              const offer = seller?.commertialOffer || {};
+              const price = Number(offer.Price || 0);
+              const listPrice = Number(offer.ListPrice || 0);
+              const candidatePrice = price > 0 ? price : listPrice > 0 ? listPrice : 0;
+              if (candidatePrice > 0) {
+                chosenItem = item;
+                chosenPrice = candidatePrice;
+                break;
+              }
+            }
+
+            const refList = Array.isArray(chosenItem?.referenceId) ? chosenItem.referenceId : [];
+            const sku =
+              String(
+                refList.find((r: any) => r?.Key === "RefId")?.Value ||
+                  refList[0]?.Value ||
+                  row?.productReference ||
+                  chosenItem?.itemId ||
+                  productId
+              ).trim() || null;
+
+            const rawDesc =
+              row?.description ||
+              (Array.isArray(row?.["Descrição"]) ? row["Descrição"][0] : "") ||
+              row?.metaTagDescription ||
+              "";
+            const description = cleanHtml(rawDesc, 4000) || null;
+            const rawCats = Array.isArray(row?.categories) ? row.categories : [];
+            const firstCat = String(rawCats[0] || "")
+              .split("/")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            const category = firstCat.length > 0 ? firstCat.join(" > ") : null;
+
+            const id = tenantId === "tecfag" ? `prod-vtex-${productId}` : `prod-vtex-${tenantId}-${productId}`;
+            if (!byId.has(id)) {
+              byId.set(id, {
+                id,
+                name: rawName,
+                sku,
+                description,
+                unitPrice: Number.isFinite(chosenPrice) && chosenPrice >= 0 ? chosenPrice.toFixed(2) : "0.00",
+                unit: "UN",
+                category,
+                isActive: true,
+              });
+            }
+          }
+
+          if (batch.length < step) break;
+        }
+
+        records.push(...byId.values());
+      } catch (err) {
+        console.warn("[CRM Products VTEX Sync] Falha na consulta live, verificando seed local:", err);
+      }
+    }
+
+    if (records.length === 0 && tenantId === "tecfag") {
+      const seedPath = path.resolve(process.cwd(), "scripts/data/tecfag-vtex-products-seed.json");
+      if (fs.existsSync(seedPath)) {
+        const raw = JSON.parse(fs.readFileSync(seedPath, "utf8"));
+        if (Array.isArray(raw?.products)) {
+          source = "seed";
+          for (const p of raw.products) {
+            records.push({
+              id: String(p.id),
+              name: String(p.name || "").trim(),
+              sku: p.sku ? String(p.sku).trim() : null,
+              description: p.description ? String(p.description).trim() : null,
+              unitPrice: this.normalizeUnitPriceInput(p.unitPrice),
+              unit: String(p.unit || "UN"),
+              category: p.category ? String(p.category).trim() : null,
+              isActive: p.isActive !== false,
+            });
+          }
+        }
+      }
+    }
+
+    if (records.length === 0) {
+      throw new Error("Nenhum produto encontrado na loja VTEX configurada para este tenant.");
+    }
+
+    const result = await this.importProductsBatch(tenantId, records);
+    return { synced: result.imported, source };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

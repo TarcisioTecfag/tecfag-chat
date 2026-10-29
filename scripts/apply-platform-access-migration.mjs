@@ -314,6 +314,77 @@ if (!databaseUrl) {
         console.log(`[platform migration] ${walletBackfillName} aplicada (${res.count ?? 0} contatos vinculados à carteira).`);
       });
     }
+
+    // 4. Carga automática de todos os produtos da loja VTEX (Nome, Descrição, Valor, SKU, Categoria) em crm_products (tenant tecfag)
+    const vtexProductsSeedName = "seed_tecfag_vtex_crm_products_2026_10_29";
+    const [appliedVtexProductsSeed] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${vtexProductsSeedName}
+    `;
+    if (!appliedVtexProductsSeed) {
+      const seedUrl = new URL("./data/tecfag-vtex-products-seed.json", import.meta.url);
+      const seedPath = fileURLToPath(seedUrl);
+      if (existsSync(seedPath)) {
+        const rawJson = await readFile(seedPath, "utf8");
+        const parsed = JSON.parse(rawJson);
+        const items = Array.isArray(parsed?.products) ? parsed.products : [];
+        if (items.length > 0) {
+          await sql.begin(async (tx) => {
+            const now = new Date();
+            const BATCH = 200;
+            for (let i = 0; i < items.length; i += BATCH) {
+              const slice = items.slice(i, i + BATCH).map((p) => ({
+                id: String(p.id),
+                tenant_id: "tecfag",
+                name: String(p.name || "").trim(),
+                sku: p.sku ? String(p.sku).trim() : null,
+                description: p.description ? String(p.description).trim() : null,
+                unit_price: String(p.unitPrice || "0.00"),
+                unit: String(p.unit || "UN"),
+                category: p.category ? String(p.category).trim() : null,
+                custom_fields: {},
+                is_active: p.isActive !== false,
+                created_at: now,
+                updated_at: now,
+              }));
+              await tx`
+                INSERT INTO crm_products ${tx(
+                  slice,
+                  "id",
+                  "tenant_id",
+                  "name",
+                  "sku",
+                  "description",
+                  "unit_price",
+                  "unit",
+                  "category",
+                  "custom_fields",
+                  "is_active",
+                  "created_at",
+                  "updated_at",
+                )}
+                ON CONFLICT (id) DO UPDATE SET
+                  name = EXCLUDED.name,
+                  sku = COALESCE(EXCLUDED.sku, crm_products.sku),
+                  description = COALESCE(EXCLUDED.description, crm_products.description),
+                  unit_price = EXCLUDED.unit_price,
+                  category = COALESCE(EXCLUDED.category, crm_products.category),
+                  updated_at = NOW()
+              `;
+            }
+            await tx`
+              INSERT INTO app_deploy_migrations (name)
+              VALUES (${vtexProductsSeedName})
+              ON CONFLICT (name) DO NOTHING
+            `;
+          });
+          console.log(`[platform migration] ${vtexProductsSeedName} aplicada (${items.length} produtos VTEX carregados em crm_products).`);
+        }
+      } else {
+        console.warn(`[platform migration] Arquivo ${seedPath} não encontrado para ${vtexProductsSeedName}.`);
+      }
+    } else {
+      console.log(`[platform migration] ${vtexProductsSeedName} já aplicada anteriormente.`);
+    }
   } catch (error) {
     console.error(
       "[platform migration] Falha crítica ao aplicar migrações estruturais DDL:",

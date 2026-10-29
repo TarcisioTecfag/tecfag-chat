@@ -55,6 +55,7 @@ import {
   PhoneCall,
   ChevronDown,
   ChevronUp,
+  Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -87,6 +88,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -580,6 +586,8 @@ export function DealDetailModal({
   const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [selectedCatalogId, setSelectedCatalogId] = useState("");
+  const [catalogPickerOpen, setCatalogPickerOpen] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState("");
   const [newProductName, setNewProductName] = useState("");
   const [newProductQty, setNewProductQty] = useState("1");
   const [newProductUnitPrice, setNewProductUnitPrice] = useState("");
@@ -3787,24 +3795,80 @@ export function DealDetailModal({
                         {catalogProducts.length > 0 && (
                           <div className="flex items-center gap-1.5">
                             <ShoppingBag className="h-3 w-3 text-muted-foreground" />
-                            <Select
-                              value={selectedCatalogId || "__none__"}
-                              onValueChange={(val) => handleSelectCatalogItem(val === "__none__" ? "" : val)}
-                            >
-                              <SystemTooltip content="Preencher dados a partir de um produto cadastrado no catálogo">
-                                <SelectTrigger className="h-7 rounded-lg border border-border bg-card px-2 text-[11px] text-foreground min-w-[170px]">
-                                  <SelectValue placeholder="-- Puxar do Catálogo --" />
-                                </SelectTrigger>
+                            <Popover open={catalogPickerOpen} onOpenChange={setCatalogPickerOpen}>
+                              <SystemTooltip content="Pesquisar e preencher dados a partir de um produto cadastrado no catálogo">
+                                <PopoverTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="flex h-7 items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 text-[11px] text-foreground min-w-[210px] max-w-[320px] hover:bg-muted/40 cursor-pointer"
+                                  >
+                                    <span className="truncate">
+                                      {selectedCatalogId
+                                        ? catalogProducts.find((p) => p.id === selectedCatalogId)?.name || "-- Puxar do Catálogo --"
+                                        : "-- Puxar do Catálogo --"}
+                                    </span>
+                                    <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                  </button>
+                                </PopoverTrigger>
                               </SystemTooltip>
-                              <SelectContent>
-                                <SelectItem value="__none__" className="text-xs text-muted-foreground">-- Puxar do Catálogo --</SelectItem>
-                                {catalogProducts.map((p) => (
-                                  <SelectItem key={p.id} value={p.id} className="text-xs">
-                                    {p.name} (R$ {parseFloat(p.unitPrice).toFixed(2)})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              <PopoverContent align="end" className="w-[360px] p-2">
+                                <div className="relative mb-2">
+                                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                  <input
+                                    type="text"
+                                    value={catalogSearch}
+                                    onChange={(e) => setCatalogSearch(e.target.value)}
+                                    placeholder={`Buscar entre ${catalogProducts.length} produtos...`}
+                                    className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                  />
+                                </div>
+                                <div className="max-h-64 overflow-y-auto divide-y divide-border/50">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleSelectCatalogItem("");
+                                      setCatalogPickerOpen(false);
+                                    }}
+                                    className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50 cursor-pointer"
+                                  >
+                                    <span>-- Puxar do Catálogo --</span>
+                                  </button>
+                                  {catalogProducts
+                                    .filter((p) => {
+                                      const q = catalogSearch.trim().toLowerCase();
+                                      if (!q) return true;
+                                      return (
+                                        String(p.name || "").toLowerCase().includes(q) ||
+                                        String(p.sku || "").toLowerCase().includes(q) ||
+                                        String(p.category || "").toLowerCase().includes(q) ||
+                                        String(p.description || "").toLowerCase().includes(q)
+                                      );
+                                    })
+                                    .slice(0, 80)
+                                    .map((p) => (
+                                      <button
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => {
+                                          handleSelectCatalogItem(p.id);
+                                          setCatalogPickerOpen(false);
+                                        }}
+                                        className={`flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-xs transition hover:bg-muted/60 cursor-pointer ${
+                                          selectedCatalogId === p.id ? "bg-primary/10 font-semibold text-primary" : "text-foreground"
+                                        }`}
+                                      >
+                                        <span className="line-clamp-2 flex-1">{p.name}</span>
+                                        <span className="shrink-0 font-semibold text-muted-foreground">
+                                          {(Number(p.unitPrice) || 0).toLocaleString("pt-BR", {
+                                            style: "currency",
+                                            currency: "BRL",
+                                          })}
+                                        </span>
+                                      </button>
+                                    ))}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                           </div>
                         )}
                       </div>
