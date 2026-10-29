@@ -1922,13 +1922,6 @@ function ChatMessageBubbleComponent({
           {/* Sugestões dinâmicas por setor para mensagem de boas-vindas da IA */}
           {m.id === "val_welcome" && (
             <div data-tour="chat.assistant-suggestions" className="mt-2.5 flex flex-col gap-1.5 max-w-sm">
-              {m.welcomeSectorName && (
-                <div className="mb-0.5 flex items-center gap-1.5 px-1">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-primary">
-                    Setor: {m.welcomeSectorName}
-                  </span>
-                </div>
-              )}
               {(Array.isArray(m.welcomeSuggestions) && m.welcomeSuggestions.length > 0
                 ? m.welcomeSuggestions
                 : [
