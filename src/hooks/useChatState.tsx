@@ -405,19 +405,24 @@ function buildValentinaWelcomeMessage(
   const welcomeIsoStr = firstTodayMsg?.sentAtISO || nowDateObj.toISOString();
 
   const resolved = buildOperatorCopilotWelcome({
+    tenant,
     tenantId: tenant,
     operatorId: sectorContext?.operatorId,
     operatorName,
     operatorGroupName: sectorContext?.groupName,
     operatorRole: sectorContext?.role,
     sectors: sectorContext?.sectors || [],
+    nowDateObj,
     nowDate: nowDateObj,
   });
 
   return {
     id: "val_welcome",
     author: aiPersona.name,
-    text: resolved.welcomeMessage,
+    text:
+      resolved.welcomeMessage ||
+      resolved.text ||
+      `Olá! Sou ${aiPersona.name}, seu copiloto. Como posso te ajudar agora?`,
     welcomeSuggestions: resolved.suggestions,
     welcomeSectorName: resolved.sectorName,
     time: welcomeTimeStr,

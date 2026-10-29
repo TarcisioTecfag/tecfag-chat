@@ -854,6 +854,7 @@ function ChatMessageBubbleComponent({
 }: ChatMessageBubbleProps) {
   const navigate = useNavigate();
   const [dealSearchQuery, setDealSearchQuery] = React.useState("");
+  const safeText = typeof m.text === "string" ? m.text : "";
   // ── 1. Mensagens de Sistema (ocultas por padrão no ícone ? discreto, agrupadas quando em sequência) ──
   if (isSystem) {
     return (
@@ -866,7 +867,7 @@ function ChatMessageBubbleComponent({
           </div>
         )}
         <SystemAnnotationBubble
-          text={m.text}
+          text={safeText}
           time={m.time}
           items={systemGroup}
           gap={gap}
@@ -894,7 +895,7 @@ function ChatMessageBubbleComponent({
               Anotação Interna — {m.author} às {m.time}
             </div>
             <p className="text-xs leading-relaxed font-medium text-amber-950 dark:text-amber-200">
-              {renderTextWithLinks(m.text, false, true)}
+              {renderTextWithLinks(safeText, false, true)}
             </p>
           </div>
         </div>
@@ -902,17 +903,17 @@ function ChatMessageBubbleComponent({
     );
   }
 
-  const isSticker = m.text.startsWith("[MEDIA:sticker]") || m.text.startsWith("[LOCAL_MEDIA:sticker]");
+  const isSticker = safeText.startsWith("[MEDIA:sticker]") || safeText.startsWith("[LOCAL_MEDIA:sticker]");
   const isMedia =
-    m.text.startsWith("[MEDIA:") ||
-    m.text.startsWith("[LOCAL_MEDIA:") ||
-    m.text.startsWith("[SEND_IMAGE:");
-  const hasCaption = isMedia && m.text.includes("\n") && m.text.split("\n").slice(1).join("\n").trim().length > 0;
+    safeText.startsWith("[MEDIA:") ||
+    safeText.startsWith("[LOCAL_MEDIA:") ||
+    safeText.startsWith("[SEND_IMAGE:");
+  const hasCaption = isMedia && safeText.includes("\n") && safeText.split("\n").slice(1).join("\n").trim().length > 0;
   const isAudioOrDoc =
-    m.text.startsWith("[MEDIA:audio]") ||
-    m.text.startsWith("[LOCAL_MEDIA:audio]") ||
-    m.text.startsWith("[MEDIA:document]") ||
-    m.text.startsWith("[LOCAL_MEDIA:document]");
+    safeText.startsWith("[MEDIA:audio]") ||
+    safeText.startsWith("[LOCAL_MEDIA:audio]") ||
+    safeText.startsWith("[MEDIA:document]") ||
+    safeText.startsWith("[LOCAL_MEDIA:document]");
 
   // Border-radius por posição no grupo (estilo WhatsApp)
   const outR =
@@ -1017,7 +1018,7 @@ function ChatMessageBubbleComponent({
                   />
                 )}
                 {renderMessageContent(
-                  m.text,
+                  safeText,
                   onMediaClick,
                   true,
                   onSaveSticker,
@@ -1037,7 +1038,7 @@ function ChatMessageBubbleComponent({
                   />
                 )}
                 {renderMessageContent(
-                  m.text,
+                  safeText,
                   onMediaClick,
                   true,
                   undefined,
@@ -1048,7 +1049,7 @@ function ChatMessageBubbleComponent({
             ) : isMedia && !hasCaption && !displayQuotedContent ? (
               <div>
                 {renderMessageContent(
-                  m.text,
+                  safeText,
                   onMediaClick,
                   true,
                   undefined,
@@ -1056,8 +1057,8 @@ function ChatMessageBubbleComponent({
                   activeChat.name,
                 )}
               </div>
-            ) : isEmojiOnly(m.text) && !displayQuotedContent ? (
-              <div className="text-4xl leading-none select-none py-1">{m.text}</div>
+            ) : isEmojiOnly(safeText) && !displayQuotedContent ? (
+              <div className="text-4xl leading-none select-none py-1">{safeText}</div>
             ) : (
               <div
                 onClick={(e) => onBubbleClick(e, m.id)}
@@ -1079,7 +1080,7 @@ function ChatMessageBubbleComponent({
                   />
                 )}
                 {renderMessageContent(
-                  m.text,
+                  safeText,
                   onMediaClick,
                   true,
                   undefined,
@@ -1222,7 +1223,7 @@ function ChatMessageBubbleComponent({
                   />
                 )}
                 {renderMessageContent(
-                  m.text,
+                  safeText,
                   onMediaClick,
                   false,
                   onSaveSticker,
@@ -1242,7 +1243,7 @@ function ChatMessageBubbleComponent({
                   />
                 )}
                 {renderMessageContent(
-                  m.text,
+                  safeText,
                   onMediaClick,
                   false,
                   undefined,
@@ -1253,7 +1254,7 @@ function ChatMessageBubbleComponent({
             ) : isMedia && !hasCaption && !displayQuotedContent && !m.isWarning ? (
               <div className="min-w-0 max-w-full">
                 {renderMessageContent(
-                  m.text,
+                  safeText,
                   onMediaClick,
                   false,
                   undefined,
@@ -1261,9 +1262,9 @@ function ChatMessageBubbleComponent({
                   activeChat.name,
                 )}
               </div>
-            ) : isEmojiOnly(m.text) && !displayQuotedContent && !m.isWarning ? (
-              <div className="text-4xl leading-none select-none py-1">{m.text}</div>
-            ) : m.vtexProductPreview && !isMedia && !m.isWarning && isBoilerplateVtexIntroText(m.text) ? (
+            ) : isEmojiOnly(safeText) && !displayQuotedContent && !m.isWarning ? (
+              <div className="text-4xl leading-none select-none py-1">{safeText}</div>
+            ) : m.vtexProductPreview && !isMedia && !m.isWarning && isBoilerplateVtexIntroText(safeText) ? (
               <div className="min-w-0 max-w-full flex flex-col items-start gap-1.5">
                 {activeChat.id === "valentina" && m.thoughtTrace && (
                   <AgenticThoughtTrace
@@ -1345,9 +1346,9 @@ function ChatMessageBubbleComponent({
                   />
                 )}
                 {renderMessageContent(
-                  m.isWarning || m.sender === "valentina" || activeChat.id === "valentina"
-                    ? stripNotificationEmojis(m.text)
-                    : m.text,
+                  m.isWarning || (m as any).sender === "valentina" || activeChat.id === "valentina"
+                    ? stripNotificationEmojis(safeText)
+                    : safeText,
                   onMediaClick,
                   false,
                   undefined,
@@ -1907,7 +1908,7 @@ function ChatMessageBubbleComponent({
           />
 
           {m.vtexProductPreview &&
-            !(!isMedia && !m.isWarning && isBoilerplateVtexIntroText(m.text)) && (
+            !(!isMedia && !m.isWarning && isBoilerplateVtexIntroText(safeText)) && (
               <div className="mt-3.5">
                 <VtexProductPreviewCard
                   preview={m.vtexProductPreview}

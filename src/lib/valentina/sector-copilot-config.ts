@@ -345,13 +345,29 @@ export function resolveOperatorPrimarySector(params: {
 export function interpolateCopilotWelcomeMessage(
   template: string,
   params: {
-    greeting: string;
+    greeting?: string;
     operatorName: string;
     aiName: string;
     sectorName?: string | null;
+    nowDate?: Date;
   }
 ): string {
-  const { greeting, operatorName, aiName, sectorName } = params;
+  const { operatorName, aiName, sectorName, nowDate = new Date() } = params;
+  const resolvedGreeting =
+    params.greeting ||
+    (() => {
+      const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        hour: "numeric",
+        hour12: false,
+      }).format(nowDate);
+      const hour = parseInt(brtHourStr, 10);
+      return hour >= 5 && hour < 12
+        ? "Bom dia"
+        : hour >= 12 && hour < 18
+        ? "Boa tarde"
+        : "Boa noite";
+    })();
   const cleanName =
     operatorName && operatorName.trim() && operatorName.trim() !== "Operador"
       ? operatorName.trim()
@@ -359,8 +375,8 @@ export function interpolateCopilotWelcomeMessage(
   const cleanSector = sectorName?.trim() || "seu setor";
 
   return (template || "")
-    .replace(/\{\{\s*saudacao\s*\}\}/gi, greeting)
-    .replace(/\{\{\s*sauda[cç][aã]o\s*\}\}/gi, greeting)
+    .replace(/\{\{\s*saudacao\s*\}\}/gi, resolvedGreeting)
+    .replace(/\{\{\s*sauda[cç][aã]o\s*\}\}/gi, resolvedGreeting)
     .replace(/\{\{\s*(?:nome|operador)\s*\}\}/gi, cleanName)
     .replace(/\{\{\s*ia\s*\}\}/gi, aiName)
     .replace(/\{\{\s*setor\s*\}\}/gi, cleanSector)
@@ -373,34 +389,37 @@ export function interpolateCopilotWelcomeMessage(
  */
 export function buildOperatorCopilotWelcome(params: {
   tenant?: string | null;
+  tenantId?: string | null;
   operatorId?: string | null;
   operatorName?: string | null;
   operatorGroupName?: string | null;
   operatorRole?: string | null;
   sectors?: SectorLike[] | null;
   nowDateObj?: Date;
+  nowDate?: Date;
 }): {
   text: string;
+  welcomeMessage: string;
   suggestions: string[];
   sectorName: string | null;
   sectorId: string | null;
 } {
   const {
-    tenant,
     operatorId,
     operatorName,
     operatorGroupName,
     operatorRole,
     sectors,
-    nowDateObj = new Date(),
   } = params;
+  const effectiveTenant = params.tenantId ?? params.tenant ?? null;
+  const effectiveDate = params.nowDate ?? params.nowDateObj ?? new Date();
 
-  const aiPersona = getAiPersona(tenant || undefined);
+  const aiPersona = getAiPersona(effectiveTenant || undefined);
   const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
     timeZone: "America/Sao_Paulo",
     hour: "numeric",
     hour12: false,
-  }).format(nowDateObj);
+  }).format(effectiveDate);
   const hour = parseInt(brtHourStr, 10);
   const greeting =
     hour >= 5 && hour < 12 ? "Bom dia" : hour >= 12 && hour < 18 ? "Boa tarde" : "Boa noite";
@@ -415,7 +434,7 @@ export function buildOperatorCopilotWelcome(params: {
   const effectiveSectorName = primarySector?.name || operatorGroupName || "Comercial";
   const resolvedConfig = resolveSectorCopilotConfig(
     primarySector || { name: effectiveSectorName },
-    tenant
+    effectiveTenant
   );
 
   const cleanName =
@@ -428,10 +447,12 @@ export function buildOperatorCopilotWelcome(params: {
     operatorName: cleanName,
     aiName: aiPersona.name,
     sectorName: primarySector?.name || effectiveSectorName,
+    nowDate: effectiveDate,
   });
 
   return {
     text,
+    welcomeMessage: text,
     suggestions: resolvedConfig.suggestions,
     sectorName: primarySector?.name || null,
     sectorId: primarySector?.id || null,

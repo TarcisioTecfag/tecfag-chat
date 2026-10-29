@@ -421,11 +421,12 @@ function MiniMediaRenderer({
   isMe,
   onImageClick,
 }: {
-  text: string;
+  text?: string | null;
   isMe: boolean;
   onImageClick?: (url: string) => void;
 }) {
-  const normalizedText = text.replace(/\[SEND_IMAGE:([^\]]+)\]/gi, (_m, rawUrl: string) => {
+  const safeInput = typeof text === "string" ? text : "";
+  const normalizedText = safeInput.replace(/\[SEND_IMAGE:([^\]]+)\]/gi, (_m, rawUrl: string) => {
     const trimmed = String(rawUrl || "").trim();
     const kfMatch = trimmed.match(/(kf-[a-z0-9-]+)(?:\.([a-z0-9]+))?/i);
     const resolvedUrl = kfMatch
