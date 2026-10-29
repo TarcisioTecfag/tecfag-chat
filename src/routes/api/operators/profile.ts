@@ -9,6 +9,7 @@ import {
 } from "../../../lib/auth-session.js";
 import { hashPassword, needsPasswordMigration } from "../../../lib/auth-crypto.js";
 import { revokeAccountSessions } from "../../../lib/platform-access.js";
+import { SessionManager } from "../../../lib/baileys/session-manager.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -81,6 +82,7 @@ export const Route = createFileRoute("/api/operators/profile")({
               ? hashPassword(cleanPassword)
               : cleanPassword;
             updateFields.passwordHash = safePasswordHash;
+            updateFields.mustChangePassword = false;
 
             if (session.accountId) {
               await db
@@ -89,7 +91,7 @@ export const Route = createFileRoute("/api/operators/profile")({
                 .where(eq(platformAccounts.id, session.accountId));
               await db
                 .update(operators)
-                .set({ passwordHash: safePasswordHash })
+                .set({ passwordHash: safePasswordHash, mustChangePassword: false })
                 .where(eq(operators.accountId, session.accountId));
               await revokeAccountSessions(session.accountId, session.sessionId);
             } else {
@@ -115,6 +117,8 @@ export const Route = createFileRoute("/api/operators/profile")({
               { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
+
+          SessionManager.getInstance().notifyPublic(tenantId, { type: "operators_updated" });
 
           return new Response(JSON.stringify(sanitizeOperator(updated)), {
             status: 200,

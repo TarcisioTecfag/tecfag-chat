@@ -2,6 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getAuthSession, requireSession } from "../../lib/auth-session";
 import { SessionManager } from "../../lib/baileys/session-manager";
 import { conversationAuthorizationRevision, filterConversationEvent } from "../../lib/access-control/conversation-events";
+import {
+  registerOperatorSseClose,
+  registerOperatorSseOpen,
+  touchOperatorPresence,
+} from "../../lib/operator-presence";
 
 export const Route = createFileRoute("/api/events")({
   server: {
@@ -20,6 +25,8 @@ export const Route = createFileRoute("/api/events")({
         const stream = new ReadableStream({
           start(controller) {
             const encoder = new TextEncoder();
+            registerOperatorSseOpen(tenantId, session.operator.id);
+            void touchOperatorPresence(tenantId, session.operator.id, { force: true });
 
             // Mensagem de boas-vindas da conexão SSE
             controller.enqueue(
@@ -32,6 +39,7 @@ export const Route = createFileRoute("/api/events")({
             const close = () => {
               if (closed) return;
               closed = true;
+              registerOperatorSseClose(tenantId, session.operator.id);
               clearInterval(heartbeatTimer);
               request.signal.removeEventListener("abort", close);
               sessionManager.unregisterListener(tenantId, onEvent);
@@ -53,6 +61,21 @@ export const Route = createFileRoute("/api/events")({
             let delivery = Promise.resolve();
             const onEvent = (data: any) => {
               if (closed) return;
+              if (data?.type === "force_logout" && data.operatorId === session.operator.id) {
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: "force_logout",
+                        operatorId: session.operator.id,
+                        reason: data.reason ?? "password_reset_required",
+                      })}\n\n`,
+                    ),
+                  );
+                } catch {}
+                close();
+                return;
+              }
               if (++pending > 200) { close(); return; }
               delivery = delivery.then(async () => {
                 if (closed) return;

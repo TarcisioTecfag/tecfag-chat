@@ -64,6 +64,8 @@ import {
 } from "../../../lib/crm/custom-fields";
 import {
   buildAgenticThoughtTrace,
+  classifyCopilotIntent,
+  hasExplicitMachineModelCode,
   isCasualConversationQuery,
   type AgenticThoughtStep,
   type AgenticThoughtTraceData,
@@ -87,12 +89,14 @@ function emitRealTimeThoughtProgress(params: {
   finishedTitle?: string;
   startedAtMs?: number;
   steps: AgenticThoughtStep[];
+  isMinimalWorking?: boolean;
+  isWaitingPhase?: boolean;
 }) {
   try {
     const safeTaskTitle =
       typeof params.taskTitle === "string" && params.taskTitle.trim().length > 0
         ? params.taskTitle
-        : "Processando solicitação...";
+        : "Trabalhando";
     const safeFinishedTitle =
       typeof params.finishedTitle === "string" && params.finishedTitle.trim().length > 0
         ? params.finishedTitle
@@ -110,6 +114,8 @@ function emitRealTimeThoughtProgress(params: {
       totalDurationSeconds: Math.max(1, Math.round((Date.now() - startedMs) / 1000)),
       scope: params.scope,
       isRealTimeStream: true,
+      isMinimalWorking: params.isMinimalWorking || safeSteps.length === 0,
+      isWaitingPhase: params.isWaitingPhase,
       steps: safeSteps,
     };
     SessionManager.getInstance().notifyPublic(params.tenantId, {
@@ -421,18 +427,34 @@ async function getOperatorContext(
   let isThirdPartyBlocked = false;
 
   const cleanUserQuery = stripAttachmentTagsFromQuery(userQuery || "");
-  const isCasual = !hasAttachedImage && isCasualConversationQuery(cleanUserQuery);
-  if (isCasual) {
+  const q = normalizeForMatch(cleanUserQuery);
+  const normRecentAiForIntent = normalizeForMatch(recentAiContextText || "");
+  const primaryTerms = extractSearchCandidateTerms(cleanUserQuery);
+
+  // Detecção de dúvidas sobre o uso do sistema (Onboarding Wizard) e consultas VTEX
+  const systemGuideMatch = resolveSystemGuideForQuery(
+    cleanUserQuery || userQuery || "",
+    recentAiContextText || ""
+  );
+  const intent = classifyCopilotIntent(cleanUserQuery, {
+    hasAttachedImage: Boolean(hasAttachedImage),
+    recentAiContextText,
+    isSystemHowTo: systemGuideMatch.isSystemHowTo,
+    hasCandidateEntityTerms: primaryTerms.length > 0,
+  });
+
+  if (intent.isMinimalWorking) {
     return {
-      contextText:
-        "💬 MENSAGEM CASUAL / CONFIRMAÇÃO RÁPIDA DO VENDEDOR: Responda em 1 único balão curto e natural (máximo 1 frase), sem listar negociações, sem sugerir clientes e mantendo os arrays mentionedDealIds, suggestedCallDealIds e mentionedConversationIds vazios ([]).",
+      contextText: intent.isCasual
+        ? "💬 MENSAGEM CASUAL / SAUDAÇÃO / CONFIRMAÇÃO RÁPIDA DO OPERADOR: Responda em 1 único balão curto e natural (máximo 1 a 2 frases), sem listar negociações, sem sugerir clientes e mantendo os arrays mentionedDealIds, suggestedCallDealIds e mentionedConversationIds vazios ([])."
+        : "💬 PERGUNTA CONVERSACIONAL / REDAÇÃO / ORIENTAÇÃO DIRETA DO OPERADOR: Responda de forma direta, objetiva e consultiva ao que foi pedido, sem listar negociações aleatórias e mantendo mentionedDealIds, suggestedCallDealIds e mentionedConversationIds vazios ([]).",
       knownConversations: [],
       waitingConversations: [],
       todayLeadsConversations: [],
       knownDeals: [],
       scheduledCallActions: [],
       executedSteps: [],
-      taskTitle: "Respondendo mensagem",
+      taskTitle: "Trabalhando",
       finishedTitle: "Resposta direta enviada",
       isCasual: true,
       isThirdPartyBlocked: false,
@@ -440,9 +462,6 @@ async function getOperatorContext(
     };
   }
 
-  const q = normalizeForMatch(cleanUserQuery);
-  const normRecentAiForIntent = normalizeForMatch(recentAiContextText || "");
-  const primaryTerms = extractSearchCandidateTerms(cleanUserQuery);
   const isFollowUpRequest =
     /\b(?:puxe|puxar|detalhe|detalhes|link|botao|abrir|abre|ela|elas|essa|essas|esse|esses|dela|delas|dele|deles|dessa|dessas|desse|desses|nela|nelas|nele|neles|nessa|nessas|nesse|nesses|recomende|especifico|fechar\s+hoje|ligar|outra|outras|outro|outros|lista\s+completa|todas|todos|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|informacao|informacoes|dado|dados|ficha|historico|nota|notas|atividade|atividades|produto|produtos|questionario|arquivo|arquivos|email|comprador|sdr|volume|criado|criada|atualizado|atualizada|fechamento|previsao|preco|valor|site|vtex|pagina)\b/i.test(
       q
@@ -453,100 +472,35 @@ async function getOperatorContext(
     Boolean(hasAttachedImage)
   );
 
-  // Detecção de dúvidas sobre o uso do sistema (Onboarding Wizard) e consultas VTEX
-  const systemGuideMatch = resolveSystemGuideForQuery(
-    cleanUserQuery || userQuery || "",
-    recentAiContextText || ""
-  );
   const vtexIntent = isVtexOrProductAssistantQuery(
     cleanUserQuery || userQuery || "",
     recentAiContextText || ""
   );
-
-  // Classificação de intenção real para consultar apenas o que é necessário
-  const hasExplicitMachineOrManualKeyword =
-    Boolean(hasAttachedImage) ||
-    isExplicitPhotoRequest ||
-    vtexIntent.shouldQueryVtex ||
-    /\b(?:maquina|maquinas|equipamento|equipamentos|modelo|modelos|manual|manuais|especificac|catalogo|voltagem|potencia|seladora|selar|selagem|envasadora|envasar|envase|rotuladora|rotular|rotulagem|datador|datar|datacao|empacotadora|empacotar|dosadora|dosar|valvula|frasco|frascos|pote|potes|garrafa|garrafas|tampa|tampas|alicate|arqueadora|arquear|arqueacao|fita|peca|pecas|tunel|encolhimento|vacuo|sache|saches|encapsuladora|encapsular|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosag|velocidade|temperatura|compressor|pneumatic|eletric|dimens|plastico|salgadinho|salgadinhos|embalar|embalagem|embalagens|pacote|pacotes|saco|sacos|bandeja|bandejas|por\s+minuto|ciclos|ficha\s+tecnica|como\s+funciona|o\s*que\s+sabe\s+sobre|me\s+fal[ae]\s+sobre|vtex|sku\s*\d+)\b/.test(
-      q
-    ) ||
-    /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(cleanUserQuery || userQuery || "");
 
   const isRecentMachineManualTurn =
     /\b(?:puxei\s+as\s+informacoes\s+do\s+manual|segundo\s+o\s+manual|segundo\s+o\s+catalogo|linha\s+personnalite|linha\s+semi-industrial|faixa\s+de\s+dosagem|range\s+de\s+dosagem|embalagens\s+por\s+hora|ciclos\s+por\s+minuto|componentes\s+pneumaticos|alimentacao\s+eletrica|manual\s+tecnico|painel\s+de\s+controle|ihm\s+touch|volume\s+de\s+envase|velocidade\s+da\s+esteira|tempo\s+entre\s+os\s+ciclos|nao,\s+essa\s+maquina\s+nao\s+serve|envasadora|seladora|dosadora|rotuladora|datador|empacotadora|arqueadora|encapsuladora|pamq[a-z0-9]+|tecfag\.com\.br|loja\s+vtex)\b/.test(
       normRecentAiForIntent
     );
 
-  const isMachineContext = hasExplicitMachineOrManualKeyword || isRecentMachineManualTurn;
-
-  const isOverviewOrGeneral =
-    !isMachineContext &&
-    !systemGuideMatch.isSystemHowTo &&
-    /\b(?:resumo|panorama|geral|tudo|meu dia|como estou|prioridade|prioridades|bom dia|boa tarde|boa noite|oi|ola)\b/.test(
+  const isConversationEvalQuery =
+    /\b(?:avaliar|avalia|avaliacao|analisar|analisa|analise|auditar|audita|olhar|olha|ver|veja)\b.*\b(?:minha\s+conversa|meu\s+atendimento|conversa\s+com|chat\s+com|atendimento\s+com|atendimento\s+do|atendimento\s+da)\b/i.test(
       q
     );
   const isCallOrPhone =
     !systemGuideMatch.isSystemHowTo &&
     /\b(?:ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar)\b/.test(q);
-  const isConversationEvalQuery =
-    /\b(?:avaliar|avalia|avaliacao|analisar|analisa|analise|auditar|audita|olhar|olha|ver|veja)\b.*\b(?:minha\s+conversa|meu\s+atendimento|conversa\s+com|chat\s+com|atendimento\s+com|atendimento\s+do|atendimento\s+da)\b/i.test(
-      q
-    );
-  const isWaitingChat =
-    isConversationEvalQuery ||
-    (!systemGuideMatch.isSystemHowTo &&
-      /\b(?:esperando|aguardando|fila|conversa|conversas|chat|whatsapp|responder|atraso|sla|lead|leads|chegaram|chegou|hoje|caixa\s+de\s+entrada)\b/.test(
-        q
-      ));
-  const hasExplicitCrmEntityWord =
-    !systemGuideMatch.isSystemHowTo &&
-    /\b(?:negociac|card|cards|crm|proposta|orcamento|funil|etapa|carteira|pipeline|venda|vendas|mensur|campo|campos|customizado|customizados|personalizado|personalizados|preenchido|preenchidos|comprador|sdr|questionario|email|cnpj|cpf)\b/.test(
-      q
-    );
+  const isWaitingChat = intent.domains.attendance;
+  const isDealOrCrm = intent.domains.crmDeals;
+  const isGoalOrMeta = intent.domains.goals;
+  const isTaskOrAgenda = intent.domains.tasks;
+  const isMetricsQuery = intent.domains.metrics;
+  const isOverviewOrGeneral = intent.domains.overview360;
   const isPureWaitingQueueQuery =
-    !systemGuideMatch.isSystemHowTo &&
-    !isConversationEvalQuery &&
-    /\b(?:esperando|aguardando|fila|caixa\s+de\s+entrada|sem\s+resposta)\b/.test(q) &&
-    !hasExplicitCrmEntityWord;
-  const hasStrictCrmKeyword =
-    !systemGuideMatch.isSystemHowTo &&
-    (hasExplicitCrmEntityWord ||
-      (!isPureWaitingQueueQuery &&
-        !isMachineContext &&
-        /\b(?:parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|cliente|clientes|empresa|empresas|fechar)\b/.test(
-          q
-        )));
-  const hasBroadCrmModifier =
-    !isMachineContext &&
-    !isPureWaitingQueueQuery &&
-    !systemGuideMatch.isSystemHowTo &&
-    /\b(?:valor|outra|outras|outro|outros|lista|listar|liste|todas|todos|quantas|quantos)\b/.test(
-      q
-    );
-  const hasExplicitCrmKeyword = hasStrictCrmKeyword || hasBroadCrmModifier;
-
-  const isDealOrCrm =
-    isConversationEvalQuery ||
-    (!systemGuideMatch.isSystemHowTo &&
-      (hasExplicitCrmKeyword ||
-        (!isMachineContext &&
-          !isPureWaitingQueueQuery &&
-          /\b(?:informacao|informacoes|ficha|volume|produto|produtos|arquivo|arquivos)\b/.test(q))));
-  const isGoalOrMeta =
-    !systemGuideMatch.isSystemHowTo &&
-    /\b(?:meta|metas|ritmo|pacing|falta|vendi|ganh|comiss|faturamento|diretriz)\b/.test(q);
-  const isTaskOrAgenda =
-    !systemGuideMatch.isSystemHowTo &&
-    /\b(?:tarefa|tarefas|agenda|compromisso|reuniao|reunioes|pendente|atrasad|follow)\b/.test(q);
-  const isMetricsQuery =
-    !systemGuideMatch.isSystemHowTo &&
-    /\b(?:metrica|metricas|tma|tempo medio|tempo de resposta|score|nota|desempenho)\b/.test(q);
-  const isKbQuery =
-    !isConversationEvalQuery &&
-    !isPureWaitingQueueQuery &&
-    (hasExplicitMachineOrManualKeyword ||
-      (isFollowUpRequest && isRecentMachineManualTurn && !hasStrictCrmKeyword));
+    intent.domains.attendance &&
+    !intent.domains.crmDeals &&
+    !intent.domains.technicalKb &&
+    !isConversationEvalQuery;
+  const isKbQuery = intent.domains.technicalKb || vtexIntent.shouldQueryVtex;
   const isPureKbQuery =
     (isKbQuery || systemGuideMatch.isSystemHowTo) &&
     !isDealOrCrm &&
@@ -557,8 +511,8 @@ async function getOperatorContext(
     !isTaskOrAgenda &&
     !isOverviewOrGeneral;
 
-  let taskTitle = "Consultando dados da sua operação";
-  let finishedTitle = "Consulta comercial concluída";
+  let taskTitle = intent.taskTitle || "Consultando dados da sua operação";
+  let finishedTitle = intent.finishedTitle || "Consulta concluída";
 
   if (isConversationEvalQuery) {
     taskTitle = "Carregando mensagens da conversa com o cliente para avaliação comercial";
@@ -566,7 +520,7 @@ async function getOperatorContext(
   } else if (systemGuideMatch.isSystemHowTo && !isKbQuery) {
     taskTitle = "Consultando Guia Oficial do Sistema (Onboarding Wizard)";
     finishedTitle = "Passo a passo de navegação do sistema carregado";
-  } else if (vtexIntent.shouldQueryVtex) {
+  } else if (vtexIntent.shouldQueryVtex || intent.domains.vtex) {
     taskTitle = "Consultando Loja VTEX ao vivo, lendo página do produto e manual técnico";
     finishedTitle = "Leitura da página VTEX e manual técnico concluída";
   } else if (hasAttachedImage && !isDealOrCrm && !isWaitingChat && !isGoalOrMeta) {
@@ -575,53 +529,18 @@ async function getOperatorContext(
   } else if (isExplicitPhotoRequest && !isDealOrCrm) {
     taskTitle = "Localizando foto do equipamento no Catálogo e Base de Conhecimento";
     finishedTitle = "Foto do equipamento localizada no Catálogo";
-  } else if (isPureKbQuery) {
-    taskTitle = "Consultando manuais técnicos e catálogo na Base de Conhecimento (RAG)";
-    finishedTitle = "Consulta aos manuais técnicos e catálogo concluída";
-  } else if (isPureWaitingQueueQuery) {
-    taskTitle = "Verificando clientes aguardando resposta na sua fila";
-    finishedTitle = "Inspeção da sua fila de atendimento concluída";
-  } else if (isCallOrPhone) {
-    taskTitle = "Localizando telefones e preparando ações de ligação";
-    finishedTitle = "Telefones e atalhos de discagem localizados";
-  } else if (isDealOrCrm || isFollowUpRequest || primaryTerms.length > 0) {
-    taskTitle = "Consultando negociações, campos personalizados e ficha completa no CRM";
-    finishedTitle = "Análise completa da carteira e campos do CRM concluída";
-  } else if (isGoalOrMeta) {
-    taskTitle = "Calculando atingimento da sua meta mensal e ritmo";
-    finishedTitle = "Cálculo de meta e pacing comercial concluído";
-  } else if (isTaskOrAgenda) {
-    taskTitle = "Verificando suas tarefas, ligações e agenda do dia";
-    finishedTitle = "Verificação de agenda e tarefas concluída";
-  } else if (isWaitingChat) {
-    taskTitle = "Verificando clientes aguardando resposta na sua fila";
-    finishedTitle = "Inspeção da sua fila de atendimento concluída";
   }
 
-  const shouldRunGoals =
-    !hasAttachedImage &&
-    !isPureKbQuery &&
-    !systemGuideMatch.isSystemHowTo &&
-    (isOverviewOrGeneral || isGoalOrMeta || (!isCallOrPhone && !isWaitingChat && !isTaskOrAgenda && primaryTerms.length === 0));
-  const shouldRunDeals =
-    isConversationEvalQuery ||
-    (!isPureKbQuery &&
-      !isPureWaitingQueueQuery &&
-      !systemGuideMatch.isSystemHowTo &&
-      (isOverviewOrGeneral || isDealOrCrm || isCallOrPhone || isFollowUpRequest || (!hasAttachedImage && (primaryTerms.length > 0 || !isWaitingChat))));
-  const shouldRunTasks =
-    !isPureKbQuery && !systemGuideMatch.isSystemHowTo && (isOverviewOrGeneral || isTaskOrAgenda || isCallOrPhone);
-  const shouldRunChats =
-    isConversationEvalQuery ||
-    isWaitingChat ||
-    (!isPureKbQuery &&
-      !systemGuideMatch.isSystemHowTo &&
-      (isOverviewOrGeneral || isCallOrPhone || (!hasAttachedImage && primaryTerms.length > 0) || isFollowUpRequest));
-  const shouldRunMetrics = !isPureKbQuery && !systemGuideMatch.isSystemHowTo && (isOverviewOrGeneral || isMetricsQuery);
+  const shouldRunGoals = intent.domains.goals;
+  const shouldRunDeals = intent.domains.crmDeals || isConversationEvalQuery;
+  const shouldRunTasks = intent.domains.tasks;
+  const shouldRunChats = intent.domains.attendance || isConversationEvalQuery;
+  const shouldRunMetrics = intent.domains.metrics;
   const shouldRunKb =
     !isConversationEvalQuery &&
     !isPureWaitingQueueQuery &&
-    (isKbQuery || Boolean(hasAttachedImage) || vtexIntent.shouldQueryVtex);
+    (intent.domains.technicalKb || Boolean(hasAttachedImage) || vtexIntent.shouldQueryVtex);
+  const shouldQueryVtexInKb = intent.domains.vtex || vtexIntent.shouldQueryVtex;
 
   const pushRealStep = (step: AgenticThoughtStep) => {
     executedSteps.push(step);
@@ -636,13 +555,19 @@ async function getOperatorContext(
       ? "Preparando análise visual multimodal da foto e busca no catálogo técnico"
       : isPureKbQuery
       ? "Localizando manual técnico e especificações do equipamento na Base de Conhecimento"
+      : isPureWaitingQueueQuery || (shouldRunChats && !shouldRunDeals)
+      ? "Inspecionando sua fila de atendimento e conversas no WhatsApp"
+      : shouldRunGoals && !shouldRunDeals
+      ? "Calculando atingimento da sua meta mensal e ritmo comercial"
+      : shouldRunTasks && !shouldRunDeals
+      ? "Consultando suas tarefas, ligações e compromissos agendados"
       : "Selecionando consultas necessárias para responder à sua pergunta",
     durationSeconds: 1,
     detailText: hasAttachedImage
       ? `Iniciando leitura óptica da imagem${imageFileName ? ` ("${imageFileName}")` : ""} e verificação na Base de Conhecimento.`
       : isPureKbQuery
       ? `Analisando "${(cleanUserQuery || userQuery || "").slice(0, 80)}" nos manuais técnicos (PDF) e no Catálogo Oficial de Máquinas.`
-      : `Analisando "${(cleanUserQuery || userQuery || "").slice(0, 80)}" para consultar e mensurar todas as tabelas relevantes da sua carteira.`,
+      : `Analisando "${(cleanUserQuery || userQuery || "").slice(0, 80)}" para acionar apenas os módulos pertinentes à sua pergunta.`,
   });
 
   try {
@@ -1772,7 +1697,11 @@ async function getOperatorContext(
     const searchTerms = Array.from(new Set([...primaryTerms, ...fallbackAiTerms])).slice(0, 8);
     const hasRecentHistoryDeals = Array.isArray(recentDealIdsFromHistory) && recentDealIdsFromHistory.length > 0;
 
-    if (!isPureKbQuery && (searchTerms.length > 0 || knownDealMap.size > 0 || hasRecentHistoryDeals)) {
+    if (
+      !isPureKbQuery &&
+      (shouldRunDeals || shouldRunChats) &&
+      (searchTerms.length > 0 || knownDealMap.size > 0 || hasRecentHistoryDeals)
+    ) {
       const tDeep0 = Date.now();
       try {
         const normCombinedContext = normalizeForMatch(
@@ -2390,10 +2319,14 @@ async function getOperatorContext(
             id: "step-op-kb-analyze",
             kind: "analyze",
             actionVerb: "Analisou",
-            targetLabel: "parâmetros técnicos, catálogo de equipamentos & loja VTEX",
-            scopeTag: "#1037-maquinas • #210-manuais • #vtex",
+            targetLabel: shouldQueryVtexInKb
+              ? "parâmetros técnicos, catálogo de equipamentos & loja VTEX"
+              : "parâmetros técnicos, manuais em PDF & catálogo de equipamentos",
+            scopeTag: shouldQueryVtexInKb
+              ? "#1037-maquinas • #210-manuais • #vtex"
+              : "#1037-maquinas • #210-manuais",
             badgeType: "kb",
-            detailText: `Cruzando a aplicação, capacidade produtiva, especificações e página da VTEX de "${(cleanUserQuery || userQuery || "").slice(0, 80)}" com as linhas de máquinas e manuais técnicos disponíveis.`,
+            detailText: `Cruzando a aplicação, capacidade produtiva e especificações de "${(cleanUserQuery || userQuery || "").slice(0, 80)}" com as linhas de máquinas e manuais técnicos disponíveis.`,
           });
         }
         const kbQuery = [
@@ -2410,7 +2343,7 @@ async function getOperatorContext(
         const tVtex0 = Date.now();
         const [kbContext, vtexRes] = await Promise.all([
           getKnowledgeBaseContext(tenantId, kbQuery || userQuery),
-          tenantId === "tecfag"
+          tenantId === "tecfag" && shouldQueryVtexInKb
             ? lookupVtexProductsForAssistant({
                 tenantId,
                 userQuery: cleanUserQuery || userQuery || "",
@@ -4909,94 +4842,113 @@ export const Route = createFileRoute("/api/valentina/messages")({
           let operatorContextResult: OperatorContextResult | null = null;
           let activeVtexLookup: Awaited<ReturnType<typeof lookupVtexProductsForAssistant>> | null = null;
           let activeSystemGuideSources: KnowledgeSourceItem[] = [];
+          const adminIntent = useManagerContext
+            ? classifyCopilotIntent(userText, {
+                hasAttachedImage,
+                hasAttachedFile: Boolean(effectiveAttachment),
+                recentAiContextText,
+              })
+            : null;
 
           const contextStartMs = Date.now();
           if (useManagerContext) {
-            liveExecutedSteps.push({
-              id: "step-admin-thought-1",
-              kind: "thought",
-              actionVerb: "Pensou por 2s",
-              targetLabel: "Planejando consulta 360º nos indicadores operacionais e comerciais",
-              durationSeconds: 2,
-              detailText: `Analisando "${userText.slice(0, 80)}" para selecionar as tabelas de BI, funis do CRM, metas e fila de atendimento.`,
-            });
-            broadcastLiveProgress(liveTaskTitle, {
-              id: "step-admin-bi-running",
-              kind: "query",
-              actionVerb: "Consultando",
-              targetLabel: "director_bi_context",
-              scopeTag: `#${knowledgeBase || tenantId} • em execução`,
-              badgeType: "bi",
-              detailText: "Leitura em tempo real dos funis do CRM, metas comerciais, filas de atendimento e alertas de SLA.",
-            });
-            const adminGuideMatch = resolveSystemGuideForQuery(userText, recentAiContextText);
-            const [biDossierText, adminVtexRes] = await Promise.all([
-              getManagerContext(contextTenantId, userText, knowledgeBase),
-              lookupVtexProductsForAssistant({
-                tenantId: contextTenantId,
-                userQuery: userText,
-                recentHistoryText: recentAiContextText,
-                maxProducts: 3,
-              }).catch(() => null),
-            ]);
-            managerContextText = biDossierText;
-            if (adminGuideMatch.promptContext) {
-              managerContextText += `\n\n${adminGuideMatch.promptContext}`;
-              activeSystemGuideSources = adminGuideMatch.matchedPlaybooks.slice(0, 2).map((pb) => ({
-                id: `guide-${pb.id}`,
-                kind: "system_guide" as const,
-                title: pb.title,
-                subtitle: pb.moduleLabel,
-                badge: "Wizard & Guia do Sistema",
-                excerpt: pb.clickPath,
-              }));
+            if (adminIntent?.isMinimalWorking && !effectiveImageBase64 && !effectiveAttachment) {
+              liveTaskTitle = "Trabalhando";
+              liveFinishedTitle = "Resposta direta enviada";
+              managerContextText =
+                "💬 MENSAGEM CASUAL / SAUDAÇÃO / ORIENTAÇÃO RÁPIDA DO GESTOR: Responda em 1 único balão curto e natural (máximo 1 a 2 frases), sem despejar relatórios não solicitados.";
+            } else {
               liveExecutedSteps.push({
-                id: "step-admin-system-guide",
-                kind: "read",
-                actionVerb: "Consultou",
-                targetLabel:
-                  adminGuideMatch.matchedPlaybooks.map((p) => p.title).slice(0, 2).join(", ") ||
-                  "Onboarding Wizard & Guia do Sistema",
-                scopeTag: "#onboarding-wizard",
-                badgeType: "sla",
-                detailText: `Mapeamento passo a passo de telas, botões e ações operacionais do sistema injetado.`,
+                id: "step-admin-thought-1",
+                kind: "thought",
+                actionVerb: "Pensou por 2s",
+                targetLabel: "Planejando consulta 360º nos indicadores operacionais e comerciais",
+                durationSeconds: 2,
+                detailText: `Analisando "${userText.slice(0, 80)}" para selecionar as tabelas de BI, funis do CRM, metas e fila de atendimento.`,
               });
-            }
-            if (adminVtexRes && adminVtexRes.products.length > 0) {
-              activeVtexLookup = adminVtexRes;
-              managerContextText += `\n\n${adminVtexRes.promptContext}`;
-              liveExecutedSteps.push({
-                id: "step-admin-vtex-live",
+              broadcastLiveProgress(liveTaskTitle, {
+                id: "step-admin-bi-running",
                 kind: "query",
-                actionVerb: "Consultou",
-                targetLabel: `VTEX Store (${adminVtexRes.products.map((p) => p.modelCode || p.skuId).slice(0, 2).join(", ")})`,
-                scopeTag: "#vtex-live",
-                badgeType: "kb",
-                detailText: `Leitura ao vivo da loja VTEX e da página completa do produto no site (${adminVtexRes.products.length} equipamento(s)).`,
-              });
-            }
-            const biMs = Math.max(25, Date.now() - contextStartMs);
-            liveExecutedSteps.push(
-              {
-                id: "step-admin-crm-analyze",
-                kind: "analyze",
-                actionVerb: "Analisou",
-                targetLabel: "crm_deals, crm_stages & commercial_goals",
-                scopeTag: `#${knowledgeBase || tenantId} • ${Math.max(12, Math.round(biMs * 0.55))}ms`,
-                badgeType: "crm",
-                detailText: `Consolidação de pipeline aberto, vendas ganhas/perdidas, ritmo de metas e distribuição por consultor concluída.`,
-              },
-              {
-                id: "step-admin-bi-done",
-                kind: "query",
-                actionVerb: "Consultou",
-                targetLabel: "director_bi_context & conversations",
-                scopeTag: `#dossie-360 • ${biMs}ms`,
+                actionVerb: "Consultando",
+                targetLabel: "director_bi_context",
+                scopeTag: `#${knowledgeBase || tenantId} • em execução`,
                 badgeType: "bi",
-                detailText: `Dossiê executivo 360º (filas de atendimento, TMA, SLA, triagens SDR e Base de Conhecimento) compilado em ${biMs}ms.`,
+                detailText: "Leitura em tempo real dos funis do CRM, metas comerciais, filas de atendimento e alertas de SLA.",
+              });
+              const adminGuideMatch = resolveSystemGuideForQuery(userText, recentAiContextText);
+              const shouldAdminQueryVtex = Boolean(
+                adminIntent?.domains.vtex || adminIntent?.domains.technicalKb
+              );
+              const [biDossierText, adminVtexRes] = await Promise.all([
+                getManagerContext(contextTenantId, userText, knowledgeBase),
+                shouldAdminQueryVtex
+                  ? lookupVtexProductsForAssistant({
+                      tenantId: contextTenantId,
+                      userQuery: userText,
+                      recentHistoryText: recentAiContextText,
+                      maxProducts: 3,
+                    }).catch(() => null)
+                  : Promise.resolve(null),
+              ]);
+              managerContextText = biDossierText;
+              if (adminGuideMatch.promptContext) {
+                managerContextText += `\n\n${adminGuideMatch.promptContext}`;
+                activeSystemGuideSources = adminGuideMatch.matchedPlaybooks.slice(0, 2).map((pb) => ({
+                  id: `guide-${pb.id}`,
+                  kind: "system_guide" as const,
+                  title: pb.title,
+                  subtitle: pb.moduleLabel,
+                  badge: "Wizard & Guia do Sistema",
+                  excerpt: pb.clickPath,
+                }));
+                liveExecutedSteps.push({
+                  id: "step-admin-system-guide",
+                  kind: "read",
+                  actionVerb: "Consultou",
+                  targetLabel:
+                    adminGuideMatch.matchedPlaybooks.map((p) => p.title).slice(0, 2).join(", ") ||
+                    "Onboarding Wizard & Guia do Sistema",
+                  scopeTag: "#onboarding-wizard",
+                  badgeType: "sla",
+                  detailText: `Mapeamento passo a passo de telas, botões e ações operacionais do sistema injetado.`,
+                });
               }
-            );
-            broadcastLiveProgress();
+              if (adminVtexRes && adminVtexRes.products.length > 0) {
+                activeVtexLookup = adminVtexRes;
+                managerContextText += `\n\n${adminVtexRes.promptContext}`;
+                liveExecutedSteps.push({
+                  id: "step-admin-vtex-live",
+                  kind: "query",
+                  actionVerb: "Consultou",
+                  targetLabel: `VTEX Store (${adminVtexRes.products.map((p) => p.modelCode || p.skuId).slice(0, 2).join(", ")})`,
+                  scopeTag: "#vtex-live",
+                  badgeType: "kb",
+                  detailText: `Leitura ao vivo da loja VTEX e da página completa do produto no site (${adminVtexRes.products.length} equipamento(s)).`,
+                });
+              }
+              const biMs = Math.max(25, Date.now() - contextStartMs);
+              liveExecutedSteps.push(
+                {
+                  id: "step-admin-crm-analyze",
+                  kind: "analyze",
+                  actionVerb: "Analisou",
+                  targetLabel: "crm_deals, crm_stages & commercial_goals",
+                  scopeTag: `#${knowledgeBase || tenantId} • ${Math.max(12, Math.round(biMs * 0.55))}ms`,
+                  badgeType: "crm",
+                  detailText: `Consolidação de pipeline aberto, vendas ganhas/perdidas, ritmo de metas e distribuição por consultor concluída.`,
+                },
+                {
+                  id: "step-admin-bi-done",
+                  kind: "query",
+                  actionVerb: "Consultou",
+                  targetLabel: "director_bi_context & conversations",
+                  scopeTag: `#dossie-360 • ${biMs}ms`,
+                  badgeType: "bi",
+                  detailText: `Dossiê executivo 360º (filas de atendimento, TMA, SLA, triagens SDR e Base de Conhecimento) compilado em ${biMs}ms.`,
+                }
+              );
+              broadcastLiveProgress();
+            }
           } else {
             operatorContextResult = await getOperatorContext(
               contextTenantId,
@@ -5038,7 +4990,7 @@ export const Route = createFileRoute("/api/valentina/messages")({
           }
           const contextDurationMs = Math.max(15, Date.now() - contextStartMs);
 
-          // ── Pareamento de Fotos do Catálogo (Proativo na 1ª vez na janela 24h ou Sob Demanda explícita) ──
+          // ── Pareamento de Fotos do Catálogo (Somente quando o domínio técnico/catálogo estiver ativo ou pedido explícito de foto) ──
           const isExplicitPhotoReq = isExplicitMachinePhotoRequest(userText);
           const isMultiPhotoReq = isMultiOrFamilyMachinePhotoRequest(userText);
           const normUserForFollowUp = normalizeForMatch(userText);
@@ -5048,9 +5000,20 @@ export const Route = createFileRoute("/api/valentina/messages")({
               normUserForFollowUp
             );
           const maxPhotosForTurn = isMultiPhotoReq ? 10 : isExplicitPhotoReq ? 2 : 1;
+          const shouldAttemptCatalogPhotoMatch =
+            isExplicitPhotoReq ||
+            (!operatorContextResult?.isCasual &&
+              !adminIntent?.isMinimalWorking &&
+              (Boolean(operatorContextResult?.isPureKbQuery) ||
+                liveExecutedSteps.some((s) => s.badgeType === "kb")));
 
           let matchedCatalogPhotos: MatchedCatalogPhoto[] = [];
-          if (!effectiveImageBase64 && !effectiveAttachment && !isFollowUpAboutSentModelOrComparison) {
+          if (
+            shouldAttemptCatalogPhotoMatch &&
+            !effectiveImageBase64 &&
+            !effectiveAttachment &&
+            !isFollowUpAboutSentModelOrComparison
+          ) {
             try {
               matchedCatalogPhotos = await resolveMatchingCatalogPhotos(contextTenantId, {
                 userText,
@@ -5131,21 +5094,37 @@ export const Route = createFileRoute("/api/valentina/messages")({
               !effectiveImageBase64 &&
               !effectiveAttachment
           );
-          const isFastCasual = Boolean(
-            (!useManagerContext && operatorContextResult?.isCasual && !effectiveImageBase64 && !effectiveAttachment) ||
-              isFastPhotoDelivery
+          const isMinimalCasualTurn = Boolean(
+            !effectiveImageBase64 &&
+              !effectiveAttachment &&
+              ((!useManagerContext && operatorContextResult?.isCasual) ||
+                (useManagerContext && adminIntent?.isMinimalWorking))
           );
+          const isFastCasual = Boolean(isMinimalCasualTurn || isFastPhotoDelivery);
           const selectedModel = isFastCasual ? "gemini-2.5-flash" : "gemini-2.5-pro";
 
-          broadcastLiveProgress(liveTaskTitle, {
-            id: "step-vertex-synthesize",
-            kind: "synthesize",
-            actionVerb: "Sintetizando",
-            targetLabel: `resposta com ${persona.name}`,
-            scopeTag: `#${selectedModel} • em execução`,
-            badgeType: "ai",
-            detailText: `Cruzando todas as informações e especificações coletadas para redigir a resposta estruturada de ${persona.name} via Google Vertex AI (${selectedModel}).`,
-          });
+          if (isMinimalCasualTurn && liveExecutedSteps.length === 0) {
+            emitRealTimeThoughtProgress({
+              tenantId,
+              operatorId,
+              scope: useManagerContext ? "admin" : "operator",
+              taskTitle: "Trabalhando",
+              finishedTitle: "Resposta direta enviada",
+              steps: [],
+              isMinimalWorking: true,
+              startedAtMs: requestStartedMs,
+            });
+          } else {
+            broadcastLiveProgress(liveTaskTitle, {
+              id: "step-vertex-synthesize",
+              kind: "synthesize",
+              actionVerb: "Sintetizando",
+              targetLabel: `resposta com ${persona.name}`,
+              scopeTag: `#${selectedModel} • em execução`,
+              badgeType: "ai",
+              detailText: `Cruzando todas as informações e especificações coletadas para redigir a resposta estruturada de ${persona.name} via Google Vertex AI (${selectedModel}).`,
+            });
+          }
 
           const aiStartMs = Date.now();
           try {
@@ -5606,7 +5585,10 @@ export const Route = createFileRoute("/api/valentina/messages")({
               isTargetForRelated && relatedDeals.length > 0 ? relatedDeals : undefined;
             const fragRelatedCalls =
               isTargetForRelated && relatedCalls.length > 0 ? relatedCalls : undefined;
-            const fragThoughtTrace = isFirstFrag ? thoughtTrace : undefined;
+            const fragThoughtTrace =
+              isFirstFrag && !thoughtTrace.isMinimalWorking && thoughtTrace.steps.length > 0
+                ? thoughtTrace
+                : undefined;
             const fragId = `val-ai-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
             const fragTimestamp = new Date(
               now.getTime() + (isStandaloneVtexFrag ? 1400 + i * 700 : 500 + i * 650)

@@ -89,6 +89,15 @@ export type Operator = {
   passwordHash?: string;
   groupId: string;
   tenantId?: "tecfag" | "valem";
+  isOnline?: boolean;
+  lastSeenAt?: string | null;
+  usageSecondsToday?: number;
+  mustChangePassword?: boolean;
+  wizardCompletionPct?: number;
+  wizardCompletedSteps?: number;
+  wizardTotalSteps?: number;
+  wizardStatus?: "not_started" | "in_progress" | "paused" | "completed";
+  wizardCompletedAt?: string | null;
 };
 
 export type Sector = {
@@ -153,9 +162,21 @@ type ChatContextType = {
   updateOperatorProfile: (profile: Partial<OperatorProfile> & { password?: string }) => Promise<boolean>;
   isProfileModalOpen: boolean;
   setIsProfileModalOpen: (open: boolean) => void;
+  mustChangePassword: boolean;
+  completeMandatoryPasswordChange: (
+    newPassword: string,
+  ) => Promise<{ success: boolean; error?: string }>;
 
   // RBAC State & Operations
   operators: Operator[];
+  refreshOperators: () => Promise<void>;
+  completeOperatorWizard: (
+    operatorId: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  toggleOperatorPasswordReset: (
+    operatorId: string,
+    enabled?: boolean,
+  ) => Promise<{ success: boolean; mustChangePassword?: boolean; error?: string }>;
   accessGroups: AccessGroup[];
   sectors: Sector[];
   currentOperatorId: string;
@@ -581,6 +602,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // A identidade de escrita vem sempre da sessão do servidor, nunca do localStorage.
   const [currentOperatorId, setCurrentOperatorId] = useState("");
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [sessionPermissions, setSessionPermissions] = useState<GroupPermissions | null>(null);
   const [sessionRole, setSessionRole] = useState<string | null>(null);
   const [isCommercialConsultant, setIsCommercialConsultant] = useState(false);
@@ -681,6 +703,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .then((data) => {
           if (data && (data.authenticated || data.success) && data.operator) {
             setIsAuthenticated(true);
+            setMustChangePassword(Boolean(data.operator.mustChangePassword));
             const activeTenant = data.tenantId || (data.operator.tenantId as "tecfag" | "valem") || null;
             if (activeTenant) {
               setTenantState(activeTenant);
@@ -712,6 +735,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           } else {
             setIsAuthenticated(false);
+            setMustChangePassword(false);
             setSessionPermissions(null);
             setSessionRole(null);
             setIsCommercialConsultant(false);
@@ -722,6 +746,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch(() => {
           setIsAuthenticated(false);
+          setMustChangePassword(false);
           setSessionPermissions(null);
           setSessionRole(null);
           setIsCommercialConsultant(false);
@@ -733,22 +758,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const refreshOperators = useCallback(async () => {
+    if (typeof window === "undefined" || !isAuthenticated) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/operators`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setOperators(data);
+        const me = data.find((o: any) => o.id === currentOperatorIdRef.current);
+        if (me && typeof me.mustChangePassword === "boolean") {
+          setMustChangePassword(Boolean(me.mustChangePassword));
+        }
+        try {
+          const safeOps = data.map(({ passwordHash: _ph, ...rest }: any) => rest);
+          localStorage.setItem("rbac_operators", JSON.stringify(safeOps));
+        } catch (e) {}
+      }
+    } catch (err) {
+      console.error("Erro ao sincronizar operadores do banco:", err);
+    }
+  }, [isAuthenticated]);
+
   // Sincronizar grupos, setores, respostas rápidas e operadores do banco de dados quando o tenant mudar.
   // O tenantId não é mais enviado na URL — o servidor usa a sessão autenticada como autoridade.
   useEffect(() => {
     if (typeof window !== "undefined" && isAuthenticated && tenant) {
-      fetch(`${BACKEND_URL}/api/operators`, { credentials: "include" })
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data) && data.length > 0) {
-            setOperators(data); // servidor já retorna sanitizado (sem passwordHash)
-            try {
-              const safeOps = data.map(({ passwordHash: _ph, ...rest }: any) => rest);
-              localStorage.setItem("rbac_operators", JSON.stringify(safeOps));
-            } catch (e) {}
-          }
-        })
-        .catch((err) => console.error("Erro ao sincronizar operadores do banco:", err));
+      void refreshOperators();
 
       fetch(`${BACKEND_URL}/api/groups`, { credentials: "include" })
         .then((res) => res.json())
@@ -777,7 +816,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch((err) => console.error("Erro ao sincronizar respostas rápidas do banco:", err));
     }
-  }, [tenant, isAuthenticated]);
+  }, [tenant, isAuthenticated, refreshOperators]);
 
   // Sincronizar templates individuais do operador quando o tenant ou o operador ativo mudar.
   // tenantId e operatorId são resolvidos pelo servidor a partir da sessão autenticada.
@@ -808,6 +847,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           credentials: "include",
           cache: "no-store",
         });
+        if (response.status === 401) {
+          setIsAuthenticated(false);
+          setMustChangePassword(false);
+          return;
+        }
         if (!response.ok) return;
         const data = await response.json();
         if (data.operatorId !== currentOperatorIdRef.current) {
@@ -1277,6 +1321,132 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toast.error("Erro de conexão ao redefinir senha.");
       return { success: false, error: "Erro de conexão ao redefinir senha." };
     }
+  };
+
+  const completeOperatorWizard = useCallback(
+    async (operatorId: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/operators`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "complete-wizard", id: operatorId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data.error || "Não foi possível concluir o wizard.";
+          toast.error(msg);
+          return { success: false, error: msg };
+        }
+        setOperators((prev) =>
+          prev.map((op) =>
+            op.id === operatorId
+              ? {
+                  ...op,
+                  wizardCompletionPct: 100,
+                  wizardCompletedSteps: data?.wizard?.wizardTotalSteps ?? op.wizardTotalSteps ?? 0,
+                  wizardTotalSteps: data?.wizard?.wizardTotalSteps ?? op.wizardTotalSteps ?? 0,
+                  wizardStatus: "completed",
+                  wizardCompletedAt: data?.wizard?.wizardCompletedAt ?? new Date().toISOString(),
+                }
+              : op,
+          ),
+        );
+        if (operatorId === currentOperatorIdRef.current && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("valem:onboarding-updated"));
+        }
+        toast.success("Wizard marcado como 100% concluído!");
+        return { success: true };
+      } catch (err) {
+        console.error("[completeOperatorWizard] Erro:", err);
+        toast.error("Erro de conexão ao concluir o wizard.");
+        return { success: false, error: "Erro de conexão." };
+      }
+    },
+    [],
+  );
+
+  const toggleOperatorPasswordReset = useCallback(
+    async (
+      operatorId: string,
+      enabled?: boolean,
+    ): Promise<{ success: boolean; mustChangePassword?: boolean; error?: string }> => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/operators`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "require-password-reset",
+            id: operatorId,
+            ...(typeof enabled === "boolean" ? { enabled } : {}),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data.error || "Não foi possível alterar a exigência de redefinição de senha.";
+          toast.error(msg);
+          return { success: false, error: msg };
+        }
+        const nextState = Boolean(data.mustChangePassword);
+        setOperators((prev) =>
+          prev.map((op) =>
+            op.id === operatorId
+              ? {
+                  ...op,
+                  mustChangePassword: nextState,
+                  ...(nextState ? { isOnline: false, lastSeenAt: new Date().toISOString() } : {}),
+                }
+              : op,
+          ),
+        );
+        if (nextState) {
+          if (operatorId === currentOperatorIdRef.current) {
+            toast.info(
+              "Sua sessão foi encerrada para redefinição de senha. Faça login novamente para escolher sua nova senha.",
+            );
+            setIsAuthenticated(false);
+            setMustChangePassword(false);
+            setSessionPermissions(null);
+            setSessionRole(null);
+            setCurrentOperatorId("");
+          } else {
+            toast.success(
+              "Usuário desconectado! No próximo acesso será solicitado que ele escolha uma nova senha.",
+            );
+          }
+        } else {
+          toast.success("Solicitação obrigatória de redefinição de senha desativada.");
+        }
+        return { success: true, mustChangePassword: nextState };
+      } catch (err) {
+        console.error("[toggleOperatorPasswordReset] Erro:", err);
+        toast.error("Erro de conexão ao atualizar exigência de senha.");
+        return { success: false, error: "Erro de conexão." };
+      }
+    },
+    [],
+  );
+
+  const completeMandatoryPasswordChange = async (
+    newPassword: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    const clean = newPassword.trim();
+    if (clean.length < 4) {
+      return { success: false, error: "A nova senha deve ter pelo menos 4 caracteres." };
+    }
+    const ok = await updateOperatorProfile({ password: clean });
+    if (!ok) {
+      return { success: false, error: "Não foi possível salvar a nova senha." };
+    }
+    setMustChangePassword(false);
+    setOperators((prev) =>
+      prev.map((op) =>
+        op.id === currentOperatorIdRef.current ? { ...op, mustChangePassword: false } : op,
+      ),
+    );
+    toast.success("Senha redefinida com sucesso! Bem-vindo(a) de volta.");
+    return { success: true };
   };
 
   // CRUD Access Groups
@@ -4724,6 +4894,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               new CustomEvent("valentina:thought-progress", { detail: data })
             );
           }
+        } else if (data.type === "force_logout") {
+          if (!data.operatorId || data.operatorId === currentOperatorIdRef.current) {
+            toast.info(
+              "Sua sessão foi encerrada para redefinição de senha. Faça login novamente para escolher sua nova senha.",
+            );
+            setIsAuthenticated(false);
+            setMustChangePassword(false);
+            setSessionPermissions(null);
+            setSessionRole(null);
+            setIsCommercialConsultant(false);
+            setCommercialDivision(null);
+            setCurrentOperatorId("");
+            setSelectedChatId(null);
+            if (universalSseRef.current) {
+              universalSseRef.current.close();
+              universalSseRef.current = null;
+            }
+          }
+        } else if (data.type === "onboarding_updated") {
+          if (!data.operatorId || data.operatorId === currentOperatorIdRef.current) {
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("valem:onboarding-updated"));
+            }
+          }
+          void refreshOperators();
+        } else if (data.type === "operators_updated") {
+          void refreshOperators();
         }
       } catch (err) {
         console.error("Erro ao processar dados recebidos do SSE:", err);
@@ -4734,6 +4931,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isCurrentlyViewingConversation,
       mapInternalRowToMessage,
       markAsRead,
+      refreshOperators,
       setActiveView,
       setConversations,
       setSelectedChatId,
@@ -4986,6 +5184,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
 
           setCurrentOperatorId(matchedOp.id);
+          setMustChangePassword(Boolean(matchedOp.mustChangePassword));
           setSessionRole(matchedOp.role || null);
           setSessionPermissions(null);
 
@@ -5007,6 +5206,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!sessionResponse.ok) throw new Error("Não foi possível confirmar as permissões da sessão.");
           const confirmedSession = await sessionResponse.json();
           setCurrentOperatorId(confirmedSession.operator.id);
+          setMustChangePassword(Boolean(confirmedSession.operator.mustChangePassword ?? matchedOp.mustChangePassword));
           setSessionRole(confirmedSession.operator.role || null);
           setSessionPermissions(confirmedSession.permissions || null);
           setIsCommercialConsultant(Boolean(confirmedSession.isCommercialConsultant));
@@ -5042,6 +5242,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error("Erro ao efetuar logout no servidor:", e);
     } finally {
       setIsAuthenticated(false);
+      setMustChangePassword(false);
       setSessionPermissions(null);
       setSessionRole(null);
       setIsCommercialConsultant(false);
@@ -5096,8 +5297,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateOperatorProfile,
         isProfileModalOpen,
         setIsProfileModalOpen,
+        mustChangePassword,
+        completeMandatoryPasswordChange,
 
         operators: operators.filter((op) => op.tenantId === tenant),
+        refreshOperators,
+        completeOperatorWizard,
+        toggleOperatorPasswordReset,
         accessGroups: accessGroups.filter((g) => g.tenantId === tenant),
         sectors: sectors.filter((s) => s.tenantId === tenant),
         currentOperatorId,

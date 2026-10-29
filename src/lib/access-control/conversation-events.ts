@@ -31,6 +31,13 @@ export async function filterConversationEvent(session: AuthSessionContext, event
     if (event.operatorId !== session.operator.id) return null;
     return event;
   }
+  if (event.type === "onboarding_updated") {
+    if (event.operatorId && event.operatorId !== session.operator.id) return null;
+    return { type: "onboarding_updated", operatorId: event.operatorId ?? session.operator.id };
+  }
+  if (event.type === "operators_updated") {
+    return { type: "operators_updated" };
+  }
   if (permissions?.views?.chat !== true) return null;
   if (event.type === "connection_access_changed") return session.operator.role !== "admin" && event.groupId === session.operator.groupId ? { type: "access_changed" } : null;
   const byConversation: Record<string, unknown> = {

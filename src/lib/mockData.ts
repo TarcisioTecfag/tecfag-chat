@@ -99,6 +99,8 @@ export type Message = {
   knowledgeSourceStatus?: KnowledgeSourceStatus;
   knowledgeSourceStatusLabel?: string;
   knowledgeSourceStatusDescription?: string;
+  welcomeSuggestions?: string[];
+  welcomeSectorName?: string | null;
 };
 
 export type VtexProductPreviewItem = {

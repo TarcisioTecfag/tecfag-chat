@@ -5,6 +5,7 @@ import { generateSessionToken, hashSessionToken } from "./auth-crypto.js";
 import { normalizeGroupPermissions } from "./rbac.js";
 import { getAvailableTenants } from "./platform-access.js";
 import { effectiveLegacyGroup } from "./access-control/legacy-session-group";
+import { getBrtDateKey, touchOperatorPresence } from "./operator-presence.js";
 
 export const SESSION_COOKIE_NAME = "session_token";
 export const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
@@ -19,6 +20,10 @@ export interface SanitizedOperator {
   status: string;
   groupId: string | null;
   isOnline: boolean;
+  lastSeenAt: Date | null;
+  usageDate: string | null;
+  usageSecondsToday: number;
+  mustChangePassword: boolean;
   createdAt: Date;
 }
 
@@ -38,6 +43,7 @@ export interface AuthSessionContext {
  * Sanitiza o registro de operador, eliminando terminantemente o passwordHash.
  */
 export function sanitizeOperator(op: any): SanitizedOperator {
+  const todayBrt = getBrtDateKey();
   return {
     id: op.id,
     tenantId: op.tenantId,
@@ -48,6 +54,15 @@ export function sanitizeOperator(op: any): SanitizedOperator {
     status: op.status ?? "disponivel",
     groupId: op.groupId ?? null,
     isOnline: !!op.isOnline,
+    lastSeenAt: op.lastSeenAt
+      ? op.lastSeenAt instanceof Date
+        ? op.lastSeenAt
+        : new Date(op.lastSeenAt)
+      : null,
+    usageDate: op.usageDate ?? null,
+    usageSecondsToday:
+      op.usageDate === todayBrt ? Math.max(0, Number(op.usageSecondsToday ?? 0)) : 0,
+    mustChangePassword: !!op.mustChangePassword,
     createdAt: op.createdAt instanceof Date ? op.createdAt : new Date(op.createdAt),
   };
 }
@@ -69,6 +84,8 @@ export async function createSession(tenantId: string, operatorId: string): Promi
     expiresAt,
     createdAt: new Date(),
   });
+
+  await touchOperatorPresence(tenantId, operatorId, { force: true });
 
   return { token, expiresAt };
 }
@@ -180,6 +197,8 @@ export async function getAuthSessionByToken(token: string): Promise<AuthSessionC
 
   const currentGroup = effectiveLegacyGroup(groupRow, operatorRow.role, sessionRow.tenantId);
   const permissions = normalizeGroupPermissions(currentGroup);
+
+  void touchOperatorPresence(sessionRow.tenantId, operatorRow.id);
 
   return {
     sessionId: sessionRow.id,

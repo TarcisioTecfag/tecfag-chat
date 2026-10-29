@@ -301,6 +301,8 @@ export const sectors = pgTable("sectors", {
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
   operatorIds: jsonb("operator_ids").$type<string[]>().default([]).notNull(),
+  copilotWelcomeMessage: text("copilot_welcome_message"),
+  copilotSuggestions: jsonb("copilot_suggestions").$type<string[]>().default([]),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -317,6 +319,10 @@ export const operators = pgTable("operators", {
   status: text("status").default("disponivel").notNull(), // 'disponivel' | 'ocupado' | 'ausente'
   groupId: text("group_id").references(() => accessGroups.id, { onDelete: "set null" }), // Referência para grupo de acesso/RBAC
   isOnline: boolean("is_online").default(true).notNull(),
+  lastSeenAt: timestamp("last_seen_at"),
+  usageDate: text("usage_date"), // 'YYYY-MM-DD' no fuso America/Sao_Paulo
+  usageSecondsToday: integer("usage_seconds_today").default(0).notNull(),
+  mustChangePassword: boolean("must_change_password").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   accountTenantUnique: uniqueIndex("idx_operators_account_tenant_unique").on(table.accountId, table.tenantId).where(sql`account_id IS NOT NULL`),

@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// 🧠 AGENTIC THOUGHT TRACE — Árvore de Pensamento e Ações Estilo Antigravity
+// 🧠 AGENTIC THOUGHT TRACE & INTENT ROUTER — Estilo Antigravity
 // Compartilhado entre o Backend (/api/valentina/messages) e o Frontend
-// (ValentinaChatTab, ChatPanel, ChatMessageBubble e CrmChatWidget).
+// (ValentinaChatTab, ChatPanel, ChatMessageBubble, CrmChatWidget e useChatState).
 // ══════════════════════════════════════════════════════════════════════════════
 
 export type AgenticStepKind =
@@ -10,7 +10,8 @@ export type AgenticStepKind =
   | "search"
   | "query"
   | "extract"
-  | "synthesize";
+  | "synthesize"
+  | "read";
 
 export type AgenticBadgeType =
   | "sql"
@@ -21,7 +22,9 @@ export type AgenticBadgeType =
   | "ai"
   | "file"
   | "kb"
-  | "team";
+  | "team"
+  | "bi"
+  | "vision";
 
 export interface AgenticThoughtStep {
   id: string;
@@ -50,6 +53,10 @@ export interface AgenticThoughtTraceData {
   steps: AgenticThoughtStep[];
   /** Quando true, as etapas estão sendo transmitidas ao vivo pelo backend via SSE conforme executam */
   isRealTimeStream?: boolean;
+  /** Quando true, está no tempo de espera inicial antes da pesquisa/coleta (exibe apenas "Trabalhando" shimmer) */
+  isWaitingPhase?: boolean;
+  /** Quando true, é uma interação simples/casual que não exige árvore de pesquisa (exibe apenas "Trabalhando" shimmer) */
+  isMinimalWorking?: boolean;
 }
 
 export interface BuildTraceOptions {
@@ -64,6 +71,8 @@ export interface BuildTraceOptions {
   aiDurationMs?: number;
   /** Etapas reais medidas no servidor durante a execução das queries */
   executedSteps?: AgenticThoughtStep[];
+  customTaskTitle?: string;
+  customFinishedTitle?: string;
   extraSummary?: {
     dealsCount?: number;
     waitingCount?: number;
@@ -80,25 +89,643 @@ function normalizeQuery(text: string): string {
     .trim();
 }
 
+const NON_MODEL_HYPHEN_PREFIXES = new Set([
+  "segunda",
+  "terca",
+  "quarta",
+  "quinta",
+  "sexta",
+  "pre",
+  "pos",
+  "auto",
+  "semi",
+  "anti",
+  "sub",
+  "super",
+  "bem",
+  "mal",
+  "nao",
+  "pro",
+  "dia",
+  "mes",
+  "ano",
+  "top",
+  "ate",
+  "das",
+  "dos",
+  "nas",
+  "nos",
+  "por",
+  "com",
+  "sem",
+  "follow",
+  "e-mail",
+  "check",
+  "hands",
+  "stand",
+  "know",
+]);
+
 /**
- * Detecta se a mensagem do usuário é apenas um agradecimento, confirmação rápida
- * ou cumprimento casual que NÃO exige varredura de banco (ex: "ta obrigado", "valeu", "beleza", "ok").
+ * Detecta com precisão se o texto contém um código real de modelo de máquina/equipamento
+ * (ex: "VSF-30S", "APF-300", "TC-20", "DZ-400", "DCGY-F200", "PAMQGPAU079", "BSF-5040"),
+ * sem gerar falsos positivos em palavras comuns seguidas de números ("dia 29", "as 14h", "top 5").
+ */
+export function hasExplicitMachineModelCode(text: string): boolean {
+  const norm = normalizeQuery(text);
+  if (!norm) return false;
+
+  // 1. Família ou prefixo industrial conhecido da Tecfag / Valem
+  if (
+    /\b(?:pamq[a-z0-9]{2,}|pratic\s*seal|tc[-_\s]?20\b|vsf[-_\s]?\d+[a-z0-9-]*|apf[-_\s]?\d+[a-z0-9-]*|bsf[-_\s]?\d+[a-z0-9-]*|dzf?[-_\s]?\d+[a-z0-9-]*|dcgy[-_\s]?[a-z0-9-]+|fql[-_\s]?\d+[a-z0-9-]*|km[-_\s]?\d+[a-z0-9-]*|fxj[-_\s]?\d+[a-z0-9-]*|frp[-_\s]?\d+[a-z0-9-]*|frb[-_\s]?\d+[a-z0-9-]*|lf[-_\s]?\d+[a-z0-9-]*|dbf[-_\s]?\d+[a-z0-9-]*)\b/i.test(
+      norm
+    )
+  ) {
+    return true;
+  }
+
+  // 2. Código alfanumérico com hífen explícito entre letras e números (ex: "XYZ-100", "MOD-20A")
+  const hyphenMatches = norm.match(/\b([a-z]{2,6})-(\d{2,5}[a-z0-9-]*)\b/g);
+  if (hyphenMatches) {
+    for (const m of hyphenMatches) {
+      const prefix = m.split("-")[0];
+      if (prefix && !NON_MODEL_HYPHEN_PREFIXES.has(prefix)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Detecta se a mensagem do usuário é uma saudação, cumprimento, agradecimento,
+ * confirmação rápida ou conversa social que NÃO exige varredura de banco, CRM, VTEX ou manuais
+ * (ex: "boa tarde", "bom dia fagner, tudo bem?", "oi", "valeu", "beleza", "ok", "obrigado").
  */
 export function isCasualConversationQuery(text: string): boolean {
-  const clean = normalizeQuery(text).replace(/[!?.,;:]+/g, "").trim();
+  const clean = normalizeQuery(text)
+    .replace(/[!?.,;:"'()[\]{}]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!clean) return false;
-  if (clean.split(/\s+/).length > 6) return false;
-  // Se contém interrogação ou termos de consulta operacional/comercial, NÃO é casual
+
+  const words = clean.split(" ");
+  if (words.length > 9) return false;
+
+  // Se contém termos operacionais de consulta de atendimento, CRM, metas, tarefas ou máquinas, NÃO é casual
   if (
-    /\?|\b(?:qual|quais|como|quanto|quantos|quantas|quem|onde|quando|cade|puxa|puxe|mostra|mostre|manda|mande|lista|liste|tem|tenho|outra|outras|outro|outros|negociac|card|crm|fila|meta|tarefa|ligar|ligac|telefone|cliente|empresa|sla|tma|funil|sdr|relatorio|grafico)\b/.test(
+    /\b(?:negociac\w*|card\w*|crm|fila|meta|metas|tarefa\w*|agenda|compromisso\w*|ligar|ligac\w*|telefone\w*|cliente\w*|empresa\w*|cnpj|cpf|sla|tma|funil|pipeline|sdr|relatorio\w*|grafico\w*|orcamento\w*|proposta\w*|venda\w*|vendi\w*|faturamento|comissa\w*|maquina\w*|equipamento\w*|manual|manuais|catalogo|vtex|sku|estoque|frete|preco\w*|valor\w*|custa|seladora\w*|envasadora\w*|rotuladora\w*|datador\w*|empacotadora\w*|dosadora\w*|arqueadora\w*|encapsuladora\w*|peca\w*|suporte|projeto\w*|aguardando|esperando|parada\w*|parado\w*|esfriando|atendimento\w*|conversa\w*|chat\w*|avali\w*|analis\w*|audit\w*|puxa|puxe|mostra|mostre|lista|liste|resumo|prioridade\w*)\b/.test(
       clean
     )
   ) {
     return false;
   }
-  return /^(?:(?:ta|tá|ah|opa|ei|ola|oi)\s+)?(?:obrigad[oa]|muito\s+obrigad[oa]|valeu|vlw|ok|okay|beleza|blz|show|fechou|entendi|entendido|combinado|perfeito|certo|certinho|tudo\s+certo|ta\s+bom|ta\s+otimo|maravilha|boa|top|ate\s+mais|tchau|bom\s+dia|boa\s+tarde|boa\s+noite| imagina|de\s+nada)(?:\s+(?:fagner|valentina|ai|mesmo|entao|agora|por\s+enquanto))?$/.test(
-    clean
-  );
+
+  if (hasExplicitMachineModelCode(clean)) {
+    return false;
+  }
+
+  // Padrões diretos de saudação, cortesia, confirmação e conversa social
+  if (
+    /^(?:(?:oi+|ola+|opa+|ei+|e\s+ai|eai|fala|salve|alo|hey|bom\s+dia|boa\s+tarde|boa\s+noite|tudo\s+bem|tudo\s+bom|tudo\s+certo|tudo\s+joia|tudo\s+tranquilo|tudo\s+otimo|como\s+vai|como\s+voce\s+esta|como\s+vc\s+esta|como\s+vc\s+ta|como\s+esta|beleza|blz|ok|okay|show|fechou|entendi|entendido|combinado|perfeito|certo|certinho|ta\s+bom|ta\s+otimo|ta\s+certo|maravilha|boa|top|obrigad[oa]|muito\s+obrigad[oa]|valeu|vlw|agradecid[oa]|ate\s+mais|ate\s+logo|tchau|imagina|de\s+nada|por\s+nada|disponha|ta\s+ai|voce\s+ta\s+ai|vc\s+ta\s+ai|pode\s+me\s+ajudar|me\s+ajuda|era\s+so\s+isso|so\s+isso|por\s+enquanto\s+e\s+so|nada\s+nao|tudo\s+em\s+paz|bem\s+tambem|tudo\s+bem\s+por\s+aqui|comigo\s+tudo\s+bem|e\s+com\s+voce|e\s+com\s+vc|e\s+voce|e\s+vc|fagner|valentina|amigo|parceiro|colega|chefe|ai|mesmo|entao|agora|por\s+enquanto|hoje)\s*)+$/.test(
+      clean
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export interface CopilotIntentClassification {
+  isCasual: boolean;
+  isConversationalAdvice: boolean;
+  /** Quando true, não executa varredura de CRM/VTEX/Manuais e exibe apenas o indicador "Trabalhando" */
+  isMinimalWorking: boolean;
+  domains: {
+    attendance: boolean;
+    metrics: boolean;
+    crmDeals: boolean;
+    goals: boolean;
+    tasks: boolean;
+    technicalKb: boolean;
+    vtex: boolean;
+    systemGuide: boolean;
+    overview360: boolean;
+  };
+  primaryDomain:
+    | "casual"
+    | "conversational"
+    | "attendance"
+    | "metrics"
+    | "crm_deals"
+    | "goals"
+    | "tasks"
+    | "technical_kb"
+    | "vtex"
+    | "system_guide"
+    | "overview_360";
+  taskTitle: string;
+  finishedTitle: string;
+}
+
+/**
+ * Classifica de forma estrita e modular a intenção da mensagem enviada ao Fagner/Valentina
+ * para que APENAS as ferramentas e tabelas pertinentes àquele assunto sejam acionadas.
+ * - Saudação / conversa casual -> apenas "Trabalhando", 0 consultas ao banco/VTEX/manuais
+ * - Dúvida de atendimento -> apenas conversas/atendimento (não olha manuais de máquina nem VTEX)
+ * - Dúvida técnica / máquina -> apenas manuais/catálogo/VTEX (não olha todas as negociações/atendimentos)
+ * - Dúvida de negociação / CRM -> apenas negociações/CRM (não olha manuais de máquina nem VTEX)
+ * - Dúvida de tarefas / agenda -> apenas tarefas e compromissos
+ * - Dúvida de metas -> apenas metas e ritmo comercial
+ */
+export function classifyCopilotIntent(
+  userQuery: string,
+  options?: {
+    hasAttachedImage?: boolean;
+    hasAttachedFile?: boolean;
+    recentAiContextText?: string;
+    isSystemHowTo?: boolean;
+    hasCandidateEntityTerms?: boolean;
+  }
+): CopilotIntentClassification {
+  const hasAttachedImage = Boolean(options?.hasAttachedImage);
+  const hasAttachedFile = Boolean(options?.hasAttachedFile);
+  const isSystemHowTo = Boolean(options?.isSystemHowTo);
+  const recentAiNorm = normalizeQuery(options?.recentAiContextText || "");
+  const q = normalizeQuery(userQuery);
+
+  // 1. Mensagem casual / saudação ("boa tarde", "oi", "tudo bem", "obrigado", "valeu")
+  if (!hasAttachedImage && !hasAttachedFile && isCasualConversationQuery(userQuery)) {
+    return {
+      isCasual: true,
+      isConversationalAdvice: false,
+      isMinimalWorking: true,
+      domains: {
+        attendance: false,
+        metrics: false,
+        crmDeals: false,
+        goals: false,
+        tasks: false,
+        technicalKb: false,
+        vtex: false,
+        systemGuide: false,
+        overview360: false,
+      },
+      primaryDomain: "casual",
+      taskTitle: "Trabalhando",
+      finishedTitle: "Resposta enviada",
+    };
+  }
+
+  // 2. Identificação de domínios específicos na mensagem atual
+  const isConversationEval =
+    /\b(?:avaliar|avalia|avaliacao|analisar|analisa|analise|auditar|audita|olhar|olha|ver|veja)\b.*\b(?:minha\s+conversa|meu\s+atendimento|conversa\s+com|chat\s+com|atendimento\s+com|atendimento\s+do|atendimento\s+da|ultimo\s+atendimento)\b/.test(
+      q
+    );
+
+  const hasAttendanceKeywords =
+    isConversationEval ||
+    (!isSystemHowTo &&
+      /\b(?:atendimento|atendimentos|conversa|conversas|chat|chats|whatsapp|fila|aguardando|esperando|sem\s+resposta|caixa\s+de\s+entrada|responder|respondi|chamado|chamados|triagem|triagens|lead\s+chegou|leads\s+chegaram|chegaram\s+hoje|transferido|transferidos|mensagem\s+do\s+cliente|mensagens\s+do\s+cliente)\b/.test(
+        q
+      ));
+
+  const hasMetricsKeywords =
+    !isSystemHowTo &&
+    /\b(?:tma|tempo\s+medio|tempo\s+de\s+resposta|sla|estouro|estouros|metrica|metricas|score|nota\s+de\s+atendimento|meu\s+desempenho|indicadores\s+de\s+hoje)\b/.test(
+      q
+    );
+
+  const hasTasksKeywords =
+    !isSystemHowTo &&
+    /\b(?:tarefa|tarefas|agenda|compromisso|compromissos|reuniao|reunioes|ligacao\s+agendada|ligacoes\s+agendadas|agendado|agendados|agendada|agendadas|follow\s*up|followup|pendente|pendentes|atrasada|atrasadas|atrasado|atrasados|recado|recados|acompanhamento|acompanhamentos)\b/.test(
+      q
+    );
+
+  const hasGoalsKeywords =
+    !isSystemHowTo &&
+    /\b(?:meta|metas|ritmo|pacing|quanto\s+falta|bater\s+a\s+meta|vendi\s+no\s+mes|vendas\s+ganhas|ganhei\s+no\s+mes|comissao|diretriz|diretrizes)\b/.test(
+      q
+    );
+
+  const hasCallOrPhoneKeywords =
+    !isSystemHowTo &&
+    /\b(?:ligar|ligacao|ligacoes|telefone|telefones|fone|celular|vigos|discar)\b/.test(q);
+
+  // Detecção estrita de contexto técnico / máquina / peça / manual
+  const hasExplicitMachineOrPartKeyword =
+    hasAttachedImage ||
+    hasExplicitMachineModelCode(userQuery) ||
+    /\b(?:maquina|maquinas|equipamento|equipamentos|manual|manuais|especificac\w*|catalogo|ficha\s+tecnica|voltagem|potencia|seladora|selar|selagem|envasadora|envasar|envase|rotuladora|rotular|rotulagem|datador|datar|datacao|empacotadora|empacotar|dosadora|dosar|valvula|frasco|frascos|pote|potes|garrafa|garrafas|tampa|tampas|alicate|arqueadora|arquear|arqueacao|fita\s+de\s+arquear|peca|pecas|reposicao|insumo|insumos|tunel\s+de\s+encolhimento|encolhimento|vacuo|sache|saches|encapsuladora|encapsular|blister|cartonadora|enfardad\w*|fechadora|stretch|inkjet|laser|ribbon|teflon|resistencia|ihm|clp|inversor|bomba|rotor|pistao|bico|bicos|dosagem|velocidade\s+da\s+esteira|temperatura\s+de\s+selagem|compressor|pneumatic\w*|esquema\s+eletrico|dimensao|dimensoes|salgadinho|salgadinhos|embalar|embalagem|embalagens|por\s+minuto|ciclos|vtex|sku\s*\d+|tecfag\.com\.br)\b/.test(
+      q
+    );
+
+  // Follow-up pronominal técnico ("qual a voltagem dela?", "me manda foto dela", "quanto ela custa?")
+  // SÓ herda o contexto de máquina do turno anterior se a pergunta atual NÃO for sobre atendimento/CRM/tarefas/metas
+  const isTechnicalPronounFollowUp =
+    !hasAttendanceKeywords &&
+    !hasTasksKeywords &&
+    !hasGoalsKeywords &&
+    /\b(?:dela|dele|dessa\s+maquina|desse\s+modelo|desse\s+equipamento|esse\s+modelo|essa\s+maquina|foto\s+dela|codigo\s+dela|link\s+dela|preco\s+dela|valor\s+dela|manual\s+dela)\b/.test(
+      q
+    ) &&
+    /\b(?:envasadora|seladora|dosadora|rotuladora|datador|empacotadora|arqueadora|encapsuladora|pamq[a-z0-9]+|tecfag\.com\.br|manual\s+tecnico|faixa\s+de\s+dosagem)\b/.test(
+      recentAiNorm
+    );
+
+  const isTechnicalKb =
+    !isConversationEval &&
+    !isSystemHowTo &&
+    (hasExplicitMachineOrPartKeyword || isTechnicalPronounFollowUp);
+
+  const isVtex =
+    isTechnicalKb &&
+    /\b(?:vtex|site|loja|link|url|pagina|sku|quanto\s+custa|qual\s+o\s+preco|qual\s+o\s+valor|preco\s+no\s+site|estoque|disponivel|disponibilidade|frete|tecfag\.com\.br)\b/.test(
+      q
+    );
+
+  // Detecção estrita de CRM / Negociações
+  const hasExplicitCrmWords =
+    !isSystemHowTo &&
+    /\b(?:negociac\w*|card|cards|crm|proposta|propostas|orcamento|orcamentos|funil|funis|pipeline|etapa|etapas|carteira|parada|paradas|parado|parados|esfriando|aberta|abertas|perdida|perdidas|ganha|ganhas|pausada|pausadas|cnpj|cpf|empresa|empresas|conta|contas|campo\s+personalizado|campos\s+personalizados|campo\s+customizado|campos\s+customizados|comprador|decisor|ficha|fechamento|previsao)\b/.test(
+      q
+    );
+
+  const hasCommercialValueOrListQuestion =
+    !isSystemHowTo &&
+    !isTechnicalKb &&
+    !hasAttendanceKeywords &&
+    !hasTasksKeywords &&
+    /\b(?:qual\s+o\s+valor|quais\s+os\s+valores|valor\s+da|valor\s+do|cotacao|cotacoes|projeto|projetos|cliente|clientes|responsavel)\b/.test(
+      q
+    );
+
+  const isOverview360 =
+    !isSystemHowTo &&
+    !isTechnicalKb &&
+    /\b(?:resumo\s+do\s+(?:meu\s+)?dia|resumo\s+geral|panorama\s+geral|como\s+esta\s+meu\s+dia|minhas\s+prioridades|prioridades\s+de\s+hoje|prioridades\s+agora|visao\s+geral\s+de\s+hoje)\b/.test(
+      q
+    );
+
+  let crmDeals =
+    hasExplicitCrmWords ||
+    hasCommercialValueOrListQuestion ||
+    (hasCallOrPhoneKeywords && !hasTasksKeywords) ||
+    isOverview360;
+
+  let attendance = hasAttendanceKeywords || isOverview360;
+  const metrics = hasMetricsKeywords || isOverview360;
+  const tasks = hasTasksKeywords || (hasCallOrPhoneKeywords && /\b(?:hoje|agendad\w*)\b/.test(q)) || isOverview360;
+  const goals = hasGoalsKeywords || isOverview360;
+  const technicalKb = isTechnicalKb;
+  const vtex = isVtex;
+  const systemGuide = isSystemHowTo && !isTechnicalKb;
+
+  // Se o operador perguntou especificamente por um nome próprio / empresa ("e sobre o Alvaro?", "puxa os dados da Metalúrgica X")
+  // sem citar palavras-chave de máquina ou guia do sistema, busca apenas em CRM Deals + Conversas daquele nome
+  const hasAnyDomainSoFar =
+    attendance || metrics || crmDeals || goals || tasks || technicalKb || vtex || systemGuide || isOverview360;
+
+  const isConversationalDraftOrTip =
+    !hasAnyDomainSoFar &&
+    !hasAttachedImage &&
+    !hasAttachedFile &&
+    /\b(?:escrev\w*|redig\w*|crie\s+uma\s+mensagem|monta\s+uma\s+mensagem|dica\w*|como\s+responder|como\s+contornar|argumento\w*|quem\s+e\s+voce|o\s+que\s+voce\s+faz|como\s+voce\s+funciona)\b/.test(
+      q
+    );
+
+  if (!hasAnyDomainSoFar && !isConversationalDraftOrTip && options?.hasCandidateEntityTerms) {
+    crmDeals = true;
+    attendance = true;
+  }
+
+  const finalHasAnyDomain =
+    attendance ||
+    metrics ||
+    crmDeals ||
+    goals ||
+    tasks ||
+    technicalKb ||
+    vtex ||
+    systemGuide ||
+    isOverview360 ||
+    hasAttachedFile ||
+    hasAttachedImage;
+
+  if (!finalHasAnyDomain) {
+    return {
+      isCasual: false,
+      isConversationalAdvice: true,
+      isMinimalWorking: true,
+      domains: {
+        attendance: false,
+        metrics: false,
+        crmDeals: false,
+        goals: false,
+        tasks: false,
+        technicalKb: false,
+        vtex: false,
+        systemGuide: false,
+        overview360: false,
+      },
+      primaryDomain: "conversational",
+      taskTitle: "Trabalhando",
+      finishedTitle: "Resposta enviada",
+    };
+  }
+
+  let primaryDomain: CopilotIntentClassification["primaryDomain"] = "crm_deals";
+  let taskTitle = "Consultando dados da sua operação";
+  let finishedTitle = "Consulta concluída";
+
+  if (isOverview360) {
+    primaryDomain = "overview_360";
+    taskTitle = "Compilando resumo de prioridades do seu dia";
+    finishedTitle = "Resumo operacional do dia concluído";
+  } else if (systemGuide) {
+    primaryDomain = "system_guide";
+    taskTitle = "Consultando Guia Oficial do Sistema (Onboarding Wizard)";
+    finishedTitle = "Passo a passo de navegação do sistema carregado";
+  } else if (vtex) {
+    primaryDomain = "vtex";
+    taskTitle = "Consultando Loja VTEX ao vivo e especificações do equipamento";
+    finishedTitle = "Leitura da loja VTEX e especificações concluída";
+  } else if (technicalKb) {
+    primaryDomain = "technical_kb";
+    taskTitle = hasAttachedImage
+      ? "Inspecionando visualmente a foto enviada e consultando catálogo técnico"
+      : "Consultando manuais técnicos e catálogo na Base de Conhecimento";
+    finishedTitle = hasAttachedImage
+      ? "Inspeção visual e consulta técnica concluídas"
+      : "Consulta aos manuais técnicos e catálogo concluída";
+  } else if (attendance && !crmDeals) {
+    primaryDomain = "attendance";
+    taskTitle = isConversationEval
+      ? "Carregando mensagens do atendimento para avaliação"
+      : "Verificando atendimentos e fila de espera no WhatsApp";
+    finishedTitle = isConversationEval
+      ? "Histórico do atendimento avaliado"
+      : "Inspeção da sua fila de atendimento concluída";
+  } else if (metrics && !crmDeals && !attendance) {
+    primaryDomain = "metrics";
+    taskTitle = "Consultando suas métricas de atendimento e SLA de hoje";
+    finishedTitle = "Métricas de atendimento e SLA carregadas";
+  } else if (tasks && !crmDeals && !goals) {
+    primaryDomain = "tasks";
+    taskTitle = "Verificando suas tarefas, ligações e compromissos agendados";
+    finishedTitle = "Verificação de agenda e tarefas concluída";
+  } else if (goals && !crmDeals) {
+    primaryDomain = "goals";
+    taskTitle = "Calculando atingimento da sua meta mensal e ritmo";
+    finishedTitle = "Cálculo de meta e ritmo comercial concluído";
+  } else if (hasCallOrPhoneKeywords) {
+    primaryDomain = "crm_deals";
+    taskTitle = "Localizando telefones e preparando ações de ligação";
+    finishedTitle = "Telefones e atalhos de discagem localizados";
+  } else {
+    primaryDomain = "crm_deals";
+    taskTitle = "Consultando negociações e ficha da sua carteira no CRM";
+    finishedTitle = "Análise das negociações do CRM concluída";
+  }
+
+  return {
+    isCasual: false,
+    isConversationalAdvice: false,
+    isMinimalWorking: false,
+    domains: {
+      attendance,
+      metrics,
+      crmDeals,
+      goals,
+      tasks,
+      technicalKb,
+      vtex,
+      systemGuide,
+      overview360: isOverview360,
+    },
+    primaryDomain,
+    taskTitle,
+    finishedTitle,
+  };
+}
+
+/**
+ * Gera a trilha inicial ao vivo no frontend (após o tempo de espera inicial)
+ * refletindo ESTRITAMENTE os domínios acionados pela pergunta — sem inventar etapas de CRM ou VTEX.
+ */
+export function buildInitialLiveTraceForIntent(params: {
+  userQuery: string;
+  scope: "admin" | "operator";
+  personaName?: string;
+  knowledgeBase?: string;
+  attachedFileName?: string | null;
+  hasAttachedImage?: boolean;
+}): AgenticThoughtTraceData {
+  const {
+    userQuery,
+    scope,
+    personaName = "Fagner",
+    knowledgeBase,
+    attachedFileName,
+    hasAttachedImage,
+  } = params;
+
+  const intent = classifyCopilotIntent(userQuery, {
+    hasAttachedImage,
+    hasAttachedFile: Boolean(attachedFileName),
+    hasCandidateEntityTerms: normalizeQuery(userQuery).split(/\s+/).some((w) => w.length >= 3),
+  });
+
+  if (intent.isMinimalWorking) {
+    return {
+      taskTitle: "Trabalhando",
+      finishedTitle: "Resposta enviada",
+      totalDurationSeconds: 1,
+      scope,
+      isRealTimeStream: true,
+      isMinimalWorking: true,
+      steps: [],
+    };
+  }
+
+  const steps: AgenticThoughtStep[] = [];
+
+  if (attachedFileName) {
+    steps.push({
+      id: "step-init-file",
+      kind: "extract",
+      actionVerb: "Lendo",
+      targetLabel: attachedFileName,
+      scopeTag: "#anexo",
+      badgeType: "file",
+      detailText: `Extraindo conteúdo de "${attachedFileName}".`,
+    });
+  }
+
+  if (hasAttachedImage) {
+    steps.push({
+      id: "step-init-image",
+      kind: "analyze",
+      actionVerb: "Inspecionando",
+      targetLabel: "Multimodal Vision",
+      scopeTag: "#imagem",
+      badgeType: "vision",
+      detailText: "Analisando visualmente a imagem enviada.",
+    });
+  }
+
+  if (scope === "admin") {
+    steps.push({
+      id: "step-admin-thought-1",
+      kind: "thought",
+      actionVerb: "Pensou por 1s",
+      targetLabel: `Selecionando indicadores executivos para responder à sua consulta`,
+      detailText: `Identificando as fontes necessárias para "${userQuery.slice(0, 80)}".`,
+    });
+    if (intent.domains.technicalKb || intent.domains.vtex) {
+      steps.push({
+        id: "step-admin-kb",
+        kind: "search",
+        actionVerb: "Consultando",
+        targetLabel: intent.domains.vtex ? "knowledge_base & VTEX Store" : "knowledge_base",
+        scopeTag: "#catalogo-tecnico",
+        badgeType: "kb",
+        detailText: "Consultando manuais técnicos e catálogo oficial de equipamentos.",
+      });
+    } else {
+      steps.push({
+        id: "step-admin-bi",
+        kind: "query",
+        actionVerb: "Consultando",
+        targetLabel: "director_bi_context",
+        scopeTag: `#${knowledgeBase || "tecfag"} • em execução`,
+        badgeType: "bi",
+        detailText: "Consultando métricas operacionais e comerciais pertinentes à pergunta.",
+      });
+    }
+    return {
+      taskTitle: intent.taskTitle,
+      finishedTitle: intent.finishedTitle,
+      totalDurationSeconds: 1,
+      scope: "admin",
+      isRealTimeStream: true,
+      steps,
+    };
+  }
+
+  // Escopo Operador: adiciona APENAS as etapas dos domínios realmente ativados!
+  steps.push({
+    id: "step-op-thought-1",
+    kind: "thought",
+    actionVerb: "Pensou por 1s",
+    targetLabel: intent.taskTitle,
+    detailText: `Selecionando apenas as funções necessárias para "${userQuery.slice(0, 80)}".`,
+  });
+
+  if (intent.domains.systemGuide) {
+    steps.push({
+      id: "step-op-wizard-guide",
+      kind: "read",
+      actionVerb: "Consultando",
+      targetLabel: "Guia Oficial do Sistema",
+      scopeTag: "#onboarding-wizard",
+      badgeType: "sla",
+      detailText: "Localizando instruções passo a passo de navegação do sistema.",
+    });
+  }
+
+  if (intent.domains.goals) {
+    steps.push({
+      id: "step-op-home",
+      kind: "query",
+      actionVerb: "Consultando",
+      targetLabel: "getCommercialHome",
+      scopeTag: "#meta-e-pacing",
+      badgeType: "crm",
+      detailText: "Verificando sua meta mensal, realizado e ritmo comercial.",
+    });
+  }
+
+  if (intent.domains.crmDeals) {
+    steps.push({
+      id: "step-op-deals",
+      kind: "analyze",
+      actionVerb: "Analisando",
+      targetLabel: "crm_deals & crm_accounts",
+      scopeTag: "#sua-carteira",
+      badgeType: "crm",
+      detailText: "Verificando negociações e contatos vinculados à sua carteira no CRM.",
+    });
+  }
+
+  if (intent.domains.tasks) {
+    steps.push({
+      id: "step-op-tasks",
+      kind: "search",
+      actionVerb: "Verificando",
+      targetLabel: "crm_deal_activities",
+      scopeTag: "#tarefas-e-agenda",
+      badgeType: "sla",
+      detailText: "Consultando suas tarefas, compromissos e ligações agendadas.",
+    });
+  }
+
+  if (intent.domains.attendance) {
+    steps.push({
+      id: "step-op-convs",
+      kind: "search",
+      actionVerb: "Verificando",
+      targetLabel: "conversations",
+      scopeTag: "#atendimentos",
+      badgeType: "chat",
+      detailText: "Consultando seus atendimentos e fila de espera no WhatsApp.",
+    });
+  }
+
+  if (intent.domains.metrics) {
+    steps.push({
+      id: "step-op-metrics",
+      kind: "query",
+      actionVerb: "Consultando",
+      targetLabel: "operator_daily_metrics",
+      scopeTag: "#tma-e-sla",
+      badgeType: "sla",
+      detailText: "Verificando seu TMA e indicadores de atendimento de hoje.",
+    });
+  }
+
+  if (intent.domains.technicalKb) {
+    steps.push({
+      id: "step-op-kb",
+      kind: "search",
+      actionVerb: "Consultando",
+      targetLabel: intent.domains.vtex ? "knowledge_base & loja VTEX" : "knowledge_base",
+      scopeTag: "#catalogo-tecnico",
+      badgeType: "kb",
+      detailText: "Consultando manuais técnicos em PDF e Catálogo Oficial de Equipamentos.",
+    });
+  }
+
+  steps.push({
+    id: "step-vertex-synthesize",
+    kind: "synthesize",
+    actionVerb: "Sintetizando",
+    targetLabel: `resposta com ${personaName}`,
+    scopeTag: "#em-execucao",
+    badgeType: "ai",
+    detailText: `Estruturando resposta objetiva de ${personaName}.`,
+  });
+
+  return {
+    taskTitle: intent.taskTitle,
+    finishedTitle: intent.finishedTitle,
+    totalDurationSeconds: 1,
+    scope: "operator",
+    isRealTimeStream: true,
+    steps,
+  };
 }
 
 /**
@@ -117,58 +744,44 @@ export function buildAgenticThoughtTrace(options: BuildTraceOptions): AgenticTho
     contextDurationMs,
     aiDurationMs,
     executedSteps,
+    customTaskTitle,
+    customFinishedTitle,
     extraSummary,
   } = options;
 
-  const q = normalizeQuery(userQuery);
-  const isCasual =
-    !attachedFileName && !hasAttachedImage && isCasualConversationQuery(userQuery);
+  const intent = classifyCopilotIntent(userQuery, {
+    hasAttachedImage,
+    hasAttachedFile: Boolean(attachedFileName),
+    hasCandidateEntityTerms: Boolean(
+      extraSummary?.searchTerms && extraSummary.searchTerms.length > 0
+    ),
+  });
 
   const totalSec = totalDurationMs
     ? Math.max(1, Math.round(totalDurationMs / 1000))
-    : isCasual
-      ? 1
-      : scope === "admin"
-        ? 5
-        : 4;
+    : intent.isMinimalWorking
+    ? 1
+    : scope === "admin"
+    ? 4
+    : 3;
 
-  // Se for uma mensagem casual (ex: "ta obrigado", "valeu", "ok"), retorna trilha enxuta e real sem consultas falsas ao banco
-  if (isCasual && (!executedSteps || executedSteps.length === 0)) {
+  // Se for uma mensagem casual/simples (ex: "boa tarde", "ta obrigado", "valeu", "ok") sem etapas de pesquisa no banco:
+  // retorna isMinimalWorking: true e steps: [] para NÃO exibir árvore pesada de ações nem poluir acima da resposta!
+  if (intent.isMinimalWorking && (!executedSteps || executedSteps.length === 0)) {
     return {
-      taskTitle: `Respondendo mensagem`,
-      finishedTitle: `Resposta direta enviada`,
+      taskTitle: "Trabalhando",
+      finishedTitle: "Resposta direta enviada",
       totalDurationSeconds: totalSec,
       scope,
-      steps: [
-        {
-          id: "step-casual-reply",
-          kind: "synthesize",
-          actionVerb: "Respondeu via",
-          targetLabel: "gemini-2.5-flash",
-          scopeTag: "#conversa-direta",
-          badgeType: "ai",
-          detailText: `Mensagem casual reconhecida ("${userQuery.slice(0, 60)}") — respondida diretamente sem necessidade de reconsultar tabelas do banco.`,
-          revealAfterMs: 0,
-        },
-      ],
+      isMinimalWorking: true,
+      steps: [],
     };
   }
 
-  const thought1Sec = contextDurationMs
-    ? Math.max(1, Math.round((contextDurationMs * 0.45) / 1000))
-    : 1;
-  const thought2Sec = aiDurationMs
-    ? Math.max(1, Math.round(aiDurationMs / 1000))
-    : Math.max(1, totalSec - thought1Sec);
-
-  let taskTitle =
-    scope === "admin"
-      ? "Analisando indicadores da operação em tempo real"
-      : "Consultando dados da sua operação";
-  let finishedTitle =
-    scope === "admin"
-      ? "Consulta executiva de BI concluída"
-      : "Consulta comercial concluída";
+  const taskTitle =
+    (typeof customTaskTitle === "string" && customTaskTitle.trim()) || intent.taskTitle;
+  const finishedTitle =
+    (typeof customFinishedTitle === "string" && customFinishedTitle.trim()) || intent.finishedTitle;
 
   // Se o servidor já mediu e executou as etapas reais, usa exatamente as etapas reais!
   if (executedSteps && executedSteps.length > 0) {
@@ -182,499 +795,12 @@ export function buildAgenticThoughtTrace(options: BuildTraceOptions): AgenticTho
     };
   }
 
-  const steps: AgenticThoughtStep[] = [];
-
-  // ── 1. Anexos (Arquivo / Imagem) se presentes ──────────────────────────────
-  if (attachedFileName) {
-    steps.push({
-      id: "step-file-extract",
-      kind: "extract",
-      actionVerb: "Extraiu",
-      targetLabel: attachedFileName,
-      scopeTag: "#leitura-documento",
-      badgeType: "file",
-      detailText: `Extração estruturada do conteúdo textual de "${attachedFileName}" para cruzamento com os dados da operação.`,
-      revealAfterMs: 150,
-    });
-  }
-
-  if (hasAttachedImage) {
-    steps.push({
-      id: "step-image-vision",
-      kind: "analyze",
-      actionVerb: "Analisou",
-      targetLabel: "Multimodal Vision",
-      scopeTag: "#inlineData",
-      badgeType: "file",
-      detailText: "Inspeção visual da imagem anexada via modelo multimodal Gemini 2.5 Pro.",
-      revealAfterMs: 250,
-    });
-  }
-
-  // ── 2. Escopo Diretoria / Admin (Aba Chat do Painel Fagner / Valentina) ───
-  if (scope === "admin") {
-    const isSlaOrAlerts = /sla|alerta|estouro|atraso|atrasad|demora|critico|espera/.test(q);
-    const isTma = /tma|tempo medio|tempo de resposta|velocidade/.test(q);
-    const isQueueOrBottleneck = /gargalo|fila|operador|atendente|sobrecarga|aguardando/.test(q);
-    const isSdrOrTriage = /sdr|triagem|triagens|conversao|automacao|qualificad|robo|bot/.test(q);
-    const isFunnelOrCrm = /funil|venda|vendas|pipeline|negociac|meta|faturamento|receita|grafico/.test(q);
-    const isSellerReport = /vendedor|consultor|relatorio|ranking|desempenho|individual/.test(q);
-    const isObjectionOrLoss = /objec|perda|perdida|motivo|recusa|concorren|preco/.test(q);
-    const isRodizio = /rodizio|escala|distribuicao|ausente|ferias/.test(q);
-
-    if (isSlaOrAlerts) {
-      taskTitle = "Verificando alertas de estouro de SLA e atrasos de fila";
-      finishedTitle = "Varredura de SLA e alertas da operação concluída";
-
-      steps.push(
-        {
-          id: "step-thought-1",
-          kind: "thought",
-          actionVerb: `Pensou por ${thought1Sec}s`,
-          targetLabel: "Identificando métricas de SLA e limites de alerta (>8m / >15m / >24h)",
-          durationSeconds: thought1Sec,
-          detailText: `Mapeando eventos de estouro de SLA do dia e cruzando notificações proativas registradas para os operadores com a fila viva.`,
-          revealAfterMs: 120,
-        },
-        {
-          id: "step-sql-sla",
-          kind: "query",
-          actionVerb: "Consultou",
-          targetLabel: "response_time_logs",
-          scopeTag: "#sla-hoje",
-          badgeType: "sla",
-          detailText: "Leitura dos registros de tempo de resposta e violações de SLA contabilizadas desde 00:00 (BRT).",
-          revealAfterMs: 750,
-        },
-        {
-          id: "step-internal-alerts",
-          kind: "analyze",
-          actionVerb: "Analisou",
-          targetLabel: "internal_messages",
-          scopeTag: "#sla_alert & #no_response",
-          badgeType: "chat",
-          detailText: "Auditoria dos alertas de atraso e falta de resposta disparados pelo SupervisorEngine hoje.",
-          revealAfterMs: 1450,
-        },
-        {
-          id: "step-live-queue",
-          kind: "search",
-          actionVerb: "Verificou",
-          targetLabel: "conversations",
-          scopeTag: "#aguardando >8m / >15m",
-          badgeType: "sql",
-          detailText: "Inspeção ao vivo das conversas abertas onde a última mensagem é do cliente sem retorno do operador.",
-          revealAfterMs: 2150,
-        }
-      );
-    } else if (isTma) {
-      taskTitle = "Calculando Tempo Médio de Atendimento (TMA) da operação";
-      finishedTitle = "Cálculo de TMA geral e por operador concluído";
-
-      steps.push(
-        {
-          id: "step-thought-1",
-          kind: "thought",
-          actionVerb: `Pensou por ${thought1Sec}s`,
-          targetLabel: "Selecionando fontes de telemetria de resposta (transferências + logs + chat ao vivo)",
-          durationSeconds: thought1Sec,
-          detailText: "Combinando eventos de primeiro atendimento pós-triagem com os tempos médios de resposta por operador.",
-          revealAfterMs: 120,
-        },
-        {
-          id: "step-tma-events",
-          kind: "query",
-          actionVerb: "Consultou",
-          targetLabel: "commercial_transfer_response_events",
-          scopeTag: "#tma-comercial",
-          badgeType: "sla",
-          detailText: "Extração dos tempos exatos entre o handoff do SDR e a primeira resposta humana do vendedor.",
-          revealAfterMs: 750,
-        },
-        {
-          id: "step-tma-logs",
-          kind: "analyze",
-          actionVerb: "Analisou",
-          targetLabel: "response_time_logs",
-          scopeTag: "#ranking-operadores",
-          badgeType: "sql",
-          detailText: "Agregação de tempo médio, mínimo e máximo de resposta por operador no dia e nos últimos 7 dias.",
-          revealAfterMs: 1450,
-        },
-        {
-          id: "step-tma-convs",
-          kind: "search",
-          actionVerb: "Cruzou",
-          targetLabel: "conversations & messages",
-          scopeTag: "#janela-ativa",
-          badgeType: "chat",
-          detailText: "Validação cruzada com as interações reais de hoje no WhatsApp.",
-          revealAfterMs: 2150,
-        }
-      );
-    } else if (isQueueOrBottleneck) {
-      taskTitle = "Mapeando gargalos de fila e carga por operador";
-      finishedTitle = "Diagnóstico de gargalos de fila concluído";
-
-      steps.push(
-        {
-          id: "step-thought-1",
-          kind: "thought",
-          actionVerb: `Pensou por ${thought1Sec}s`,
-          targetLabel: "Avaliando distribuição de conversas ativas e tempo de espera por carteira",
-          durationSeconds: thought1Sec,
-          detailText: "Identificando operadores com maior acúmulo de clientes aguardando resposta e conversas não lidas.",
-          revealAfterMs: 120,
-        },
-        {
-          id: "step-ops-query",
-          kind: "query",
-          actionVerb: "Consultou",
-          targetLabel: "operators",
-          scopeTag: "#equipe-ativa",
-          badgeType: "team",
-          detailText: "Leitura do quadro de operadores, status online/ocupado e setores vinculados.",
-          revealAfterMs: 750,
-        },
-        {
-          id: "step-queue-convs",
-          kind: "analyze",
-          actionVerb: "Analisou",
-          targetLabel: "conversations",
-          scopeTag: "#gargalos-por-operador",
-          badgeType: "chat",
-          detailText: "Cálculo do volume de chats ativos, clientes esperando resposta agora e tempo máximo de espera.",
-          revealAfterMs: 1450,
-        },
-        {
-          id: "step-unassigned",
-          kind: "search",
-          actionVerb: "Verificou",
-          targetLabel: "fila_geral & automacao",
-          scopeTag: "#sem-operador",
-          badgeType: "sql",
-          detailText: "Conferência de leads aguardando atribuição na fila geral ou em triagem.",
-          revealAfterMs: 2150,
-        }
-      );
-    } else if (isSdrOrTriage) {
-      taskTitle = "Analisando funil e taxa de conversão do SDR";
-      finishedTitle = "Análise de triagens e conversão do SDR concluída";
-
-      steps.push(
-        {
-          id: "step-thought-1",
-          kind: "thought",
-          actionVerb: `Pensou por ${thought1Sec}s`,
-          targetLabel: "Inspecionando sessões de triagem industrial e handoffs para os setores",
-          durationSeconds: thought1Sec,
-          detailText: "Cruzando estados de fluxo do SDR (hoje, 7d e acumulado) com os 9 funis/setores de destino.",
-          revealAfterMs: 120,
-        },
-        {
-          id: "step-sdr-states",
-          kind: "query",
-          actionVerb: "Consultou",
-          targetLabel: "agent_flow_states",
-          scopeTag: "#triagens-hoje",
-          badgeType: "sdr",
-          detailText: "Leitura das sessões iniciadas, em andamento, qualificadas e transferidas pelo SDR.",
-          revealAfterMs: 750,
-        },
-        {
-          id: "step-sdr-monitor",
-          kind: "analyze",
-          actionVerb: "Analisou",
-          targetLabel: "projectIndustrialMonitoring",
-          scopeTag: "#9-funis-destino",
-          badgeType: "sdr",
-          detailText: "Mapeamento da taxa de conversão e distribuição de leads por setor comercial e técnico.",
-          revealAfterMs: 1450,
-        },
-        {
-          id: "step-sdr-deals",
-          kind: "search",
-          actionVerb: "Cruzou",
-          targetLabel: "crm_deals & contacts",
-          scopeTag: "#leads-qualificados",
-          badgeType: "crm",
-          detailText: "Verificação dos cards de negócio e contatos gerados a partir das triagens concluídas.",
-          revealAfterMs: 2150,
-        }
-      );
-    } else if (isFunnelOrCrm || isSellerReport) {
-      taskTitle = isSellerReport
-        ? "Compilando relatório detalhado de desempenho por vendedor"
-        : "Analisando funil de vendas, pipeline e metas do CRM";
-      finishedTitle = isSellerReport
-        ? "Relatório executivo por vendedor concluído"
-        : "Análise do funil comercial e CRM concluída";
-
-      steps.push(
-        {
-          id: "step-thought-1",
-          kind: "thought",
-          actionVerb: `Pensou por ${thought1Sec}s`,
-          targetLabel: "Estruturando cruzamento de negociações do CRM, etapas dos funis e metas mensais",
-          durationSeconds: thought1Sec,
-          detailText: "Consolidando volume financeiro (aberto, ganho e perdido), ritmo de meta (pacing) e conversão por etapa.",
-          revealAfterMs: 120,
-        },
-        {
-          id: "step-crm-deals",
-          kind: "query",
-          actionVerb: "Consultou",
-          targetLabel: "crm_deals & crm_stages",
-          scopeTag: "#funil-semanal-mensal",
-          badgeType: "crm",
-          detailText: "Leitura das negociações por funil, etapa atual, valores em aberto, vendas ganhas e perdas.",
-          revealAfterMs: 750,
-        },
-        {
-          id: "step-crm-goals",
-          kind: "analyze",
-          actionVerb: "Analisou",
-          targetLabel: "commercial_goals",
-          scopeTag: "#pacing-vendedores",
-          badgeType: "team",
-          detailText: "Cálculo de atingimento de meta, ritmo esperado por dias úteis e gap diário por consultor.",
-          revealAfterMs: 1450,
-        },
-        {
-          id: "step-crm-activities",
-          kind: "search",
-          actionVerb: "Cruzou",
-          targetLabel: "tasks & response_time_logs",
-          scopeTag: "#produtividade",
-          badgeType: "sql",
-          detailText: "Correlação entre carteira do CRM, tarefas pendentes/atrasadas e TMA individual.",
-          revealAfterMs: 2150,
-        }
-      );
-    } else if (isObjectionOrLoss) {
-      taskTitle = "Investigando objeções de leads e motivos de perda no CRM";
-      finishedTitle = "Mapeamento de objeções e perdas concluído";
-
-      steps.push(
-        {
-          id: "step-thought-1",
-          kind: "thought",
-          actionVerb: `Pensou por ${thought1Sec}s`,
-          targetLabel: "Classificando motivos de perda do CRM e rastreando padrões de objeção no WhatsApp",
-          durationSeconds: thought1Sec,
-          detailText: "Agrupando perdas nas macro-categorias comerciais e varrendo mensagens reais recebidas dos clientes.",
-          revealAfterMs: 120,
-        },
-        {
-          id: "step-loss-deals",
-          kind: "query",
-          actionVerb: "Consultou",
-          targetLabel: "crm_deals",
-          scopeTag: "#status=lost",
-          badgeType: "crm",
-          detailText: "Leitura dos negócios perdidos, valores envolvidos e justificativas registradas pelos vendedores.",
-          revealAfterMs: 750,
-        },
-        {
-          id: "step-objection-msgs",
-          kind: "search",
-          actionVerb: "Vasculhou",
-          targetLabel: "messages",
-          scopeTag: "#objecoes-clientes",
-          badgeType: "chat",
-          detailText: "Detecção de termos de preço, prazo, concorrência, frete e financiamento nas conversas recentes.",
-          revealAfterMs: 1450,
-        }
-      );
-    } else if (isRodizio) {
-      taskTitle = "Consultando escala do rodízio e distribuição de leads";
-      finishedTitle = "Inspeção da escala do rodízio concluída";
-
-      steps.push(
-        {
-          id: "step-thought-1",
-          kind: "thought",
-          actionVerb: `Pensou por ${thought1Sec}s`,
-          targetLabel: "Verificando fila de distribuição, operadores ativos, ausências e compensações",
-          durationSeconds: thought1Sec,
-          detailText: "Consultando estado atual do motor de rodízio e histórico de leads recebidos por consultor.",
-          revealAfterMs: 120,
-        },
-        {
-          id: "step-rodizio-engine",
-          kind: "query",
-          actionVerb: "Consultou",
-          targetLabel: "RodizioEngine",
-          scopeTag: "#escala-atual",
-          badgeType: "team",
-          detailText: "Leitura da ordem da fila, contadores de leads recebidos e operadores marcados como ausentes.",
-          revealAfterMs: 800,
-        }
-      );
-    } else {
-      // Consulta executiva geral / Deep search
-      steps.push(
-        {
-          id: "step-thought-1",
-          kind: "thought",
-          actionVerb: `Pensou por ${thought1Sec}s`,
-          targetLabel: "Planejando consulta 360º nos indicadores operacionais e comerciais",
-          durationSeconds: thought1Sec,
-          detailText: `Analisando o pedido ("${userQuery.slice(0, 80)}") para selecionar as tabelas de BI, CRM e atendimento.`,
-          revealAfterMs: 120,
-        },
-        {
-          id: "step-dir-context",
-          kind: "query",
-          actionVerb: "Consultou",
-          targetLabel: "director-bi-context.ts",
-          scopeTag: "#operacao-360",
-          badgeType: "sql",
-          detailText: "Coleta consolidada de TMA, filas por operador, alertas de SLA, triagens SDR e funil de vendas.",
-          revealAfterMs: 750,
-        },
-        {
-          id: "step-dir-crm",
-          kind: "analyze",
-          actionVerb: "Analisou",
-          targetLabel: "crm_deals & conversations",
-          scopeTag: `#base-${knowledgeBase || "tecfag"}`,
-          badgeType: "crm",
-          detailText: "Cruzamento de negociações abertas, clientes em atendimento e base de conhecimento ativa.",
-          revealAfterMs: 1500,
-        }
-      );
-    }
-  } else {
-    // ── 3. Escopo Operador / Vendedor (Fagner Colega / Valentina Colega) ─────
-    const isCallOrPhone = /ligar|ligacao|ligacoes|telefone|fone|celular|contato|vigos|discar/.test(q);
-    const isDealOrCrm = /negociac|card|proposta|orcamento|funil|parada|esfriando|aberta|valor|cliente|empresa/.test(q);
-    const isGoalOrMeta = /meta|metas|ritmo|pacing|falta|vend|ganh|comissao/.test(q);
-    const isTaskOrAgenda = /tarefa|tarefas|agenda|compromisso|hoje|pendente|atrasad/.test(q);
-    const isWaitingChat = /esperando|aguardando|fila|conversa|chat|whatsapp|responder|atraso/.test(q);
-
-    if (isCallOrPhone) {
-      taskTitle = "Localizando telefones e preparando ações de ligação";
-      finishedTitle = "Telefones e atalhos de discagem localizados";
-    } else if (isDealOrCrm) {
-      taskTitle = "Consultando negociações da sua carteira no CRM";
-      finishedTitle = "Análise das negociações do CRM concluída";
-    } else if (isGoalOrMeta) {
-      taskTitle = "Calculando atingimento da sua meta mensal e ritmo";
-      finishedTitle = "Cálculo de meta e pacing comercial concluído";
-    } else if (isTaskOrAgenda) {
-      taskTitle = "Verificando suas tarefas, ligações e agenda do dia";
-      finishedTitle = "Verificação de agenda e tarefas concluída";
-    } else if (isWaitingChat) {
-      taskTitle = "Verificando clientes aguardando resposta na sua fila";
-      finishedTitle = "Inspeção da sua fila de atendimento concluída";
-    }
-
-    steps.push({
-      id: "step-op-thought-1",
-      kind: "thought",
-      actionVerb: `Pensou por ${thought1Sec}s`,
-      targetLabel: "Identificando contexto comercial e registros vinculados à sua carteira",
-      durationSeconds: thought1Sec,
-      detailText: `Verificando metas, negociações do CRM, contatos e fila de atendimento do operador para responder a "${userQuery.slice(0, 70)}".`,
-      revealAfterMs: 120,
-    });
-
-    if (isGoalOrMeta || (!isCallOrPhone && !isWaitingChat)) {
-      steps.push({
-        id: "step-op-home",
-        kind: "query",
-        actionVerb: "Consultou",
-        targetLabel: "getCommercialHome",
-        scopeTag: "#meta-e-pacing",
-        badgeType: "crm",
-        detailText: "Leitura da sua meta mensal, valor realizado no mês, ritmo por dias úteis e diretrizes do gestor.",
-        revealAfterMs: 700,
-      });
-    }
-
-    steps.push({
-      id: "step-op-deals",
-      kind: "analyze",
-      actionVerb: "Analisou",
-      targetLabel: "crm_deals & crm_accounts",
-      scopeTag: extraSummary?.dealsCount ? `#${extraSummary.dealsCount}-negociacoes` : "#sua-carteira",
-      badgeType: "crm",
-      detailText: "Inspeção das suas negociações abertas, etapas do funil, dias sem interação e telefones dos contatos.",
-      revealAfterMs: 1350,
-    });
-
-    if (isCallOrPhone || isTaskOrAgenda) {
-      steps.push({
-        id: "step-op-tasks",
-        kind: "search",
-        actionVerb: "Verificou",
-        targetLabel: "tasks & crm_deal_activities",
-        scopeTag: "#ligacoes-e-agenda",
-        badgeType: "sla",
-        detailText: "Busca de ligações agendadas, tarefas pendentes e histórico recente de atividades nos cards.",
-        revealAfterMs: 1950,
-      });
-    } else {
-      steps.push({
-        id: "step-op-convs",
-        kind: "search",
-        actionVerb: "Verificou",
-        targetLabel: "conversations",
-        scopeTag: extraSummary?.waitingCount
-          ? `#${extraSummary.waitingCount}-aguardando`
-          : "#fila-whatsapp",
-        badgeType: "chat",
-        detailText: "Conferência de clientes aguardando resposta na sua fila e leads transferidos hoje.",
-        revealAfterMs: 1950,
-      });
-    }
-
-    if (extraSummary?.searchTerms && extraSummary.searchTerms.length > 0) {
-      steps.push({
-        id: "step-op-deepsearch",
-        kind: "search",
-        actionVerb: "Buscou",
-        targetLabel: `"${extraSummary.searchTerms.join(", ")}"`,
-        scopeTag: "#ficha-detalhada",
-        badgeType: "sql",
-        detailText: `Pesquisa profunda por nome/empresa/negociação para extrair ficha completa, histórico e telefone de discagem.`,
-        revealAfterMs: 2450,
-      });
-    }
-  }
-
-  // ── 4. Etapa Final: Raciocínio de Síntese + Geração no Gemini 2.5 Pro ──────
-  steps.push(
-    {
-      id: "step-thought-2",
-      kind: "thought",
-      actionVerb: `Pensou por ${thought2Sec}s`,
-      targetLabel: `Consolidando dados reais e estruturando resposta de ${personaName}`,
-      durationSeconds: thought2Sec,
-      detailText:
-        scope === "admin"
-          ? "Cruzando métricas coletadas do banco com as regras executivas para montar blocos visuais, tabelas e insights."
-          : "Organizando resposta objetiva com cards clicáveis de negociação (Abrir CRM) e discagem direta (VigosPhone) quando aplicável.",
-      revealAfterMs: 2800,
-    },
-    {
-      id: "step-vertex-synth",
-      kind: "synthesize",
-      actionVerb: "Sintetizou",
-      targetLabel: "gemini-2.5-pro",
-      scopeTag: scope === "admin" ? "#painel-executivo" : "#copiloto-comercial",
-      badgeType: "ai",
-      detailText: `Geração concluída via Google Vertex AI (${personaName}) em ${totalSec}s.`,
-      revealAfterMs: 3450,
-    }
-  );
-
-  return {
-    taskTitle,
-    finishedTitle,
-    totalDurationSeconds: totalSec,
+  return buildInitialLiveTraceForIntent({
+    userQuery,
     scope,
-    steps,
-  };
+    personaName,
+    knowledgeBase,
+    attachedFileName,
+    hasAttachedImage,
+  });
 }

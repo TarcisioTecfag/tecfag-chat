@@ -17,6 +17,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { BriefcaseBusiness, Loader2 } from "lucide-react";
 
 import { ProfileModal } from "@/components/chat/ProfileModal";
+import { ForcePasswordResetView } from "@/components/chat/ForcePasswordResetView";
 import { lazyWithRetry } from "@/lib/lazy-retry";
 
 const SettingsView = lazyWithRetry(() => import("@/components/chat/SettingsView"), "SettingsView");
@@ -53,7 +54,7 @@ export const Route = createFileRoute("/")({
 });
 
 export function Index() {
-  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, setSelectedChatId, isAuthenticated, isRestoringSession, isProfileModalOpen, activeChat, conversations, isCommercialConsultant, currentGroup } = useChat();
+  const { tenant, activeView, setActiveView, sessionRole, rightSidebarOpen, selectedChatId, setSelectedChatId, isAuthenticated, isRestoringSession, mustChangePassword, isProfileModalOpen, activeChat, conversations, isCommercialConsultant, currentGroup } = useChat();
   const { canAccessView } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
@@ -221,6 +222,10 @@ export function Index() {
 
   if (!isAuthenticated) {
     return <Login />;
+  }
+
+  if (mustChangePassword) {
+    return <ForcePasswordResetView />;
   }
 
   // Estilos de tema dinâmicos para harmonia de cores

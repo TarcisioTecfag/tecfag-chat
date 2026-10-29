@@ -19,7 +19,15 @@ import {
 } from "../../lib/auth-session.js";
 import { hashPassword, needsPasswordMigration } from "../../lib/auth-crypto.js";
 import { revokeAccountSessions } from "../../lib/platform-access.js";
-import { handleConditionalResponse } from "../../lib/http-cache.js";
+import {
+  computeOperatorPresenceSnapshot,
+  markOperatorOffline,
+} from "../../lib/operator-presence.js";
+import {
+  computeTenantOperatorsOnboardingMap,
+  forceCompleteOperatorOnboarding,
+} from "../../lib/onboarding/service.js";
+import { SessionManager } from "../../lib/baileys/session-manager.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -150,10 +158,34 @@ export const Route = createFileRoute("/api/operators")({
             .from(operators)
             .where(eq(operators.tenantId, tenantId));
 
-          // NUNCA expor passwordHash em respostas da API!
-          const sanitizedList = list.map((op) => sanitizeOperator(op));
+          const wizardMap = await computeTenantOperatorsOnboardingMap(tenantId, list);
 
-          return handleConditionalResponse(request, sanitizedList, { headers: corsHeaders });
+          // NUNCA expor passwordHash em respostas da API!
+          const sanitizedList = list.map((op) => {
+            const base = sanitizeOperator(op);
+            const presence = computeOperatorPresenceSnapshot(op, tenantId, session.operator.id);
+            const wizard = wizardMap.get(op.id);
+            return {
+              ...base,
+              isOnline: presence.isOnline,
+              lastSeenAt: presence.lastSeenAt,
+              usageSecondsToday: presence.usageSecondsToday,
+              mustChangePassword: !!op.mustChangePassword,
+              wizardCompletionPct: wizard?.wizardCompletionPct ?? 0,
+              wizardCompletedSteps: wizard?.wizardCompletedSteps ?? 0,
+              wizardTotalSteps: wizard?.wizardTotalSteps ?? 0,
+              wizardStatus: wizard?.wizardStatus ?? "not_started",
+              wizardCompletedAt: wizard?.wizardCompletedAt ?? null,
+            };
+          });
+
+          return new Response(JSON.stringify(sanitizedList), {
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store",
+            },
+          });
         } catch (e: any) {
           console.error("[GET /api/operators] Erro ao listar operadores:", e);
           return new Response(JSON.stringify({ error: e.message }), {
@@ -169,6 +201,114 @@ export const Route = createFileRoute("/api/operators")({
           const { session } = auth;
           const tenantId = session.tenantId;
 
+          const body = await request.json().catch(() => ({}));
+          const { action, id, name, email, passwordHash, password, role, avatar, status, groupId } = body;
+
+          if (!id || typeof id !== "string") {
+            return new Response(
+              JSON.stringify({ error: "id é obrigatório" }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          // ── AÇÃO ESPECIAL 1: Completar Wizard Automaticamente ──────────────
+          if (action === "complete-wizard") {
+            const targetOp = await db.query.operators.findFirst({
+              where: and(eq(operators.id, id), eq(operators.tenantId, tenantId)),
+            });
+            if (!targetOp) {
+              return new Response(
+                JSON.stringify({ error: "Operador não encontrado neste ambiente.", code: "NOT_FOUND" }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
+            await forceCompleteOperatorOnboarding(tenantId, id);
+            const wizardMap = await computeTenantOperatorsOnboardingMap(tenantId, [targetOp]);
+            const wizard = wizardMap.get(id);
+
+            const sm = SessionManager.getInstance();
+            sm.notifyPublic(tenantId, { type: "onboarding_updated", operatorId: id });
+            sm.notifyPublic(tenantId, { type: "operators_updated" });
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                operatorId: id,
+                wizard: wizard ?? {
+                  wizardCompletionPct: 100,
+                  wizardCompletedSteps: 0,
+                  wizardTotalSteps: 0,
+                  wizardStatus: "completed",
+                  wizardCompletedAt: new Date().toISOString(),
+                },
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          // ── AÇÃO ESPECIAL 2: Habilitar/Desabilitar Redefinição de Senha + Logout Imediato ──
+          if (action === "require-password-reset") {
+            const targetOp = await db.query.operators.findFirst({
+              where: and(eq(operators.id, id), eq(operators.tenantId, tenantId)),
+            });
+            if (!targetOp) {
+              return new Response(
+                JSON.stringify({ error: "Operador não encontrado neste ambiente.", code: "NOT_FOUND" }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
+            const nextEnabled =
+              typeof body.enabled === "boolean" ? body.enabled : !targetOp.mustChangePassword;
+
+            await db
+              .update(operators)
+              .set({
+                mustChangePassword: nextEnabled,
+                ...(nextEnabled ? { isOnline: false } : {}),
+              })
+              .where(and(eq(operators.id, id), eq(operators.tenantId, tenantId)));
+
+            if (targetOp.accountId) {
+              await db
+                .update(operators)
+                .set({
+                  mustChangePassword: nextEnabled,
+                  ...(nextEnabled ? { isOnline: false } : {}),
+                })
+                .where(eq(operators.accountId, targetOp.accountId));
+            }
+
+            const sm = SessionManager.getInstance();
+
+            if (nextEnabled) {
+              await markOperatorOffline(tenantId, id);
+              if (targetOp.accountId) {
+                await revokeAccountSessions(targetOp.accountId);
+              } else {
+                await revokeAllOperatorSessions(id);
+              }
+              sm.notifyPublic(tenantId, {
+                type: "force_logout",
+                operatorId: id,
+                reason: "password_reset_required",
+              });
+            }
+
+            sm.notifyPublic(tenantId, { type: "operators_updated" });
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                operatorId: id,
+                mustChangePassword: nextEnabled,
+                forcedLogout: nextEnabled,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
           const canManageOperators =
             session.operator.role === "admin" ||
             session.operator.groupId === "group-admin" ||
@@ -179,16 +319,6 @@ export const Route = createFileRoute("/api/operators")({
             return new Response(
               JSON.stringify({ error: "Permissão insuficiente.", code: "FORBIDDEN" }),
               { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          const body = await request.json().catch(() => ({}));
-          const { id, name, email, passwordHash, password, role, avatar, status, groupId } = body;
-
-          if (!id) {
-            return new Response(
-              JSON.stringify({ error: "id é obrigatório" }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 

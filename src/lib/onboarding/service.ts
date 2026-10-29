@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db";
 import {
+  accessGroups,
   operatorOnboarding,
   whatsappConnections,
   commercialConsultantProfiles,
@@ -10,7 +11,11 @@ import type { AuthSessionContext } from "../auth-session";
 import { whatsappConnectionAccessCondition } from "../access-control/conversation-access";
 import { canManageWhatsappConnection } from "../access-control/channel-permissions";
 import { multiConnectionEnabled } from "../whatsapp/connection-policy";
-import { ONBOARDING_STEPS_BY_ID, ONBOARDING_CHAPTERS_BY_ID } from "./manifest";
+import {
+  ONBOARDING_STEPS,
+  ONBOARDING_STEPS_BY_ID,
+  ONBOARDING_CHAPTERS_BY_ID,
+} from "./manifest";
 import {
   computeOnboardingCoverage,
   isOnboardingEnabledForTenant,
@@ -1018,3 +1023,249 @@ export async function applyOperatorOnboardingAction(
     dto: buildOnboardingProgressDto(saved, context, true),
   };
 }
+
+export interface OperatorWizardSummary {
+  wizardCompletionPct: number;
+  wizardCompletedSteps: number;
+  wizardTotalSteps: number;
+  wizardStatus: OnboardingStatus;
+  wizardCompletedAt: string | null;
+}
+
+export async function computeTenantOperatorsOnboardingMap(
+  tenantId: string,
+  operatorsList: Array<{ id: string; role: string; groupId: string | null; name?: string }>,
+): Promise<Map<string, OperatorWizardSummary>> {
+  const result = new Map<string, OperatorWizardSummary>();
+  if (!operatorsList.length) return result;
+
+  const [groupRows, consultantRows, waRows, onboardingRows] = await Promise.all([
+    db.select().from(accessGroups).where(eq(accessGroups.tenantId, tenantId)).catch(() => []),
+    db
+      .select({
+        operatorId: commercialConsultantProfiles.operatorId,
+        division: commercialConsultantProfiles.division,
+      })
+      .from(commercialConsultantProfiles)
+      .where(eq(commercialConsultantProfiles.tenantId, tenantId))
+      .catch(() => []),
+    multiConnectionEnabled(tenantId)
+      ? db
+          .select({
+            id: whatsappConnections.id,
+            ownerOperatorId: whatsappConnections.ownerOperatorId,
+          })
+          .from(whatsappConnections)
+          .where(
+            and(
+              eq(whatsappConnections.tenantId, tenantId),
+              eq(whatsappConnections.enabled, true),
+              eq(whatsappConnections.provider, "baileys"),
+            ),
+          )
+          .catch(() => [])
+      : Promise.resolve([]),
+    db
+      .select()
+      .from(operatorOnboarding)
+      .where(
+        and(
+          eq(operatorOnboarding.tenantId, tenantId),
+          eq(operatorOnboarding.tourKey, OPERATOR_TOUR_KEY),
+        ),
+      )
+      .catch(() => []),
+  ]);
+
+  const groupsById = new Map(groupRows.map((g) => [g.id, g]));
+  const consultantIds = new Set(
+    consultantRows.filter((r) => Boolean(r.division?.trim())).map((r) => r.operatorId),
+  );
+  const onboardingByOperatorId = new Map(onboardingRows.map((r) => [r.operatorId, r]));
+  const hasWa = waRows.length > 0;
+
+  for (const op of operatorsList) {
+    const groupRow = op.groupId ? (groupsById.get(op.groupId) ?? null) : null;
+    const isAdmin = op.role === "admin";
+    const rawPerms = (groupRow?.permissions ?? {}) as Record<string, any>;
+    const rawViews = (rawPerms.views ?? {}) as Record<string, boolean>;
+    const rawCrm = (rawPerms.crm ?? {}) as Record<string, boolean>;
+    const rawChat = (rawPerms.chat ?? {}) as Record<string, boolean>;
+
+    const permissions = {
+      ...rawPerms,
+      views: {
+        commercialHome: isAdmin ? true : (rawViews.commercialHome ?? true),
+        chat: isAdmin ? true : (rawViews.chat ?? true),
+        crm: isAdmin ? true : (rawViews.crm ?? true),
+        tasks: isAdmin ? true : (rawViews.tasks ?? true),
+        contacts: isAdmin ? true : (rawViews.contacts ?? true),
+        internalChat: isAdmin ? true : (rawViews.internalChat ?? true),
+        wallet: isAdmin ? true : (rawViews.wallet ?? true),
+        ligacoes: isAdmin ? true : (rawViews.ligacoes ?? false),
+        valentina: isAdmin ? true : (rawViews.valentina ?? false),
+        monitor: isAdmin ? true : (rawViews.monitor ?? false),
+        analytics: isAdmin ? true : (rawViews.analytics ?? false),
+        groups: isAdmin ? true : (rawViews.groups ?? false),
+        settings: isAdmin ? true : (rawViews.settings ?? false),
+      },
+      crm: {
+        ...rawCrm,
+        canViewCrm: isAdmin ? true : (rawCrm.canViewCrm ?? true),
+        canCreateDeals: isAdmin ? true : (rawCrm.canCreateDeals ?? true),
+      },
+      chat: {
+        ...rawChat,
+        canCaptureChat: isAdmin ? true : (rawChat.canCaptureChat ?? groupRow?.canCaptureChat ?? true),
+        canTransferChat: isAdmin ? true : (rawChat.canTransferChat ?? groupRow?.canTransferChat ?? true),
+        canFinishChat: isAdmin ? true : (rawChat.canFinishChat ?? groupRow?.canFinishChat ?? true),
+      },
+    } as OnboardingEligibilityContext["permissions"];
+
+    const allowedChannels = Array.isArray(groupRow?.allowedChannels)
+      ? groupRow.allowedChannels
+      : ["whatsapp", "instagram", "messenger", "livechat"];
+    const canPair = waRows.some((r) => r.ownerOperatorId === op.id || isAdmin);
+
+    const ctx: OnboardingEligibilityContext = {
+      tenantId,
+      operatorId: op.id,
+      operatorName: op.name,
+      operatorRole: op.role,
+      role: op.role,
+      isCommercialConsultant: consultantIds.has(op.id),
+      permissions,
+      allowedChannels,
+      hasPersonalWhatsappConnection: hasWa,
+      hasPersonalWhatsappConnections: hasWa,
+      canPairPersonalWhatsapp: canPair,
+    };
+
+    const row = onboardingByOperatorId.get(op.id);
+    const snapshot = row ? rowToSnapshot(row) : null;
+    const isCurrentVersion =
+      snapshot !== null && snapshot.contentVersion === OPERATOR_TOUR_CONTENT_VERSION;
+
+    const coverage = computeOnboardingCoverage(
+      ctx,
+      isCurrentVersion ? snapshot.completedStepIds : [],
+      isCurrentVersion ? snapshot.unavailableSteps : [],
+    );
+
+    const totalSteps = coverage.applicableInstructionalStepIds.length;
+    const isMarkedCompleted = isCurrentVersion && snapshot.status === "completed";
+
+    if (isMarkedCompleted) {
+      result.set(op.id, {
+        wizardCompletionPct: 100,
+        wizardCompletedSteps: totalSteps,
+        wizardTotalSteps: totalSteps,
+        wizardStatus: "completed",
+        wizardCompletedAt: (
+          snapshot.completedAt ??
+          snapshot.lastCompletedAt ??
+          snapshot.updatedAt
+        ).toISOString(),
+      });
+    } else {
+      const pct = coverage.completionPct;
+      const derivedStatus: OnboardingStatus = !isCurrentVersion
+        ? "not_started"
+        : pct >= 100 && totalSteps > 0
+          ? "completed"
+          : snapshot.status;
+
+      result.set(op.id, {
+        wizardCompletionPct: pct,
+        wizardCompletedSteps: coverage.satisfiedInstructionalStepIds.length,
+        wizardTotalSteps: totalSteps,
+        wizardStatus: derivedStatus,
+        wizardCompletedAt: snapshot?.completedAt ? snapshot.completedAt.toISOString() : null,
+      });
+    }
+  }
+
+  return result;
+}
+
+export async function forceCompleteOperatorOnboarding(
+  tenantId: string,
+  operatorId: string,
+): Promise<OnboardingRecordSnapshot> {
+  const now = new Date();
+  const allStepIds = ONBOARDING_STEPS.map((s) => s.id);
+
+  const [existingRow] = await db
+    .select()
+    .from(operatorOnboarding)
+    .where(
+      and(
+        eq(operatorOnboarding.tenantId, tenantId),
+        eq(operatorOnboarding.operatorId, operatorId),
+        eq(operatorOnboarding.tourKey, OPERATOR_TOUR_KEY),
+      ),
+    )
+    .limit(1);
+
+  if (!existingRow) {
+    const recordId = `onb_${tenantId}_${operatorId}`;
+    const runId = `run_${randomUUID()}`;
+    const [inserted] = await db
+      .insert(operatorOnboarding)
+      .values({
+        id: recordId,
+        tenantId,
+        operatorId,
+        tourKey: OPERATOR_TOUR_KEY,
+        contentVersion: OPERATOR_TOUR_CONTENT_VERSION,
+        runId,
+        status: "completed",
+        currentStepId: "finish.complete",
+        visitedStepIds: allStepIds,
+        completedStepIds: allStepIds,
+        unavailableSteps: [],
+        startedAt: now,
+        pausedAt: null,
+        updatedAt: now,
+        completedAt: now,
+        lastCompletedVersion: OPERATOR_TOUR_CONTENT_VERSION,
+        lastCompletedAt: now,
+        deferredUntil: null,
+        revision: 1,
+      })
+      .returning();
+
+    return rowToSnapshot(inserted);
+  }
+
+  const nextRevision = (typeof existingRow.revision === "number" ? existingRow.revision : 1) + 1;
+  const [updated] = await db
+    .update(operatorOnboarding)
+    .set({
+      contentVersion: OPERATOR_TOUR_CONTENT_VERSION,
+      status: "completed",
+      currentStepId: "finish.complete",
+      visitedStepIds: allStepIds,
+      completedStepIds: allStepIds,
+      unavailableSteps: [],
+      startedAt: existingRow.startedAt ?? now,
+      pausedAt: null,
+      deferredUntil: null,
+      updatedAt: now,
+      completedAt: now,
+      lastCompletedVersion: OPERATOR_TOUR_CONTENT_VERSION,
+      lastCompletedAt: now,
+      revision: nextRevision,
+    })
+    .where(
+      and(
+        eq(operatorOnboarding.id, existingRow.id),
+        eq(operatorOnboarding.tenantId, tenantId),
+        eq(operatorOnboarding.operatorId, operatorId),
+      ),
+    )
+    .returning();
+
+  return rowToSnapshot(updated ?? existingRow);
+}
+

@@ -67,7 +67,10 @@ export type SessionEvent =
   | { type: "message_reaction"; conversationId: string; messageId: string; reactions: Array<{ emoji: string; from: string; at: string }> }
   | { type: "message_status"; conversationId: string; messageId: string; status: string; error?: string | null }
   | { type: "operator_typing"; conversationId: string; operatorId: string; operatorName: string }
-  | { type: "presence_update"; id: string; conversationId?: string; presences: Record<string, any> };
+  | { type: "presence_update"; id: string; conversationId?: string; presences: Record<string, any> }
+  | { type: "force_logout"; operatorId: string; reason?: string }
+  | { type: "onboarding_updated"; operatorId?: string }
+  | { type: "operators_updated" };
 
 export type SessionListener = (event: SessionEvent) => void;
 

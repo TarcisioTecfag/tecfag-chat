@@ -409,6 +409,11 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
+
+      ALTER TABLE operators ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP;
+      ALTER TABLE operators ADD COLUMN IF NOT EXISTS usage_date TEXT;
+      ALTER TABLE operators ADD COLUMN IF NOT EXISTS usage_seconds_today INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE operators ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {

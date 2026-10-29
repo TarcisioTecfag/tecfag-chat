@@ -394,6 +394,8 @@ import {
   Globe,
   Sliders,
   ChevronRight,
+  Clock,
+  LogOut,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -416,6 +418,9 @@ export function GroupsView() {
     updateOperator,
     deleteOperator,
     resetOperatorPassword,
+    refreshOperators,
+    completeOperatorWizard,
+    toggleOperatorPasswordReset,
     createAccessGroup,
     updateAccessGroup,
     deleteAccessGroup,
@@ -437,6 +442,100 @@ export function GroupsView() {
   const [activeTab, setActiveTab] = useState<"users" | "groups" | "sectors" | "wallets" | "templates">(() =>
     getInitialTabFromUrl("groups", "users", ["users", "groups", "sectors", "wallets", "templates"] as const),
   );
+
+  const [completingWizardOpId, setCompletingWizardOpId] = useState<string | null>(null);
+  const [togglingResetOpId, setTogglingResetOpId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== "users") return;
+    void refreshOperators();
+    const interval = window.setInterval(() => {
+      void refreshOperators();
+    }, 20_000);
+    return () => window.clearInterval(interval);
+  }, [activeTab, refreshOperators]);
+
+  const formatOperatorUsageToday = (seconds?: number) => {
+    const safe = Math.max(0, Math.floor(Number(seconds || 0)));
+    if (safe === 0) return "0 min";
+    if (safe < 60) return "< 1 min";
+    const totalMinutes = Math.floor(safe / 60);
+    if (totalMinutes < 60) return `${totalMinutes} min`;
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  };
+
+  const formatOperatorLastSeen = (lastSeenAt?: string | null, isOnline?: boolean) => {
+    if (isOnline) return "Agora mesmo";
+    if (!lastSeenAt) return "Sem registro";
+    const parsed = new Date(lastSeenAt);
+    if (Number.isNaN(parsed.getTime())) return "Sem registro";
+
+    const now = new Date();
+    const diffSec = Math.max(0, Math.floor((now.getTime() - parsed.getTime()) / 1000));
+    if (diffSec < 60) return "há poucos seg";
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `há ${diffMin} min`;
+
+    const timeStr = parsed.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    const isSameDay =
+      parsed.getDate() === now.getDate() &&
+      parsed.getMonth() === now.getMonth() &&
+      parsed.getFullYear() === now.getFullYear();
+    if (isSameDay) return `Hoje às ${timeStr}`;
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday =
+      parsed.getDate() === yesterday.getDate() &&
+      parsed.getMonth() === yesterday.getMonth() &&
+      parsed.getFullYear() === yesterday.getFullYear();
+    if (isYesterday) return `Ontem às ${timeStr}`;
+
+    const dateStr = parsed.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+    return `${dateStr} às ${timeStr}`;
+  };
+
+  const handleAutoCompleteWizard = async (op: Operator) => {
+    if (completingWizardOpId) return;
+    setCompletingWizardOpId(op.id);
+    try {
+      const res = await completeOperatorWizard(op.id);
+      if (res.success) {
+        toast.success(`Wizard de "${op.name}" marcado como 100% concluído!`);
+      }
+    } finally {
+      setCompletingWizardOpId(null);
+    }
+  };
+
+  const handleTogglePasswordResetOnLogin = async (op: Operator) => {
+    if (togglingResetOpId) return;
+    const nextEnabled = !op.mustChangePassword;
+    setTogglingResetOpId(op.id);
+    try {
+      const res = await toggleOperatorPasswordReset(op.id, nextEnabled);
+      if (res.success) {
+        if (nextEnabled) {
+          toast.success(
+            `"${op.name}" foi desconectado e precisará definir uma nova senha ao entrar novamente.`,
+          );
+        } else {
+          toast.info(`Exigência de redefinição de senha desativada para "${op.name}".`);
+        }
+      }
+    } finally {
+      setTogglingResetOpId(null);
+    }
+  };
 
   // Modal de confirmação de exclusão de operador
   // Delete Operator Confirmation State (com auditoria e transferência de patrimônio)
@@ -1193,11 +1292,33 @@ export function GroupsView() {
             const group = accessGroups.find((g) => g.id === op.groupId);
             const opSectors = getOperatorSectors(op.id);
             const isMe = op.id === currentOperatorId;
+            const isOnlineNow = Boolean(op.isOnline);
+            const wizardTotal = Math.max(1, Number(op.wizardTotalSteps || 9));
+            const wizardCompleted = Math.min(
+              wizardTotal,
+              Math.max(0, Number(op.wizardCompletedSteps || 0)),
+            );
+            const wizardPct =
+              op.wizardStatus === "completed"
+                ? 100
+                : Math.min(
+                    100,
+                    Math.max(
+                      0,
+                      typeof op.wizardCompletionPct === "number"
+                        ? op.wizardCompletionPct
+                        : Math.round((wizardCompleted / wizardTotal) * 100),
+                    ),
+                  );
+            const isWizardDone = wizardPct >= 100 || op.wizardStatus === "completed";
+            const isCompletingThisWizard = completingWizardOpId === op.id;
+            const isTogglingThisReset = togglingResetOpId === op.id;
+            const mustResetPassword = Boolean(op.mustChangePassword);
 
             return (
               <div
                 key={op.id}
-                className={`flex flex-col justify-between gap-3.5 rounded-2xl bg-card p-4 border transition-all duration-200 ${
+                className={`flex flex-col justify-between gap-3 rounded-2xl bg-card p-4 border transition-all duration-200 ${
                   isMe
                     ? "border-primary/40 shadow-soft bg-primary-soft/5"
                     : "border-border shadow-xs hover:border-primary/30"
@@ -1209,42 +1330,49 @@ export function GroupsView() {
                       <TooltipTrigger asChild>
                         <div
                           onClick={() => handleAvatarClick(op.id)}
-                          className="relative group cursor-pointer h-12 w-12 shrink-0 rounded-full overflow-hidden border border-border shadow-xs"
+                          className="relative group cursor-pointer h-12 w-12 shrink-0"
                         >
-                          {op.avatar ? (
-                            <img
-                              src={op.avatar}
-                              alt={op.name}
-                              className="h-full w-full object-cover border-0"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).style.display = "none";
-                                const parent = e.currentTarget.parentElement;
-                                if (parent) {
-                                  const fallback = parent.querySelector(
-                                    "[data-initials]",
-                                  ) as HTMLElement;
-                                  if (fallback) fallback.style.display = "flex";
-                                }
-                              }}
-                            />
-                          ) : null}
-                          <div
-                            data-initials
-                            style={{ display: op.avatar ? "none" : "flex" }}
-                            className="absolute inset-0 items-center justify-center bg-primary/10 text-primary font-black text-sm select-none"
-                          >
-                            {op.name
-                              .trim()
-                              .split(/\s+/)
-                              .map((w: string) => w[0])
-                              .filter(Boolean)
-                              .join("")
-                              .toUpperCase()
-                              .slice(0, 2)}
+                          <div className="h-12 w-12 rounded-full overflow-hidden border border-border shadow-xs relative">
+                            {op.avatar ? (
+                              <img
+                                src={op.avatar}
+                                alt={op.name}
+                                className="h-full w-full object-cover border-0"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                                  const parent = e.currentTarget.parentElement;
+                                  if (parent) {
+                                    const fallback = parent.querySelector(
+                                      "[data-initials]",
+                                    ) as HTMLElement;
+                                    if (fallback) fallback.style.display = "flex";
+                                  }
+                                }}
+                              />
+                            ) : null}
+                            <div
+                              data-initials
+                              style={{ display: op.avatar ? "none" : "flex" }}
+                              className="absolute inset-0 items-center justify-center bg-primary/10 text-primary font-black text-sm select-none"
+                            >
+                              {op.name
+                                .trim()
+                                .split(/\s+/)
+                                .map((w: string) => w[0])
+                                .filter(Boolean)
+                                .join("")
+                                .toUpperCase()
+                                .slice(0, 2)}
+                            </div>
+                            <div className="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Camera className="h-4 w-4 text-white animate-in zoom-in-75 duration-100" />
+                            </div>
                           </div>
-                          <div className="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Camera className="h-4 w-4 text-white animate-in zoom-in-75 duration-100" />
-                          </div>
+                          <span
+                            className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-card ${
+                              isOnlineNow ? "bg-emerald-500" : "bg-muted-foreground/40"
+                            }`}
+                          />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="top">Alterar Foto do Operador</TooltipContent>
@@ -1293,27 +1421,31 @@ export function GroupsView() {
                       <div className="flex flex-wrap items-center gap-1 mt-2">
                         {opSectors.length > 0 ? (
                           opSectors.map((sec) => (
-                            <button
+                            <SystemTooltip
                               key={sec.id}
-                              type="button"
-                              onClick={() => setSelectedSectorFolder(sec.id)}
-                              className="inline-flex items-center gap-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 px-1.5 py-0.5 text-[9px] font-bold transition cursor-pointer"
-                              title={`Filtrar pela pasta do setor ${sec.name}`}
+                              content={`Filtrar pela pasta do setor ${sec.name}`}
                             >
-                              <Folder className="h-2.5 w-2.5 shrink-0" />
-                              {sec.name}
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedSectorFolder(sec.id)}
+                                className="inline-flex items-center gap-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 px-1.5 py-0.5 text-[9px] font-bold transition cursor-pointer"
+                              >
+                                <Folder className="h-2.5 w-2.5 shrink-0" />
+                                {sec.name}
+                              </button>
+                            </SystemTooltip>
                           ))
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditOperator(op)}
-                            className="inline-flex items-center gap-1 rounded-md bg-muted hover:bg-muted/80 text-muted-foreground border border-border px-1.5 py-0.5 text-[9px] font-semibold transition cursor-pointer"
-                            title="Clique para vincular este operador a um setor"
-                          >
-                            <FolderPlus className="h-2.5 w-2.5 shrink-0" />
-                            Sem Setor
-                          </button>
+                          <SystemTooltip content="Clique para vincular este operador a um setor">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditOperator(op)}
+                              className="inline-flex items-center gap-1 rounded-md bg-muted hover:bg-muted/80 text-muted-foreground border border-border px-1.5 py-0.5 text-[9px] font-semibold transition cursor-pointer"
+                            >
+                              <FolderPlus className="h-2.5 w-2.5 shrink-0" />
+                              Sem Setor
+                            </button>
+                          </SystemTooltip>
                         )}
 
                         {group?.allowedChannels.map((c) => (
@@ -1374,6 +1506,36 @@ export function GroupsView() {
                       <TooltipContent side="top">Redefinir Senha Rápida</TooltipContent>
                     </Tooltip>
 
+                    {/* Ícone para Habilitar Logout Imediato + Redefinição de Senha no Próximo Login */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          disabled={isTogglingThisReset}
+                          onClick={() => void handleTogglePasswordResetOnLogin(op)}
+                          className={`grid h-8 w-8 place-items-center rounded-lg border transition cursor-pointer ${
+                            mustResetPassword
+                              ? "bg-primary/15 text-primary border-primary/30 shadow-2xs"
+                              : "border-transparent hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                          } ${isTogglingThisReset ? "opacity-60 cursor-wait" : ""}`}
+                        >
+                          {isTogglingThisReset ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <div className="relative flex items-center justify-center">
+                              <LogOut className="h-3.5 w-3.5" />
+                              <KeyRound className="h-2.5 w-2.5 -ml-1 -mt-2" />
+                            </div>
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[260px] text-center">
+                        {mustResetPassword
+                          ? "Redefinição de senha obrigatória ATIVA no próximo login (clique para desabilitar)"
+                          : "Desconectar usuário agora e exigir que redefina a própria senha no próximo login"}
+                      </TooltipContent>
+                    </Tooltip>
+
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -1395,6 +1557,118 @@ export function GroupsView() {
                         {isMe ? "Você não pode excluir sua própria conta" : "Excluir Operador"}
                       </TooltipContent>
                     </Tooltip>
+                  </div>
+                </div>
+
+                {/* Bloco de Telemetria de Presença, Uso Diário e Progresso do Wizard */}
+                <div className="rounded-xl border border-border/60 bg-muted/30 p-2.5 space-y-2">
+                  {/* Linha 1: Status Online Agora, Última vez online e Tempo de uso hoje */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold border ${
+                          isOnlineNow
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                            : "bg-card text-muted-foreground border-border/70"
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            isOnlineNow ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/50"
+                          }`}
+                        />
+                        {isOnlineNow ? "Online agora" : "Offline"}
+                      </span>
+
+                      <span className="text-[10px] text-muted-foreground truncate">
+                        {isOnlineNow
+                          ? "Ativo neste momento"
+                          : `Última vez: ${formatOperatorLastSeen(op.lastSeenAt, isOnlineNow)}`}
+                      </span>
+                    </div>
+
+                    <SystemTooltip content="Tempo acumulado de uso ativo do sistema hoje">
+                      <div className="inline-flex items-center gap-1 rounded-md bg-card border border-border/70 px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">
+                        <Clock className="h-3 w-3 text-primary shrink-0" />
+                        <span>Hoje:</span>
+                        <strong className="font-extrabold text-foreground">
+                          {formatOperatorUsageToday(op.usageSecondsToday)}
+                        </strong>
+                      </div>
+                    </SystemTooltip>
+                  </div>
+
+                  {mustResetPassword && (
+                    <div className="flex items-center justify-between gap-2 rounded-lg bg-primary/10 border border-primary/20 px-2 py-1 text-[10px] text-primary font-bold">
+                      <span className="inline-flex items-center gap-1.5 truncate">
+                        <KeyRound className="h-3 w-3 shrink-0" />
+                        Redefinição de senha obrigatória no próximo acesso
+                      </span>
+                      <button
+                        type="button"
+                        disabled={isTogglingThisReset}
+                        onClick={() => void handleTogglePasswordResetOnLogin(op)}
+                        className="text-[10px] font-extrabold underline hover:opacity-80 shrink-0 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Linha 2: Barra de Progresso do Wizard + Opção para Completar Automaticamente */}
+                  <div className="space-y-1.5 pt-1 border-t border-border/50">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Sparkles className="h-3 w-3 text-primary shrink-0" />
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                          Wizard:
+                        </span>
+                        <span
+                          className={`text-[11px] font-extrabold ${
+                            isWizardDone
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-foreground"
+                          }`}
+                        >
+                          {wizardPct}%
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          ({isWizardDone ? `${wizardTotal}/${wizardTotal}` : `${wizardCompleted}/${wizardTotal}`} etapas)
+                        </span>
+                      </div>
+
+                      {isWizardDone ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold shrink-0">
+                          <CheckCircle2 className="h-3 w-3 shrink-0" />
+                          Concluído
+                        </span>
+                      ) : (
+                        <SystemTooltip content="Completar automaticamente todas as etapas do Wizard para este usuário">
+                          <button
+                            type="button"
+                            disabled={isCompletingThisWizard}
+                            onClick={() => void handleAutoCompleteWizard(op)}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 px-2 py-0.5 text-[10px] font-bold transition cursor-pointer shrink-0 disabled:opacity-60"
+                          >
+                            {isCompletingThisWizard ? (
+                              <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                            ) : (
+                              <CheckCircle2 className="h-3 w-3 shrink-0" />
+                            )}
+                            Completar Wizard
+                          </button>
+                        </SystemTooltip>
+                      )}
+                    </div>
+
+                    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isWizardDone ? "bg-emerald-500" : "bg-primary"
+                        }`}
+                        style={{ width: `${wizardPct}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
 

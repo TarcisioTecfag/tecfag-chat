@@ -39,6 +39,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const {
     isAuthenticated,
     isRestoringSession,
+    mustChangePassword,
     tenant,
     currentOperatorId,
     operatorProfile,
@@ -188,10 +189,45 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     return eligibleChapters[0]?.id ?? "chat";
   }, [activeView, eligibleChapters]);
 
+  // Listen for external onboarding completion events (e.g., auto-complete wizard action or SSE)
+  useEffect(() => {
+    if (!isAuthenticated || !tenant || !currentOperatorId) return;
+    const handleExternalUpdate = () => {
+      void fetch("/api/operators/onboarding", { cache: "no-store" })
+        .then(async (res) => {
+          if (!res.ok) return;
+          const dto: OnboardingProgressDTO = await res.json();
+          if (identity !== identityRef.current) return;
+          updateProgress(dto);
+          if (dto.status === "completed" || dto.completionPct >= 100) {
+            setIsRunnerActive(false);
+            setIsWelcomeOpen(false);
+            setIsCompletionOpen(false);
+            setIsPeekingMascotVisible(false);
+            const allChapIds = ONBOARDING_CHAPTERS.filter((ch) => ch.id !== "welcome").map(
+              (ch) => ch.id,
+            );
+            setCompletedModuleIds(allChapIds);
+            if (storagePrefix) {
+              try {
+                localStorage.setItem(`${storagePrefix}:completed`, JSON.stringify(allChapIds));
+                localStorage.setItem(`${storagePrefix}:prompted`, JSON.stringify(allChapIds));
+                localStorage.removeItem(`${storagePrefix}:peeking`);
+              } catch {}
+            }
+          }
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("valem:onboarding-updated", handleExternalUpdate);
+    return () => window.removeEventListener("valem:onboarding-updated", handleExternalUpdate);
+  }, [identity, isAuthenticated, tenant, currentOperatorId, storagePrefix, updateProgress]);
+
   // First-time module visit detector: when the operator clicks a module for the first time,
   // Fagner pops up asking if they want to do the tour of THAT module now or later.
   useEffect(() => {
-    if (!progress?.enabled || !storageReadyRef.current) return;
+    if (!progress?.enabled || !storageReadyRef.current || mustChangePassword) return;
+    if (progress.status === "completed" || progress.completionPct >= 100) return;
     if (isRunnerActive || isCompletionOpen) return;
 
     // Only auto-prompt on primary operator module views that exist in VIEW_TO_CHAPTER_ID
@@ -204,7 +240,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
     if (
       !promptedModulesRef.current.has(mappedChapter) &&
-      !completedModuleIds.includes(mappedChapter)
+      !completedModuleIds.includes(mappedChapter) &&
+      !progress.completedChapterIds?.includes(mappedChapter)
     ) {
       promptedModulesRef.current.add(mappedChapter);
       if (storagePrefix) {
@@ -220,6 +257,9 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
   }, [
     progress?.enabled,
+    progress?.status,
+    progress?.completionPct,
+    progress?.completedChapterIds,
     activeView,
     eligibleChapters,
     isRunnerActive,

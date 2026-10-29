@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { extractSessionToken, revokeSessionByToken, buildLogoutCookie } from "../../../lib/auth-session.js";
+import { extractSessionToken, getAuthSessionByToken, revokeSessionByToken, buildLogoutCookie } from "../../../lib/auth-session.js";
+import { markOperatorOffline } from "../../../lib/operator-presence.js";
 
 export const Route = createFileRoute("/api/auth/logout")({
   server: {
@@ -8,6 +9,10 @@ export const Route = createFileRoute("/api/auth/logout")({
         try {
           const token = extractSessionToken(request);
           if (token) {
+            const session = await getAuthSessionByToken(token);
+            if (session) {
+              await markOperatorOffline(session.tenantId, session.operator.id);
+            }
             await revokeSessionByToken(token);
           }
 

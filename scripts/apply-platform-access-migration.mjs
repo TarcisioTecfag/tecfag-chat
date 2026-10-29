@@ -208,6 +208,20 @@ const migrations = [
     name: "0050_attendance_event_actors",
     url: new URL("../src/db/migrations/0050_attendance_event_actors.sql", import.meta.url),
   },
+  {
+    name: "0051_operator_presence_and_password_reset",
+    url: new URL(
+      "../src/db/migrations/0051_operator_presence_and_password_reset.sql",
+      import.meta.url,
+    ),
+  },
+  {
+    name: "0052_sector_copilot_config",
+    url: new URL(
+      "../src/db/migrations/0052_sector_copilot_config.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

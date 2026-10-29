@@ -14,6 +14,7 @@ import { readVtexConfig, credentialsForVtex } from "../vtex/store";
 import { defaultVtexSettings, type VtexCredentials, type VtexSettings } from "../vtex/contract";
 import type { VtexProductPreviewItem, KnowledgeSourceItem } from "../mockData";
 import { expandInternalCatalogCodesInText } from "./knowledge-service";
+import { hasExplicitMachineModelCode, isCasualConversationQuery } from "./agentic-thought-trace";
 
 interface CatalogEntry {
   id: string;
@@ -653,6 +654,15 @@ export function isVtexOrProductAssistantQuery(
 } {
   const raw = `${userQuery || ""}`.trim();
   const primaryUserLine = raw.split("\n")[0] || raw;
+  if (isCasualConversationQuery(primaryUserLine)) {
+    return {
+      shouldQueryVtex: false,
+      wantsFullPageRead: false,
+      wantsPriceOrCommercial: false,
+      wantsProductLink: false,
+      postalCode: null,
+    };
+  }
   const norm = normalizeText(primaryUserLine);
   const isPronounFollowUp =
     /\b(dela|dele|dessa\s+maquina|desse\s+modelo|desse\s+equipamento|dessa\s+ai|esse\s+modelo|essa\s+maquina)\b/i.test(
@@ -679,9 +689,9 @@ export function isVtexOrProductAssistantQuery(
     );
 
   const hasExplicitMachineToken =
-    /\b(seladora|envasadora|rotuladora|datador|empacotadora|dosadora|arqueadora|tunel|encolhimento|vacuo|encapsuladora|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|pratic\s*seal|tc[-_\s]?20|vsf|apf|bsf|dzf?|dbf|dcgy|fql|pamq[a-z0-9]+|sku\s*\d+|[a-z]{2,5}[-_\s]?\d{2,5}[a-z0-9-]*)\b/i.test(
+    /\b(seladora|envasadora|rotuladora|datador|empacotadora|dosadora|arqueadora|tunel|encolhimento|vacuo|encapsuladora|blister|cartonadora|enfardad|fechadora|stretch|inkjet|laser|pratic\s*seal)\b/i.test(
       combinedNorm
-    );
+    ) || hasExplicitMachineModelCode(combinedNorm);
 
   const hasVtexUrl = /tecfag\.com\.br\/[^\s/]+\/p\b/i.test(primaryUserLine);
   const cepMatch = primaryUserLine.match(/\b(\d{5})-?(\d{3})\b/);

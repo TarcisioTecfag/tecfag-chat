@@ -18,6 +18,7 @@ import { projectIndustrialMonitoring } from "../triage/industrial-monitor";
 import { computeIndustrialTriageProgress } from "../triage/industrial-policy";
 import { RodizioEngine } from "./rodizio-engine";
 import { getKnowledgeBaseContext } from "./knowledge-service";
+import { hasExplicitMachineModelCode } from "./agentic-thought-trace";
 import {
   formatCustomFieldLabel,
   isFilled,
@@ -2193,7 +2194,7 @@ export async function getDirectorBiContext(
     const asksProductOrCatalog =
       /\b(maquina|máquina|equipamento|catalogo|catálogo|modelo|manual|manuais|seladora|envasadora|datador|dosadora|rotuladora|empacotadora|valvula|válvula|pote|frasco|gatilho|trigger|base\s+de\s+conhecimento|especificacao|especificação|ficha\s+tecnica|encolhimento|tunel|túnel|vacuo|vácuo|arqueadora|fechadora|encapsuladora|blister|cartonadora|enfardadeira|esteira)\b/i.test(
         userQuery || ""
-      ) || /\b[a-z]{1,6}[-_\s]?\d{1,5}(?:[-_\s]?[a-z0-9]{1,5})*\b/i.test(userQuery || "");
+      ) || hasExplicitMachineModelCode(userQuery || "");
 
     if (asksProductOrCatalog) {
       try {
