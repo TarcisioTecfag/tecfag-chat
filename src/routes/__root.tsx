@@ -40,6 +40,171 @@ import { Index } from "./index";
 bootstrapTrainingFrameIfPresent();
 installAssetRecovery();
 
+let uiFreezeGuardInstalled = false;
+function installUiFreezeGuard() {
+  if (uiFreezeGuardInstalled || typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+  uiFreezeGuardInstalled = true;
+
+  // 1. Blindagem de DOM: evita que chamadas removeChild/insertBefore em nós já destacados
+  // (por extensões de navegador ou scripts externos) abortem o commitMutationEffects do React 19
+  try {
+    const origRemoveChild = Node.prototype.removeChild;
+    Node.prototype.removeChild = function <T extends Node>(child: T): T {
+      if (child && child.parentNode !== this) {
+        if (child.parentNode) {
+          return origRemoveChild.call(child.parentNode, child) as T;
+        }
+        return child;
+      }
+      return origRemoveChild.call(this, child) as T;
+    };
+
+    const origInsertBefore = Node.prototype.insertBefore;
+    Node.prototype.insertBefore = function <T extends Node>(newNode: T, referenceNode: Node | null): T {
+      if (referenceNode && referenceNode.parentNode !== this) {
+        return this.appendChild(newNode) as T;
+      }
+      return origInsertBefore.call(this, newNode, referenceNode) as T;
+    };
+  } catch {
+    // ignore
+  }
+
+  // 2. Watchdog auto-curativo contra body { pointer-events: none } órfão do Radix DismissableLayer,
+  // data-crm-interacting preso pós-drag e atributo inert residual fora do treinamento ativo
+  const OPEN_RADIX_LAYER_SELECTOR = [
+    '[role="dialog"][data-state="open"]',
+    '[role="alertdialog"][data-state="open"]',
+    '[data-radix-menu-content][data-state="open"]',
+    '[data-radix-select-viewport]',
+    '[data-radix-popper-content-wrapper] [data-state="open"]',
+    '[data-crm-interactive-portal][data-state="open"]',
+  ].join(", ");
+
+  let healTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const hasOpenModalLayer = (): boolean => {
+    try {
+      return Boolean(document.querySelector(OPEN_RADIX_LAYER_SELECTOR));
+    } catch {
+      return false;
+    }
+  };
+
+  const isTourRunnerActiveInDom = (): boolean => {
+    try {
+      return Boolean(
+        document.querySelector(
+          '[data-onboarding-root="true"] [data-onboarding-frame="true"], [data-onboarding-root="true"] [data-tour="tour.controls"]',
+        ),
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const healStuckBodyLocks = () => {
+    if (!document.body) return;
+
+    // Se pointer-events: none ficou preso no body mas não há nenhum Dialog/Select/DropdownMenu aberto
+    if (document.body.style.pointerEvents === "none" && !hasOpenModalLayer()) {
+      document.body.style.pointerEvents = "";
+      document.body.removeAttribute("data-scroll-locked");
+    }
+
+    // Se algum filho do body ficou com inert=true sem o runner de treinamento estar ativo
+    if (!isTourRunnerActiveInDom()) {
+      for (const child of Array.from(document.body.children)) {
+        if (child instanceof HTMLElement && child.inert && !child.dataset.onboardingRoot) {
+          child.inert = false;
+          if (child.getAttribute("aria-hidden") === "true") {
+            child.removeAttribute("aria-hidden");
+          }
+        }
+      }
+    }
+  };
+
+  const scheduleHeal = (delayMs = 60) => {
+    if (healTimer !== null) clearTimeout(healTimer);
+    healTimer = setTimeout(() => {
+      healTimer = null;
+      healStuckBodyLocks();
+    }, delayMs);
+  };
+
+  // Quando o usuário tenta clicar na tela e nenhum botão estava pressionado antes,
+  // cura imediatamente qualquer trava órfã para que o clique não seja perdido
+  window.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!document.body) return;
+      if (document.body.style.pointerEvents === "none" && !hasOpenModalLayer()) {
+        document.body.style.pointerEvents = "";
+        document.body.removeAttribute("data-scroll-locked");
+      }
+      if (document.body.dataset.crmInteracting === "true" && e.buttons <= 1) {
+        const activeDrag = document.querySelector("[data-panning='true'], [data-dragging='true']");
+        if (!activeDrag) {
+          delete document.body.dataset.crmInteracting;
+          document.body.style.userSelect = "";
+          document.body.style.cursor = "";
+        }
+      }
+      if (!isTourRunnerActiveInDom()) {
+        for (const child of Array.from(document.body.children)) {
+          if (child instanceof HTMLElement && child.inert && !child.dataset.onboardingRoot) {
+            child.inert = false;
+            if (child.getAttribute("aria-hidden") === "true") {
+              child.removeAttribute("aria-hidden");
+            }
+          }
+        }
+      }
+    },
+    true,
+  );
+
+  window.addEventListener(
+    "mousemove",
+    (e) => {
+      if (e.buttons === 0 && document.body?.dataset?.crmInteracting === "true") {
+        delete document.body.dataset.crmInteracting;
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      }
+    },
+    { passive: true },
+  );
+
+  const attachBodyObserver = () => {
+    if (!document.body) return;
+    const observer = new MutationObserver(() => {
+      if (
+        document.body.style.pointerEvents === "none" ||
+        document.body.hasAttribute("data-scroll-locked")
+      ) {
+        scheduleHeal(80);
+      }
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["style", "data-scroll-locked", "data-crm-interacting"],
+      childList: true,
+    });
+  };
+
+  if (document.body) {
+    attachBodyObserver();
+  } else {
+    window.addEventListener("DOMContentLoaded", attachBodyObserver, { once: true });
+  }
+}
+
+installUiFreezeGuard();
+
 const CrmChatWidget = lazy(() =>
   import("@/components/crm/CrmChatWidget").then((module) => ({ default: module.CrmChatWidget })),
 );
@@ -216,27 +381,18 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => {
-    let title = "Tecfag Group";
-    let iconHref = "/logo_t_preto.png";
-    let themeColor = "#0a0a0a";
+    // IMPORTANTE: Manter metadados do Route.head() 100% determinísticos entre SSR e Client.
+    // O <HeadContent /> do TanStack Router usa `tsr-meta-${JSON.stringify(tag)}` como React key;
+    // se title, iconHref ou themeColor mudarem entre SSR e Client, o React 19 tenta desmontar
+    // o fiber HostHoistable (case 26) antigo durante navegações de rota.
+    // A personalização dinâmica por tenant (título e favicon) é feita in-place pelo script inline
+    // do RootShell e por updateDocumentTitle() em useChatState.tsx.
+    const title = "Tecfag Group";
+    const iconHref = "/logo_t_preto.png";
+    const themeColor = "#0a0a0a";
     const ogTitle = "Tecfag Group";
     const ogDescription = "Sistema desenvolvido especialmente para a Tecfag Group.";
     const ogImageUrl = "https://tecfagchat.up.railway.app/og-image.png?v=tecfag";
-
-    if (typeof window !== "undefined") {
-      try {
-        const savedTenant = localStorage.getItem("chat_tenant");
-        if (savedTenant === "valem") {
-          title = "Valem Chat";
-          iconHref = "/favicon.png";
-          themeColor = "#2dc4a0";
-        } else if (savedTenant === "tecfag") {
-          title = "Tecfag Chat";
-          iconHref = "/logo_tecfag.png";
-          themeColor = "#df3d3d";
-        }
-      } catch (e) {}
-    }
 
     return {
       meta: [

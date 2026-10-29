@@ -31,6 +31,17 @@ export function OnboardingWelcomeDialog() {
     ? allApplicableSteps.filter((s) => s.chapterId === activeModuleChapter.id).length
     : allApplicableSteps.length;
 
+  React.useEffect(() => {
+    if (!isWelcomeOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        void deferModuleTour();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isWelcomeOpen, deferModuleTour]);
+
   return (
     <AnimatePresence>
       {isWelcomeOpen && (
@@ -40,6 +51,7 @@ export function OnboardingWelcomeDialog() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.22, ease: "easeOut" }}
+          onClick={() => void deferModuleTour()}
           className="fixed inset-0 z-[10110] flex items-center justify-center bg-black/60 dark:bg-black/75 p-4 backdrop-blur-sm"
         >
           <motion.div
@@ -49,6 +61,7 @@ export function OnboardingWelcomeDialog() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 18 }}
             transition={{ type: "spring", stiffness: 320, damping: 25 }}
+            onClick={(e) => e.stopPropagation()}
             className="relative w-full max-w-md overflow-hidden rounded-3xl border border-border bg-card text-card-foreground shadow-card"
           >
             {/* Botão Fechar */}

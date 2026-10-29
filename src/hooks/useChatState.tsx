@@ -443,21 +443,35 @@ export const updateFavicon = (currentTenant: string | null) => {
   const isValem = currentTenant === "valem";
   const isTecfag = currentTenant === "tecfag";
   const iconHref = isValem ? "/favicon.png" : isTecfag ? "/logo_tecfag.png" : "/logo_t_preto.png";
+  const themeColor = isValem ? "#2dc4a0" : isTecfag ? "#df3d3d" : "#0a0a0a";
 
   const head = document.head || document.getElementsByTagName("head")[0];
   if (!head) return;
 
-  // Remove apenas os favicons da aba para atualização dinâmica sem sobrescrever o ícone do app mobile
-  const oldIcons = document.querySelectorAll<HTMLLinkElement>(
+  // IMPORTANTE: Nunca usar removeChild() em <link rel="icon"> ou <meta>, pois o React 19 (HostHoistable, case 26)
+  // mantém referência direta ao stateNode em <HeadContent /> e lança Uncaught TypeError (reading 'removeChild')
+  // se parentNode ficar null durante re-renderizações de rota.
+  const existingIcons = document.querySelectorAll<HTMLLinkElement>(
     "link[rel='icon'], link[rel='shortcut icon']"
   );
-  oldIcons.forEach((el) => el.parentNode?.removeChild(el));
+  if (existingIcons.length > 0) {
+    existingIcons.forEach((el) => {
+      if (el.getAttribute("href") !== iconHref) {
+        el.href = iconHref;
+      }
+    });
+  } else {
+    const link = document.createElement("link");
+    link.rel = "icon";
+    link.type = "image/png";
+    link.href = iconHref;
+    head.appendChild(link);
+  }
 
-  const link = document.createElement("link");
-  link.rel = "icon";
-  link.type = "image/png";
-  link.href = iconHref;
-  head.appendChild(link);
+  const themeMeta = document.querySelector<HTMLMetaElement>("meta[name='theme-color']");
+  if (themeMeta && themeMeta.getAttribute("content") !== themeColor) {
+    themeMeta.setAttribute("content", themeColor);
+  }
 
   // Garante que o ícone de atalho mobile (PWA / tela de início) permaneça com a logo oficial do app
   let appleLink = document.querySelector<HTMLLinkElement>("link[rel='apple-touch-icon']");

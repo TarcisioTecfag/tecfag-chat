@@ -45,10 +45,7 @@ export function OnboardingHost() {
     };
   }, []);
 
-  const active = Boolean(
-    onboarding?.enabled &&
-      (onboarding.isRunnerActive || onboarding.isWelcomeOpen || onboarding.isCompletionOpen),
-  );
+  const active = Boolean(onboarding?.enabled && onboarding.isRunnerActive);
   useEffect(() => {
     if (root && active) return isolateOnboardingDom(root);
   }, [root, active]);
@@ -181,13 +178,18 @@ function OnboardingHostContent({ inverseZoom }: { inverseZoom: number }) {
     primaryChapters.length > 0 &&
     primaryChapters.every((ch) => onboarding.completedModuleIds.includes(ch.id));
 
+  const isTourFullyCompleted =
+    onboarding.progress?.status === "completed" ||
+    (onboarding.progress?.completionPct ?? 0) >= 100;
+
   const showPeekingMascot =
     !onboarding.isRunnerActive &&
     !onboarding.isWelcomeOpen &&
     !onboarding.isCompletionOpen &&
     onboarding.isPeekingMascotVisible &&
     !currentModuleCompleted &&
-    !allModulesCompleted;
+    !allModulesCompleted &&
+    !isTourFullyCompleted;
 
   const viewportW = (typeof window !== "undefined" ? window.innerWidth : 1280) * inverseZoom;
   const viewportH = (typeof window !== "undefined" ? window.innerHeight : 800) * inverseZoom;
