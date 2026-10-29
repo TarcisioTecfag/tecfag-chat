@@ -534,11 +534,36 @@ export function formatDealEvent(
         description: null,
       };
 
-    case "deal_ai_priority_calculated":
+    case "deal_ai_priority_calculated": {
+      const scoreVal =
+        typeof meta.score === "number" || typeof meta.score === "string"
+          ? `${Number(meta.score)} pts`
+          : null;
+      const lvlRaw = text(meta.level)?.toLowerCase();
+      const lvlLabel = lvlRaw
+        ? ({
+            critica: "Crítica",
+            alta: "Alta",
+            media: "Média",
+            baixa: "Baixa",
+          } as Record<string, string>)[lvlRaw] || lvlRaw
+        : null;
+      const msgCount =
+        typeof meta.analyzedMessagesCount === "number" && meta.analyzedMessagesCount > 0
+          ? `${meta.analyzedMessagesCount} msg(s) analisada(s)`
+          : null;
+      const badgeSuffix = [scoreVal, lvlLabel ? `(${lvlLabel})` : null, msgCount ? `· ${msgCount}` : null]
+        .filter(Boolean)
+        .join(" ");
       return {
-        title: "Prioridade comercial atualizada",
-        description: text(meta.reason)?.replace(/^\[IA Vertex\]:?\s*/i, "") || null,
+        title: badgeSuffix
+          ? `Avaliação comercial IA: ${badgeSuffix}`
+          : "Prioridade comercial atualizada",
+        description:
+          text(meta.reason)
+            ?.replace(/^\[(IA Vertex|Critério Comercial Heurístico)\]:?\s*/i, "") || null,
       };
+    }
 
     default:
       return { title: "Alteração registrada na negociação", description: null };

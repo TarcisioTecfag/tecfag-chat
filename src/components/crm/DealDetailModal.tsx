@@ -1108,7 +1108,7 @@ export function DealDetailModal({
     }
   };
 
-  // Priorização IA
+  // Priorização IA (consulta ficha + conversa vinculada completa)
   const handleCalculateAiPriority = async () => {
     if (!deal) return;
     try {
@@ -1119,8 +1119,36 @@ export function DealDetailModal({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao calcular prioridade comercial.");
-      toast.success(`Prioridade comercial atualizada: ${data.priority.score} pts (${data.priority.level})!`);
-      await loadDealDetail();
+      invalidateDealCache(deal.id);
+      setDeal((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              aiPriorityScore: data.priority.score,
+              aiPriorityLevel: data.priority.level,
+              aiPriorityReason: data.priority.reason,
+              aiPriorityUpdatedAt: data.priority.updatedAt,
+            }
+          : prev
+      );
+      toast.success(
+        `Avaliação concluída: ${data.priority.score} pts (${data.priority.level})`,
+        {
+          description: data.priority.reason
+            ? String(data.priority.reason).replace(/^\[(IA Vertex|Critério Comercial Heurístico)\]:?\s*/i, "")
+            : undefined,
+          duration: 6000,
+        }
+      );
+      await loadDealDetail(true, true);
+      if (onDealUpdated && deal) {
+        onDealUpdated({
+          ...deal,
+          aiPriorityScore: data.priority.score,
+          aiPriorityLevel: data.priority.level,
+          aiPriorityReason: data.priority.reason,
+        });
+      }
     } catch (err: any) {
       toast.error(err.message || "Falha na avaliação de IA.");
     } finally {
@@ -1951,10 +1979,28 @@ export function DealDetailModal({
 
                   {/* 3. Avaliar */}
                   {deal.aiPriorityScore !== null && deal.aiPriorityScore !== undefined && (
-                    <SystemTooltip content={deal.aiPriorityReason || "Prioridade comercial calculada por critérios explicáveis e IA"}>
+                    <SystemTooltip
+                      className="max-w-md whitespace-normal leading-relaxed text-left py-2 px-3"
+                      content={
+                        <div className="space-y-1">
+                          <div className="font-bold text-[11px] flex items-center gap-1.5">
+                            <Sparkles className="h-3 w-3 text-primary shrink-0" />
+                            <span>
+                              Diagnóstico Comercial IA — {deal.aiPriorityScore} pts ({deal.aiPriorityLevel || "média"})
+                            </span>
+                          </div>
+                          <p className="text-[11px] opacity-95">
+                            {(deal.aiPriorityReason || "Prioridade comercial calculada por critérios explicáveis e IA.")
+                              .replace(/^\[(IA Vertex|Critério Comercial Heurístico)\]:?\s*/i, "")}
+                          </p>
+                        </div>
+                      }
+                    >
                       <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold cursor-help ${
                           deal.aiPriorityLevel === "critica"
+                            ? "bg-destructive/10 text-destructive border border-destructive/30"
+                            : deal.aiPriorityLevel === "alta"
                             ? "bg-primary/10 text-primary border border-primary/30"
                             : "bg-muted text-muted-foreground border border-border"
                         }`}
@@ -1965,7 +2011,7 @@ export function DealDetailModal({
                     </SystemTooltip>
                   )}
 
-                  <SystemTooltip content="Calcular prioridade comercial com IA">
+                  <SystemTooltip content="Avaliar negociação e conversa completa do atendimento com IA">
                     <button
                       type="button"
                       disabled={calculatingPriority}
@@ -1977,7 +2023,7 @@ export function DealDetailModal({
                       ) : (
                         <Sparkles className="h-3 w-3" />
                       )}
-                      <span>Avaliar</span>
+                      <span>{calculatingPriority ? "Avaliando conversa..." : "Avaliar"}</span>
                     </button>
                   </SystemTooltip>
 

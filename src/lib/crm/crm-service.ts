@@ -6793,19 +6793,56 @@ export class CrmService {
     const now = new Date();
     const dealValue = parseFloat(deal.value || "0");
 
-    // Produtos
+    // Empresa compradora (Account)
+    let accountSummary = "Não vinculada";
+    if (deal.accountId) {
+      const [acc] = await db
+        .select()
+        .from(crmAccounts)
+        .where(and(eq(crmAccounts.id, deal.accountId), eq(crmAccounts.tenantId, tenantId)))
+        .limit(1);
+      if (acc) {
+        const accParts = [
+          acc.name,
+          acc.document ? `Doc: ${acc.document}` : null,
+          acc.segment ? `Segmento: ${acc.segment}` : null,
+          acc.city && acc.state ? `${acc.city}/${acc.state}` : acc.state || null,
+        ].filter(Boolean);
+        accountSummary = accParts.join(" | ");
+      }
+    }
+
+    // Produtos vinculados
     const products = await db
       .select()
       .from(crmDealProducts)
       .where(and(eq(crmDealProducts.tenantId, tenantId), eq(crmDealProducts.dealId, dealId)));
     const productsCount = products.length;
+    const productsSummary =
+      products.length > 0
+        ? products
+            .map(
+              (p) =>
+                `- ${p.name} (Qtd: ${p.quantity}, Unit: R$ ${Number(p.unitPrice || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}, Total: R$ ${Number(p.totalPrice || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })})`
+            )
+            .join("\n")
+        : "Nenhum produto cadastrado na ficha.";
 
-    // Propostas
+    // Propostas emitidas
     const proposals = await db
       .select()
       .from(crmProposals)
       .where(and(eq(crmProposals.tenantId, tenantId), eq(crmProposals.dealId, dealId)));
     const proposalsCount = proposals.length;
+    const proposalsSummary =
+      proposals.length > 0
+        ? proposals
+            .map(
+              (pr) =>
+                `- Proposta ${pr.proposalNumber || pr.id.slice(0, 8)}: Status=${pr.status}, Total=R$ ${Number(pr.total || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+            )
+            .join("\n")
+        : "Nenhuma proposta formal gerada.";
 
     // Etapa atual
     let stageName = "Etapa Atual";
@@ -6818,7 +6855,29 @@ export class CrmService {
       if (stg) stageName = stg.name;
     }
 
-    // 2. Analisar tarefas pendentes e atrasadas
+    // Campos personalizados preenchidos na negociação
+    let customFieldsSummary = "Nenhum campo personalizado preenchido.";
+    try {
+      const customFieldDefs = await listCustomFields(tenantId, "deal");
+      const rawCustom = (deal.customFields as Record<string, unknown>) || {};
+      const filledLines: string[] = [];
+      for (const def of customFieldDefs) {
+        const val = rawCustom[def.id] ?? rawCustom[def.name];
+        if (isFilled(val)) {
+          const formatted = formatCustomFieldLabel(def, val);
+          if (formatted) {
+            filledLines.push(`- ${def.name}: ${formatted}`);
+          }
+        }
+      }
+      if (filledLines.length > 0) {
+        customFieldsSummary = filledLines.join("\n");
+      }
+    } catch {
+      // Ignora falha na leitura de definições opcionais
+    }
+
+    // 2. Analisar tarefas pendentes, atrasadas e notas comerciais
     const activities = await db
       .select()
       .from(crmDealActivities)
@@ -6827,36 +6886,331 @@ export class CrmService {
           eq(crmDealActivities.tenantId, tenantId),
           eq(crmDealActivities.dealId, dealId)
         )
-      );
+      )
+      .orderBy(asc(crmDealActivities.createdAt));
 
-    const pendingTasks = activities.filter((a) => !a.completedAt && a.type === "task");
+    const pendingTasks = activities.filter(
+      (a) => !a.completedAt && a.status !== "completed" && a.status !== "cancelled" && a.type !== "note"
+    );
     const overdueTasks = pendingTasks.filter(
       (a) => a.dueDate && new Date(a.dueDate) < now
     );
+    const commercialNotes = activities.filter((a) => a.type === "note");
+    const notesSummary =
+      commercialNotes.length > 0
+        ? commercialNotes
+            .slice(-12)
+            .map((n) => {
+              const dt = new Date(n.createdAt).toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              const body = [n.title, n.description].filter(Boolean).join(" — ");
+              return `[${dt}] ${body}`;
+            })
+            .join("\n")
+        : "Nenhuma nota comercial registrada.";
 
-    // Dias sem atividade recente
+    const tasksSummary =
+      pendingTasks.length > 0
+        ? pendingTasks
+            .map((t) => {
+              const isOverdue = t.dueDate && new Date(t.dueDate) < now;
+              const dueStr = t.dueDate
+                ? new Date(t.dueDate).toLocaleString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "Sem prazo";
+              return `- [${isOverdue ? "ATRASADA" : "PENDENTE"}] ${t.title} (Prazo: ${dueStr})${t.description ? ` - ${t.description}` : ""}`;
+            })
+            .join("\n")
+        : "Nenhuma tarefa comercial pendente.";
+
+    // Evidências comerciais destacadas na conversa
+    const evidenceRows = await db
+      .select({
+        evidence: crmActivityMessages,
+        message: messages,
+      })
+      .from(crmActivityMessages)
+      .innerJoin(
+        messages,
+        and(
+          eq(crmActivityMessages.messageId, messages.id),
+          eq(messages.tenantId, tenantId)
+        )
+      )
+      .where(
+        and(
+          eq(crmActivityMessages.tenantId, tenantId),
+          eq(crmActivityMessages.dealId, dealId)
+        )
+      )
+      .orderBy(asc(crmActivityMessages.createdAt));
+
+    const evidencesSummary =
+      evidenceRows.length > 0
+        ? evidenceRows
+            .map(
+              (ev) =>
+                `- "${ev.message.content || ev.message.mediaInterpretation || "Mídia"}"${ev.evidence.note ? ` (Nota: ${ev.evidence.note})` : ""}`
+            )
+            .join("\n")
+        : "Nenhuma mensagem marcada como evidência.";
+
+    // 3. Resolver TODOS os atendimentos/conversas vinculados à negociação e ler o histórico inteiro
+    const linkedConvIdSet = new Set<string>();
+
+    // 3a. Vínculos diretos em crm_conversation_deals
+    const directConvLinks = await db
+      .select({ conversationId: crmConversationDeals.conversationId })
+      .from(crmConversationDeals)
+      .where(
+        and(
+          eq(crmConversationDeals.tenantId, tenantId),
+          eq(crmConversationDeals.dealId, dealId),
+          eq(crmConversationDeals.isActive, true)
+        )
+      );
+    for (const row of directConvLinks) {
+      if (row.conversationId) linkedConvIdSet.add(row.conversationId);
+    }
+
+    // 3b. Conversas dos contatos participantes vinculados em crm_deal_contacts
+    const dealContactRows = await db
+      .select({
+        contactId: crmDealContacts.contactId,
+        role: crmDealContacts.role,
+        isPrimary: crmDealContacts.isPrimary,
+        contactName: contacts.name,
+        contactPhone: contacts.phone,
+      })
+      .from(crmDealContacts)
+      .innerJoin(
+        contacts,
+        and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId))
+      )
+      .where(
+        and(
+          eq(crmDealContacts.tenantId, tenantId),
+          eq(crmDealContacts.dealId, dealId)
+        )
+      );
+
+    const participantContactIds = Array.from(
+      new Set(dealContactRows.map((c) => c.contactId).filter(Boolean))
+    );
+
+    if (participantContactIds.length > 0) {
+      const contactConvs = await db
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.tenantId, tenantId),
+            inArray(conversations.contactId, participantContactIds)
+          )
+        );
+      for (const c of contactConvs) {
+        if (c.id) linkedConvIdSet.add(c.id);
+      }
+    }
+
+    // 3c. Fallback: se ainda não encontrou conversa e a negociação tem empresa vinculada, busca conversas da empresa
+    if (linkedConvIdSet.size === 0 && deal.accountId) {
+      const accConvs = await db
+        .select({ conversationId: crmAccountConversations.conversationId })
+        .from(crmAccountConversations)
+        .where(
+          and(
+            eq(crmAccountConversations.tenantId, tenantId),
+            eq(crmAccountConversations.accountId, deal.accountId)
+          )
+        );
+      for (const ac of accConvs) {
+        if (ac.conversationId) linkedConvIdSet.add(ac.conversationId);
+      }
+
+      if (linkedConvIdSet.size === 0) {
+        const accContacts = await db
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.tenantId, tenantId),
+              eq(contacts.accountId, deal.accountId)
+            )
+          );
+        const accContactIds = accContacts.map((c) => c.id);
+        if (accContactIds.length > 0) {
+          const accContactConvs = await db
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.tenantId, tenantId),
+                inArray(conversations.contactId, accContactIds)
+              )
+            );
+          for (const cc of accContactConvs) {
+            if (cc.id) linkedConvIdSet.add(cc.id);
+          }
+        }
+      }
+    }
+
+    const allConversationIds = Array.from(linkedConvIdSet);
+
+    // Buscar todas as mensagens das conversas vinculadas em ordem cronológica
+    const allMessages =
+      allConversationIds.length > 0
+        ? await db
+            .select()
+            .from(messages)
+            .where(
+              and(
+                eq(messages.tenantId, tenantId),
+                inArray(messages.conversationId, allConversationIds)
+              )
+            )
+            .orderBy(asc(messages.sentAt))
+        : [];
+
+    const publicMessages = allMessages.filter(
+      (m) => !m.isInternalNote && m.senderType !== "system"
+    );
+    const clientMessages = publicMessages.filter(
+      (m) => m.senderType === "client" || m.direction === "inbound"
+    );
+    const agentMessages = publicMessages.filter(
+      (m) => m.senderType === "agent" || m.senderType === "bot" || m.direction === "outbound"
+    );
+    const lastPublicMessage =
+      publicMessages.length > 0 ? publicMessages[publicMessages.length - 1] : null;
+    const isClientWaitingReply = Boolean(
+      lastPublicMessage &&
+        (lastPublicMessage.senderType === "client" || lastPublicMessage.direction === "inbound")
+    );
+    const hoursSinceLastMessage = lastPublicMessage?.sentAt
+      ? Math.max(
+          0,
+          Math.round(
+            ((now.getTime() - new Date(lastPublicMessage.sentAt).getTime()) /
+              (1000 * 60 * 60)) *
+              10
+          ) / 10
+        )
+      : null;
+
+    // Montar transcrição completa da conversa para o prompt da IA
+    const formatMessageLine = (m: typeof allMessages[number]) => {
+      const dt = m.sentAt
+        ? new Date(m.sentAt).toLocaleString("pt-BR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "--/-- --:--";
+      let roleTag = "SISTEMA";
+      if (m.isInternalNote) {
+        roleTag = `NOTA INTERNA (${m.senderName || "Operador"})`;
+      } else if (m.senderType === "client" || m.direction === "inbound") {
+        roleTag = `CLIENTE (${m.senderName || "Cliente"})`;
+      } else if (m.senderType === "bot") {
+        roleTag = `IA/SDR (${m.senderName || "Assistente"})`;
+      } else {
+        roleTag = `ATENDENTE (${m.senderName || "Vendedor"})`;
+      }
+
+      const rawContent = (m.content || "").trim();
+      const mediaText = (m.mediaInterpretation || "").trim();
+      const bodyParts = [
+        rawContent,
+        mediaText ? `[Transcrição/Análise de Mídia: ${mediaText}]` : "",
+      ].filter(Boolean);
+
+      return `[${dt}] ${roleTag}: ${bodyParts.join(" ") || "[Mídia/Anexo sem texto]"}`;
+    };
+
+    let conversationTranscript = "Nenhuma conversa ou mensagem vinculada a esta negociação.";
+    if (allMessages.length > 0) {
+      const MAX_MESSAGES_IN_PROMPT = 120;
+      if (allMessages.length <= MAX_MESSAGES_IN_PROMPT) {
+        conversationTranscript = allMessages.map(formatMessageLine).join("\n");
+      } else {
+        const firstSlice = allMessages.slice(0, 25).map(formatMessageLine);
+        const lastSlice = allMessages.slice(-95).map(formatMessageLine);
+        const omittedCount = allMessages.length - 120;
+        conversationTranscript = [
+          ...firstSlice,
+          `... [${omittedCount} mensagens intermediárias omitidas para preservar início e contexto recente completo] ...`,
+          ...lastSlice,
+        ].join("\n");
+      }
+    }
+
+    // Sinais objetivos extraídos do texto do cliente na conversa
+    const recentClientText = clientMessages
+      .slice(-20)
+      .map((m) => `${m.content || ""} ${m.mediaInterpretation || ""}`.toLowerCase())
+      .join(" \n ");
+
+    const hasBuyingIntentInChat =
+      /(or[cç]amento|cota[cç][aã]o|proposta|pre[cç]o|valor|fechar|pedido|comprar|pagamento|boleto|pix|faturar|faturamento|cnpj|nota fiscal|frete|prazo de entrega|desconto|aprovar|aprovad[oa]|contrato|m[aá]quina|envasadora|seladora|rotuladora|datador|empacotadora|dosadora|v[aá]lvula|frasco)/i.test(
+        recentClientText
+      );
+    const hasUrgencyInChat =
+      /(urgente|urg[eê]ncia|hoje|amanh[aã]|essa semana|produ[cç][aã]o parada|imediato|preciso logo|o quanto antes|r[aá]pido|prioridade)/i.test(
+        recentClientText
+      );
+    const hasObjectionOrCoolingInChat =
+      /(muito caro|acima do or[cç]amento|vou pensar|deixar para depois|m[eê]s que vem|ano que vem|j[aá] comprei|fechamos com outro|sem interesse|cancelar|suspender)/i.test(
+        recentClientText
+      );
+
+    // Dias sem atividade recente (considerando também a última mensagem real do chat)
+    const lastInteractionDate = lastPublicMessage?.sentAt
+      ? new Date(
+          Math.max(
+            new Date(deal.lastActivityAt || deal.createdAt).getTime(),
+            new Date(lastPublicMessage.sentAt).getTime()
+          )
+        )
+      : new Date(deal.lastActivityAt || deal.createdAt);
+
     const daysSinceLastActivity = Math.max(
       0,
       Math.floor(
-        (now.getTime() - new Date(deal.lastActivityAt || deal.createdAt).getTime()) /
-          (1000 * 60 * 60 * 24)
+        (now.getTime() - lastInteractionDate.getTime()) / (1000 * 60 * 60 * 24)
       )
     );
 
-    // Heurística explicável de base (determinística e transparente)
-    let baseScore = 40;
+    // 4. Heurística explicável de base (determinística e enriquecida com dados reais da conversa)
+    let baseScore = 35;
     const explanationPoints: string[] = [];
 
     // Fatores de valor financeiro
     if (dealValue >= 50000) {
-      baseScore += 30;
-      explanationPoints.push(`Alto valor financeiro (R$ ${dealValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}).`);
+      baseScore += 25;
+      explanationPoints.push(
+        `Alto valor financeiro (R$ ${dealValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}).`
+      );
     } else if (dealValue >= 10000) {
-      baseScore += 20;
-      explanationPoints.push(`Ticket intermediário (R$ ${dealValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}).`);
+      baseScore += 18;
+      explanationPoints.push(
+        `Ticket intermediário (R$ ${dealValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}).`
+      );
     } else if (dealValue > 0) {
       baseScore += 10;
-      explanationPoints.push(`Ticket padrão cadastrado.`);
+      explanationPoints.push(
+        `Valor estimado em R$ ${dealValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}.`
+      );
     }
 
     // Fatores de proposta/produtos
@@ -6868,16 +7222,56 @@ export class CrmService {
       explanationPoints.push(`${productsCount} produto(s) mapeado(s).`);
     }
 
-    // Fatores de urgência/atraso
-    if (overdueTasks.length > 0) {
-      baseScore += 15;
-      explanationPoints.push(`${overdueTasks.length} tarefa(s) com prazo vencido exigindo atenção imediata.`);
+    // Fatores extraídos da conversa real vinculada
+    if (publicMessages.length > 0) {
+      if (isClientWaitingReply) {
+        baseScore += hoursSinceLastMessage && hoursSinceLastMessage >= 2 ? 18 : 14;
+        explanationPoints.push(
+          `Cliente enviou a última mensagem no atendimento${hoursSinceLastMessage !== null ? ` há ${hoursSinceLastMessage}h` : ""} e aguarda resposta.`
+        );
+      } else {
+        explanationPoints.push(
+          `Histórico de atendimento ativo com ${publicMessages.length} mensagens (${clientMessages.length} do cliente).`
+        );
+      }
+
+      if (hasBuyingIntentInChat) {
+        baseScore += 14;
+        explanationPoints.push(
+          `Cliente demonstrou sinais claros de interesse comercial/cotação nas mensagens.`
+        );
+      }
+
+      if (hasUrgencyInChat) {
+        baseScore += 10;
+        explanationPoints.push(`Sinais de urgência detectados na fala do cliente.`);
+      }
+
+      if (hasObjectionOrCoolingInChat) {
+        baseScore -= 12;
+        explanationPoints.push(
+          `Objeção de preço, adiamento ou perda de fôlego identificada nas mensagens recentes.`
+        );
+      }
+    } else {
+      baseScore -= 5;
+      explanationPoints.push(`Sem mensagens de atendimento vinculadas para análise de diálogo.`);
     }
 
-    // Desconto se abandonado sem atividade
+    // Fatores de urgência/atraso de tarefas
+    if (overdueTasks.length > 0) {
+      baseScore += 12;
+      explanationPoints.push(
+        `${overdueTasks.length} tarefa(s) comercial(is) com prazo vencido exigindo ação imediata.`
+      );
+    }
+
+    // Desconto se abandonado sem atividade nem mensagem
     if (daysSinceLastActivity > 7) {
       baseScore -= 15;
-      explanationPoints.push(`Sem movimentação comercial há ${daysSinceLastActivity} dias.`);
+      explanationPoints.push(
+        `Sem movimentação comercial ou mensagem há ${daysSinceLastActivity} dias.`
+      );
     }
 
     const calculatedScore = Math.min(100, Math.max(5, baseScore));
@@ -6891,42 +7285,92 @@ export class CrmService {
     let finalLevel = calculatedLevel;
     let finalReason = explanationPoints.join(" ");
 
-    // 3. Consulta ao Vertex AI se credencial/serviço estiver disponível
+    // 5. Consulta ao Vertex AI lendo o dossiê completo da negociação + conversa inteira do atendimento
     try {
-      const prompt = `Você é um analista comercial sênior. Avalie a seguinte oportunidade de negócio e forneça um score de prioridade de 0 a 100, nível (baixa, media, alta ou critica) e justificativa sucinta e objetiva em português:\n\n` +
+      const contactsListText =
+        dealContactRows.length > 0
+          ? dealContactRows
+              .map(
+                (c) =>
+                  `- ${c.contactName || "Sem nome"} (${c.contactPhone || "sem telefone"}) | Papel: ${c.role || "participante"}${c.isPrimary ? " [Principal]" : ""}`
+              )
+              .join("\n")
+          : "Nenhum contato vinculado.";
+
+      const prompt =
+        `Você é um Diretor e Analista Comercial Sênior especialista em diagnóstico de oportunidades B2B.\n` +
+        `Sua missão é avaliar de forma cirúrgica, realista e aprofundada a negociação abaixo, consultando TANTO os dados estruturados do card QUANTO a CONVERSA INTEIRA do atendimento vinculado entre o cliente e a equipe comercial.\n\n` +
+        `DIRETRIZES DE AVALIAÇÃO:\n` +
+        `1. Leia atentamente a transcrição completa da conversa vinculada. Identifique o que o cliente realmente pediu (máquinas, produtos, quantidades, aplicação técnica, orçamento), qual o tom dele, se ele tem urgência real, se já recebeu preço/proposta ou se ainda está esperando retorno.\n` +
+        `2. Verifique QUEM falou por último na conversa e há quanto tempo: se o cliente mandou a última mensagem ou pergunta e está aguardando resposta do vendedor, aumente a prioridade e destaque isso explicitamente.\n` +
+        `3. Se a conversa mostrar que é apenas um contato frio, engano, fornecedor oferecendo serviços, spam, ou cliente que já desistiu/comprou do concorrente, dê um score baixo ("baixa") e explique claramente o motivo.\n` +
+        `4. Cruzamento com o CRM: considere valor do negócio, etapa atual do funil, propostas formais geradas, notas comerciais do vendedor, evidências marcadas e tarefas atrasadas.\n` +
+        `5. Na justificativa ("reason"), escreva de 2 a 4 frases diretas e executivas em português, citando fatos concretos extraídos da conversa (ex: o que o cliente solicitou, em que pé parou o diálogo, quem aguarda quem e qual a próxima ação recomendada).\n\n` +
+        `=== DADOS ESTRUTURADOS DA NEGOCIAÇÃO ===\n` +
         `Título: ${deal.title}\n` +
-        `Valor: R$ ${dealValue}\n` +
-        `Etapa: ${stageName}\n` +
-        `Status: ${deal.status}\n` +
-        `Produtos vinculados: ${productsCount}\n` +
-        `Propostas emitidas: ${proposalsCount}\n` +
-        `Tarefas atrasadas: ${overdueTasks.length}\n` +
-        `Dias sem atividade: ${daysSinceLastActivity}\n` +
-        `Responda em formato JSON: { "score": number, "level": "baixa"|"media"|"alta"|"critica", "reason": "string" }`;
+        `Empresa Compradora: ${accountSummary}\n` +
+        `Contatos Vinculados:\n${contactsListText}\n` +
+        `Etapa do Funil: ${stageName}\n` +
+        `Status Atual: ${deal.status}\n` +
+        `Valor Estimado: R$ ${dealValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}\n` +
+        `Qualificação (Estrelas): ${deal.rating ? `${deal.rating}/5` : "Não avaliada"}\n` +
+        `Previsão de Fechamento: ${deal.expectedCloseDate ? new Date(deal.expectedCloseDate).toLocaleDateString("pt-BR") : "Não informada"}\n` +
+        `Dias desde a última interação: ${daysSinceLastActivity}\n\n` +
+        `=== CAMPOS PERSONALIZADOS PREENCHIDOS ===\n${customFieldsSummary}\n\n` +
+        `=== PRODUTOS VINCULADOS (${productsCount}) ===\n${productsSummary}\n\n` +
+        `=== PROPOSTAS COMERCIAIS (${proposalsCount}) ===\n${proposalsSummary}\n\n` +
+        `=== TAREFAS PENDENTES (${pendingTasks.length} total, ${overdueTasks.length} atrasadas) ===\n${tasksSummary}\n\n` +
+        `=== NOTAS COMERCIAIS DA EQUIPE ===\n${notesSummary}\n\n` +
+        `=== EVIDÊNCIAS DESTACADAS DO CHAT ===\n${evidencesSummary}\n\n` +
+        `=== INDICADORES DO ATENDIMENTO VINCULADO ===\n` +
+        `Conversas vinculadas: ${allConversationIds.length}\n` +
+        `Total de mensagens públicas: ${publicMessages.length} (${clientMessages.length} do cliente, ${agentMessages.length} da equipe/IA)\n` +
+        `Cliente aguardando resposta da última mensagem? ${isClientWaitingReply ? `SIM (há ${hoursSinceLastMessage ?? 0}h)` : "Não"}\n\n` +
+        `=== HISTÓRICO COMPLETO DA CONVERSA DO ATENDIMENTO ===\n` +
+        `${conversationTranscript}\n\n` +
+        `Responda ESTRITAMENTE em JSON válido no formato:\n` +
+        `{\n` +
+        `  "score": number, // inteiro de 0 a 100\n` +
+        `  "level": "baixa" | "media" | "alta" | "critica",\n` +
+        `  "reason": "Justificativa comercial detalhada baseada na conversa e nos dados da negociação"\n` +
+        `}`;
 
       const aiResponse = await vertexAi.generateStructuredJson<{
         score: number;
         level: "baixa" | "media" | "alta" | "critica";
         reason: string;
       }>(prompt, undefined, undefined, {
-        feature: "crm_ai_priority",
+        feature: "sla_advisor",
         tenantId,
-        metadata: { dealId, dealTitle: deal.title },
+        metadata: {
+          dealId,
+          dealTitle: deal.title,
+          conversationsCount: allConversationIds.length,
+          messagesCount: allMessages.length,
+        },
       });
 
       if (aiResponse && typeof aiResponse.score === "number" && aiResponse.reason) {
         finalScore = Math.min(100, Math.max(0, Math.round(aiResponse.score)));
-        finalLevel = ["baixa", "media", "alta", "critica"].includes(aiResponse.level)
-          ? aiResponse.level
-          : calculatedLevel;
-        finalReason = `[IA Vertex]: ${aiResponse.reason}`;
+        if (["baixa", "media", "alta", "critica"].includes(aiResponse.level)) {
+          finalLevel = aiResponse.level;
+        } else if (finalScore >= 80) {
+          finalLevel = "critica";
+        } else if (finalScore >= 60) {
+          finalLevel = "alta";
+        } else if (finalScore >= 35) {
+          finalLevel = "media";
+        } else {
+          finalLevel = "baixa";
+        }
+        finalReason = `[IA Vertex]: ${aiResponse.reason.trim()}`;
       }
     } catch (e: any) {
-      // Fallback gracioso mantendo explicabilidade auditável
-      finalReason = `[Critério Comercial Heurístico]: ${explanationPoints.join(" ") || "Critério baseado em valor de ticket e atividade da negociação."}`;
+      // Fallback gracioso mantendo explicabilidade auditável com os sinais da conversa
+      finalReason = `[Critério Comercial Heurístico]: ${explanationPoints.join(" ") || "Critério baseado em valor de ticket, conversa e atividade da negociação."}`;
     }
 
-    // 4. Persistir score na negociação
+    // 6. Persistir score na negociação
     await db
       .update(crmDeals)
       .set({
@@ -6943,6 +7387,8 @@ export class CrmService {
       score: finalScore,
       level: finalLevel,
       reason: finalReason,
+      analyzedMessagesCount: allMessages.length,
+      analyzedConversationsCount: allConversationIds.length,
     });
 
     return {
