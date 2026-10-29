@@ -13,7 +13,11 @@ import {
   ClipboardList,
   Activity,
   ChevronDown,
+  Settings,
 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useChat } from "@/hooks/useChatState";
 import { OperatorFilterPopover } from "./OperatorFilterPopover";
 import { AdvancedFiltersState, countActiveAdvancedFilters } from "./AdvancedFiltersModal";
 import {
@@ -120,6 +124,10 @@ export function CrmToolbar({
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const { canAccessView } = usePermissions();
+  const { setActiveView } = useChat();
+  const navigate = useNavigate();
+  const canConfigurePipeline = canAccessView("settings");
 
   const activeAdvancedCount = countActiveAdvancedFilters(advancedFilters);
   const activeFilterCount =
@@ -235,18 +243,20 @@ export function CrmToolbar({
       value={statusFilter}
       onValueChange={(value) => onStatusFilterChange(value as CrmStatusFilter)}
     >
-      <SelectTrigger
-        data-tour="crm.status"
-        aria-label="Status da negociação"
-        className="h-9 w-full gap-2 rounded-lg bg-background px-3 text-sm shadow-none"
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <CurrentStatusIcon className={`h-4 w-4 shrink-0 ${currentStatusMeta.iconColor}`} />
-          <span className="truncate">
-            <SelectValue>{currentStatusMeta.label}</SelectValue>
-          </span>
-        </div>
-      </SelectTrigger>
+      <SystemTooltip content={`Filtrar por status (${currentStatusMeta.label})`}>
+        <SelectTrigger
+          data-tour="crm.status"
+          aria-label="Status da negociação"
+          className="h-9 w-full gap-2 rounded-lg bg-background px-3 text-sm shadow-none"
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <CurrentStatusIcon className={`h-4 w-4 shrink-0 ${currentStatusMeta.iconColor}`} />
+            <span className="truncate">
+              <SelectValue>{currentStatusMeta.label}</SelectValue>
+            </span>
+          </div>
+        </SelectTrigger>
+      </SystemTooltip>
       <SelectContent>
         {CRM_STATUS_FILTER_OPTIONS.map((opt) => {
           const OptionIcon = opt.icon;
@@ -265,20 +275,22 @@ export function CrmToolbar({
 
   const renderSort = () => (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Ordenar negociações: ${selectedSort.label}`}
-          data-tour="crm.sort"
-          className="flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <ArrowUpDown className="h-4 w-4 shrink-0" />
-          <span>
-            Ordenar: <span className="text-foreground">{selectedSort.shortLabel}</span>
-          </span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-        </button>
-      </DropdownMenuTrigger>
+      <SystemTooltip content={`Ordenar negociações (${selectedSort.label})`}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Ordenar negociações: ${selectedSort.label}`}
+            data-tour="crm.sort"
+            className="flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ArrowUpDown className="h-4 w-4 shrink-0" />
+            <span>
+              Ordenar: <span className="text-foreground">{selectedSort.shortLabel}</span>
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+          </button>
+        </DropdownMenuTrigger>
+      </SystemTooltip>
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>Ordenar negociações</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={sortBy} onValueChange={onSortByChange}>
@@ -293,42 +305,57 @@ export function CrmToolbar({
   );
 
   const renderAdvancedButton = () => (
-    <button
-      type="button"
-      onClick={() => {
-        setCompactFiltersOpen(false);
-        onOpenAdvancedFilters();
-      }}
-      className={`flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeAdvancedCount ? "border-primary/30 bg-primary/5 text-primary" : "border-border hover:bg-muted"}`}
-    >
-      <Filter className="h-4 w-4" />
-      Mais filtros
-      {activeAdvancedCount > 0 && (
-        <span className="rounded-full bg-primary/10 px-1.5 text-xs tabular-nums">
-          {activeAdvancedCount}
-        </span>
-      )}
-    </button>
+    <SystemTooltip content="Abrir filtros avançados de negociações">
+      <button
+        type="button"
+        onClick={() => {
+          setCompactFiltersOpen(false);
+          onOpenAdvancedFilters();
+        }}
+        className={`flex h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeAdvancedCount ? "border-primary/30 bg-primary/5 text-primary" : "border-border hover:bg-muted"}`}
+      >
+        <Filter className="h-4 w-4" />
+        Mais filtros
+        {activeAdvancedCount > 0 && (
+          <span className="rounded-full bg-primary/10 px-1.5 text-xs tabular-nums">
+            {activeAdvancedCount}
+          </span>
+        )}
+      </button>
+    </SystemTooltip>
   );
 
   return (
     <div className="@container/crm-toolbar min-w-0 shrink-0 rounded-2xl border border-border bg-card shadow-xs">
       <div className="flex flex-wrap items-center justify-between gap-2.5 px-3 py-2.5 sm:px-4 sm:py-3">
-        <Select value={selectedPipelineId} onValueChange={onPipelineChange}>
-          <SelectTrigger
-            data-tour="crm.pipeline-select"
-            aria-label="Funil de negociações"
-            className="h-9 sm:h-10 w-full @[38rem]/crm-toolbar:w-auto min-w-0 max-w-full gap-2.5 sm:gap-3 rounded-lg border-transparent bg-transparent px-1 text-sm sm:text-base font-semibold shadow-none @[38rem]/crm-toolbar:max-w-80 cursor-pointer hover:bg-muted/30 transition-colors"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <Layers className="h-4 w-4 shrink-0 text-primary" />
-              <span className="truncate">
-                <SelectValue placeholder="Selecione um funil">
-                  {selectedPipeline?.name}
-                </SelectValue>
-              </span>
-            </div>
-          </SelectTrigger>
+        <Select
+          value={selectedPipelineId}
+          onValueChange={(val) => {
+            if (val === "__configure_pipeline__") {
+              setActiveView("settings");
+              navigate({ to: "/ajustes/crm/funis" as any });
+              window.dispatchEvent(new CustomEvent("crm:open-pipeline-settings"));
+              return;
+            }
+            onPipelineChange(val);
+          }}
+        >
+          <SystemTooltip content={`Alternar funil de vendas (${selectedPipeline?.name || "Funil"})`}>
+            <SelectTrigger
+              data-tour="crm.pipeline-select"
+              aria-label="Funil de negociações"
+              className="h-9 sm:h-10 w-full @[38rem]/crm-toolbar:w-auto min-w-0 max-w-full gap-2.5 sm:gap-3 rounded-lg border-transparent bg-transparent px-1 text-sm sm:text-base font-semibold shadow-none @[38rem]/crm-toolbar:max-w-80 cursor-pointer hover:bg-muted/30 transition-colors"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <Layers className="h-4 w-4 shrink-0 text-primary" />
+                <span className="truncate">
+                  <SelectValue placeholder="Selecione um funil">
+                    {selectedPipeline?.name}
+                  </SelectValue>
+                </span>
+              </div>
+            </SelectTrigger>
+          </SystemTooltip>
           <SelectContent>
             {pipelines.length === 0 ? (
               <SelectItem value="__none__" disabled>
@@ -340,6 +367,20 @@ export function CrmToolbar({
                   {pipeline.name}
                 </SelectItem>
               ))
+            )}
+            {canConfigurePipeline && (
+              <>
+                <div className="my-1 border-t border-border/60" />
+                <SelectItem
+                  value="__configure_pipeline__"
+                  className="font-semibold text-primary focus:text-primary cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Settings className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span>Configurar funil</span>
+                  </span>
+                </SelectItem>
+              </>
             )}
           </SelectContent>
         </Select>
@@ -353,42 +394,50 @@ export function CrmToolbar({
             {(["kanban", "list"] as const).map((mode) => {
               const Icon = mode === "kanban" ? Columns3 : List;
               return (
-                <button
+                <SystemTooltip
                   key={mode}
-                  type="button"
-                  data-tour={mode === "kanban" ? "crm.view-board" : "crm.view-list"}
-                  aria-pressed={viewMode === mode}
-                  onClick={() => onViewModeChange(mode)}
-                  className={`flex h-8 items-center gap-1.5 sm:gap-2 rounded-md px-2.5 sm:px-3 text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+                  content={mode === "kanban" ? "Visualização em Quadro Kanban" : "Visualização em Lista"}
                 >
-                  <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  {mode === "kanban" ? "Quadro" : "Lista"}
-                </button>
+                  <button
+                    type="button"
+                    data-tour={mode === "kanban" ? "crm.view-board" : "crm.view-list"}
+                    aria-pressed={viewMode === mode}
+                    onClick={() => onViewModeChange(mode)}
+                    className={`flex h-8 items-center gap-1.5 sm:gap-2 rounded-md px-2.5 sm:px-3 text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    {mode === "kanban" ? "Quadro" : "Lista"}
+                  </button>
+                </SystemTooltip>
               );
             })}
           </div>
 
           <div className="flex shrink-0 rounded-lg bg-primary text-primary-foreground shadow-xs">
-            <button
-              type="button"
-              data-tour="crm.new-deal"
-              onClick={onNewDealClick}
-              className="flex h-9 sm:h-10 items-center gap-1.5 sm:gap-2 rounded-l-lg px-3 sm:px-4 text-xs sm:text-sm font-semibold hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 whitespace-nowrap"
-            >
-              <Plus className="h-4 w-4 shrink-0" />
-              Nova negociação
-            </button>
+            <SystemTooltip content="Criar nova negociação no funil">
+              <button
+                type="button"
+                data-tour="crm.new-deal"
+                onClick={onNewDealClick}
+                className="flex h-9 sm:h-10 items-center gap-1.5 sm:gap-2 rounded-l-lg px-3 sm:px-4 text-xs sm:text-sm font-semibold hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 whitespace-nowrap cursor-pointer"
+              >
+                <Plus className="h-4 w-4 shrink-0" />
+                Nova negociação
+              </button>
+            </SystemTooltip>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  data-tour="crm.quick-create-trigger"
-                  aria-label="Outras opções de criação"
-                  className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-r-lg border-l border-primary-foreground/25 hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-              </DropdownMenuTrigger>
+              <SystemTooltip content="Outras opções de criação (Empresa, Contato, Tarefa)">
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    data-tour="crm.quick-create-trigger"
+                    aria-label="Outras opções de criação"
+                    className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-r-lg border-l border-primary-foreground/25 hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+              </SystemTooltip>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>Outras criações</DropdownMenuLabel>
                 <DropdownMenuItem onSelect={onCreateCompanyClick}>

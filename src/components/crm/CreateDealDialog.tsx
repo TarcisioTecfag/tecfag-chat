@@ -13,6 +13,7 @@ import {
   Phone,
   Mail,
   Search,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AccountPicker } from "./AccountPicker";
@@ -25,6 +26,10 @@ import {
   validateAccountDocument,
   validateCnpj,
 } from "../../lib/crm/account-validation";
+import {
+  useCheckDuplicateDocument,
+  findDuplicateAccountByDocument,
+} from "../../lib/crm/use-check-duplicate-document";
 import { fetchCnpjInfo, type CnpjFullDetails } from "../../lib/valentina/cnpj-service";
 import {
   buildAccountAddressFromCnpjDetails,
@@ -43,6 +48,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SystemTooltip } from "@/components/ui/tooltip";
 
 interface StageOption {
@@ -140,6 +153,10 @@ export function CreateDealDialog({
   const [selectedAccount, setSelectedAccount] = useState<CrmAccountDTO | null>(null);
   const [isCreatingNewAccount, setIsCreatingNewAccount] = useState(false);
   const [contactOriginalAccount, setContactOriginalAccount] = useState<{ id: string; name: string } | null>(null);
+  const [pendingAccountReplacement, setPendingAccountReplacement] = useState<{
+    newAccount: CrmAccountDTO;
+    contactName: string;
+  } | null>(null);
   const [hasAccount, setHasAccount] = useState(!!defaultAccountName);
   const [accountType, setAccountType] = useState<"person" | "company">("company");
   const [accountName, setAccountName] = useState(defaultAccountName || "");
@@ -147,6 +164,11 @@ export function CreateDealDialog({
   const [accountDocument, setAccountDocument] = useState("");
   const [accountPhone, setAccountPhone] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
+
+  const { duplicateAccount } = useCheckDuplicateDocument(
+    accountDocument,
+    isCreatingNewAccount && isOpen,
+  );
 
   const [note, setNote] = useState("");
   const [dealCustomFields, setDealCustomFields] = useState<Record<string, unknown>>({});
@@ -172,22 +194,33 @@ export function CreateDealDialog({
     return () => clearTimeout(timer);
   }, [contactQuery, isOpen, selectedContactId]);
 
+  const applyContactAccountToDeal = (contactId: string, contactNameLabel?: string) => {
+    if (!contactId) return;
+    fetch(`/api/contacts/${encodeURIComponent(contactId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.name && !contactNameLabel) setSelectedContactName(data.name);
+        if (data?.account && data.account.id) {
+          setContactOriginalAccount({ id: data.account.id, name: data.account.name });
+          if (!selectedAccount && !isCreatingNewAccount) {
+            setSelectedAccount(data.account);
+            setHasAccount(true);
+            toast.info(`Empresa "${data.account.name}" vinculada automaticamente pelo contato.`);
+          } else if (selectedAccount && selectedAccount.id !== data.account.id) {
+            setPendingAccountReplacement({
+              newAccount: data.account,
+              contactName: data.name || contactNameLabel || "selecionado",
+            });
+          }
+        }
+      })
+      .catch((err) => console.error("Erro ao carregar contato no dialog:", err));
+  };
+
   // Busca conta vinculada ao contato pré-selecionado (se houver)
   useEffect(() => {
     if (defaultContactId) {
-      fetch(`/api/contacts/${defaultContactId}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data?.name) setSelectedContactName(data.name);
-          if (data?.account) {
-            setContactOriginalAccount({ id: data.account.id, name: data.account.name });
-            if (!selectedAccount) {
-              setSelectedAccount(data.account);
-              setHasAccount(true);
-            }
-          }
-        })
-        .catch((err) => console.error("Erro ao carregar contato no dialog:", err));
+      applyContactAccountToDeal(defaultContactId);
     }
   }, [defaultContactId]);
 
@@ -248,6 +281,10 @@ export function CreateDealDialog({
     ) {
       void (async () => {
         try {
+          const existing = await findDuplicateAccountByDocument(nextDigits);
+          if (existing) {
+            return;
+          }
           const info = await fetchCnpjInfo(nextDigits);
           if (info && info.valid && info.details) {
             const d = info.details;
@@ -284,6 +321,12 @@ export function CreateDealDialog({
 
     const cleanDoc = accountDocument.replace(/\D/g, "");
     if (!selectedAccount && hasAccount && isCreatingNewAccount) {
+      if (duplicateAccount) {
+        toast.error(
+          `Já existe uma empresa cadastrada com este ${accountType === "company" ? "CNPJ" : "CPF"} (${duplicateAccount.name}).`,
+        );
+        return;
+      }
       if (!accountName.trim()) {
         toast.error("Informe a razão social ou nome completo do cliente.");
         return;
@@ -437,9 +480,11 @@ export function CreateDealDialog({
             <div>
               <label className="block text-xs font-bold text-foreground mb-1">Funil de vendas</label>
               <Select value={pipelineId} onValueChange={setPipelineId}>
-                <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
-                  <SelectValue placeholder="Selecione um funil..." />
-                </SelectTrigger>
+                <SystemTooltip content="Selecionar funil de vendas">
+                  <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
+                    <SelectValue placeholder="Selecione um funil..." />
+                  </SelectTrigger>
+                </SystemTooltip>
                 <SelectContent>
                   {pipelines.map((p) => (
                     <SelectItem key={p.id} value={p.id} className="text-xs font-medium">
@@ -453,9 +498,11 @@ export function CreateDealDialog({
             <div>
               <label className="block text-xs font-bold text-foreground mb-1">Etapa do funil de vendas</label>
               <Select value={stageId} onValueChange={setStageId}>
-                <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
-                  <SelectValue placeholder="Selecione a etapa inicial..." />
-                </SelectTrigger>
+                <SystemTooltip content="Selecionar etapa inicial do funil">
+                  <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
+                    <SelectValue placeholder="Selecione a etapa inicial..." />
+                  </SelectTrigger>
+                </SystemTooltip>
                 <SelectContent>
                   {stages.map((s) => (
                     <SelectItem key={s.id} value={s.id} className="text-xs font-medium">
@@ -517,9 +564,11 @@ export function CreateDealDialog({
           <div>
             <label className="block text-xs font-bold text-foreground mb-1">Vendedor Responsável</label>
             <Select value={operatorId || "__none__"} onValueChange={(val) => setOperatorId(val === "__none__" ? "" : val)}>
-              <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
-                <SelectValue placeholder="Selecione o vendedor responsável..." />
-              </SelectTrigger>
+              <SystemTooltip content="Selecionar vendedor responsável pela negociação">
+                <SelectTrigger className="h-9 w-full rounded-xl border border-border bg-muted/20 px-3 text-xs text-foreground font-semibold">
+                  <SelectValue placeholder="Selecione o vendedor responsável..." />
+                </SelectTrigger>
+              </SystemTooltip>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs text-muted-foreground">
                   Sem vendedor atribuído
@@ -661,8 +710,40 @@ export function CreateDealDialog({
                     placeholder={accountType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                     value={accountDocument}
                     onChange={(e) => handleDocumentChange(e.target.value)}
-                    className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-xs text-foreground font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    className={`h-8 w-full rounded-lg border bg-card px-2.5 text-xs text-foreground font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 ${
+                      duplicateAccount
+                        ? "border-rose-500 focus:ring-rose-500"
+                        : "border-border focus:ring-primary"
+                    }`}
                   />
+                  {duplicateAccount && (
+                    <div className="mt-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 p-2.5 text-[11px] text-rose-700 dark:text-rose-300 space-y-1.5">
+                      <div className="flex items-start gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-rose-500" />
+                        <div>
+                          <p className="font-bold">
+                            Já existe uma empresa cadastrada com este {accountType === "company" ? "CNPJ" : "CPF"}:{" "}
+                            <span className="underline">{duplicateAccount.name}</span>
+                          </p>
+                          <p className="text-[10px] opacity-90 mt-0.5">
+                            Não é permitido criar cadastros duplicados. Selecione a empresa já existente para prosseguir:
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedAccount(duplicateAccount as CrmAccountDTO);
+                          setHasAccount(true);
+                          setIsCreatingNewAccount(false);
+                          setAccountDocument("");
+                        }}
+                        className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
+                      >
+                        Selecionar empresa existente ({duplicateAccount.name})
+                      </button>
+                    </div>
+                  )}
                   {(() => {
                     const mismatch = getInlineDocumentMismatch(accountType, accountDocument);
                     if (!mismatch) return null;
@@ -726,7 +807,7 @@ export function CreateDealDialog({
             {selectedContactId ? (
               <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
                 <span>{selectedContactName || (defaultContactId ? "Contato do atendimento vinculado" : "Contato selecionado")}</span>
-                {!defaultContactId && <button type="button" onClick={() => { setSelectedContactId(""); setSelectedContactName(""); }} className="text-primary hover:underline">Trocar</button>}
+                {!defaultContactId && <button type="button" onClick={() => { setSelectedContactId(""); setSelectedContactName(""); }} className="text-primary hover:underline cursor-pointer">Trocar</button>}
               </div>
             ) : (
               <div className="relative">
@@ -734,7 +815,18 @@ export function CreateDealDialog({
                 {contactQuery.trim().length >= 2 && (
                   <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                     {contactResults.length ? contactResults.map((contact) => (
-                      <button key={contact.id} type="button" onClick={() => { setSelectedContactId(contact.id); setSelectedContactName(contact.name); setContactQuery(""); setContactResults([]); }} className="block w-full border-b border-border/50 px-3 py-2 text-left text-xs hover:bg-muted">
+                      <button
+                        key={contact.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedContactId(contact.id);
+                          setSelectedContactName(contact.name);
+                          setContactQuery("");
+                          setContactResults([]);
+                          applyContactAccountToDeal(contact.id, contact.name);
+                        }}
+                        className="block w-full border-b border-border/50 px-3 py-2 text-left text-xs hover:bg-muted cursor-pointer"
+                      >
                         <span className="block font-semibold">{contact.name}</span>
                         <span className="text-muted-foreground">{contact.phone || contact.email || "Sem telefone"}</span>
                       </button>
@@ -760,10 +852,19 @@ export function CreateDealDialog({
             />
           </div>
 
-          {offerUseAsCurrent && <label className="flex items-center gap-2 rounded-lg border border-primary/20 p-3 text-xs">
-            <input type="checkbox" checked={useAsCurrent} onChange={event => setUseAsCurrent(event.target.checked)} />
-            Criar e definir como negociação atual deste atendimento
-          </label>}
+          {offerUseAsCurrent && (
+            <label className="flex items-center gap-2 rounded-lg border border-primary/20 p-3 text-xs cursor-pointer">
+              <SystemTooltip content={useAsCurrent ? "Desmarcar como negociação atual" : "Marcar como negociação atual deste atendimento"}>
+                <span className="inline-flex items-center">
+                  <Checkbox
+                    checked={useAsCurrent}
+                    onCheckedChange={(checked) => setUseAsCurrent(Boolean(checked))}
+                  />
+                </span>
+              </SystemTooltip>
+              <span>Criar e definir como negociação atual deste atendimento</span>
+            </label>
+          )}
           {/* Rodapé com botões de ação */}
           </div>
           <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card p-3">
@@ -774,13 +875,18 @@ export function CreateDealDialog({
             >
               Cancelar
             </button>
-            <button type="submit" data-create-another="true" disabled={isSubmitting} className="h-9 rounded-lg bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 disabled:opacity-50">
+            <button
+              type="submit"
+              data-create-another="true"
+              disabled={isSubmitting || (isCreatingNewAccount && Boolean(duplicateAccount))}
+              className="h-9 rounded-lg bg-primary/10 px-3 text-xs font-bold text-primary hover:bg-primary/20 disabled:opacity-50 cursor-pointer"
+            >
               Salvar e criar outra
             </button>
             <button
               type="submit"
               data-tour="deal-create.save"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (isCreatingNewAccount && Boolean(duplicateAccount))}
               className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
             >
               {isSubmitting ? (
@@ -797,6 +903,59 @@ export function CreateDealDialog({
             </button>
           </div>
         </form>
+
+        {/* Modal de Confirmação de Substituição de Empresa ao Adicionar Contato */}
+        <Dialog
+          open={Boolean(pendingAccountReplacement)}
+          onOpenChange={(open) => {
+            if (!open) setPendingAccountReplacement(null);
+          }}
+        >
+          <DialogContent className="max-w-md border border-border bg-card text-foreground shadow-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
+                  <Building2 className="h-4 w-4" />
+                </div>
+                <span>Substituir empresa vinculada?</span>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2.5 py-2 text-xs text-muted-foreground leading-relaxed">
+              <p>
+                O contato <strong className="text-foreground">{pendingAccountReplacement?.contactName}</strong> está vinculado à empresa{" "}
+                <strong className="text-primary">{pendingAccountReplacement?.newAccount.name}</strong>.
+              </p>
+              <p>
+                Esta negociação já possui a empresa{" "}
+                <strong className="text-foreground">{selectedAccount?.name}</strong> alocada. Deseja prosseguir e substituir a empresa atual desta negociação?
+              </p>
+            </div>
+            <DialogFooter className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setPendingAccountReplacement(null)}
+                className="h-8 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                Manter empresa atual
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (pendingAccountReplacement) {
+                    setSelectedAccount(pendingAccountReplacement.newAccount);
+                    setHasAccount(true);
+                    setIsCreatingNewAccount(false);
+                    toast.success(`Empresa substituída por "${pendingAccountReplacement.newAccount.name}".`);
+                  }
+                  setPendingAccountReplacement(null);
+                }}
+                className="h-8 rounded-lg bg-primary px-3.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Sim, substituir empresa
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </SheetContent>
     </Sheet>
   );

@@ -491,12 +491,16 @@ export function DealList({
               <tr className="border-b border-border bg-muted/40 text-muted-foreground font-bold uppercase text-[11px] tracking-wider sticky top-0 z-10 backdrop-blur-xs">
                 {/* Checkbox selecionar todos */}
                 <th className="py-3 px-3 w-10 text-center">
-                  <Checkbox
-                    checked={isAllFilterSelected || isAllCurrentSelected}
-                    onCheckedChange={handleToggleSelectAll}
-                    aria-label="Selecionar todas as negociações da página"
-                    className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
-                  />
+                  <SystemTooltip content={isAllFilterSelected || isAllCurrentSelected ? "Desmarcar todas da página" : "Selecionar todas da página"}>
+                    <span>
+                      <Checkbox
+                        checked={isAllFilterSelected || isAllCurrentSelected}
+                        onCheckedChange={handleToggleSelectAll}
+                        aria-label="Selecionar todas as negociações da página"
+                        className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+                      />
+                    </span>
+                  </SystemTooltip>
                 </th>
                 <th className="py-3 px-3">Negociações</th>
                 <th className="py-3 px-3">Responsável</th>
@@ -592,12 +596,16 @@ export function DealList({
                         className="py-3 px-3 text-center"
                         onClick={(e) => handleToggleSelectRow(deal.id, e)}
                       >
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => {}}
-                          aria-label={`Selecionar ${deal.title}`}
-                          className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
-                        />
+                        <SystemTooltip content={isSelected ? `Desmarcar "${deal.title}"` : `Selecionar "${deal.title}"`}>
+                          <span>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => {}}
+                              aria-label={`Selecionar ${deal.title}`}
+                              className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+                            />
+                          </span>
+                        </SystemTooltip>
                       </td>
 
                       {/* Negociação (Título + Cliente) */}
@@ -757,9 +765,11 @@ export function DealList({
           <span>Exibindo</span>
           {onLimitChange && (
             <Select value={String(limit)} onValueChange={(val) => onLimitChange(Number(val))}>
-              <SelectTrigger className="h-7 w-[68px] border-border bg-card text-xs font-bold text-foreground rounded-lg px-2 gap-1 focus:ring-1 focus:ring-primary">
-                <SelectValue />
-              </SelectTrigger>
+              <SystemTooltip content="Alterar quantidade de itens exibidos por página">
+                <SelectTrigger className="h-7 w-[68px] border-border bg-card text-xs font-bold text-foreground rounded-lg px-2 gap-1 focus:ring-1 focus:ring-primary">
+                  <SelectValue />
+                </SelectTrigger>
+              </SystemTooltip>
               <SelectContent>
                 <SelectItem value="10" className="text-xs font-medium">10</SelectItem>
                 <SelectItem value="25" className="text-xs font-medium">25</SelectItem>

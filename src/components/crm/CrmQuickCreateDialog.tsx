@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Building2, Loader2, MapPin, RefreshCw, Search } from "lucide-react";
+import { Building2, Loader2, MapPin, RefreshCw, Search, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/utils";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
@@ -32,6 +32,10 @@ import {
   validateAccountDocument,
   validateCnpj,
 } from "../../lib/crm/account-validation";
+import {
+  useCheckDuplicateDocument,
+  findDuplicateAccountByDocument,
+} from "../../lib/crm/use-check-duplicate-document";
 import { fetchCnpjInfo, type CnpjFullDetails } from "../../lib/valentina/cnpj-service";
 import {
   buildAccountAddressFromCnpjDetails,
@@ -45,6 +49,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 export type CrmQuickCreateKind = "company" | "contact" | "task";
 
@@ -99,6 +104,8 @@ export function CrmQuickCreateDialog({
   const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
   const lastAutoQueriedCnpjRef = useRef("");
 
+  const { duplicateAccount } = useCheckDuplicateDocument(document, kind === "company");
+
   useEffect(() => {
     if (!kind) return;
     setAccountType("company");
@@ -133,6 +140,10 @@ export function CrmQuickCreateDialog({
     }
     if (!validateCnpj(cleanDoc)) {
       toast.error("CNPJ matematicamente inválido (dígitos verificadores não conferem).");
+      return;
+    }
+    const existing = await findDuplicateAccountByDocument(cleanDoc);
+    if (existing) {
       return;
     }
     setIsSearchingCnpj(true);
@@ -226,6 +237,12 @@ export function CrmQuickCreateDialog({
       return;
     }
     if (kind === "company") {
+      if (duplicateAccount) {
+        toast.error(
+          `Já existe uma empresa cadastrada com este ${accountType === "company" ? "CNPJ" : "CPF"} (${duplicateAccount.name}).`,
+        );
+        return;
+      }
       const docValidation = validateAccountDocument(accountType, document);
       if (!docValidation.valid) {
         toast.error(docValidation.error || "Documento inválido.");
@@ -474,12 +491,14 @@ export function CrmQuickCreateDialog({
                       onChange={(event) =>
                         setDocument(formatAccountDocumentInput(event.target.value, accountType))
                       }
-                      className="font-mono flex-1"
+                      className={`font-mono flex-1 ${
+                        duplicateAccount ? "border-rose-500 focus-visible:ring-rose-500" : ""
+                      }`}
                     />
                     {accountType === "company" && (
                       <button
                         type="button"
-                        disabled={isSearchingCnpj}
+                        disabled={isSearchingCnpj || Boolean(duplicateAccount)}
                         onClick={() => void queryReceita()}
                         className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 text-[11px] font-bold text-primary hover:bg-primary/20 transition cursor-pointer disabled:opacity-50"
                       >
@@ -492,6 +511,20 @@ export function CrmQuickCreateDialog({
                       </button>
                     )}
                   </div>
+                  {duplicateAccount && (
+                    <div className="mt-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 p-2.5 text-[11px] text-rose-700 dark:text-rose-300 flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-rose-500" />
+                      <div>
+                        <p className="font-bold">
+                          Já existe uma empresa cadastrada com este {accountType === "company" ? "CNPJ" : "CPF"}:{" "}
+                          <span className="underline">{duplicateAccount.name}</span>
+                        </p>
+                        <p className="text-[10px] opacity-90 mt-0.5">
+                          Não é permitido criar cadastros duplicados na base.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   {(() => {
                     const mismatch = getInlineDocumentMismatch(accountType, document);
                     if (!mismatch) return null;
@@ -689,9 +722,11 @@ export function CrmQuickCreateDialog({
                     value={assignedTo || "__default__"}
                     onValueChange={(val) => setAssignedTo(val === "__default__" ? "" : val)}
                   >
-                    <SelectTrigger id="crm-quick-assignee" className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs">
-                      <SelectValue placeholder="Responsável atual" />
-                    </SelectTrigger>
+                    <SystemTooltip content="Selecionar responsável pela tarefa">
+                      <SelectTrigger id="crm-quick-assignee" className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs">
+                        <SelectValue placeholder="Responsável atual" />
+                      </SelectTrigger>
+                    </SystemTooltip>
                     <SelectContent>
                       <SelectItem value="__default__" className="text-xs">Responsável atual</SelectItem>
                       {operators.map((operator) => (
@@ -718,7 +753,15 @@ export function CrmQuickCreateDialog({
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>
               Cancelar
             </Button>
-            <Button type="submit" size="sm" disabled={saving || (kind === "task" && !selectedDeal)}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={
+                saving ||
+                (kind === "task" && !selectedDeal) ||
+                (kind === "company" && Boolean(duplicateAccount))
+              }
+            >
               {saving && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
               {kind === "task"
                 ? "Criar tarefa"

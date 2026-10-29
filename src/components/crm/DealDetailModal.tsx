@@ -54,6 +54,7 @@ import {
   ListOrdered,
   PhoneCall,
   ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -1888,22 +1889,25 @@ export function DealDetailModal({
           <div className="flex items-center justify-between gap-4 flex-wrap">
             {/* Esquerda: Voltar ao CRM + Nome da Negociação + Metas (Funil, Empresa, Status, IA Avaliar) */}
             <div className="flex items-center gap-3 min-w-0 flex-wrap">
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted py-1.5 px-2.5 rounded-lg transition-colors cursor-pointer shrink-0"
-                title={backLabel || "Voltar ao CRM"}
-              >
-                <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">{backLabel || "Voltar ao CRM"}</span>
-              </button>
+              <SystemTooltip content={backLabel || "Voltar ao CRM"}>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted py-1.5 px-2.5 rounded-lg transition-colors cursor-pointer shrink-0"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">{backLabel || "Voltar ao CRM"}</span>
+                </button>
+              </SystemTooltip>
 
               <div className="h-4 w-px bg-border/80 shrink-0 hidden sm:block" />
 
               {/* Nome da Negociação */}
-              <h2 className="text-base font-extrabold text-foreground truncate max-w-xs sm:max-w-md" title={deal?.title || dealPreview?.title}>
-                {deal?.title || dealPreview?.title || (loading ? "Carregando negociação..." : "")}
-              </h2>
+              <SystemTooltip content={deal?.title || dealPreview?.title || "Negociação"}>
+                <h2 className="text-base font-extrabold text-foreground truncate max-w-xs sm:max-w-md cursor-default">
+                  {deal?.title || dealPreview?.title || (loading ? "Carregando negociação..." : "")}
+                </h2>
+              </SystemTooltip>
 
               {!loading && deal && (
                 <div className="flex items-center gap-2 flex-wrap">
@@ -1912,16 +1916,17 @@ export function DealDetailModal({
 
                   {/* 2. Funil com Menu Suspenso */}
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
-                        title="Clique para alterar o funil"
-                      >
-                        <span>{deal.pipeline?.name || "Funil Comercial"}</span>
-                        <ChevronDown className="h-3 w-3 opacity-70" />
-                      </button>
-                    </DropdownMenuTrigger>
+                    <SystemTooltip content="Clique para alterar o funil">
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                        >
+                          <span>{deal.pipeline?.name || "Funil Comercial"}</span>
+                          <ChevronDown className="h-3 w-3 opacity-70" />
+                        </button>
+                      </DropdownMenuTrigger>
+                    </SystemTooltip>
                     <DropdownMenuContent align="start" className="w-56 p-1">
                       <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                         Mudar de Funil
@@ -2223,20 +2228,23 @@ export function DealDetailModal({
                       </div>
                     ) : (
                       <div className="flex items-center justify-between gap-1 group">
-                        <span className="font-bold text-foreground truncate text-xs" title={deal?.title}>
-                          {deal?.title}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditTitle(deal?.title || "");
-                            setIsEditingTitle(true);
-                          }}
-                          className="p-1 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100 transition-opacity cursor-pointer shrink-0"
-                          title="Editar nome"
-                        >
-                          <Edit2 className="h-3 w-3" />
-                        </button>
+                        <SystemTooltip content={deal?.title || "Negociação"}>
+                          <span className="font-bold text-foreground truncate text-xs cursor-default">
+                            {deal?.title}
+                          </span>
+                        </SystemTooltip>
+                        <SystemTooltip content="Editar nome">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditTitle(deal?.title || "");
+                              setIsEditingTitle(true);
+                            }}
+                            className="p-1 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </button>
+                        </SystemTooltip>
                       </div>
                     )}
                   </div>
@@ -2279,17 +2287,18 @@ export function DealDetailModal({
                         <span className="font-extrabold text-foreground text-xs">
                           {formattedValue}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditValue(deal?.value ? String(deal.value).replace(".", ",") : "");
-                            setIsEditingValue(true);
-                          }}
-                          className="p-1 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100 transition-opacity cursor-pointer shrink-0"
-                          title="Editar valor"
-                        >
-                          <Edit2 className="h-3 w-3" />
-                        </button>
+                        <SystemTooltip content="Editar valor">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditValue(deal?.value ? String(deal.value).replace(".", ",") : "");
+                              setIsEditingValue(true);
+                            }}
+                            className="p-1 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </button>
+                        </SystemTooltip>
                       </div>
                     )}
                   </div>
@@ -3636,12 +3645,38 @@ export function DealDetailModal({
                             <label className="text-[11px] font-semibold text-muted-foreground block mb-1">
                               Validade (Dias)
                             </label>
-                            <input
-                              type="number"
-                              value={proposalValidityDays}
-                              onChange={(e) => setProposalValidityDays(parseInt(e.target.value, 10) || 15)}
-                              className="h-8 w-full rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                            />
+                            <div className="relative flex items-center">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={proposalValidityDays}
+                                onChange={(e) => {
+                                  const digits = e.target.value.replace(/\D/g, "");
+                                  setProposalValidityDays(digits ? Math.max(1, parseInt(digits, 10)) : 15);
+                                }}
+                                className="h-8 w-full rounded-lg border border-border bg-card px-2.5 pr-14 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                              />
+                              <div className="absolute right-1 flex items-center gap-0.5">
+                                <SystemTooltip content="Diminuir validade (-1 dia)">
+                                  <button
+                                    type="button"
+                                    onClick={() => setProposalValidityDays((prev) => Math.max(1, (Number(prev) || 15) - 1))}
+                                    className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                                  >
+                                    <ChevronDown className="h-3 w-3" />
+                                  </button>
+                                </SystemTooltip>
+                                <SystemTooltip content="Aumentar validade (+1 dia)">
+                                  <button
+                                    type="button"
+                                    onClick={() => setProposalValidityDays((prev) => (Number(prev) || 15) + 1)}
+                                    className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                                  >
+                                    <ChevronUp className="h-3 w-3" />
+                                  </button>
+                                </SystemTooltip>
+                              </div>
+                            </div>
                           </div>
 
                           <div>
@@ -3710,9 +3745,11 @@ export function DealDetailModal({
                               value={selectedCatalogId || "__none__"}
                               onValueChange={(val) => handleSelectCatalogItem(val === "__none__" ? "" : val)}
                             >
-                              <SelectTrigger className="h-7 rounded-lg border border-border bg-card px-2 text-[11px] text-foreground min-w-[170px]">
-                                <SelectValue placeholder="-- Puxar do Catálogo --" />
-                              </SelectTrigger>
+                              <SystemTooltip content="Preencher dados a partir de um produto cadastrado no catálogo">
+                                <SelectTrigger className="h-7 rounded-lg border border-border bg-card px-2 text-[11px] text-foreground min-w-[170px]">
+                                  <SelectValue placeholder="-- Puxar do Catálogo --" />
+                                </SelectTrigger>
+                              </SystemTooltip>
                               <SelectContent>
                                 <SelectItem value="__none__" className="text-xs text-muted-foreground">-- Puxar do Catálogo --</SelectItem>
                                 {catalogProducts.map((p) => (
@@ -3739,44 +3776,121 @@ export function DealDetailModal({
                         </div>
 
                         <div className="md:col-span-2">
-                          <input
-                            type="number"
-                            step="any"
-                            min="0.001"
-                            required
-                            placeholder="Qtd"
-                            value={newProductQty}
-                            onChange={(e) => setNewProductQty(e.target.value)}
-                            className="h-8 w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                          />
-                        </div>
-
-                        <div className="md:col-span-2">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            required
-                            placeholder="Preço R$"
-                            value={newProductUnitPrice}
-                            onChange={(e) => setNewProductUnitPrice(e.target.value)}
-                            className="h-8 w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                          />
-                        </div>
-
-                        <div className="md:col-span-2">
-                          <div className="relative">
+                          <div className="relative flex items-center">
                             <input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              max="100"
+                              type="text"
+                              inputMode="decimal"
+                              required
+                              placeholder="Qtd"
+                              value={newProductQty}
+                              onChange={(e) => setNewProductQty(e.target.value.replace(/[^0-9.,]/g, ""))}
+                              className="h-8 w-full rounded-lg border border-border bg-card px-2 pr-12 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            />
+                            <div className="absolute right-1 flex items-center gap-0.5">
+                              <SystemTooltip content="Diminuir quantidade (-1)">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = parseFloat(String(newProductQty || "1").replace(",", ".")) || 1;
+                                    setNewProductQty(String(Math.max(1, cur - 1)));
+                                  }}
+                                  className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                                >
+                                  <ChevronDown className="h-3 w-3" />
+                                </button>
+                              </SystemTooltip>
+                              <SystemTooltip content="Aumentar quantidade (+1)">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = parseFloat(String(newProductQty || "1").replace(",", ".")) || 1;
+                                    setNewProductQty(String(cur + 1));
+                                  }}
+                                  className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                                >
+                                  <ChevronUp className="h-3 w-3" />
+                                </button>
+                              </SystemTooltip>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <div className="relative flex items-center">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              required
+                              placeholder="Preço R$"
+                              value={newProductUnitPrice}
+                              onChange={(e) => setNewProductUnitPrice(e.target.value.replace(/[^0-9.,]/g, ""))}
+                              className="h-8 w-full rounded-lg border border-border bg-card px-2 pr-12 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            />
+                            <div className="absolute right-1 flex items-center gap-0.5">
+                              <SystemTooltip content="Diminuir preço (-10)">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = parseFloat(String(newProductUnitPrice || "0").replace(",", ".")) || 0;
+                                    setNewProductUnitPrice(String(Math.max(0, cur - 10)));
+                                  }}
+                                  className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                                >
+                                  <ChevronDown className="h-3 w-3" />
+                                </button>
+                              </SystemTooltip>
+                              <SystemTooltip content="Aumentar preço (+10)">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = parseFloat(String(newProductUnitPrice || "0").replace(",", ".")) || 0;
+                                    setNewProductUnitPrice(String(cur + 10));
+                                  }}
+                                  className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                                >
+                                  <ChevronUp className="h-3 w-3" />
+                                </button>
+                              </SystemTooltip>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <div className="relative flex items-center">
+                            <input
+                              type="text"
+                              inputMode="decimal"
                               placeholder="Desc %"
                               value={newProductDiscount}
-                              onChange={(e) => setNewProductDiscount(e.target.value)}
-                              className="h-8 w-full rounded-lg border border-border bg-card px-2 pr-6 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                              onChange={(e) => setNewProductDiscount(e.target.value.replace(/[^0-9.,]/g, ""))}
+                              className="h-8 w-full rounded-lg border border-border bg-card px-2 pr-12 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                             />
-                            <Percent className="h-3 w-3 text-muted-foreground absolute right-2 top-2.5 pointer-events-none" />
+                            <div className="absolute right-1 flex items-center gap-0.5">
+                              <SystemTooltip content="Diminuir desconto (-1%)">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = parseFloat(String(newProductDiscount || "0").replace(",", ".")) || 0;
+                                    setNewProductDiscount(String(Math.max(0, cur - 1)));
+                                  }}
+                                  className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                                >
+                                  <ChevronDown className="h-3 w-3" />
+                                </button>
+                              </SystemTooltip>
+                              <SystemTooltip content="Aumentar desconto (+1%)">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = parseFloat(String(newProductDiscount || "0").replace(",", ".")) || 0;
+                                    setNewProductDiscount(String(Math.min(100, cur + 1)));
+                                  }}
+                                  className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                                >
+                                  <ChevronUp className="h-3 w-3" />
+                                </button>
+                              </SystemTooltip>
+                            </div>
                           </div>
                         </div>
 
@@ -4434,71 +4548,76 @@ export function DealDetailModal({
 
                           {/* Toolbar de Formatação Visual (WYSIWYG) */}
                           <div className="flex items-center gap-1 border-b border-border/60 pb-2">
-                            <button
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleFormatNote("bold")}
-                              title="Negrito (Ctrl+B)"
-                              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                noteActiveFormats.bold
-                                  ? "bg-primary/15 text-primary border border-primary/30"
-                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              <Bold className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleFormatNote("italic")}
-                              title="Itálico (Ctrl+I)"
-                              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                noteActiveFormats.italic
-                                  ? "bg-primary/15 text-primary border border-primary/30"
-                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              <Italic className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleFormatNote("bullet")}
-                              title="Lista com marcadores"
-                              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                noteActiveFormats.bullet
-                                  ? "bg-primary/15 text-primary border border-primary/30"
-                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              <List className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleFormatNote("numbered")}
-                              title="Lista numerada"
-                              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                noteActiveFormats.numbered
-                                  ? "bg-primary/15 text-primary border border-primary/30"
-                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              <ListOrdered className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleFormatNote("link")}
-                              title="Inserir link"
-                              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                isNoteLinkPromptOpen
-                                  ? "bg-primary/15 text-primary border border-primary/30"
-                                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              <Link2 className="h-3.5 w-3.5" />
-                            </button>
+                            <SystemTooltip content="Negrito (Ctrl+B)">
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleFormatNote("bold")}
+                                className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                  noteActiveFormats.bold
+                                    ? "bg-primary/15 text-primary border border-primary/30"
+                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <Bold className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                            <SystemTooltip content="Itálico (Ctrl+I)">
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleFormatNote("italic")}
+                                className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                  noteActiveFormats.italic
+                                    ? "bg-primary/15 text-primary border border-primary/30"
+                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <Italic className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                            <SystemTooltip content="Lista com marcadores">
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleFormatNote("bullet")}
+                                className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                  noteActiveFormats.bullet
+                                    ? "bg-primary/15 text-primary border border-primary/30"
+                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <List className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                            <SystemTooltip content="Lista numerada">
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleFormatNote("numbered")}
+                                className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                  noteActiveFormats.numbered
+                                    ? "bg-primary/15 text-primary border border-primary/30"
+                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <ListOrdered className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                            <SystemTooltip content="Inserir link">
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleFormatNote("link")}
+                                className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                  isNoteLinkPromptOpen
+                                    ? "bg-primary/15 text-primary border border-primary/30"
+                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <Link2 className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
                           </div>
 
                           {/* Barra inline para inserir link real */}
@@ -4854,6 +4973,7 @@ export function DealDetailModal({
           }}
           dealId={deal.id}
           accountId={deal.accountId}
+          currentAccountName={deal.account?.name || null}
           linkedContacts={deal.contacts || []}
           initialEditContactId={editingContactIdForDrawer}
           onContactLinked={() => loadDealDetail(true)}

@@ -226,23 +226,27 @@ export function CustomFieldsEditor({
                     const selected = Array.isArray(value) ? (value as string[]) : [];
                     const isChecked = selected.includes(option.id);
                     return (
-                      <label
+                      <SystemTooltip
                         key={option.id}
-                        className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none"
+                        content={isChecked ? `Desmarcar "${option.label}"` : `Selecionar "${option.label}"`}
                       >
-                        <Checkbox
-                          checked={isChecked}
-                          onCheckedChange={(checked) =>
-                            update(
-                              field.id,
-                              checked
-                                ? [...selected, option.id]
-                                : selected.filter((id) => id !== option.id),
-                            )
-                          }
-                        />
-                        <span>{option.label}</span>
-                      </label>
+                        <label
+                          className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none"
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={(checked) =>
+                              update(
+                                field.id,
+                                checked
+                                  ? [...selected, option.id]
+                                  : selected.filter((id) => id !== option.id),
+                              )
+                            }
+                          />
+                          <span>{option.label}</span>
+                        </label>
+                      </SystemTooltip>
                     );
                   })}
                 </div>
@@ -251,12 +255,14 @@ export function CustomFieldsEditor({
                   value={typeof value === "string" && value ? value : "__empty__"}
                   onValueChange={(val) => update(field.id, val === "__empty__" ? null : val)}
                 >
-                  <SelectTrigger
-                    id={`cf-${field.id}`}
-                    className={common}
-                  >
-                    <SelectValue placeholder="Selecionar..." />
-                  </SelectTrigger>
+                  <SystemTooltip content={`Selecionar opção para ${field.name}`}>
+                    <SelectTrigger
+                      id={`cf-${field.id}`}
+                      className={common}
+                    >
+                      <SelectValue placeholder="Selecionar..." />
+                    </SelectTrigger>
+                  </SystemTooltip>
                   <SelectContent>
                     <SelectItem value="__empty__" className="text-xs text-muted-foreground">
                       Selecionar...

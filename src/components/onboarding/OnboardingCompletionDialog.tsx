@@ -69,21 +69,21 @@ export function OnboardingCompletionDialog() {
               </SystemTooltip>
             </div>
 
-            <div className="relative flex flex-col items-center justify-end overflow-hidden bg-gradient-to-b from-emerald-500/20 via-muted/35 to-card px-6 pt-6">
-              {/* Brilho esmeralda celebratório */}
+            <div className="relative flex flex-col items-center justify-end overflow-hidden bg-gradient-to-b from-primary/20 via-muted/35 to-card px-6 pt-6">
+              {/* Brilho celebratório na cor primária do tema */}
               <motion.div
                 animate={{
                   scale: [1, 1.18, 1],
                   opacity: [0.45, 0.8, 0.45],
                 }}
                 transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
-                className="pointer-events-none absolute top-4 h-40 w-40 rounded-full bg-emerald-500/25 blur-3xl"
+                className="pointer-events-none absolute top-4 h-40 w-40 rounded-full bg-primary/25 blur-3xl"
               />
 
               <motion.div
                 animate={{ y: [0, -10, 0], opacity: [0.45, 1, 0.45], rotate: [0, 18, 0] }}
                 transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-                className="pointer-events-none absolute left-10 top-8 text-emerald-500"
+                className="pointer-events-none absolute left-10 top-8 text-primary/70"
               >
                 <Sparkles className="h-4 w-4" />
               </motion.div>
@@ -126,7 +126,7 @@ export function OnboardingCompletionDialog() {
                 transition={{ type: "spring", stiffness: 320, damping: 22, delay: 0.1 }}
                 className="flex justify-center"
               >
-                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 dark:bg-emerald-950/50 px-3 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                <span className="inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary-soft px-3 py-0.5 text-[11px] font-bold text-primary">
                   <Sparkles className="h-3 w-3 animate-pulse" />
                   <span>Módulo {moduleTitle} Concluído</span>
                 </span>
@@ -160,7 +160,7 @@ export function OnboardingCompletionDialog() {
                   transition={{ type: "spring", stiffness: 300, damping: 22, delay: 0.22 }}
                   className="rounded-2xl border border-border bg-background/60 p-2.5 text-center"
                 >
-                  <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">
+                  <div className="text-base font-bold text-primary">
                     {applicableSteps.length}/{applicableSteps.length}
                   </div>
                   <div className="text-[11px] text-muted-foreground">Etapas deste Módulo</div>
@@ -205,7 +205,7 @@ export function OnboardingCompletionDialog() {
                       whileHover={{ scale: 1.03, y: -1 }}
                       whileTap={{ scale: 0.97 }}
                       onClick={() => void completeTour()}
-                      className="flex items-center gap-1.5 rounded-xl bg-emerald-600 dark:bg-emerald-500 px-3.5 py-2 text-xs font-bold text-white dark:text-slate-950 shadow-soft transition hover:opacity-95 cursor-pointer"
+                      className="flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-2 text-xs font-bold text-primary shadow-soft transition hover:bg-primary/15 cursor-pointer"
                     >
                       <CheckCircle2 className="h-4 w-4" />
                       <span>Confirmar 100%</span>

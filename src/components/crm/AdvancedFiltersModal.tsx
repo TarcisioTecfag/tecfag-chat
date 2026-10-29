@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Building2, CalendarDays, Check, ChevronDown, Filter, Loader2, Search, X } from "lucide-react";
+import { Building2, CalendarDays, Check, ChevronDown, ChevronUp, Filter, Loader2, Search, X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { CrmDatePicker } from "./CrmDatePicker";
 import {
   CRM_STATUS_FILTER_MAP,
   CRM_STATUS_FILTER_OPTIONS,
@@ -210,45 +212,49 @@ function DateFilter({
           if (!value) setCustom(false);
         }}
       >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={`flex h-9 w-full items-center gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
-              hasValue
-                ? "border-primary/50 bg-primary/5 text-foreground font-medium"
-                : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
-            }`}
-          >
-            <CalendarDays className={`h-4 w-4 shrink-0 ${hasValue ? "text-primary" : "text-muted-foreground"}`} />
-            <span className="min-w-0 flex-1 truncate">{display}</span>
-            {hasValue ? (
-              <span
-                role="button"
-                tabIndex={0}
-                aria-label={`Limpar ${label}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onChange(undefined, undefined);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.stopPropagation();
-                    onChange(undefined, undefined);
-                  }
-                }}
-                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </span>
-            ) : (
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
-            )}
-          </button>
-        </PopoverTrigger>
+        <SystemTooltip content={`Filtrar por ${label.toLowerCase()}`}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={`flex h-9 w-full items-center gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
+                hasValue
+                  ? "border-primary/50 bg-primary/5 text-foreground font-medium"
+                  : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              }`}
+            >
+              <CalendarDays className={`h-4 w-4 shrink-0 ${hasValue ? "text-primary" : "text-muted-foreground"}`} />
+              <span className="min-w-0 flex-1 truncate">{display}</span>
+              {hasValue ? (
+                <SystemTooltip content={`Limpar ${label.toLowerCase()}`}>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Limpar ${label}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onChange(undefined, undefined);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.stopPropagation();
+                        onChange(undefined, undefined);
+                      }
+                    }}
+                    className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </span>
+                </SystemTooltip>
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              )}
+            </button>
+          </PopoverTrigger>
+        </SystemTooltip>
         <PopoverContent
           align="start"
           side="bottom"
-          className="z-[200] w-64 max-w-[calc(100vw-2rem)] p-1.5 text-xs shadow-2xl"
+          className="z-[200] w-72 max-w-[calc(100vw-2rem)] p-1.5 text-xs shadow-2xl"
         >
           {custom ? (
             <div className="space-y-2.5 p-2">
@@ -261,22 +267,20 @@ function DateFilter({
               </button>
               <div className="space-y-1">
                 <Label className="block text-[11px] text-muted-foreground">De (data inicial)</Label>
-                <Input
-                  type="date"
-                  value={from || ""}
-                  max={to}
-                  onChange={(event) => onChange(event.target.value || undefined, to)}
-                  className="h-8 text-xs cursor-pointer"
+                <CrmDatePicker
+                  value={from || null}
+                  onChange={(val) => onChange(val || undefined, to)}
+                  placeholder="Selecionar data inicial"
+                  tooltipText="Selecionar data inicial do período"
                 />
               </div>
               <div className="space-y-1">
                 <Label className="block text-[11px] text-muted-foreground">Até (data final)</Label>
-                <Input
-                  type="date"
-                  value={to || ""}
-                  min={from}
-                  onChange={(event) => onChange(from, event.target.value || undefined)}
-                  className="h-8 text-xs cursor-pointer"
+                <CrmDatePicker
+                  value={to || null}
+                  onChange={(val) => onChange(from, val || undefined)}
+                  placeholder="Selecionar data final"
+                  tooltipText="Selecionar data final do período"
                 />
               </div>
               <div className="flex items-center gap-1.5 pt-1">
@@ -383,9 +387,11 @@ function FilterSelect({
         value={value || "__all__"}
         onValueChange={(next) => onChange(next === "__all__" ? undefined : next)}
       >
-        <SelectTrigger className="h-9 w-full rounded-lg bg-background text-xs">
-          <SelectValue />
-        </SelectTrigger>
+        <SystemTooltip content={`Filtrar por ${label.toLowerCase()}`}>
+          <SelectTrigger className="h-9 w-full rounded-lg bg-background text-xs">
+            <SelectValue />
+          </SelectTrigger>
+        </SystemTooltip>
         <SelectContent>
           <SelectItem value="__all__">
             {EmptyIcon ? (
@@ -476,8 +482,8 @@ export function AdvancedFiltersModal({
             .filter(Boolean)
             .sort((a, b) => a.localeCompare(b, "pt-BR"))
             .map((name) => ({ value: name, label: name }));
-        setSources(combinedOptions(sourceData.items || [], historicalData.sources || []));
-        setCampaigns(combinedOptions(campaignData.items || [], historicalData.campaigns || []));
+        setSources(combinedOptions(sourceData.options || sourceData.items || [], historicalData.sources || []));
+        setCampaigns(combinedOptions(campaignData.options || campaignData.items || [], historicalData.campaigns || []));
         setProducts(
           (productData.products || []).map((item: { id: string; name: string }) => ({
             value: item.id,
@@ -589,128 +595,178 @@ export function AdvancedFiltersModal({
             <div data-tour="crm.filter-stages" className="space-y-1.5">
               <Label className="text-xs font-semibold">Etapas do funil</Label>
               <div className="max-h-28 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
-                {stages.map((stage) => (
-                  <label
-                    key={stage.id}
-                    className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-muted"
-                  >
-                    <Checkbox
-                      checked={draft.stageIds?.includes(stage.id) || false}
-                      onCheckedChange={() =>
-                        update(
-                          "stageIds",
-                          draft.stageIds?.includes(stage.id)
-                            ? draft.stageIds.filter((id) => id !== stage.id)
-                            : [...(draft.stageIds || []), stage.id],
-                        )
-                      }
-                    />
-                    {stage.name}
-                  </label>
-                ))}
+                {stages.map((stage) => {
+                  const isChecked = draft.stageIds?.includes(stage.id) || false;
+                  return (
+                    <SystemTooltip
+                      key={stage.id}
+                      content={isChecked ? `Remover etapa "${stage.name}"` : `Filtrar pela etapa "${stage.name}"`}
+                    >
+                      <label
+                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-muted"
+                      >
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={() =>
+                            update(
+                              "stageIds",
+                              isChecked
+                                ? draft.stageIds?.filter((id) => id !== stage.id)
+                                : [...(draft.stageIds || []), stage.id],
+                            )
+                          }
+                        />
+                        {stage.name}
+                      </label>
+                    </SystemTooltip>
+                  );
+                })}
               </div>
             </div>
           )}
           <div className="space-y-3 border-t border-border pt-4">
-            <label className="flex cursor-pointer items-start gap-2">
-              <Switch
-                data-tour="crm.filter-work"
-                checked={!!draft.withoutTask}
-                onCheckedChange={(checked) => update("withoutTask", checked)}
-              />
-              <span className="pt-0.5 font-semibold">Ver apenas negociações sem tarefa</span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-2">
-              <Switch
-                checked={!!draft.coolingOnly}
-                onCheckedChange={(checked) => update("coolingOnly", checked)}
-              />
-              <span className="pt-0.5 font-semibold">Ver apenas negociações esfriando</span>
-            </label>
+            <SystemTooltip content="Exibir apenas negociações que não possuem nenhuma tarefa pendente">
+              <label className="flex cursor-pointer items-start gap-2">
+                <Switch
+                  data-tour="crm.filter-work"
+                  checked={!!draft.withoutTask}
+                  onCheckedChange={(checked) => update("withoutTask", checked)}
+                />
+                <span className="pt-0.5 font-semibold">Ver apenas negociações sem tarefa</span>
+              </label>
+            </SystemTooltip>
+            <SystemTooltip content="Exibir apenas negociações sem interação há vários dias">
+              <label className="flex cursor-pointer items-start gap-2">
+                <Switch
+                  checked={!!draft.coolingOnly}
+                  onCheckedChange={(checked) => update("coolingOnly", checked)}
+                />
+                <span className="pt-0.5 font-semibold">Ver apenas negociações esfriando</span>
+              </label>
+            </SystemTooltip>
             {draft.coolingOnly && (
               <div className="flex items-center gap-2 pl-9">
                 <span>Dias sem atividade</span>
-                <Input
-                  type="number"
-                  min="1"
-                  max="365"
-                  value={draft.coolingDays ?? 10}
-                  onChange={(event) => update("coolingDays", Number(event.target.value))}
-                  className="h-8 w-20 text-xs"
-                />
+                <div className="relative flex items-center w-28">
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    value={draft.coolingDays ?? 10}
+                    onChange={(event) => {
+                      const digits = event.target.value.replace(/\D/g, "");
+                      update("coolingDays", digits ? Math.min(365, Math.max(1, Number(digits))) : 1);
+                    }}
+                    className="h-8 pr-14 text-xs"
+                  />
+                  <div className="absolute right-1 flex items-center gap-0.5">
+                    <SystemTooltip content="Diminuir dias (-1)">
+                      <button
+                        type="button"
+                        onClick={() => update("coolingDays", Math.max(1, (draft.coolingDays ?? 10) - 1))}
+                        className="flex h-6 w-6 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </SystemTooltip>
+                    <SystemTooltip content="Aumentar dias (+1)">
+                      <button
+                        type="button"
+                        onClick={() => update("coolingDays", Math.min(365, (draft.coolingDays ?? 10) + 1))}
+                        className="flex h-6 w-6 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </button>
+                    </SystemTooltip>
+                  </div>
+                </div>
               </div>
             )}
-            <label className="flex cursor-pointer items-start gap-2">
-              <Switch
-                checked={!!draft.rdStationOnly}
-                onCheckedChange={(checked) => update("rdStationOnly", checked)}
-              />
-              <span className="pt-0.5 font-semibold">
-                Ver apenas negociações do RD Station Marketing
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-2">
-              <Switch
-                checked={!!draft.hasOverdueTask}
-                onCheckedChange={(checked) => update("hasOverdueTask", checked)}
-              />
-              <span className="pt-0.5 font-semibold">
-                Ver apenas negociações com tarefa vencida
-              </span>
-            </label>
+            <SystemTooltip content="Exibir apenas negociações originadas do RD Station Marketing">
+              <label className="flex cursor-pointer items-start gap-2">
+                <Switch
+                  checked={!!draft.rdStationOnly}
+                  onCheckedChange={(checked) => update("rdStationOnly", checked)}
+                />
+                <span className="pt-0.5 font-semibold">
+                  Ver apenas negociações do RD Station Marketing
+                </span>
+              </label>
+            </SystemTooltip>
+            <SystemTooltip content="Exibir apenas negociações com tarefas vencidas (atrasadas)">
+              <label className="flex cursor-pointer items-start gap-2">
+                <Switch
+                  checked={!!draft.hasOverdueTask}
+                  onCheckedChange={(checked) => update("hasOverdueTask", checked)}
+                />
+                <span className="pt-0.5 font-semibold">
+                  Ver apenas negociações com tarefa vencida
+                </span>
+              </label>
+            </SystemTooltip>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">Campos vazios</Label>
             <Popover open={emptyFieldsPopoverOpen} onOpenChange={setEmptyFieldsPopoverOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  data-tour="crm.filter-fields"
-                  type="button"
-                  className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
-                    draft.emptyFields?.length
-                      ? "border-primary/50 bg-primary/5 text-foreground font-medium"
-                      : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate">{emptyFieldsDisplay}</span>
-                  {draft.emptyFields?.length ? (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      aria-label="Limpar campos vazios"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        update("emptyFields", []);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.stopPropagation();
-                          update("emptyFields", []);
-                        }
-                      }}
-                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </span>
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                  )}
-                </button>
-              </PopoverTrigger>
+              <SystemTooltip content="Filtrar negociações que possuem determinados campos sem preenchimento">
+                <PopoverTrigger asChild>
+                  <button
+                    data-tour="crm.filter-fields"
+                    type="button"
+                    className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
+                      draft.emptyFields?.length
+                        ? "border-primary/50 bg-primary/5 text-foreground font-medium"
+                        : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{emptyFieldsDisplay}</span>
+                    {draft.emptyFields?.length ? (
+                      <SystemTooltip content="Limpar filtro de campos vazios">
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Limpar campos vazios"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            update("emptyFields", []);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.stopPropagation();
+                              update("emptyFields", []);
+                            }
+                          }}
+                          className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </span>
+                      </SystemTooltip>
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    )}
+                  </button>
+                </PopoverTrigger>
+              </SystemTooltip>
               <PopoverContent align="start" className="z-[200] w-72 space-y-1 p-2 shadow-2xl">
                 <div className="max-h-60 space-y-0.5 overflow-y-auto">
-                  {emptyFieldOptions.map(([value, label]) => (
-                    <label
-                      key={value}
-                      className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted"
-                    >
-                      <Checkbox
-                        checked={draft.emptyFields?.includes(value) || false}
-                        onCheckedChange={() => toggleEmpty(value)}
-                      />
-                      <span className="flex-1">{label}</span>
-                    </label>
-                  ))}
+                  {emptyFieldOptions.map(([value, label]) => {
+                    const isChecked = draft.emptyFields?.includes(value) || false;
+                    return (
+                      <SystemTooltip
+                        key={value}
+                        content={isChecked ? `Desmarcar "${label}"` : `Filtrar quando "${label}" estiver vazio`}
+                      >
+                        <label
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted"
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() => toggleEmpty(value)}
+                          />
+                          <span className="flex-1">{label}</span>
+                        </label>
+                      </SystemTooltip>
+                    );
+                  })}
                 </div>
                 {Boolean(draft.emptyFields?.length) && (
                   <div className="border-t border-border pt-1.5">
@@ -766,37 +822,75 @@ export function AdvancedFiltersModal({
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">Valor total</Label>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="R$ 0,00"
-                aria-label="Valor mínimo"
-                value={draft.minValue ?? ""}
-                onChange={(event) =>
-                  update(
-                    "minValue",
-                    event.target.value === "" ? undefined : Number(event.target.value),
-                  )
-                }
-                className="h-9 min-w-0 flex-1 text-xs"
-              />
+              <div className="relative flex min-w-0 flex-1 items-center">
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="R$ 0,00"
+                  aria-label="Valor mínimo"
+                  value={draft.minValue ?? ""}
+                  onChange={(event) => {
+                    const raw = event.target.value.replace(/[^0-9.]/g, "");
+                    update("minValue", raw === "" ? undefined : Number(raw));
+                  }}
+                  className="h-9 pr-13 text-xs"
+                />
+                <div className="absolute right-1 flex items-center gap-0.5">
+                  <SystemTooltip content="Diminuir valor mínimo (-100)">
+                    <button
+                      type="button"
+                      onClick={() => update("minValue", Math.max(0, (draft.minValue ?? 0) - 100))}
+                      className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </SystemTooltip>
+                  <SystemTooltip content="Aumentar valor mínimo (+100)">
+                    <button
+                      type="button"
+                      onClick={() => update("minValue", (draft.minValue ?? 0) + 100)}
+                      className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                    >
+                      <ChevronUp className="h-3 w-3" />
+                    </button>
+                  </SystemTooltip>
+                </div>
+              </div>
               <span>até</span>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="R$ 0,00"
-                aria-label="Valor máximo"
-                value={draft.maxValue ?? ""}
-                onChange={(event) =>
-                  update(
-                    "maxValue",
-                    event.target.value === "" ? undefined : Number(event.target.value),
-                  )
-                }
-                className="h-9 min-w-0 flex-1 text-xs"
-              />
+              <div className="relative flex min-w-0 flex-1 items-center">
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="R$ 0,00"
+                  aria-label="Valor máximo"
+                  value={draft.maxValue ?? ""}
+                  onChange={(event) => {
+                    const raw = event.target.value.replace(/[^0-9.]/g, "");
+                    update("maxValue", raw === "" ? undefined : Number(raw));
+                  }}
+                  className="h-9 pr-13 text-xs"
+                />
+                <div className="absolute right-1 flex items-center gap-0.5">
+                  <SystemTooltip content="Diminuir valor máximo (-100)">
+                    <button
+                      type="button"
+                      onClick={() => update("maxValue", Math.max(0, (draft.maxValue ?? 0) - 100))}
+                      className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </SystemTooltip>
+                  <SystemTooltip content="Aumentar valor máximo (+100)">
+                    <button
+                      type="button"
+                      onClick={() => update("maxValue", (draft.maxValue ?? 0) + 100)}
+                      className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                    >
+                      <ChevronUp className="h-3 w-3" />
+                    </button>
+                  </SystemTooltip>
+                </div>
+              </div>
             </div>
           </div>
           {dateFields.map(({ label, from, to, allowFuture }) => (
@@ -814,47 +908,51 @@ export function AdvancedFiltersModal({
           <div data-tour="crm.filter-relations" className="space-y-1.5">
             <Label className="text-xs font-semibold">Empresa</Label>
             <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
-                    draft.companyId
-                      ? "border-primary/50 bg-primary/5 text-foreground font-medium"
-                      : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                  }`}
-                >
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <Building2
-                      className={`h-3.5 w-3.5 shrink-0 ${
-                        draft.companyId ? "text-primary" : "text-muted-foreground"
-                      }`}
-                    />
-                    <span className="truncate">{selectedCompanyLabel || "Selecionar"}</span>
-                  </div>
-                  {draft.companyId ? (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      aria-label="Limpar empresa"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        update("companyId", undefined);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.stopPropagation();
-                          update("companyId", undefined);
-                        }
-                      }}
-                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </span>
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                  )}
-                </button>
-              </PopoverTrigger>
+              <SystemTooltip content="Filtrar negociações por empresa vinculada">
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs transition-colors cursor-pointer ${
+                      draft.companyId
+                        ? "border-primary/50 bg-primary/5 text-foreground font-medium"
+                        : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <Building2
+                        className={`h-3.5 w-3.5 shrink-0 ${
+                          draft.companyId ? "text-primary" : "text-muted-foreground"
+                        }`}
+                      />
+                      <span className="truncate">{selectedCompanyLabel || "Selecionar"}</span>
+                    </div>
+                    {draft.companyId ? (
+                      <SystemTooltip content="Limpar filtro de empresa">
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Limpar empresa"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            update("companyId", undefined);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.stopPropagation();
+                              update("companyId", undefined);
+                            }
+                          }}
+                          className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </span>
+                      </SystemTooltip>
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    )}
+                  </button>
+                </PopoverTrigger>
+              </SystemTooltip>
               <PopoverContent
                 align="start"
                 className="z-[200] w-80 max-w-[calc(100vw-2rem)] p-2 shadow-2xl"
@@ -944,21 +1042,25 @@ export function AdvancedFiltersModal({
           />
         </div>
         <SheetFooter className="flex-row items-center justify-between gap-2 border-t border-border px-5 py-4">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="text-xs"
-            onClick={() => {
-              setDraft({});
-              setStatus("all");
-            }}
-          >
-            Limpar filtros
-          </Button>
-          <Button type="button" size="sm" className="text-xs font-semibold" onClick={apply}>
-            Aplicar filtros
-          </Button>
+          <SystemTooltip content="Restaurar todos os filtros para o padrão">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="text-xs"
+              onClick={() => {
+                setDraft({});
+                setStatus("all");
+              }}
+            >
+              Limpar filtros
+            </Button>
+          </SystemTooltip>
+          <SystemTooltip content="Aplicar filtros selecionados ao CRM">
+            <Button type="button" size="sm" className="text-xs font-semibold" onClick={apply}>
+              Aplicar filtros
+            </Button>
+          </SystemTooltip>
         </SheetFooter>
       </SheetContent>
     </Sheet>

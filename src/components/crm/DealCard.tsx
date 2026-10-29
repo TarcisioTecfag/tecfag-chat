@@ -12,9 +12,12 @@ import {
   Pencil,
   ListTodo,
   ArrowRight,
+  Check,
+  X,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { prefetchDealDetail, seedDealPreview } from "@/lib/crm/deal-prefetch";
+import { invalidateDealCache, prefetchDealDetail, seedDealPreview } from "@/lib/crm/deal-prefetch";
 import { getDealStatusMeta } from "./deal-status-config";
 
 // Singleton de formatação monetária (evita instanciar Intl.NumberFormat centenas de vezes por render)
@@ -195,6 +198,20 @@ export interface DealCardProps {
   onStartDrag?: (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => void;
 }
 
+function parseInlineCurrencyInput(raw: string): number | null {
+  const cleaned = raw.replace(/[R$\s]/g, "").trim();
+  if (!cleaned) return null;
+  let normalized = cleaned;
+  if (cleaned.includes(",") && cleaned.includes(".")) {
+    normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  } else if (cleaned.includes(",")) {
+    normalized = cleaned.replace(",", ".");
+  }
+  const num = Number(normalized);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return num;
+}
+
 export const DealCard = React.memo(function DealCard({
   deal,
   coolingDays = 10,
@@ -210,8 +227,28 @@ export const DealCard = React.memo(function DealCard({
   onStartDrag,
 }: DealCardProps) {
   const [completingTask, setCompletingTask] = useState(false);
+  const completingTaskRef = useRef(false);
+  const [completedTaskIds, setCompletedTaskIds] = useState<string[]>([]);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
+  const [isEditingValue, setIsEditingValue] = useState(false);
+  const [valueInput, setValueInput] = useState("");
+  const [savingValue, setSavingValue] = useState(false);
+  const [optimisticValue, setOptimisticValue] = useState<number | null | undefined>(undefined);
+  const valueInputRef = useRef<HTMLInputElement | null>(null);
   const hoverPrefetchTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setOptimisticValue(undefined);
+  }, [deal.value]);
+
+  useEffect(() => {
+    if (isEditingValue) {
+      window.setTimeout(() => {
+        valueInputRef.current?.focus();
+        valueInputRef.current?.select();
+      }, 10);
+    }
+  }, [isEditingValue]);
 
   useEffect(() => {
     return () => {
@@ -227,11 +264,23 @@ export const DealCard = React.memo(function DealCard({
   const diffDays = lastActiveMs > 0 ? Math.max(0, Math.floor((Date.now() - lastActiveMs) / 86_400_000)) : 0;
   const isCooling = coolingEnabled && deal.status === "open" && diffDays >= coolingDays;
 
-  // Formatação de valor com singleton
-  const isNullValue = deal.value === null || deal.value === undefined;
-  const rawValue = !isNullValue ? Number(deal.value) : null;
+  // Formatação de valor com singleton (considerando valor otimista salvo inline)
+  const effectiveRawSource = optimisticValue !== undefined ? optimisticValue : deal.value;
+  const isNullValue = effectiveRawSource === null || effectiveRawSource === undefined || effectiveRawSource === "";
+  const rawValue = !isNullValue ? Number(effectiveRawSource) : null;
   const formattedValue =
-    rawValue !== null && !isNaN(rawValue) ? BRL_CURRENCY_FORMATTER.format(rawValue) : null;
+    rawValue !== null && !isNaN(rawValue) && rawValue > 0
+      ? BRL_CURRENCY_FORMATTER.format(rawValue)
+      : rawValue === 0 && optimisticValue === 0
+      ? BRL_CURRENCY_FORMATTER.format(0)
+      : !isNullValue && rawValue !== null && !isNaN(rawValue)
+      ? BRL_CURRENCY_FORMATTER.format(rawValue)
+      : null;
+
+  const effectiveNextTask =
+    deal.nextTask && (!deal.nextTask.id || !completedTaskIds.includes(deal.nextTask.id))
+      ? deal.nextTask
+      : null;
 
   // Status visual padronizado em todo o sistema
   const statusMeta = getDealStatusMeta(deal.status);
@@ -241,6 +290,54 @@ export const DealCard = React.memo(function DealCard({
     icon: statusMeta.icon,
   };
 
+  const handleStartEditValue = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    hideSharedCardTooltip();
+    const initial =
+      rawValue !== null && !isNaN(rawValue) && rawValue > 0
+        ? String(rawValue).replace(".", ",")
+        : "";
+    setValueInput(initial);
+    setIsEditingValue(true);
+  };
+
+  const handleSaveInlineValue = async () => {
+    if (savingValue) return;
+    const parsed = parseInlineCurrencyInput(valueInput);
+    if (parsed === null) {
+      toast.error("Informe um valor numérico válido.");
+      return;
+    }
+    const previousOptimistic = optimisticValue;
+    setSavingValue(true);
+    setOptimisticValue(parsed);
+    setIsEditingValue(false);
+    try {
+      const res = await fetch(`/api/crm/deals/${deal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: parsed }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Erro ao atualizar valor da negociação.");
+      }
+      invalidateDealCache(deal.id);
+      seedDealPreview({ ...deal, value: parsed });
+      toast.success("Valor atualizado!");
+      window.dispatchEvent(
+        new CustomEvent("crm:deal-value-updated", {
+          detail: { dealId: deal.id, stageId: deal.stageId, value: parsed, previousValue: rawValue ?? 0 },
+        }),
+      );
+    } catch (err: any) {
+      setOptimisticValue(previousOptimistic);
+      toast.error(err.message || "Erro ao atualizar valor.");
+    } finally {
+      setSavingValue(false);
+    }
+  };
+
   // Pointer Down para Drag customizado fluido sem disparar requisição HTTP no início do gesto
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     hideSharedCardTooltip();
@@ -248,7 +345,7 @@ export const DealCard = React.memo(function DealCard({
       window.clearTimeout(hoverPrefetchTimerRef.current);
       hoverPrefetchTimerRef.current = null;
     }
-    if (isOverlay || isDragging) return;
+    if (isOverlay || isDragging || isEditingValue) return;
     if (e.button !== 0) return; // apenas clique esquerdo
     const target = e.target as HTMLElement;
     // Não iniciar drag se clicou em botões, links ou menus internos
@@ -262,7 +359,7 @@ export const DealCard = React.memo(function DealCard({
   };
 
   const handleCardClick = () => {
-    if (isOverlay || isDragging) return;
+    if (isOverlay || isDragging || isEditingValue) return;
     seedDealPreview(deal);
     if (!onStartDrag && onClick) {
       onClick(deal);
@@ -293,26 +390,38 @@ export const DealCard = React.memo(function DealCard({
     }
   };
 
-  // Concluir tarefa rapidamente
+  // Concluir tarefa rapidamente (com trava síncrona e atualização otimista imediata)
   const handleCompleteTask = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!deal.nextTask?.id || completingTask) return;
+    const taskId = effectiveNextTask?.id;
+    if (!taskId || completingTaskRef.current || completingTask) return;
+    completingTaskRef.current = true;
     setCompletingTask(true);
+    setCompletedTaskIds((prev) => (prev.includes(taskId) ? prev : [...prev, taskId]));
     try {
-      const res = await fetch(`/api/crm/deals/${deal.id}/activities/${deal.nextTask.id}`, {
+      const res = await fetch(`/api/crm/deals/${deal.id}/activities/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "completed" }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Erro ao concluir tarefa.");
       }
+      invalidateDealCache(deal.id);
+      seedDealPreview({ ...deal, nextTask: null });
       toast.success("Tarefa concluída!");
-      onTaskCompleted?.(deal.id, deal.nextTask.id);
+      onTaskCompleted?.(deal.id, taskId);
+      window.dispatchEvent(
+        new CustomEvent("crm:deal-task-completed", {
+          detail: { dealId: deal.id, activityId: taskId },
+        }),
+      );
     } catch (err: any) {
+      setCompletedTaskIds((prev) => prev.filter((id) => id !== taskId));
       toast.error(err.message || "Erro ao concluir tarefa.");
     } finally {
+      completingTaskRef.current = false;
       setCompletingTask(false);
     }
   };
@@ -489,19 +598,82 @@ export const DealCard = React.memo(function DealCard({
 
       {/* ── 3. VALOR COMERCIAL + VENDEDOR / CONVERSAS (altura fixa 20px) ── */}
       <div className="mt-1.5 flex items-center justify-between gap-2 text-xs h-5">
-        <div className="min-w-0 shrink-0">
-          {formattedValue !== null ? (
-            <span className="font-bold text-foreground tabular-nums text-xs">
-              {formattedValue}
-            </span>
-          ) : (
-            <CardTooltip content="Clique para adicionar valor" disabled={isOverlay}>
+        <div className="min-w-0 shrink-0" data-no-drag>
+          {isEditingValue ? (
+            <div
+              data-no-drag
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="flex items-center gap-1"
+            >
+              <span className="text-[10px] font-bold text-muted-foreground">R$</span>
+              <input
+                ref={valueInputRef}
+                type="text"
+                inputMode="decimal"
+                placeholder="0,00"
+                value={valueInput}
+                disabled={savingValue}
+                onChange={(e) => setValueInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleSaveInlineValue();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setIsEditingValue(false);
+                  }
+                }}
+                className="h-5 w-20 rounded border border-primary bg-card px-1.5 text-[11px] font-bold text-foreground outline-none focus:ring-1 focus:ring-primary tabular-nums"
+              />
+              <CardTooltip content="Salvar valor (Enter)" disabled={isOverlay}>
+                <button
+                  type="button"
+                  disabled={savingValue}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleSaveInlineValue();
+                  }}
+                  className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
+                >
+                  {savingValue ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="h-3 w-3" />
+                  )}
+                </button>
+              </CardTooltip>
+              <CardTooltip content="Cancelar edição (Esc)" disabled={isOverlay}>
+                <button
+                  type="button"
+                  disabled={savingValue}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsEditingValue(false);
+                  }}
+                  className="flex h-5 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </CardTooltip>
+            </div>
+          ) : formattedValue !== null ? (
+            <CardTooltip content="Clique para editar o valor na prévia" disabled={isOverlay}>
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClick?.(deal);
-                }}
+                data-no-drag
+                onClick={handleStartEditValue}
+                className="font-bold text-foreground hover:text-primary tabular-nums text-xs transition-colors cursor-pointer"
+              >
+                {formattedValue}
+              </button>
+            </CardTooltip>
+          ) : (
+            <CardTooltip content="Clique para adicionar valor direto no card" disabled={isOverlay}>
+              <button
+                type="button"
+                data-no-drag
+                onClick={handleStartEditValue}
                 className="text-[11px] font-medium text-primary hover:underline transition-colors cursor-pointer"
               >
                 + Adicionar valor
@@ -510,58 +682,59 @@ export const DealCard = React.memo(function DealCard({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 min-w-0 justify-end">
-          {(deal.conversationsCount || 0) > 0 && (
-            <CardTooltip content={`${deal.conversationsCount} conversa(s) vinculada(s)`} disabled={isOverlay}>
-              <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-bold text-primary">
-                <MessageSquare className="h-2.5 w-2.5" />
-                {deal.conversationsCount}
-              </span>
-            </CardTooltip>
-          )}
+        {!isEditingValue && (
+          <div className="flex items-center gap-1.5 min-w-0 justify-end">
+            {(deal.conversationsCount || 0) > 0 && (
+              <CardTooltip content={`${deal.conversationsCount} conversa(s) vinculada(s)`} disabled={isOverlay}>
+                <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-bold text-primary">
+                  <MessageSquare className="h-2.5 w-2.5" />
+                  {deal.conversationsCount}
+                </span>
+              </CardTooltip>
+            )}
 
-          {operatorName ? (
-            <CardTooltip content={`Responsável: ${operatorName}`} disabled={isOverlay}>
-              <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
-                <User className="h-3 w-3 shrink-0" />
-                <span className="truncate max-w-[120px]">{operatorName}</span>
+            {operatorName ? (
+              <CardTooltip content={`Responsável: ${operatorName}`} disabled={isOverlay}>
+                <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                  <User className="h-3 w-3 shrink-0" />
+                  <span className="truncate max-w-[120px]">{operatorName}</span>
+                </span>
+              </CardTooltip>
+            ) : (
+              <span className="text-[11px] text-muted-foreground/60 truncate">
+                Sem responsável
               </span>
-            </CardTooltip>
-          ) : (
-            <span className="text-[11px] text-muted-foreground/60 truncate">
-              Sem responsável
-            </span>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── 4. PRÓXIMA TAREFA / AÇÕES RÁPIDAS (Ícones discretos substituindo + Tarefa) ── */}
       <div className="mt-1.5 pt-1.5 border-t border-border/50">
         <div data-tour="crm.card-task" className="flex items-center justify-between gap-2 h-7 px-2 rounded-lg border bg-muted/40 border-border/50 text-xs">
-          {deal.nextTask ? (
+          {effectiveNextTask ? (
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
               <Clock
                 className={`h-3 w-3 shrink-0 ${
-                  deal.nextTask.isOverdue
+                  effectiveNextTask.isOverdue
                     ? "text-red-600 dark:text-red-400"
-                    : deal.nextTask.isToday
+                    : effectiveNextTask.isToday
                     ? "text-amber-600 dark:text-amber-400"
                     : "text-muted-foreground"
                 }`}
               />
-              <CardTooltip content={deal.nextTask.title} disabled={isOverlay}>
+              <CardTooltip content={effectiveNextTask.title.replace(/^Hoje:\s*/i, "")} disabled={isOverlay}>
                 <span className="truncate text-foreground/80 cursor-default text-[11px]">
-                  {deal.nextTask.isOverdue && (
+                  {effectiveNextTask.isOverdue ? (
                     <strong className="text-red-600 dark:text-red-400 mr-1 font-bold">
                       Atrasada:
                     </strong>
-                  )}
-                  {deal.nextTask.isToday && (
+                  ) : effectiveNextTask.isToday ? (
                     <strong className="text-amber-600 dark:text-amber-400 mr-1 font-bold">
                       Hoje:
                     </strong>
-                  )}
-                  {deal.nextTask.title}
+                  ) : null}
+                  {effectiveNextTask.title.replace(/^Hoje:\s*/i, "")}
                 </span>
               </CardTooltip>
             </div>
@@ -579,11 +752,11 @@ export const DealCard = React.memo(function DealCard({
 
           {/* Ícones de ação à direita: Checkmark de tarefa + Mini Chat + Chat Completo */}
           <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-            {deal.nextTask?.id && (
+            {effectiveNextTask?.id && (
               <CardTooltip content="Concluir tarefa rapidamente" disabled={isOverlay}>
                 <button
                   type="button"
-                  aria-label={`Concluir tarefa: ${deal.nextTask.title}`}
+                  aria-label={`Concluir tarefa: ${effectiveNextTask.title}`}
                   onClick={handleCompleteTask}
                   disabled={completingTask}
                   className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-emerald-500 hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"

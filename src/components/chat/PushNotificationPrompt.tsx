@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useChat } from "@/hooks/useChatState";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useTheme } from "@/hooks/useTheme";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import {
   Bell,
@@ -30,6 +31,7 @@ function urlBase64ToUint8Array(base64String: string) {
 export function PushNotificationPrompt() {
   const { tenant, currentOperatorId, isAuthenticated } = useChat();
   const isMobile = useIsMobile();
+  const { theme } = useTheme();
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("default");
   const [isDismissed, setIsDismissed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -41,6 +43,7 @@ export function PushNotificationPrompt() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [showDeniedTutorial, setShowDeniedTutorial] = useState(false);
+  const [stillBlockedNotice, setStillBlockedNotice] = useState(false);
   const [tutorialPlatform, setTutorialPlatform] = useState<"desktop" | "mobile">("desktop");
 
   useEffect(() => {
@@ -82,8 +85,9 @@ export function PushNotificationPrompt() {
     });
 
     if (saveRes.ok) {
-      toast.success("Notificações ativadas com sucesso!");
+      toast.info("Notificações ativadas com sucesso!");
       setShowDeniedTutorial(false);
+      setStillBlockedNotice(false);
       setIsDismissed(true);
       try {
         window.localStorage.setItem(DISMISS_STORAGE_KEY, "true");
@@ -92,7 +96,7 @@ export function PushNotificationPrompt() {
       }
       return true;
     } else {
-      toast.error("Erro ao salvar assinatura de notificação no servidor.");
+      toast.info("Não foi possível salvar a assinatura de notificação no servidor.");
       return false;
     }
   }, [tenant, currentOperatorId]);
@@ -130,6 +134,7 @@ export function PushNotificationPrompt() {
             const updatedPerm = Notification.permission;
             setPermission(updatedPerm);
             if (updatedPerm === "granted") {
+              setStillBlockedNotice(false);
               setIsLoading(true);
               subscribePushToServer()
                 .catch((err) => {
@@ -156,6 +161,7 @@ export function PushNotificationPrompt() {
   const handleDismiss = () => {
     setIsDismissed(true);
     setShowDeniedTutorial(false);
+    setStillBlockedNotice(false);
     try {
       window.localStorage.setItem(DISMISS_STORAGE_KEY, "true");
     } catch {
@@ -165,9 +171,11 @@ export function PushNotificationPrompt() {
 
   const handleEnablePush = async () => {
     if (permission === "unsupported") {
-      toast.error("Notificações não são suportadas neste navegador.");
+      toast.info("Notificações não são suportadas neste navegador.");
       return;
     }
+
+    setStillBlockedNotice(false);
 
     // Se já estava como denied antes mesmo de chamar requestPermission, abre direto o tutorial
     if (Notification.permission === "denied") {
@@ -197,7 +205,7 @@ export function PushNotificationPrompt() {
       await subscribePushToServer();
     } catch (err: any) {
       console.error("Erro ao ativar Push Notifications:", err);
-      toast.error("Ocorreu um erro ao ativar as notificações.");
+      toast.info("Não foi possível ativar as notificações neste momento.");
     } finally {
       setIsLoading(false);
     }
@@ -210,12 +218,11 @@ export function PushNotificationPrompt() {
     setPermission(currentPerm);
 
     if (currentPerm === "denied") {
-      toast.warning(
-        "O navegador ainda informa que a permissão está bloqueada. Altere para 'Permitir' no ícone ao lado da URL e tente novamente (ou recarregue a página).",
-      );
+      setStillBlockedNotice(true);
       return;
     }
 
+    setStillBlockedNotice(false);
     await handleEnablePush();
   };
 
@@ -229,7 +236,8 @@ export function PushNotificationPrompt() {
   return (
     <div
       data-push-notification-prompt="true"
-      className="fixed bottom-16 left-4 right-4 md:bottom-6 md:left-auto md:right-6 md:w-full md:max-w-[400px] z-50 bg-card/98 text-card-foreground p-4 rounded-2xl shadow-card border border-border flex flex-col gap-3.5 transition-all duration-300 backdrop-blur-xl"
+      data-theme-mode={theme}
+      className="fixed bottom-16 left-4 right-4 md:bottom-6 md:left-auto md:right-6 md:w-full md:max-w-[400px] z-50 bg-card text-card-foreground p-4 rounded-2xl shadow-card border border-border flex flex-col gap-3.5 transition-all duration-300"
     >
       {!showDeniedTutorial ? (
         <>
@@ -429,6 +437,14 @@ export function PushNotificationPrompt() {
               </>
             )}
           </ol>
+
+          {stillBlockedNotice && (
+            <div className="rounded-xl bg-primary/10 border border-primary/25 px-3 py-2 text-[11px] text-foreground leading-snug">
+              <strong className="text-primary font-semibold">Permissão ainda bloqueada no navegador:</strong>{" "}
+              altere <strong>Notificações</strong> para <strong>Permitir</strong> no ícone ao lado da URL e clique em{" "}
+              <strong>Recarregar</strong>.
+            </div>
+          )}
 
           {/* Ações do rodapé do tutorial */}
           <div className="flex items-center justify-between gap-2 pt-1 border-t border-border">

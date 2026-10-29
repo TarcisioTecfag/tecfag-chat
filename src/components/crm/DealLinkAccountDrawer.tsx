@@ -30,6 +30,7 @@ import {
   Unlink,
   ArrowLeft,
   User,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/utils";
@@ -42,6 +43,10 @@ import {
   validateAccountDocument,
   validateCnpj,
 } from "../../lib/crm/account-validation";
+import {
+  useCheckDuplicateDocument,
+  findDuplicateAccountByDocument,
+} from "../../lib/crm/use-check-duplicate-document";
 import { fetchCnpjInfo, type CnpjFullDetails } from "../../lib/valentina/cnpj-service";
 import {
   buildAccountAddressFromCnpjDetails,
@@ -141,9 +146,22 @@ export function DealLinkAccountDrawer({
   const [isSearchingCreateCnpj, setIsSearchingCreateCnpj] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  const { duplicateAccount: duplicateCreateAccount } = useCheckDuplicateDocument(
+    createDocument,
+    isOpen && tab === "create" && !isEditingCurrent,
+  );
+
+  const { duplicateAccount: duplicateEditAccount } = useCheckDuplicateDocument(
+    editDocument,
+    isOpen && isEditingCurrent && Boolean(currentAccount),
+    currentAccount?.id,
+  );
+
   const queryReceitaForCreate = async (rawDoc?: string) => {
     const cleanDoc = (rawDoc ?? createDocument).replace(/\D/g, "");
     if (cleanDoc.length !== 14 || !validateCnpj(cleanDoc)) return;
+    const existing = await findDuplicateAccountByDocument(cleanDoc);
+    if (existing) return;
     setIsSearchingCreateCnpj(true);
     try {
       const info = await fetchCnpjInfo(cleanDoc);
@@ -313,6 +331,13 @@ export function DealLinkAccountDrawer({
       return;
     }
 
+    if (duplicateEditAccount) {
+      toast.error(
+        `Já existe outra empresa cadastrada com este ${editType === "company" ? "CNPJ" : "CPF"} (${duplicateEditAccount.name}).`,
+      );
+      return;
+    }
+
     const docValidation = validateAccountDocument(editType, editDocument);
     if (!docValidation.valid) {
       toast.error(docValidation.error || "Documento inválido.");
@@ -360,6 +385,12 @@ export function DealLinkAccountDrawer({
   // Criar nova empresa e já vincular à negociação
   const handleCreateAndLink = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (duplicateCreateAccount) {
+      toast.error(
+        `Já existe uma empresa cadastrada com este ${createType === "company" ? "CNPJ" : "CPF"} (${duplicateCreateAccount.name}).`,
+      );
+      return;
+    }
     if (!createName.trim()) {
       toast.error("Informe a razão social ou nome da empresa.");
       return;
@@ -510,9 +541,11 @@ export function DealLinkAccountDrawer({
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold text-foreground">Tipo</Label>
                   <Select value={editType} disabled>
-                    <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-muted/50 opacity-80 cursor-not-allowed">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SystemTooltip content="Tipo de cadastro da empresa">
+                      <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-muted/50 opacity-80 cursor-not-allowed">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </SystemTooltip>
                     <SelectContent className="z-[220]">
                       <SelectItem value="company" className="text-xs">Pessoa Jurídica (PJ)</SelectItem>
                       <SelectItem value="person" className="text-xs">Pessoa Física (PF)</SelectItem>
@@ -531,8 +564,15 @@ export function DealLinkAccountDrawer({
                     placeholder={editType === "company" ? "00.000.000/0000-00" : "000.000.000-00"}
                     value={editDocument}
                     onChange={(e) => setEditDocument(formatAccountDocumentInput(e.target.value, editType))}
-                    className="h-8 text-xs rounded-sm border-border bg-card font-mono"
+                    className={`h-8 text-xs rounded-sm bg-card font-mono ${
+                      duplicateEditAccount ? "border-rose-500" : "border-border"
+                    }`}
                   />
+                  {duplicateEditAccount && (
+                    <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400">
+                      Já existe uma empresa cadastrada com este {editType === "company" ? "CNPJ" : "CPF"}: {duplicateEditAccount.name}.
+                    </p>
+                  )}
                   {(() => {
                     const mismatch = getInlineDocumentMismatch(editType, editDocument);
                     if (!mismatch) return null;
@@ -668,7 +708,7 @@ export function DealLinkAccountDrawer({
                   </button>
                   <button
                     type="submit"
-                    disabled={savingEdit || !editName.trim()}
+                    disabled={savingEdit || !editName.trim() || Boolean(duplicateEditAccount)}
                     className="inline-flex items-center gap-1.5 rounded-sm bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
                   >
                     {savingEdit ? (
@@ -916,9 +956,11 @@ export function DealLinkAccountDrawer({
                       }
                     }}
                   >
-                    <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SystemTooltip content="Selecionar tipo de cadastro (PJ ou PF)">
+                      <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </SystemTooltip>
                     <SelectContent className="z-[220]">
                       <SelectItem value="company" className="text-xs">Pessoa Jurídica (PJ)</SelectItem>
                       <SelectItem value="person" className="text-xs">Pessoa Física (PF)</SelectItem>
@@ -958,8 +1000,33 @@ export function DealLinkAccountDrawer({
                         void queryReceitaForCreate(nextDigits);
                       }
                     }}
-                    className="h-8 text-xs rounded-sm border-border bg-card font-mono"
+                    className={`h-8 text-xs rounded-sm bg-card font-mono ${
+                      duplicateCreateAccount ? "border-rose-500" : "border-border"
+                    }`}
                   />
+                  {duplicateCreateAccount && (
+                    <div className="mt-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 p-2.5 text-[11px] text-rose-700 dark:text-rose-300 space-y-1.5">
+                      <div className="flex items-start gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-rose-500" />
+                        <div>
+                          <p className="font-bold">
+                            Já existe uma empresa cadastrada com este {createType === "company" ? "CNPJ" : "CPF"}:{" "}
+                            <span className="underline">{duplicateCreateAccount.name}</span>
+                          </p>
+                          <p className="text-[10px] opacity-90 mt-0.5">
+                            Não é permitido criar cadastros duplicados. Você pode vincular a empresa existente diretamente:
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleLinkAccount(duplicateCreateAccount as LinkedDealAccount)}
+                        className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground hover:opacity-90 cursor-pointer"
+                      >
+                        Vincular empresa existente ({duplicateCreateAccount.name})
+                      </button>
+                    </div>
+                  )}
                   {(() => {
                     const mismatch = getInlineDocumentMismatch(createType, createDocument);
                     if (!mismatch) return null;
@@ -1094,7 +1161,7 @@ export function DealLinkAccountDrawer({
 
               <button
                 type="submit"
-                disabled={creating || !createName.trim()}
+                disabled={creating || !createName.trim() || Boolean(duplicateCreateAccount)}
                 className="w-full h-9 rounded-sm bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 mt-4"
               >
                 {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

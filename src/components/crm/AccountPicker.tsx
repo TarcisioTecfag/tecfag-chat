@@ -178,21 +178,8 @@ export function AccountPicker({
             }}
             onFocus={() => setIsOpen(true)}
             placeholder={placeholder}
-            className="w-full pl-9 pr-20 py-2 text-sm bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground placeholder:text-muted-foreground"
+            className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground placeholder:text-muted-foreground"
           />
-          {onAddNew && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsOpen(false);
-                onAddNew(query.trim());
-              }}
-              className="absolute inset-y-1 right-1 px-2.5 flex items-center space-x-1 text-xs font-medium text-primary hover:bg-primary/10 rounded-md transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Novo</span>
-            </button>
-          )}
 
           {/* Dropdown de Resultados */}
           {isOpen && query.trim().length > 0 && (

@@ -358,15 +358,37 @@ for (const spec of Object.values(MODULE_ROUTE_SPECS)) {
 
 const CHAT_AI_SLUGS = new Set(["assistente", "ia", "fagner", "valentina"]);
 
-/** Memory cache of the last visited tab per module so returning to a module restores its last tab */
+/** Memory + localStorage cache of the last visited tab per module so returning or reloading restores its last tab */
 const lastActiveTabByView: Partial<Record<ViewId, string>> = {};
+const REMEMBERED_TAB_STORAGE_PREFIX = "valem_remembered_tab:";
 
 export function setRememberedTabForView(viewId: ViewId, tabId: string) {
   lastActiveTabByView[viewId] = tabId;
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(`${REMEMBERED_TAB_STORAGE_PREFIX}${viewId}`, tabId);
+    } catch {
+      // ignore storage quota errors
+    }
+  }
 }
 
 export function getRememberedTabForView(viewId: ViewId): string | undefined {
-  return lastActiveTabByView[viewId];
+  if (lastActiveTabByView[viewId]) {
+    return lastActiveTabByView[viewId];
+  }
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem(`${REMEMBERED_TAB_STORAGE_PREFIX}${viewId}`);
+      if (stored) {
+        lastActiveTabByView[viewId] = stored;
+        return stored;
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+  return undefined;
 }
 
 export interface ParsedAppRoute {
@@ -539,7 +561,7 @@ export function buildAppRoutePath(
   const rawTabId =
     options?.tabId !== undefined && options?.tabId !== null
       ? String(options.tabId)
-      : lastActiveTabByView[viewId] || spec.defaultTabId;
+      : getRememberedTabForView(viewId) || spec.defaultTabId;
 
   if (!rawTabId || !spec.tabToSlug) {
     return `/${spec.baseSlug}`;

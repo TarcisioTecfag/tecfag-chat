@@ -53,6 +53,27 @@ export function installTrainingFrame(win: Window, config: TrainingFrameConfig) {
   applyDocTheme(initialTheme);
   if (initialDensity && initialDensity !== "auto") doc.documentElement.setAttribute("data-density", initialDensity);
   else doc.documentElement.removeAttribute("data-density");
+  try {
+    const parentWin = win.parent && win.parent !== win ? win.parent : null;
+    const parentRoot = parentWin?.document?.documentElement;
+    if (parentRoot && typeof MutationObserver !== "undefined") {
+      const syncFromParent = () => {
+        const nextMode = parentRoot.classList.contains("theme-voice") || parentRoot.getAttribute("data-theme") === "voice"
+          ? "voice"
+          : parentRoot.classList.contains("dark")
+            ? "dark"
+            : "light";
+        applyDocTheme(nextMode);
+        local.setItem("chat_theme_mode", nextMode);
+        const nextDensity = parentRoot.getAttribute("data-density") || "auto";
+        if (nextDensity && nextDensity !== "auto") doc.documentElement.setAttribute("data-density", nextDensity);
+        else doc.documentElement.removeAttribute("data-density");
+      };
+      syncFromParent();
+      const themeObserver = new MutationObserver(syncFromParent);
+      themeObserver.observe(parentRoot, { attributes: true, attributeFilter: ["class", "data-theme", "data-density"] });
+    }
+  } catch {}
   Object.defineProperty(win, "localStorage", { value: local, configurable: true });
   Object.defineProperty(win, "sessionStorage", { value: session, configurable: true });
   Object.defineProperty(win, "indexedDB", { value: undefined, configurable: true });

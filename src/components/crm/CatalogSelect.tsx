@@ -6,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import type { CatalogKind } from "@/lib/crm/catalogs";
 
@@ -84,14 +85,16 @@ export function CatalogSelect({
         value={value || "__none__"}
         onValueChange={(next) => onChange(next === "__none__" ? "" : next)}
       >
-        <SelectTrigger
-          className={
-            className ||
-            "h-9 w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 text-xs font-medium text-foreground hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15"
-          }
-        >
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
+        <SystemTooltip content={value ? `Selecionado: ${value}` : placeholder}>
+          <SelectTrigger
+            className={
+              className ||
+              "h-9 w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 text-xs font-medium text-foreground hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15"
+            }
+          >
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+        </SystemTooltip>
         <SelectContent>
           <SelectItem value="__none__">{placeholder}</SelectItem>
           {legacy && <SelectItem value={value}>{value} (fora do catálogo)</SelectItem>}
@@ -103,13 +106,15 @@ export function CatalogSelect({
         </SelectContent>
       </Select>
       {!hideCreate && allowCreate && !creating && (
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="mt-1 text-[11px] font-semibold text-primary hover:underline"
-        >
-          + Criar nova opção
-        </button>
+        <SystemTooltip content="Adicionar nova opção ao catálogo">
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="mt-1 text-[11px] font-semibold text-primary hover:underline"
+          >
+            + Criar nova opção
+          </button>
+        </SystemTooltip>
       )}
       {!hideCreate && allowCreate && creating && (
         <div className="mt-1 flex gap-1">
@@ -126,25 +131,29 @@ export function CatalogSelect({
             aria-label="Novo item do catálogo"
             className="min-w-0 flex-1 rounded border border-border bg-card px-2 py-1 text-xs"
           />
-          <button
-            type="button"
-            disabled={adding || !newName.trim()}
-            onClick={() => void add()}
-            className="rounded bg-primary px-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
-          >
-            Criar
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setCreating(false);
-              setNewName("");
-            }}
-            className="px-1 text-xs text-muted-foreground"
-            aria-label="Cancelar criação"
-          >
-            Cancelar
-          </button>
+          <SystemTooltip content="Confirmar criação da opção">
+            <button
+              type="button"
+              disabled={adding || !newName.trim()}
+              onClick={() => void add()}
+              className="rounded bg-primary px-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              Criar
+            </button>
+          </SystemTooltip>
+          <SystemTooltip content="Cancelar criação">
+            <button
+              type="button"
+              onClick={() => {
+                setCreating(false);
+                setNewName("");
+              }}
+              className="px-1 text-xs text-muted-foreground"
+              aria-label="Cancelar criação"
+            >
+              Cancelar
+            </button>
+          </SystemTooltip>
         </div>
       )}
     </div>

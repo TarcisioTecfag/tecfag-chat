@@ -2,6 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Bold, Italic, Link2, List, ListOrdered, Loader2, Mail, Paperclip, Plus, Send, Underline, X } from "lucide-react";
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { SystemTooltip } from "@/components/ui/tooltip";
 
 type Recipient = { contactId: string; name: string; email: string; isPrimary: boolean };
 type DealEmail = {
@@ -191,15 +199,24 @@ export function DealEmailTab({ dealId, onSent }: { dealId: string; onSent: () =>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs">
           <label htmlFor="deal-email-filter" className="font-semibold text-muted-foreground">Exibir</label>
-          <select id="deal-email-filter" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)} className="h-9 rounded-lg border border-border bg-card px-3 font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
-            <option value="all">Todos</option>
-            <option value="outbound">Enviados</option>
-            <option value="inbound">Recebidos</option>
-          </select>
+          <Select value={filter} onValueChange={(val) => setFilter(val as typeof filter)}>
+            <SystemTooltip content="Filtrar e-mails da negociação">
+              <SelectTrigger id="deal-email-filter" className="h-9 w-36 rounded-lg border border-border bg-card px-3 font-medium text-xs text-foreground">
+                <SelectValue />
+              </SelectTrigger>
+            </SystemTooltip>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos</SelectItem>
+              <SelectItem value="outbound" className="text-xs">Enviados</SelectItem>
+              <SelectItem value="inbound" className="text-xs">Recebidos</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <button type="button" onClick={openComposer} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90">
-          <Plus className="h-4 w-4" /> Criar e-mail
-        </button>
+        <SystemTooltip content="Redigir novo e-mail para o contato desta negociação">
+          <button type="button" onClick={openComposer} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-xs font-bold text-primary-foreground hover:opacity-90 cursor-pointer">
+            <Plus className="h-4 w-4" /> Criar e-mail
+          </button>
+        </SystemTooltip>
       </div>
       <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
         Recebimento automático de respostas e confirmação de leitura: <strong className="text-foreground">em manutenção</strong>.
@@ -252,10 +269,25 @@ export function DealEmailTab({ dealId, onSent }: { dealId: string; onSent: () =>
                   </div>
                   <div className="grid grid-cols-[52px_1fr_auto_auto] items-center gap-2">
                     <label htmlFor="deal-email-to" className="font-bold text-foreground">Para *</label>
-                    <select id="deal-email-to" value={contactId} onChange={(event) => setContactId(event.target.value)} disabled={!data?.recipients.length} className="min-w-0 rounded-lg border border-border bg-card px-3 py-2.5 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50">
-                      {!data?.recipients.length && <option value="">Nenhum contato com e-mail</option>}
-                      {data?.recipients.map((item) => <option key={item.contactId} value={item.contactId}>{item.name} &lt;{item.email}&gt;</option>)}
-                    </select>
+                    <Select
+                      value={contactId || "__empty__"}
+                      onValueChange={(val) => setContactId(val === "__empty__" ? "" : val)}
+                      disabled={!data?.recipients.length}
+                    >
+                      <SystemTooltip content="Selecionar contato destinatário">
+                        <SelectTrigger id="deal-email-to" className="min-w-0 rounded-lg border border-border bg-card px-3 py-2.5 text-xs text-foreground disabled:opacity-50">
+                          <SelectValue placeholder={!data?.recipients.length ? "Nenhum contato com e-mail" : "Selecionar destinatário"} />
+                        </SelectTrigger>
+                      </SystemTooltip>
+                      <SelectContent className="z-[200]">
+                        {!data?.recipients.length && <SelectItem value="__empty__" className="text-xs">Nenhum contato com e-mail</SelectItem>}
+                        {data?.recipients.map((item) => (
+                          <SelectItem key={item.contactId} value={item.contactId} className="text-xs">
+                            {item.name} &lt;{item.email}&gt;
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <button type="button" onClick={() => setShowCc((value) => !value)} className="font-bold text-primary hover:underline">CC</button>
                     <button type="button" onClick={() => setShowBcc((value) => !value)} className="font-bold text-primary hover:underline">BCC</button>
                   </div>
@@ -277,8 +309,14 @@ export function DealEmailTab({ dealId, onSent }: { dealId: string; onSent: () =>
                       {([
                         [Bold, "bold", "Negrito"], [Italic, "italic", "Itálico"], [Underline, "underline", "Sublinhado"],
                         [List, "insertUnorderedList", "Lista"], [ListOrdered, "insertOrderedList", "Lista numerada"],
-                      ] as const).map(([Icon, command, label]) => <button key={command} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => format(command)} title={label} aria-label={label} className="rounded p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Icon className="h-4 w-4" /></button>)}
-                      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={addLink} title="Inserir link" aria-label="Inserir link" className="rounded p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Link2 className="h-4 w-4" /></button>
+                      ] as const).map(([Icon, command, label]) => (
+                        <SystemTooltip key={command} content={label}>
+                          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => format(command)} aria-label={label} className="rounded p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Icon className="h-4 w-4" /></button>
+                        </SystemTooltip>
+                      ))}
+                      <SystemTooltip content="Inserir link">
+                        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={addLink} aria-label="Inserir link" className="rounded p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Link2 className="h-4 w-4" /></button>
+                      </SystemTooltip>
                     </div>
                     <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={syncEditor} data-placeholder="Escreva sua mensagem..." className="min-h-64 max-h-[45vh] overflow-y-auto p-3 text-sm leading-relaxed text-foreground outline-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]" />
                   </div>

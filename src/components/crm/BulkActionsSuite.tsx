@@ -478,12 +478,13 @@ export function BulkActionsSuite({
 
   const openCampaignModal = async () => {
     setAddOrChangeOpen(false);
+    setCampaignInput("");
     setCampaignModalOpen(true);
     try {
       const res = await fetch("/api/crm/catalogs?kind=campaign");
       if (res.ok) {
         const data = await res.json();
-        setCatalogCampaigns(data.items || []);
+        setCatalogCampaigns(data.options || data.items || []);
       }
     } catch (e) {
       console.warn("Falha ao carregar campanhas:", e);
@@ -492,7 +493,7 @@ export function BulkActionsSuite({
 
   const handleSaveCampaign = async () => {
     if (!campaignInput.trim()) {
-      toast.error("Informe ou selecione uma campanha.");
+      toast.error("Selecione uma campanha do catálogo.");
       return;
     }
     const ok = await executeBulkRequest(
@@ -504,12 +505,13 @@ export function BulkActionsSuite({
 
   const openSourceModal = async () => {
     setAddOrChangeOpen(false);
+    setSourceInput("");
     setSourceModalOpen(true);
     try {
       const res = await fetch("/api/crm/catalogs?kind=source");
       if (res.ok) {
         const data = await res.json();
-        setCatalogSources(data.items || []);
+        setCatalogSources(data.options || data.items || []);
       }
     } catch (e) {
       console.warn("Falha ao carregar fontes:", e);
@@ -518,7 +520,7 @@ export function BulkActionsSuite({
 
   const handleSaveSource = async () => {
     if (!sourceInput.trim()) {
-      toast.error("Informe ou selecione uma fonte.");
+      toast.error("Selecione uma fonte do catálogo.");
       return;
     }
     const ok = await executeBulkRequest(
@@ -894,12 +896,16 @@ export function BulkActionsSuite({
           SUB-BARRA DE SELEÇÃO GLOBAL DO FILTRO ("Selecionar todos os X itens")
           ────────────────────────────────────────────────────────────────────────── */}
       <div className="w-full bg-muted/40 dark:bg-muted/20 border-b border-border/40 px-4 py-1.5 flex items-center gap-2 text-xs text-muted-foreground select-none">
-        <Checkbox
-          checked={isAllFilterSelected}
-          onCheckedChange={onToggleAllFilter}
-          id="bulk-select-all-filter"
-          className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
-        />
+        <SystemTooltip content={isAllFilterSelected ? "Desmarcar todos os itens deste filtro" : `Selecionar todos os ${total} itens deste filtro`}>
+          <span className="inline-flex items-center">
+            <Checkbox
+              checked={isAllFilterSelected}
+              onCheckedChange={onToggleAllFilter}
+              id="bulk-select-all-filter"
+              className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+            />
+          </span>
+        </SystemTooltip>
         <label
           htmlFor="bulk-select-all-filter"
           className="cursor-pointer font-medium text-foreground/80 hover:text-foreground"
@@ -943,9 +949,11 @@ export function BulkActionsSuite({
                     }
                   }}
                 >
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Selecionar" />
-                  </SelectTrigger>
+                  <SystemTooltip content="Selecionar funil de vendas de destino">
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Selecionar" />
+                    </SelectTrigger>
+                  </SystemTooltip>
                   <SelectContent>
                     {pipelines.map((p) => (
                       <SelectItem key={p.id} value={p.id} className="text-xs">
@@ -966,9 +974,11 @@ export function BulkActionsSuite({
                   onValueChange={setTargetMoveStageId}
                   disabled={targetMoveStages.length === 0}
                 >
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Selecionar" />
-                  </SelectTrigger>
+                  <SystemTooltip content="Selecionar etapa do funil de destino">
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Selecionar" />
+                    </SelectTrigger>
+                  </SystemTooltip>
                   <SelectContent>
                     {targetMoveStages.map((stg) => (
                       <SelectItem key={stg.id} value={stg.id} className="text-xs">
@@ -1030,9 +1040,11 @@ export function BulkActionsSuite({
                   Exportar dados de
                 </Label>
                 <Select value={exportDataType} onValueChange={setExportDataType}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SystemTooltip content="Selecionar tipo de dados para exportação">
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
                   <SelectContent>
                     <SelectItem value="deals" className="text-xs">
                       Negociações
@@ -1046,9 +1058,11 @@ export function BulkActionsSuite({
                   Formato do arquivo
                 </Label>
                 <Select value={exportFormat} onValueChange={(val: "xlsx" | "csv") => setExportFormat(val)}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SystemTooltip content="Selecionar formato do arquivo exportado">
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
                   <SelectContent>
                     <SelectItem value="xlsx" className="text-xs">
                       Planilha Excel (.xlsx) — Recomendado
@@ -1177,12 +1191,16 @@ export function BulkActionsSuite({
             </div>
 
             <div className="flex items-center gap-2 pt-1">
-              <Checkbox
-                checked={deleteConfirmCheckbox}
-                onCheckedChange={(val) => setDeleteConfirmCheckbox(Boolean(val))}
-                id="delete-perm-checkbox"
-                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
-              />
+              <SystemTooltip content={deleteConfirmCheckbox ? "Desmarcar confirmação de exclusão permanente" : "Confirmar exclusão permanente irreversível"}>
+                <span className="inline-flex items-center">
+                  <Checkbox
+                    checked={deleteConfirmCheckbox}
+                    onCheckedChange={(val) => setDeleteConfirmCheckbox(Boolean(val))}
+                    id="delete-perm-checkbox"
+                    className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+                  />
+                </span>
+              </SystemTooltip>
               <label
                 htmlFor="delete-perm-checkbox"
                 className="text-xs text-muted-foreground select-none cursor-pointer"
@@ -1306,20 +1324,21 @@ export function BulkActionsSuite({
             </p>
             <div className="flex items-center justify-center gap-2">
               {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setSelectedRating(star)}
-                  className="p-1.5 rounded-lg hover:bg-muted transition cursor-pointer"
-                >
-                  <Star
-                    className={`h-6 w-6 transition ${
-                      star <= selectedRating
-                        ? "fill-primary text-primary"
-                        : "text-muted-foreground/30"
-                    }`}
-                  />
-                </button>
+                <SystemTooltip key={star} content={`Qualificação: ${star} estrela${star > 1 ? "s" : ""}`}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRating(star)}
+                    className="p-1.5 rounded-lg hover:bg-muted transition cursor-pointer"
+                  >
+                    <Star
+                      className={`h-6 w-6 transition ${
+                        star <= selectedRating
+                          ? "fill-primary text-primary"
+                          : "text-muted-foreground/30"
+                      }`}
+                    />
+                  </button>
+                </SystemTooltip>
               ))}
             </div>
             <p className="text-xs font-bold text-foreground">
@@ -1364,31 +1383,22 @@ export function BulkActionsSuite({
 
           <div className="space-y-3 py-3 text-xs">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Nome da Campanha</Label>
-              <Input
-                placeholder="Ex: Google Ads 2026, Black Friday..."
-                value={campaignInput}
-                onChange={(e) => setCampaignInput(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-            {catalogCampaigns.length > 0 && (
-              <div className="space-y-1">
-                <span className="text-[11px] text-muted-foreground">Ou selecione do catálogo:</span>
-                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pt-1">
+              <Label className="text-xs font-semibold">Campanha do Catálogo</Label>
+              <Select value={campaignInput} onValueChange={setCampaignInput}>
+                <SystemTooltip content={campaignInput || "Selecionar uma campanha cadastrada no catálogo"}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Selecione uma campanha..." />
+                  </SelectTrigger>
+                </SystemTooltip>
+                <SelectContent>
                   {catalogCampaigns.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => setCampaignInput(c.name)}
-                      className="px-2 py-0.5 rounded-md bg-muted hover:bg-accent text-[11px] text-foreground transition cursor-pointer"
-                    >
+                    <SelectItem key={c.id} value={c.name} className="text-xs">
                       {c.name}
-                    </button>
+                    </SelectItem>
                   ))}
-                </div>
-              </div>
-            )}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <DialogFooter className="flex items-center justify-end gap-2 pt-2 border-t border-border">
@@ -1405,7 +1415,7 @@ export function BulkActionsSuite({
               type="button"
               size="sm"
               onClick={handleSaveCampaign}
-              disabled={loading}
+              disabled={loading || !campaignInput.trim()}
               className="text-xs font-bold bg-primary text-primary-foreground cursor-pointer"
             >
               Salvar Campanha
@@ -1428,31 +1438,22 @@ export function BulkActionsSuite({
 
           <div className="space-y-3 py-3 text-xs">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Nome da Fonte</Label>
-              <Input
-                placeholder="Ex: WhatsApp Orgânico, Indicação, Instagram..."
-                value={sourceInput}
-                onChange={(e) => setSourceInput(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-            {catalogSources.length > 0 && (
-              <div className="space-y-1">
-                <span className="text-[11px] text-muted-foreground">Ou selecione do catálogo:</span>
-                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pt-1">
+              <Label className="text-xs font-semibold">Fonte do Catálogo</Label>
+              <Select value={sourceInput} onValueChange={setSourceInput}>
+                <SystemTooltip content={sourceInput || "Selecionar uma fonte cadastrada no catálogo"}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Selecione uma fonte..." />
+                  </SelectTrigger>
+                </SystemTooltip>
+                <SelectContent>
                   {catalogSources.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setSourceInput(s.name)}
-                      className="px-2 py-0.5 rounded-md bg-muted hover:bg-accent text-[11px] text-foreground transition cursor-pointer"
-                    >
+                    <SelectItem key={s.id} value={s.name} className="text-xs">
                       {s.name}
-                    </button>
+                    </SelectItem>
                   ))}
-                </div>
-              </div>
-            )}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <DialogFooter className="flex items-center justify-end gap-2 pt-2 border-t border-border">
@@ -1469,7 +1470,7 @@ export function BulkActionsSuite({
               type="button"
               size="sm"
               onClick={handleSaveSource}
-              disabled={loading}
+              disabled={loading || !sourceInput.trim()}
               className="text-xs font-bold bg-primary text-primary-foreground cursor-pointer"
             >
               Salvar Fonte
@@ -1494,9 +1495,11 @@ export function BulkActionsSuite({
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Produto do Catálogo</Label>
               <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Selecione um produto..." />
-                </SelectTrigger>
+                <SystemTooltip content="Selecionar produto ou serviço do catálogo">
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Selecione um produto..." />
+                  </SelectTrigger>
+                </SystemTooltip>
                 <SelectContent>
                   {catalogProducts.map((p) => (
                     <SelectItem key={p.id} value={p.id} className="text-xs">
@@ -1592,9 +1595,11 @@ export function BulkActionsSuite({
                   value={taskOperatorId || "__deal_owner__"}
                   onValueChange={(val) => setTaskOperatorId(val === "__deal_owner__" ? "" : val)}
                 >
-                  <SelectTrigger className="h-10 w-full rounded-lg border border-input bg-background px-3 text-xs">
-                    <SelectValue placeholder="Responsável de cada negociação" />
-                  </SelectTrigger>
+                  <SystemTooltip content="Selecionar responsável pelas tarefas em massa">
+                    <SelectTrigger className="h-10 w-full rounded-lg border border-input bg-background px-3 text-xs">
+                      <SelectValue placeholder="Responsável de cada negociação" />
+                    </SelectTrigger>
+                  </SystemTooltip>
                   <SelectContent>
                     <SelectItem value="__deal_owner__" className="text-xs font-medium">
                       Manter o responsável atual de cada negociação
@@ -1614,26 +1619,28 @@ export function BulkActionsSuite({
                   Tipo de tarefa <span className="text-rose-500">*</span>
                 </Label>
                 <Popover open={taskTypeOpen} onOpenChange={setTaskTypeOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs transition-colors hover:bg-muted/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
-                    >
-                      <div className="flex items-center gap-2">
-                        {(() => {
-                          const currentType = CRM_TASK_TYPES.find((t) => t.id === taskType) || CRM_TASK_TYPES[3];
-                          const CurrentIcon = currentType.icon;
-                          return (
-                            <>
-                              <CurrentIcon className="h-4 w-4 text-foreground/80 shrink-0" />
-                              <span className="font-semibold text-foreground">{currentType.label}</span>
-                            </>
-                          );
-                        })()}
-                      </div>
-                      <ChevronDown className="h-4 w-4 text-muted-foreground opacity-70" />
-                    </button>
-                  </PopoverTrigger>
+                  <SystemTooltip content="Selecionar tipo de tarefa">
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs transition-colors hover:bg-muted/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <div className="flex items-center gap-2">
+                          {(() => {
+                            const currentType = CRM_TASK_TYPES.find((t) => t.id === taskType) || CRM_TASK_TYPES[3];
+                            const CurrentIcon = currentType.icon;
+                            return (
+                              <>
+                                <CurrentIcon className="h-4 w-4 text-foreground/80 shrink-0" />
+                                <span className="font-semibold text-foreground">{currentType.label}</span>
+                              </>
+                            );
+                          })()}
+                        </div>
+                        <ChevronDown className="h-4 w-4 text-muted-foreground opacity-70" />
+                      </button>
+                    </PopoverTrigger>
+                  </SystemTooltip>
                   <PopoverContent className="w-[240px] p-1.5 rounded-xl shadow-lg border border-border" align="start">
                     <div className="space-y-0.5">
                       {CRM_TASK_TYPES.map((t) => {
@@ -1669,38 +1676,44 @@ export function BulkActionsSuite({
                   Data do agendamento <span className="text-rose-500">*</span>
                 </Label>
                 <Popover open={isTaskCalendarOpen} onOpenChange={setIsTaskCalendarOpen}>
-                  <PopoverTrigger asChild>
-                    <div className="relative flex h-10 w-full items-center rounded-lg border border-input bg-background px-3 cursor-pointer hover:border-border transition-colors">
-                      <Calendar className="h-4 w-4 text-muted-foreground shrink-0 mr-2.5" />
-                      <span className="text-xs font-semibold text-foreground">
-                        {taskScheduledDate.toLocaleDateString("pt-BR", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          year: "numeric",
-                        })}
-                      </span>
-                    </div>
-                  </PopoverTrigger>
+                  <SystemTooltip content="Selecionar data de agendamento da tarefa">
+                    <PopoverTrigger asChild>
+                      <div className="relative flex h-10 w-full items-center rounded-lg border border-input bg-background px-3 cursor-pointer hover:border-border transition-colors">
+                        <Calendar className="h-4 w-4 text-muted-foreground shrink-0 mr-2.5" />
+                        <span className="text-xs font-semibold text-foreground">
+                          {taskScheduledDate.toLocaleDateString("pt-BR", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                          })}
+                        </span>
+                      </div>
+                    </PopoverTrigger>
+                  </SystemTooltip>
                   <PopoverContent className="w-[280px] p-3 rounded-2xl border border-border shadow-xl bg-card" align="start">
                     {/* Header do Mês e Navegação */}
                     <div className="flex items-center justify-between mb-3 px-1">
-                      <button
-                        type="button"
-                        onClick={prevTaskMonth}
-                        className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
+                      <SystemTooltip content="Mês anterior">
+                        <button
+                          type="button"
+                          onClick={prevTaskMonth}
+                          className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                      </SystemTooltip>
                       <span className="text-xs font-bold text-foreground">
                         {MONTH_NAMES_PT[taskCalendarMonth]} {taskCalendarYear}
                       </span>
-                      <button
-                        type="button"
-                        onClick={nextTaskMonth}
-                        className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
+                      <SystemTooltip content="Próximo mês">
+                        <button
+                          type="button"
+                          onClick={nextTaskMonth}
+                          className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </SystemTooltip>
                     </div>
 
                     {/* Linha dos dias da semana */}

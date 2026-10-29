@@ -790,16 +790,42 @@ export function ConversationDealsPanel({
                       {/* Valor */}
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-muted-foreground uppercase">Valor do Negócio (R$)</label>
-                        <div className="relative">
-                          <DollarSign className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                        <div className="relative flex items-center">
+                          <DollarSign className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                           <input
-                            type="number"
-                            step="any"
+                            type="text"
+                            inputMode="decimal"
                             value={editForm.value}
-                            onChange={(e) => setEditForm({ ...editForm, value: e.target.value })}
-                            className="h-8 w-full rounded-lg border border-border bg-muted/20 pl-7 pr-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            onChange={(e) => setEditForm({ ...editForm, value: e.target.value.replace(/[^0-9.,]/g, "") })}
+                            className="h-8 w-full rounded-lg border border-border bg-muted/20 pl-7 pr-14 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                             placeholder="0,00"
                           />
+                          <div className="absolute right-1 flex items-center gap-0.5">
+                            <SystemTooltip content="Diminuir valor (-100)">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const cur = parseFloat(String(editForm.value || "0").replace(",", ".")) || 0;
+                                  setEditForm({ ...editForm, value: String(Math.max(0, cur - 100)) });
+                                }}
+                                className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                              >
+                                <ChevronDown className="h-3 w-3" />
+                              </button>
+                            </SystemTooltip>
+                            <SystemTooltip content="Aumentar valor (+100)">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const cur = parseFloat(String(editForm.value || "0").replace(",", ".")) || 0;
+                                  setEditForm({ ...editForm, value: String(cur + 100) });
+                                }}
+                                className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                              >
+                                <ChevronUp className="h-3 w-3" />
+                              </button>
+                            </SystemTooltip>
+                          </div>
                         </div>
                       </div>
 
@@ -811,9 +837,11 @@ export function ConversationDealsPanel({
                             value={editForm.pipelineId}
                             onValueChange={(val) => handlePipelineChange(val)}
                           >
-                            <SelectTrigger className="h-8 w-full bg-card text-xs">
-                              <SelectValue placeholder="Selecione o funil..." />
-                            </SelectTrigger>
+                            <SystemTooltip content="Selecionar funil da negociação">
+                              <SelectTrigger className="h-8 w-full bg-card text-xs">
+                                <SelectValue placeholder="Selecione o funil..." />
+                              </SelectTrigger>
+                            </SystemTooltip>
                             <SelectContent>
                               {pipelines.map((p) => (
                                 <SelectItem key={p.id} value={p.id}>
@@ -830,9 +858,11 @@ export function ConversationDealsPanel({
                             value={editForm.stageId}
                             onValueChange={(val) => setEditForm({ ...editForm, stageId: val })}
                           >
-                            <SelectTrigger className="h-8 w-full bg-card text-xs">
-                              <SelectValue placeholder="Selecione a etapa..." />
-                            </SelectTrigger>
+                            <SystemTooltip content="Selecionar etapa do funil">
+                              <SelectTrigger className="h-8 w-full bg-card text-xs">
+                                <SelectValue placeholder="Selecione a etapa..." />
+                              </SelectTrigger>
+                            </SystemTooltip>
                             <SelectContent>
                               {currentEditStages.map((s: any) => (
                                 <SelectItem key={s.id} value={s.id}>

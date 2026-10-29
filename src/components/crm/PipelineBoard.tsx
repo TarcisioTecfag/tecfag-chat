@@ -680,6 +680,124 @@ export const PipelineBoard = React.memo(function PipelineBoard({
     }
   }, []);
 
+  // ── BARRA DE SCROLL HORIZONTAL SUPERIOR (ENCAIXADA NO ESPAÇO EXISTENTE SEM ALTERAR ALTURA/LARGURA) ──
+  const topScrollTrackRef = useRef<HTMLDivElement | null>(null);
+  const topScrollThumbRef = useRef<HTMLDivElement | null>(null);
+
+  const syncTopScrollbar = useCallback(() => {
+    const board = boardContainerRef.current;
+    const track = topScrollTrackRef.current;
+    const thumb = topScrollThumbRef.current;
+    if (!board || !track || !thumb) return;
+
+    const trackWidth = track.clientWidth;
+    if (trackWidth <= 0) return;
+
+    const scrollWidth = board.scrollWidth;
+    const clientWidth = board.clientWidth;
+    const maxScroll = Math.max(0, scrollWidth - clientWidth);
+
+    if (maxScroll <= 1) {
+      thumb.style.width = `${trackWidth}px`;
+      thumb.style.transform = "translate3d(0px, 0, 0)";
+      return;
+    }
+
+    const thumbWidth = Math.max(56, Math.min(trackWidth, (clientWidth / scrollWidth) * trackWidth));
+    const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
+    const ratio = Math.min(1, Math.max(0, board.scrollLeft / maxScroll));
+    const thumbLeft = ratio * maxThumbLeft;
+
+    thumb.style.width = `${thumbWidth}px`;
+    thumb.style.transform = `translate3d(${thumbLeft}px, 0, 0)`;
+  }, []);
+
+  useEffect(() => {
+    const board = boardContainerRef.current;
+    const track = topScrollTrackRef.current;
+    if (!board) return;
+
+    syncTopScrollbar();
+
+    const handleScroll = () => {
+      syncTopScrollbar();
+    };
+
+    board.addEventListener("scroll", handleScroll, { passive: true });
+    let resizeObs: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObs = new ResizeObserver(() => {
+        syncTopScrollbar();
+      });
+      resizeObs.observe(board);
+      if (track) resizeObs.observe(track);
+    }
+    window.addEventListener("resize", handleScroll, { passive: true });
+
+    return () => {
+      board.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+      resizeObs?.disconnect();
+    };
+  }, [syncTopScrollbar, sortedStages.length, mobileStageFilter]);
+
+  const handleTopScrollbarPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const board = boardContainerRef.current;
+      const track = topScrollTrackRef.current;
+      const thumb = topScrollThumbRef.current;
+      if (!board || !track || !thumb) return;
+
+      const maxScroll = Math.max(0, board.scrollWidth - board.clientWidth);
+      if (maxScroll <= 0) return;
+
+      const trackRect = track.getBoundingClientRect();
+      const thumbRect = thumb.getBoundingClientRect();
+      const cssScale = track.offsetWidth > 0 ? trackRect.width / track.offsetWidth : 1;
+      const trackWidth = track.clientWidth;
+      const thumbWidth = Math.max(56, Math.min(trackWidth, (board.clientWidth / board.scrollWidth) * trackWidth));
+      const maxThumbLeft = Math.max(1, trackWidth - thumbWidth);
+
+      const clickedInsideThumb =
+        e.clientX >= thumbRect.left && e.clientX <= thumbRect.right;
+
+      let startThumbLeft = (board.scrollLeft / maxScroll) * maxThumbLeft;
+      if (!clickedInsideThumb) {
+        const clickXInTrack = (e.clientX - trackRect.left) / (cssScale || 1);
+        startThumbLeft = Math.max(0, Math.min(maxThumbLeft, clickXInTrack - thumbWidth / 2));
+        board.scrollLeft = (startThumbLeft / maxThumbLeft) * maxScroll;
+        syncTopScrollbar();
+      }
+
+      const startClientX = e.clientX;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "grabbing";
+
+      const onMove = (ev: PointerEvent) => {
+        const dx = (ev.clientX - startClientX) / (cssScale || 1);
+        const nextThumbLeft = Math.max(0, Math.min(maxThumbLeft, startThumbLeft + dx));
+        board.scrollLeft = (nextThumbLeft / maxThumbLeft) * maxScroll;
+      };
+
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      };
+
+      window.addEventListener("pointermove", onMove, { passive: true });
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    },
+    [syncTopScrollbar],
+  );
+
   // Mapa estável de callbacks de carregar mais por etapa (evita novas funções inline a cada render)
   const onLoadMoreMap = useMemo(() => {
     const map: Record<string, () => void> = {};
@@ -698,6 +816,30 @@ export const PipelineBoard = React.memo(function PipelineBoard({
 
   return (
     <div className="flex flex-col h-full w-full min-h-0 overflow-hidden">
+      {/* Barra de scroll horizontal encaixada exatamente no vão existente entre a toolbar e as etapas (16px mobile / 20px desktop) */}
+      <div className="flex items-center h-4 md:h-5 pl-1 pr-3 md:pr-5 shrink-0 select-none">
+        <div
+          ref={topScrollTrackRef}
+          onPointerDown={handleTopScrollbarPointerDown}
+          onWheel={(e) => {
+            if (boardContainerRef.current) {
+              boardContainerRef.current.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            }
+          }}
+          role="scrollbar"
+          aria-controls="crm-kanban-board"
+          aria-orientation="horizontal"
+          aria-valuenow={0}
+          className="relative h-2 w-full rounded-full bg-muted/75 dark:bg-muted/40 border border-border/70 overflow-hidden cursor-pointer transition-colors hover:border-primary/40"
+        >
+          <div
+            ref={topScrollThumbRef}
+            className="h-full rounded-full bg-primary/55 hover:bg-primary/80 active:bg-primary transition-colors cursor-grab active:cursor-grabbing will-change-transform"
+            style={{ width: "100%", transform: "translate3d(0px, 0, 0)" }}
+          />
+        </div>
+      </div>
+
       {sortedStages.length > 1 && (
         <div className="md:hidden flex items-center gap-1.5 px-2 pb-2 overflow-x-auto scrollbar-none shrink-0">
           <button
@@ -733,11 +875,12 @@ export const PipelineBoard = React.memo(function PipelineBoard({
       )}
 
       <div
+        id="crm-kanban-board"
         ref={boardContainerRef}
         data-board-container="true"
         onPointerDown={handleBoardPointerDown}
         onWheel={handleBoardWheel}
-        className="flex flex-1 min-h-0 w-full gap-3 md:gap-4 overflow-x-auto overflow-y-hidden pb-3 pt-1 pl-1 pr-3 md:pr-5 select-none md:cursor-grab data-[panning=true]:cursor-grabbing data-[interacting=true]:[&_[data-deal-card]]:pointer-events-none data-[interacting=true]:[&_[data-column-card-list]]:pointer-events-none [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-muted/40 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35 [&::-webkit-scrollbar-thumb:hover]:bg-primary [&::-webkit-scrollbar-thumb]:rounded-full"
+        className="flex flex-1 min-h-0 w-full gap-3 md:gap-4 overflow-x-auto overflow-y-hidden pb-3 pt-0 pl-1 pr-3 md:pr-5 select-none md:cursor-grab data-[panning=true]:cursor-grabbing data-[interacting=true]:[&_[data-deal-card]]:pointer-events-none data-[interacting=true]:[&_[data-column-card-list]]:pointer-events-none"
       >
         {sortedStages.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border/80 p-8 text-center">

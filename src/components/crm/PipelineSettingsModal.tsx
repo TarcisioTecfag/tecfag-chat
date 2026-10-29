@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Loader2,
   MoreVertical,
   Plus,
@@ -15,6 +17,7 @@ import { toast } from "sonner";
 import { useCustomFields } from "./CustomFieldsEditor";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import {
@@ -490,30 +493,53 @@ export function PipelineSettingsModal({
                             />
                           </div>
                           {coolingEnabled && (
-                            <label className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
-                              Após
-                              <input
-                                key={`${stage.id}-${coolingDays}`}
-                                type="number"
-                                min={1}
-                                max={365}
-                                defaultValue={coolingDays}
-                                aria-label={`Dias para esfriamento em ${stage.name}`}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") event.currentTarget.blur();
-                                }}
-                                onBlur={(event) => {
-                                  const days = Number(event.currentTarget.value);
-                                  if (!Number.isInteger(days) || days < 1 || days > 365) {
-                                    event.currentTarget.value = String(coolingDays);
-                                    toast.error("Informe entre 1 e 365 dias.");
-                                  } else if (days !== coolingDays) {
-                                    void updateCoolingDays(pipeline, stage, days);
-                                  }
-                                }}
-                                className="h-7 w-12 rounded-md border border-border bg-background px-1 text-center text-foreground"
-                              />
-                              {coolingDays === 1 ? "dia" : "dias"} sem interação
+                            <label className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                              <span>Após</span>
+                              <div className="relative inline-flex items-center">
+                                <input
+                                  key={`${stage.id}-${coolingDays}`}
+                                  type="text"
+                                  inputMode="numeric"
+                                  defaultValue={coolingDays}
+                                  aria-label={`Dias para esfriamento em ${stage.name}`}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") event.currentTarget.blur();
+                                  }}
+                                  onBlur={(event) => {
+                                    const days = Number(event.currentTarget.value.replace(/\D/g, ""));
+                                    if (!Number.isInteger(days) || days < 1 || days > 365) {
+                                      event.currentTarget.value = String(coolingDays);
+                                      toast.error("Informe entre 1 e 365 dias.");
+                                    } else if (days !== coolingDays) {
+                                      void updateCoolingDays(pipeline, stage, days);
+                                    }
+                                  }}
+                                  className="h-7 w-20 rounded-md border border-border bg-background pl-2 pr-11 text-xs text-foreground"
+                                />
+                                <div className="absolute right-0.5 flex items-center gap-0.5">
+                                  <SystemTooltip content="Diminuir dias (-1)">
+                                    <button
+                                      type="button"
+                                      disabled={busy || coolingDays <= 1}
+                                      onClick={() => void updateCoolingDays(pipeline, stage, Math.max(1, coolingDays - 1))}
+                                      className="flex h-5 w-4.5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 cursor-pointer"
+                                    >
+                                      <ChevronDown className="h-3 w-3" />
+                                    </button>
+                                  </SystemTooltip>
+                                  <SystemTooltip content="Aumentar dias (+1)">
+                                    <button
+                                      type="button"
+                                      disabled={busy || coolingDays >= 365}
+                                      onClick={() => void updateCoolingDays(pipeline, stage, Math.min(365, coolingDays + 1))}
+                                      className="flex h-5 w-4.5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 cursor-pointer"
+                                    >
+                                      <ChevronUp className="h-3 w-3" />
+                                    </button>
+                                  </SystemTooltip>
+                                </div>
+                              </div>
+                              <span>{coolingDays === 1 ? "dia" : "dias"} sem interação</span>
                             </label>
                           )}
                           <button
@@ -524,24 +550,28 @@ export function PipelineSettingsModal({
                             <Settings2 className="h-3.5 w-3.5" /> Configurar etapa
                           </button>
                           <div className="mt-3 flex items-center gap-1">
-                            <button
-                              type="button"
-                              disabled={busy || index === 0}
-                              onClick={() => void moveStage(pipeline, stage.id, -1)}
-                              aria-label={`Mover ${stage.name} para a esquerda`}
-                              className="rounded-md border border-border p-1 text-muted-foreground hover:text-primary disabled:opacity-30"
-                            >
-                              <ChevronLeft className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy || index === stages.length - 1}
-                              onClick={() => void moveStage(pipeline, stage.id, 1)}
-                              aria-label={`Mover ${stage.name} para a direita`}
-                              className="rounded-md border border-border p-1 text-muted-foreground hover:text-primary disabled:opacity-30"
-                            >
-                              <ChevronRight className="h-3.5 w-3.5" />
-                            </button>
+                            <SystemTooltip content={`Mover ${stage.name} para a esquerda`}>
+                              <button
+                                type="button"
+                                disabled={busy || index === 0}
+                                onClick={() => void moveStage(pipeline, stage.id, -1)}
+                                aria-label={`Mover ${stage.name} para a esquerda`}
+                                className="rounded-md border border-border p-1 text-muted-foreground hover:text-primary disabled:opacity-30"
+                              >
+                                <ChevronLeft className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                            <SystemTooltip content={`Mover ${stage.name} para a direita`}>
+                              <button
+                                type="button"
+                                disabled={busy || index === stages.length - 1}
+                                onClick={() => void moveStage(pipeline, stage.id, 1)}
+                                aria-label={`Mover ${stage.name} para a direita`}
+                                className="rounded-md border border-border p-1 text-muted-foreground hover:text-primary disabled:opacity-30"
+                              >
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
                           </div>
                         </div>
                       );
@@ -640,18 +670,60 @@ export function PipelineSettingsModal({
             </label>
             <label className="block space-y-1.5 font-semibold">
               Alerta padrão de esfriamento (dias)
-              <input
-                type="number"
-                min={1}
-                max={365}
-                value={pipelineDraft?.coolingDays ?? 10}
-                onChange={(event) =>
-                  setPipelineDraft(
-                    (current) => current && { ...current, coolingDays: Number(event.target.value) },
-                  )
-                }
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 font-normal"
-              />
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={pipelineDraft?.coolingDays ?? 10}
+                  onChange={(event) => {
+                    const digits = event.target.value.replace(/\D/g, "");
+                    setPipelineDraft(
+                      (current) =>
+                        current && {
+                          ...current,
+                          coolingDays: digits ? Math.min(365, Math.max(1, Number(digits))) : 1,
+                        },
+                    );
+                  }}
+                  className="h-9 w-full rounded-lg border border-input bg-background px-3 pr-16 font-normal"
+                />
+                <div className="absolute right-1.5 flex items-center gap-1">
+                  <SystemTooltip content="Diminuir dias (-1)">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPipelineDraft(
+                          (current) =>
+                            current && {
+                              ...current,
+                              coolingDays: Math.max(1, (current.coolingDays ?? 10) - 1),
+                            },
+                        )
+                      }
+                      className="flex h-6 w-6 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  </SystemTooltip>
+                  <SystemTooltip content="Aumentar dias (+1)">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPipelineDraft(
+                          (current) =>
+                            current && {
+                              ...current,
+                              coolingDays: Math.min(365, (current.coolingDays ?? 10) + 1),
+                            },
+                        )
+                      }
+                      className="flex h-6 w-6 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                  </SystemTooltip>
+                </div>
+              </div>
             </label>
             <div className="flex justify-end gap-2 border-t border-border pt-4">
               <button
@@ -763,19 +835,60 @@ export function PipelineSettingsModal({
                   {stageDraft.coolingEnabled && (
                     <label className="block space-y-1.5 font-semibold">
                       Dias sem interação
-                      <input
-                        type="number"
-                        min={1}
-                        max={365}
-                        value={stageDraft.coolingDays}
-                        onChange={(event) =>
-                          setStageDraft(
-                            (current) =>
-                              current && { ...current, coolingDays: Number(event.target.value) },
-                          )
-                        }
-                        className="h-9 w-full rounded-lg border border-input bg-background px-3 font-normal"
-                      />
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={stageDraft.coolingDays}
+                          onChange={(event) => {
+                            const digits = event.target.value.replace(/\D/g, "");
+                            setStageDraft(
+                              (current) =>
+                                current && {
+                                  ...current,
+                                  coolingDays: digits ? Math.min(365, Math.max(1, Number(digits))) : 1,
+                                },
+                            );
+                          }}
+                          className="h-9 w-full rounded-lg border border-input bg-background px-3 pr-16 font-normal"
+                        />
+                        <div className="absolute right-1.5 flex items-center gap-1">
+                          <SystemTooltip content="Diminuir dias (-1)">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setStageDraft(
+                                  (current) =>
+                                    current && {
+                                      ...current,
+                                      coolingDays: Math.max(1, (current.coolingDays ?? 10) - 1),
+                                    },
+                                )
+                              }
+                              className="flex h-6 w-6 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                            >
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </button>
+                          </SystemTooltip>
+                          <SystemTooltip content="Aumentar dias (+1)">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setStageDraft(
+                                  (current) =>
+                                    current && {
+                                      ...current,
+                                      coolingDays: Math.min(365, (current.coolingDays ?? 10) + 1),
+                                    },
+                                )
+                              }
+                              className="flex h-6 w-6 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                            >
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            </button>
+                          </SystemTooltip>
+                        </div>
+                      </div>
                     </label>
                   )}
                 </div>

@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import {
   Columns3,
   Search,
@@ -1021,16 +1022,17 @@ export function ContactDealModal({
                                               : "bg-muted"
                                         }`}
                                       />
-                                      <span
-                                        className={`block truncate text-[9px] ${
-                                          isCurrent
-                                            ? "font-extrabold text-primary"
-                                            : "font-medium text-muted-foreground"
-                                        }`}
-                                        title={st.name}
-                                      >
-                                        {st.name}
-                                      </span>
+                                      <SystemTooltip content={st.name}>
+                                        <span
+                                          className={`block truncate text-[9px] cursor-default ${
+                                            isCurrent
+                                              ? "font-extrabold text-primary"
+                                              : "font-medium text-muted-foreground"
+                                          }`}
+                                        >
+                                          {st.name}
+                                        </span>
+                                      </SystemTooltip>
                                     </div>
                                   );
                                 })}

@@ -750,14 +750,15 @@ export function CustomFieldsSettingsModal({
                   <div className="space-y-3 border-t border-border pt-4">
                     <div className="flex items-center justify-between">
                       <b className="text-foreground">Visibilidade por funil</b>
-                      <button
-                        type="button"
-                        onClick={() => void loadPipelines()}
-                        className="text-[10px] text-primary hover:underline flex items-center gap-1 cursor-pointer"
-                        title="Atualizar lista de funis"
-                      >
-                        <RefreshCw className={`h-3 w-3 ${loadingPipelines ? "animate-spin" : ""}`} /> Atualizar
-                      </button>
+                      <SystemTooltip content="Atualizar lista de funis">
+                        <button
+                          type="button"
+                          onClick={() => void loadPipelines()}
+                          className="text-[10px] text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCw className={`h-3 w-3 ${loadingPipelines ? "animate-spin" : ""}`} /> Atualizar
+                        </button>
+                      </SystemTooltip>
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer text-xs">
                       <input

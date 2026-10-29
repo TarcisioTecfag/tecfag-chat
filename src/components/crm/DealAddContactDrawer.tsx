@@ -6,6 +6,13 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -111,6 +118,7 @@ interface DealAddContactDrawerProps {
   onClose: () => void;
   dealId: string;
   accountId?: string | null;
+  currentAccountName?: string | null;
   linkedContacts?: LinkedDealContactItem[];
   initialEditContactId?: string | null;
   onContactLinked: () => void;
@@ -121,6 +129,7 @@ export function DealAddContactDrawer({
   onClose,
   dealId,
   accountId,
+  currentAccountName,
   linkedContacts = [],
   initialEditContactId = null,
   onContactLinked,
@@ -135,6 +144,11 @@ export function DealAddContactDrawer({
   const [searchRole, setSearchRole] = useState("buyer");
   const [searchIsPrimary, setSearchIsPrimary] = useState(false);
   const [linkingSearch, setLinkingSearch] = useState(false);
+  const [replaceCompanyPrompt, setReplaceCompanyPrompt] = useState<{
+    contact: ContactSearchResult;
+    contactAccountId: string;
+    contactAccountName: string;
+  } | null>(null);
 
   // Estado de edição de contato já vinculado
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
@@ -199,6 +213,7 @@ export function DealAddContactDrawer({
       setSearchQuery("");
       setSearchResults([]);
       setSelectedContact(null);
+      setReplaceCompanyPrompt(null);
       setSearchRole("buyer");
       setSearchIsPrimary(linkedContacts.length === 0);
       setCreateName("");
@@ -364,16 +379,19 @@ export function DealAddContactDrawer({
     }
   };
 
-  // Vincular contato existente
-  const handleLinkExisting = async () => {
-    if (!selectedContact || !dealId) return;
+  const executeLinkExistingContact = async (
+    contactToLink: ContactSearchResult,
+    accountIdToAssign?: string | null,
+    accountNameToAssign?: string | null,
+  ) => {
+    if (!dealId) return;
     setLinkingSearch(true);
     try {
       const res = await fetch(`/api/crm/deals/${dealId}/contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contactId: selectedContact.id,
+          contactId: contactToLink.id,
           role: searchRole,
           isPrimary: searchIsPrimary,
         }),
@@ -384,7 +402,20 @@ export function DealAddContactDrawer({
         throw new Error(err.error || "Erro ao vincular participante.");
       }
 
-      toast.success(`Contato ${selectedContact.name} vinculado com sucesso!`);
+      if (accountIdToAssign) {
+        await fetch(`/api/crm/deals/${dealId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accountId: accountIdToAssign }),
+        }).catch(() => {});
+        toast.success(
+          `Contato ${contactToLink.name} e empresa "${accountNameToAssign || "vinculada"}" atribuídos à negociação!`,
+        );
+      } else {
+        toast.success(`Contato ${contactToLink.name} vinculado com sucesso!`);
+      }
+
+      setReplaceCompanyPrompt(null);
       setSelectedContact(null);
       setSearchQuery("");
       onContactLinked();
@@ -393,6 +424,50 @@ export function DealAddContactDrawer({
     } finally {
       setLinkingSearch(false);
     }
+  };
+
+  // Vincular contato existente
+  const handleLinkExisting = async () => {
+    if (!selectedContact || !dealId) return;
+
+    let contactAccId = selectedContact.accountId || null;
+    let contactAccName = selectedContact.accountName || null;
+
+    if (!contactAccId) {
+      try {
+        const detailRes = await fetch(`/api/contacts/${encodeURIComponent(selectedContact.id)}`);
+        if (detailRes.ok) {
+          const detailData = await detailRes.json();
+          if (detailData?.account?.id) {
+            contactAccId = detailData.account.id;
+            contactAccName = detailData.account.name || null;
+          } else if (detailData?.accountId) {
+            contactAccId = detailData.accountId;
+          }
+        }
+      } catch {
+        // segue fluxo normal
+      }
+    }
+
+    if (contactAccId) {
+      if (!accountId) {
+        // Sem empresa vinculada à negociação: atribui automaticamente a empresa do contato
+        await executeLinkExistingContact(selectedContact, contactAccId, contactAccName);
+        return;
+      }
+      if (accountId !== contactAccId) {
+        // Negociação já possui outra empresa vinculada: pergunta ao usuário no pop-up
+        setReplaceCompanyPrompt({
+          contact: selectedContact,
+          contactAccountId: contactAccId,
+          contactAccountName: contactAccName || "Empresa do contato",
+        });
+        return;
+      }
+    }
+
+    await executeLinkExistingContact(selectedContact, null, null);
   };
 
   // Criar novo contato e vincular
@@ -628,9 +703,11 @@ export function DealAddContactDrawer({
                   Papel na Negociação
                 </Label>
                 <Select value={editRole} onValueChange={setEditRole}>
-                  <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SystemTooltip content="Selecionar papel comercial do contato">
+                    <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
                   <SelectContent className="z-[220]">
                     <SelectItem value="buyer" className="text-xs">Comprador</SelectItem>
                     <SelectItem value="decision_maker" className="text-xs">Decisor</SelectItem>
@@ -644,12 +721,16 @@ export function DealAddContactDrawer({
               </div>
 
               <div className="flex items-center gap-2 pt-1">
-                <Checkbox
-                  id="edit-primary"
-                  checked={editIsPrimary}
-                  onCheckedChange={(checked) => setEditIsPrimary(!!checked)}
-                  className="rounded-sm"
-                />
+                <SystemTooltip content={editIsPrimary ? "Desmarcar como contato principal" : "Marcar como contato principal desta negociação"}>
+                  <span className="inline-flex items-center">
+                    <Checkbox
+                      id="edit-primary"
+                      checked={editIsPrimary}
+                      onCheckedChange={(checked) => setEditIsPrimary(!!checked)}
+                      className="rounded-sm"
+                    />
+                  </span>
+                </SystemTooltip>
                 <label
                   htmlFor="edit-primary"
                   className="text-xs font-medium text-foreground cursor-pointer select-none"
@@ -965,9 +1046,11 @@ export function DealAddContactDrawer({
                       Papel Comercial
                     </Label>
                     <Select value={searchRole} onValueChange={setSearchRole}>
-                      <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SystemTooltip content="Selecionar papel comercial do contato">
+                        <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </SystemTooltip>
                       <SelectContent className="z-[220]">
                         <SelectItem value="buyer" className="text-xs">Comprador</SelectItem>
                         <SelectItem value="decision_maker" className="text-xs">Decisor</SelectItem>
@@ -981,12 +1064,16 @@ export function DealAddContactDrawer({
                   </div>
 
                   <div className="flex items-center gap-2 pt-1">
-                    <Checkbox
-                      id="search-primary"
-                      checked={searchIsPrimary}
-                      onCheckedChange={(checked) => setSearchIsPrimary(!!checked)}
-                      className="rounded-sm"
-                    />
+                    <SystemTooltip content={searchIsPrimary ? "Desmarcar como contato principal" : "Definir como contato principal da negociação"}>
+                      <span className="inline-flex items-center">
+                        <Checkbox
+                          id="search-primary"
+                          checked={searchIsPrimary}
+                          onCheckedChange={(checked) => setSearchIsPrimary(!!checked)}
+                          className="rounded-sm"
+                        />
+                      </span>
+                    </SystemTooltip>
                     <label
                       htmlFor="search-primary"
                       className="text-xs font-medium text-foreground cursor-pointer select-none"
@@ -1056,9 +1143,11 @@ export function DealAddContactDrawer({
                   Papel Comercial
                 </Label>
                 <Select value={createRole} onValueChange={setCreateRole}>
-                  <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SystemTooltip content="Selecionar papel comercial do novo contato">
+                    <SelectTrigger className="h-8 rounded-sm text-xs border-border bg-card">
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
                   <SelectContent className="z-[220]">
                     <SelectItem value="buyer" className="text-xs">Comprador</SelectItem>
                     <SelectItem value="decision_maker" className="text-xs">Decisor</SelectItem>
@@ -1072,12 +1161,16 @@ export function DealAddContactDrawer({
               </div>
 
               <div className="flex items-center gap-2 pt-1">
-                <Checkbox
-                  id="create-primary"
-                  checked={createIsPrimary}
-                  onCheckedChange={(checked) => setCreateIsPrimary(!!checked)}
-                  className="rounded-sm"
-                />
+                <SystemTooltip content={createIsPrimary ? "Desmarcar como contato principal" : "Definir como contato principal da negociação"}>
+                  <span className="inline-flex items-center">
+                    <Checkbox
+                      id="create-primary"
+                      checked={createIsPrimary}
+                      onCheckedChange={(checked) => setCreateIsPrimary(!!checked)}
+                      className="rounded-sm"
+                    />
+                  </span>
+                </SystemTooltip>
                 <label
                   htmlFor="create-primary"
                   className="text-xs font-medium text-foreground cursor-pointer select-none"
@@ -1106,6 +1199,81 @@ export function DealAddContactDrawer({
             </form>
           )}
         </div>
+
+        {/* Modal de Confirmação para Substituir Empresa da Negociação ao Vincular Contato */}
+        <Dialog
+          open={Boolean(replaceCompanyPrompt)}
+          onOpenChange={(open) => {
+            if (!open) setReplaceCompanyPrompt(null);
+          }}
+        >
+          <DialogContent className="max-w-md border border-border bg-card text-foreground shadow-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
+                  <Building2 className="h-4 w-4" />
+                </div>
+                <span>Substituir empresa vinculada?</span>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2.5 py-2 text-xs text-muted-foreground leading-relaxed">
+              <p>
+                O contato <strong className="text-foreground">{replaceCompanyPrompt?.contact.name}</strong> está vinculado à empresa{" "}
+                <strong className="text-primary">{replaceCompanyPrompt?.contactAccountName}</strong>.
+              </p>
+              <p>
+                Esta negociação já possui{" "}
+                {currentAccountName ? (
+                  <>
+                    a empresa <strong className="text-foreground">{currentAccountName}</strong>
+                  </>
+                ) : (
+                  "uma empresa"
+                )}{" "}
+                alocada. Deseja prosseguir? Isso irá substituir a empresa alocada atual.
+              </p>
+            </div>
+            <DialogFooter className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                disabled={linkingSearch}
+                onClick={() => setReplaceCompanyPrompt(null)}
+                className="h-8 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={linkingSearch}
+                onClick={() => {
+                  if (replaceCompanyPrompt) {
+                    void executeLinkExistingContact(replaceCompanyPrompt.contact, null, null);
+                  }
+                }}
+                className="h-8 rounded-lg border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+              >
+                Manter empresa atual
+              </button>
+              <button
+                type="button"
+                disabled={linkingSearch}
+                onClick={() => {
+                  if (replaceCompanyPrompt) {
+                    void executeLinkExistingContact(
+                      replaceCompanyPrompt.contact,
+                      replaceCompanyPrompt.contactAccountId,
+                      replaceCompanyPrompt.contactAccountName,
+                    );
+                  }
+                }}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                {linkingSearch && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                <span>Sim, substituir empresa</span>
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </SheetContent>
     </Sheet>
   );

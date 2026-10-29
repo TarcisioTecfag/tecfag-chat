@@ -20,6 +20,15 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { CrmDatePicker } from "./CrmDatePicker";
+import {
   ACTION_HISTORY_LABELS,
   type ActionEntityGroup,
   type ActionHistoryEntry,
@@ -597,22 +606,30 @@ export function CrmActionHistoryModal({
 
             {/* Linha de Filtros */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 pt-1">
-              {/* Filtro 1: Categoria (mantém compatibilidade com aria-label="Filtrar histórico") */}
+              {/* Filtro 1: Categoria */}
               <div className="space-y-1">
                 <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   <Filter className="h-3 w-3" /> Categoria
                 </label>
-                <select
-                  aria-label="Filtrar histórico"
+                <Select
                   value={kind}
-                  onChange={(event) => setKind(event.target.value as ActionHistoryKind)}
-                  className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                  onValueChange={(val) => setKind(val as ActionHistoryKind)}
                 >
-                  <option value="all">Todas as categorias</option>
-                  <option value="deletion">Exclusões e arquivamentos</option>
-                  <option value="bulk">Ações em massa</option>
-                  <option value="export">Exportações</option>
-                </select>
+                  <SystemTooltip content="Filtrar histórico por categoria de ação">
+                    <SelectTrigger
+                      aria-label="Filtrar histórico"
+                      className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
+                  <SelectContent className="z-[150]">
+                    <SelectItem value="all" className="text-xs">Todas as categorias</SelectItem>
+                    <SelectItem value="deletion" className="text-xs">Exclusões e arquivamentos</SelectItem>
+                    <SelectItem value="bulk" className="text-xs">Ações em massa</SelectItem>
+                    <SelectItem value="export" className="text-xs">Exportações</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Filtro 2: Tipo de Ação Específico */}
@@ -620,19 +637,27 @@ export function CrmActionHistoryModal({
                 <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Ação específica
                 </label>
-                <select
-                  aria-label="Filtrar por ação específica"
+                <Select
                   value={actionFilter}
-                  onChange={(event) => setActionFilter(event.target.value)}
-                  className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                  onValueChange={(val) => setActionFilter(val)}
                 >
-                  <option value="all">Todas as ações</option>
-                  {actionOptions.map((opt) => (
-                    <option key={opt.code} value={opt.code}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  <SystemTooltip content="Filtrar por tipo específico de ação">
+                    <SelectTrigger
+                      aria-label="Filtrar por ação específica"
+                      className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
+                  <SelectContent className="z-[150]">
+                    <SelectItem value="all" className="text-xs">Todas as ações</SelectItem>
+                    {actionOptions.map((opt) => (
+                      <SelectItem key={opt.code} value={opt.code} className="text-xs">
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Filtro 3: Módulo / Entidade */}
@@ -640,18 +665,26 @@ export function CrmActionHistoryModal({
                 <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Módulo do sistema
                 </label>
-                <select
-                  aria-label="Filtrar por módulo"
+                <Select
                   value={entityGroup}
-                  onChange={(event) => setEntityGroup(event.target.value as ActionEntityGroup)}
-                  className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                  onValueChange={(val) => setEntityGroup(val as ActionEntityGroup)}
                 >
-                  {ENTITY_GROUP_META.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.label}
-                    </option>
-                  ))}
-                </select>
+                  <SystemTooltip content="Filtrar por módulo/entidade do CRM">
+                    <SelectTrigger
+                      aria-label="Filtrar por módulo"
+                      className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
+                  <SelectContent className="z-[150]">
+                    {ENTITY_GROUP_META.map((group) => (
+                      <SelectItem key={group.id} value={group.id} className="text-xs">
+                        {group.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Filtro 4: Operador */}
@@ -659,19 +692,27 @@ export function CrmActionHistoryModal({
                 <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   <User className="h-3 w-3" /> Operador
                 </label>
-                <select
-                  aria-label="Filtrar por operador"
+                <Select
                   value={operatorFilter}
-                  onChange={(event) => setOperatorFilter(event.target.value)}
-                  className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                  onValueChange={(val) => setOperatorFilter(val)}
                 >
-                  <option value="all">Todos os operadores</option>
-                  {operatorOptions.map((op) => (
-                    <option key={op} value={op}>
-                      {op}
-                    </option>
-                  ))}
-                </select>
+                  <SystemTooltip content="Filtrar por operador responsável pela ação">
+                    <SelectTrigger
+                      aria-label="Filtrar por operador"
+                      className="h-8 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </SystemTooltip>
+                  <SelectContent className="z-[150]">
+                    <SelectItem value="all" className="text-xs">Todos os operadores</SelectItem>
+                    {operatorOptions.map((op) => (
+                      <SelectItem key={op} value={op} className="text-xs">
+                        {op}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Filtro 5: Período e Ordenação */}
@@ -680,36 +721,52 @@ export function CrmActionHistoryModal({
                   <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     <Calendar className="h-3 w-3" /> Período
                   </label>
-                  <select
-                    aria-label="Filtrar por período"
+                  <Select
                     value={period}
-                    onChange={(event) => setPeriod(event.target.value as ActionPeriodPreset)}
-                    className="h-8 w-full rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:border-primary"
+                    onValueChange={(val) => setPeriod(val as ActionPeriodPreset)}
                   >
-                    <option value="all">Qualquer data</option>
-                    <option value="today">Hoje</option>
-                    <option value="7d">Últimos 7 dias</option>
-                    <option value="30d">Últimos 30 dias</option>
-                    <option value="month">Este mês</option>
-                    <option value="custom">Personalizado</option>
-                  </select>
+                    <SystemTooltip content="Filtrar por período de realização da ação">
+                      <SelectTrigger
+                        aria-label="Filtrar por período"
+                        className="h-8 w-full rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:border-primary"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                    </SystemTooltip>
+                    <SelectContent className="z-[150]">
+                      <SelectItem value="all" className="text-xs">Qualquer data</SelectItem>
+                      <SelectItem value="today" className="text-xs">Hoje</SelectItem>
+                      <SelectItem value="7d" className="text-xs">Últimos 7 dias</SelectItem>
+                      <SelectItem value="30d" className="text-xs">Últimos 30 dias</SelectItem>
+                      <SelectItem value="month" className="text-xs">Este mês</SelectItem>
+                      <SelectItem value="custom" className="text-xs">Personalizado</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-1">
                   <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     Ordenar por
                   </label>
-                  <select
-                    aria-label="Ordenar histórico"
+                  <Select
                     value={sortBy}
-                    onChange={(event) => setSortBy(event.target.value as ActionSortOption)}
-                    className="h-8 w-full rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:border-primary"
+                    onValueChange={(val) => setSortBy(val as ActionSortOption)}
                   >
-                    <option value="newest">Mais recentes</option>
-                    <option value="oldest">Mais antigos</option>
-                    <option value="most_items">Maior volume</option>
-                    <option value="least_items">Menor volume</option>
-                  </select>
+                    <SystemTooltip content="Ordenar registros do histórico">
+                      <SelectTrigger
+                        aria-label="Ordenar histórico"
+                        className="h-8 w-full rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:border-primary"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                    </SystemTooltip>
+                    <SelectContent className="z-[150]">
+                      <SelectItem value="newest" className="text-xs">Mais recentes</SelectItem>
+                      <SelectItem value="oldest" className="text-xs">Mais antigos</SelectItem>
+                      <SelectItem value="most_items" className="text-xs">Maior volume</SelectItem>
+                      <SelectItem value="least_items" className="text-xs">Menor volume</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -717,24 +774,28 @@ export function CrmActionHistoryModal({
             {/* Datas personalizadas quando period === "custom" */}
             {period === "custom" && (
               <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
-                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                  De:
-                  <input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(event) => setDateFrom(event.target.value)}
-                    className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                  Até:
-                  <input
-                    type="date"
-                    value={dateTo}
-                    onChange={(event) => setDateTo(event.target.value)}
-                    className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:border-primary"
-                  />
-                </label>
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <span>De:</span>
+                  <div className="w-44">
+                    <CrmDatePicker
+                      value={dateFrom || null}
+                      onChange={(val) => setDateFrom(val || "")}
+                      placeholder="Data inicial..."
+                      tooltipText="Selecionar data inicial do histórico"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <span>Até:</span>
+                  <div className="w-44">
+                    <CrmDatePicker
+                      value={dateTo || null}
+                      onChange={(val) => setDateTo(val || "")}
+                      placeholder="Data final..."
+                      tooltipText="Selecionar data final do histórico"
+                    />
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -829,12 +890,11 @@ export function CrmActionHistoryModal({
 
                         <td className="p-3.5 max-w-xs">
                           {itemSummary ? (
-                            <p
-                              className="line-clamp-2 break-words text-xs text-foreground"
-                              title={itemSummary}
-                            >
-                              {itemSummary}
-                            </p>
+                            <SystemTooltip content={itemSummary}>
+                              <p className="line-clamp-2 break-words text-xs text-foreground cursor-default">
+                                {itemSummary}
+                              </p>
+                            </SystemTooltip>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}

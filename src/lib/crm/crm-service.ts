@@ -1112,7 +1112,9 @@ export class CrmService {
     if (params.document) {
       const cleanDoc = normalizeDocument(params.document);
       if (cleanDoc) {
-        conditions.push(eq(crmAccounts.document, cleanDoc));
+        conditions.push(
+          sql`regexp_replace(coalesce(${crmAccounts.document}, ''), '[^0-9]', '', 'g') = ${cleanDoc}`,
+        );
       }
     }
 
@@ -1222,7 +1224,7 @@ export class CrmService {
   }
 
   /**
-   * Cria ou obtém conta compradora por documento normalizado (PF ou PJ).
+   * Cria conta compradora por documento normalizado (PF ou PJ), bloqueando duplicidade.
    */
   async createAccount(
     tenantId: string,
@@ -1248,7 +1250,7 @@ export class CrmService {
     validateDocument(accountType, cleanDoc);
     const docType = detectDocumentType(cleanDoc);
 
-    // Se já existe uma conta com o mesmo documento válido no tenant, retorna a existente
+    // Se já existe uma conta com o mesmo documento válido no tenant, bloqueia e avisa o usuário
     const matches = await db
       .select()
       .from(crmAccounts)
@@ -1265,9 +1267,17 @@ export class CrmService {
     }
     if (matches[0]) {
       if (matches[0].archivedAt) {
-        throw new CrmError("Este documento pertence a um cadastro arquivado. Reative-o antes de prosseguir.", "ARCHIVED_DOCUMENT", 409);
+        throw new CrmError(
+          `Este ${accountType === "company" ? "CNPJ" : "CPF"} pertence ao cadastro arquivado "${matches[0].name}". Reative-o antes de prosseguir.`,
+          "ARCHIVED_DOCUMENT",
+          409,
+        );
       }
-      return matches[0];
+      throw new CrmError(
+        `Já existe ${accountType === "company" ? "uma empresa cadastrada com este CNPJ" : "um cliente cadastrado com este CPF"}: "${matches[0].name}".`,
+        "DUPLICATE_DOCUMENT",
+        409,
+      );
     }
     const accountId = `acc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const segment = data.segment ? await validateCatalogChoice(tenantId, "segment", data.segment) : null;
@@ -3111,12 +3121,33 @@ export class CrmService {
       };
     }
 
-    // Eventos de auditoria
-    const events = await db
+    // Eventos de auditoria (com deduplicação de conclusões repetidas para a mesma tarefa)
+    const rawEvents = await db
       .select()
       .from(crmDealEvents)
       .where(and(eq(crmDealEvents.tenantId, tenantId), eq(crmDealEvents.dealId, dealId)))
       .orderBy(desc(crmDealEvents.createdAt));
+
+    const seenCompletedActivityKeys = new Set<string>();
+    const events = rawEvents.filter((ev) => {
+      const meta = (ev.metadata && typeof ev.metadata === "object" ? ev.metadata : {}) as Record<string, any>;
+      const actKey = String(meta.activityId || meta.activityTitle || "").trim();
+      if (ev.eventType === "activity_completed" && actKey) {
+        if (seenCompletedActivityKeys.has(actKey)) {
+          return false;
+        }
+        seenCompletedActivityKeys.add(actKey);
+        return true;
+      }
+      if (
+        ev.eventType === "activity_updated" &&
+        meta.status === "completed" &&
+        (!Array.isArray(meta.changes) || meta.changes.length === 0)
+      ) {
+        return false;
+      }
+      return true;
+    });
 
     // Mensagens marcadas como evidência comercial
     const evidencesRaw = await db
@@ -5109,23 +5140,23 @@ export class CrmService {
       }
 
       await tx.execute(sql`SELECT set_config('app.rd_activity_actor', ${operatorId || ""}, true)`);
-      const [updated] = await tx
+      const updateWhereConditions = [
+        eq(crmDealActivities.id, activityId),
+        eq(crmDealActivities.dealId, dealId),
+        eq(crmDealActivities.tenantId, tenantId),
+      ];
+      if (statusChanged && updates.status === "completed") {
+        updateWhereConditions.push(ne(crmDealActivities.status, "completed"));
+      }
+
+      const [updatedRow] = await tx
         .update(crmDealActivities)
         .set(setPayload)
-        .where(
-          and(
-            eq(crmDealActivities.id, activityId),
-            eq(crmDealActivities.dealId, dealId),
-            eq(crmDealActivities.tenantId, tenantId)
-          )
-        )
+        .where(and(...updateWhereConditions))
         .returning();
 
-      // Atualiza timestamp da negociação
-      await tx
-        .update(crmDeals)
-        .set({ lastActivityAt: now, updatedAt: now })
-        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+      const updated = updatedRow || current;
+      const effectiveStatusChanged = statusChanged && Boolean(updatedRow);
 
       const activityChanges: Array<{ fieldLabel: string; fromValue: string | null; toValue: string | null }> = [];
       if (setPayload.title !== undefined && setPayload.title !== current.title) {
@@ -5142,31 +5173,49 @@ export class CrmService {
         activityChanges.push({ fieldLabel: "Tipo", fromValue: current.type, toValue: setPayload.type });
       }
 
-      // Evento de auditoria granular
-      let eventType = "activity_updated";
-      if (statusChanged) {
-        if (updates.status === "completed") eventType = "activity_completed";
-        else if (updates.status === "pending") eventType = "activity_reopened";
-        else if (updates.status === "cancelled") eventType = "activity_cancelled";
-      } else if (dueDateChanged) {
-        eventType = "activity_rescheduled";
-      }
+      const assigneeChanged =
+        (setPayload.assignedToOperatorId !== undefined &&
+          (setPayload.assignedToOperatorId || null) !== (current.assignedToOperatorId || null)) ||
+        (setPayload.assignedToOperatorIds !== undefined &&
+          JSON.stringify(setPayload.assignedToOperatorIds || []) !==
+            JSON.stringify(current.assignedToOperatorIds || []));
 
-      await this.logDealEvent(
-        tenantId,
-        dealId,
-        eventType,
-        operatorId,
-        {
-          activityId,
-          activityTitle: updated.title,
-          status: updated.status,
-          previousDueDate: current.dueDate,
-          dueDate: updated.dueDate,
-          changes: activityChanges.length > 0 ? activityChanges : undefined,
-        },
-        tx
-      );
+      const hasMeaningfulChange =
+        effectiveStatusChanged || dueDateChanged || activityChanges.length > 0 || assigneeChanged;
+
+      if (hasMeaningfulChange) {
+        // Atualiza timestamp da negociação
+        await tx
+          .update(crmDeals)
+          .set({ lastActivityAt: now, updatedAt: now })
+          .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+
+        // Evento de auditoria granular
+        let eventType = "activity_updated";
+        if (effectiveStatusChanged) {
+          if (updates.status === "completed") eventType = "activity_completed";
+          else if (updates.status === "pending") eventType = "activity_reopened";
+          else if (updates.status === "cancelled") eventType = "activity_cancelled";
+        } else if (dueDateChanged) {
+          eventType = "activity_rescheduled";
+        }
+
+        await this.logDealEvent(
+          tenantId,
+          dealId,
+          eventType,
+          operatorId,
+          {
+            activityId,
+            activityTitle: updated.title,
+            status: updated.status,
+            previousDueDate: current.dueDate,
+            dueDate: updated.dueDate,
+            changes: activityChanges.length > 0 ? activityChanges : undefined,
+          },
+          tx
+        );
+      }
 
       // Busca operadores relacionados
       const creatorOp = alias(operators, "upd_act_creator_op");

@@ -77,6 +77,56 @@ export function saveCrmPipelineId(pipelineId: string, tenant?: string | null, op
   }
 }
 
+const CRM_PREFS_STORAGE_PREFIX = "valem_crm_view_prefs";
+
+interface CrmPersistedPrefs {
+  viewMode?: "kanban" | "list";
+  statusFilter?: CrmStatusFilter;
+  selectedOperatorIds?: string[];
+  sortBy?: string;
+  advancedFilters?: AdvancedFiltersState;
+  searchQuery?: string;
+}
+
+function getSavedCrmPrefs(tenant?: string | null, operatorId?: string | null): CrmPersistedPrefs {
+  if (typeof window === "undefined") return {};
+  try {
+    const keys: string[] = [];
+    if (tenant && operatorId) keys.push(`${CRM_PREFS_STORAGE_PREFIX}_${tenant}_${operatorId}`);
+    if (tenant) keys.push(`${CRM_PREFS_STORAGE_PREFIX}_${tenant}`);
+    keys.push(CRM_PREFS_STORAGE_PREFIX);
+
+    for (const k of keys) {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          return parsed as CrmPersistedPrefs;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[CrmView] Falha ao recuperar preferências do CRM do localStorage:", err);
+  }
+  return {};
+}
+
+function saveCrmPrefs(prefs: CrmPersistedPrefs, tenant?: string | null, operatorId?: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    const serialized = JSON.stringify(prefs);
+    if (tenant && operatorId) {
+      localStorage.setItem(`${CRM_PREFS_STORAGE_PREFIX}_${tenant}_${operatorId}`, serialized);
+    }
+    if (tenant) {
+      localStorage.setItem(`${CRM_PREFS_STORAGE_PREFIX}_${tenant}`, serialized);
+    }
+    localStorage.setItem(CRM_PREFS_STORAGE_PREFIX, serialized);
+  } catch (err) {
+    console.warn("[CrmView] Falha ao salvar preferências do CRM no localStorage:", err);
+  }
+}
+
 // Reaproveita o último funil exibido ao alternar entre Chat e CRM.
 // A chave inclui tenant e operador; a tela ainda revalida os dados ao abrir.
 const crmViewSnapshots = new Map<string, CrmViewSnapshot>();
@@ -100,6 +150,7 @@ export function CrmView() {
       return cached && Date.now() - cached.savedAt < CRM_SNAPSHOT_TTL_MS ? cached : null;
     })(),
   );
+  const initialPrefs = useRef<CrmPersistedPrefs>(getSavedCrmPrefs(tenant, currentOperatorId));
 
   const [loading, setLoading] = useState(!initialSnapshot.current);
   const [error, setError] = useState<string | null>(null);
@@ -119,11 +170,21 @@ export function CrmView() {
   // Painel de filtros
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
 
-  // Filtros Globais Compartilhados entre Kanban e Lista
-  const [viewMode, setViewMode] = useState<"kanban" | "list">(() =>
-    getInitialTabFromUrl("crm", "kanban", ["kanban", "list"] as const),
-  );
-  const [statusFilter, setStatusFilter] = useState<CrmStatusFilter>("open");
+  // Filtros Globais Compartilhados entre Kanban e Lista (persistidos em localStorage)
+  const [viewMode, setViewMode] = useState<"kanban" | "list">(() => {
+    const savedMode = initialPrefs.current.viewMode;
+    if (savedMode === "kanban" || savedMode === "list") {
+      return savedMode;
+    }
+    return getInitialTabFromUrl("crm", "kanban", ["kanban", "list"] as const);
+  });
+  const [statusFilter, setStatusFilter] = useState<CrmStatusFilter>(() => {
+    const saved = initialPrefs.current.statusFilter;
+    if (saved === "all" || saved === "open" || saved === "won" || saved === "lost" || saved === "paused") {
+      return saved;
+    }
+    return "open";
+  });
 
   useSyncModuleTabWithUrl({
     viewId: "crm",
@@ -161,13 +222,47 @@ export function CrmView() {
       }
     },
   });
-  const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<string>("updated_desc");
-  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFiltersState>({});
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>(() =>
+    Array.isArray(initialPrefs.current.selectedOperatorIds)
+      ? initialPrefs.current.selectedOperatorIds
+      : [],
+  );
+  const [sortBy, setSortBy] = useState<string>(() =>
+    typeof initialPrefs.current.sortBy === "string" && initialPrefs.current.sortBy
+      ? initialPrefs.current.sortBy
+      : "updated_desc",
+  );
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFiltersState>(() =>
+    initialPrefs.current.advancedFilters && typeof initialPrefs.current.advancedFilters === "object"
+      ? initialPrefs.current.advancedFilters
+      : {},
+  );
+  const [searchQuery, setSearchQuery] = useState(() =>
+    typeof initialPrefs.current.searchQuery === "string" ? initialPrefs.current.searchQuery : "",
+  );
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(() =>
+    typeof initialPrefs.current.searchQuery === "string"
+      ? initialPrefs.current.searchQuery.trim()
+      : "",
+  );
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchAccountId, setSearchAccountId] = useState<string | null>(null);
+
+  // Salva automaticamente em memória/localStorage o modo (Quadro/Lista) e os últimos filtros usados
+  useEffect(() => {
+    saveCrmPrefs(
+      {
+        viewMode,
+        statusFilter,
+        selectedOperatorIds,
+        sortBy,
+        advancedFilters,
+        searchQuery,
+      },
+      tenant,
+      currentOperatorId,
+    );
+  }, [viewMode, statusFilter, selectedOperatorIds, sortBy, advancedFilters, searchQuery, tenant, currentOperatorId]);
 
   useEffect(() => {
     const trimmed = searchQuery.trim();
@@ -712,8 +807,59 @@ export function CrmView() {
     return () => window.removeEventListener("crm:open-full-chat", handleOpenFullChatEvent);
   }, [refreshConversations, setSelectedChatId, setActiveView, navigate]);
 
+  useEffect(() => {
+    const handleDealValueUpdated = (ev: Event) => {
+      const customEv = ev as CustomEvent<{
+        dealId: string;
+        stageId: string;
+        value: number;
+        previousValue: number;
+      }>;
+      const { dealId, stageId, value, previousValue } = customEv.detail || {};
+      if (!dealId) return;
+      setDeals((prev) =>
+        prev.map((d) => (d.id === dealId ? { ...d, value, updatedAt: new Date().toISOString() } : d)),
+      );
+      if (stageId && Number.isFinite(value)) {
+        const diff = value - (Number(previousValue) || 0);
+        setStagesSummary((prev) =>
+          prev.map((st) =>
+            st.stageId === stageId
+              ? { ...st, totalValue: Math.max(0, (Number(st.totalValue) || 0) + diff) }
+              : st,
+          ),
+        );
+      }
+    };
+
+    const handleDealTaskCompleted = (ev: Event) => {
+      const customEv = ev as CustomEvent<{ dealId: string; activityId: string }>;
+      const { dealId, activityId } = customEv.detail || {};
+      if (!dealId) return;
+      setDeals((prev) =>
+        prev.map((d) =>
+          d.id === dealId && (!activityId || d.nextTask?.id === activityId)
+            ? { ...d, nextTask: null, lastActivityAt: new Date().toISOString() }
+            : d,
+        ),
+      );
+      void fetchDeals();
+    };
+
+    window.addEventListener("crm:deal-value-updated", handleDealValueUpdated);
+    window.addEventListener("crm:deal-task-completed", handleDealTaskCompleted);
+    return () => {
+      window.removeEventListener("crm:deal-value-updated", handleDealValueUpdated);
+      window.removeEventListener("crm:deal-task-completed", handleDealTaskCompleted);
+    };
+  }, [fetchDeals]);
+
   return (
-    <div className="flex flex-col h-full w-full gap-3 md:gap-4 overflow-hidden pt-1.5 md:pt-1 pb-0 px-2 md:pl-1 md:pr-0">
+    <div
+      className={`flex flex-col h-full w-full ${
+        viewMode === "kanban" ? "gap-0" : "gap-3 md:gap-4"
+      } overflow-hidden pt-1.5 md:pt-1 pb-0 px-2 md:pl-1 md:pr-0`}
+    >
       {/* Barra de Ferramentas Superior */}
       <div className="pr-0 md:pr-5 shrink-0">
         <CrmToolbar

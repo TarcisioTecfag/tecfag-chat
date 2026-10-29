@@ -21,7 +21,7 @@ import { getAiPersona } from "@/lib/ai-persona";
 import { RdMarketingSettings } from "./RdMarketingSettings";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
-import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
+import { getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
 type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat" | "mcp";
 const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat", "mcp"];
@@ -43,12 +43,37 @@ export function SettingsView() {
     getInitialTabFromUrl("settings", "whatsapp", SETTINGS_TABS),
   );
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
-  const [pipelineSettingsOpen, setPipelineSettingsOpen] = useState(false);
+  const [pipelineSettingsOpen, setPipelineSettingsOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const parsed = parseAppRoute(window.location.pathname);
+    return parsed.viewId === "settings" && parsed.tabId === "crm" && parsed.extraParam === "funis";
+  });
   const [sourcesCampaignsOpen, setSourcesCampaignsOpen] = useState(false);
   const [lossReasonsOpen, setLossReasonsOpen] = useState(false);
   const [segmentsOpen, setSegmentsOpen] = useState(false);
   const [catalogKind, setCatalogKind] = useState<CatalogKind | null>(null);
   const [actionHistoryOpen, setActionHistoryOpen] = useState(false);
+
+  useEffect(() => {
+    const checkRouteOpenPipeline = () => {
+      if (typeof window === "undefined") return;
+      const parsed = parseAppRoute(window.location.pathname);
+      if (parsed.viewId === "settings" && parsed.tabId === "crm" && parsed.extraParam === "funis") {
+        setActiveTab("crm");
+        setPipelineSettingsOpen(true);
+      }
+    };
+    checkRouteOpenPipeline();
+
+    const handleOpenPipelineSettings = () => {
+      setActiveTab("crm");
+      setPipelineSettingsOpen(true);
+    };
+    window.addEventListener("crm:open-pipeline-settings", handleOpenPipelineSettings);
+    return () => {
+      window.removeEventListener("crm:open-pipeline-settings", handleOpenPipelineSettings);
+    };
+  }, []);
 
   const [metaForm, setMetaForm] = useState({ ...metaConfig });
   const [isSaved, setIsSaved] = useState(false);

@@ -171,7 +171,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
                 }}
                 exit={{ opacity: 0, scale: 0.96 }}
                 transition={{ type: "spring", stiffness: 330, damping: 28, mass: 0.85 }}
-                className="pointer-events-none fixed z-[10091] rounded-xl border-2 border-primary ring-4 ring-primary/20 shadow-[0_0_24px_rgba(220,38,38,0.28)]"
+                className="pointer-events-none fixed z-[10091] rounded-xl border-2 border-primary ring-4 ring-primary/20 shadow-card"
               >
                 {/* Breathing sonar pulse ring around highlighted element */}
                 <motion.div
@@ -283,7 +283,7 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-bold text-foreground">{persona.name}</span>
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
                   </div>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {currentChapter
@@ -372,9 +372,9 @@ export function OnboardingSpotlight({ rect, found, avoidRect }: OnboardingSpotli
                   animate={{ opacity: 1, height: "auto", marginBottom: 12 }}
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                   transition={{ duration: 0.2 }}
-                  className=" flex items-center gap-2 overflow-hidden rounded-xl border border-amber-500/30 bg-amber-500/10 dark:bg-amber-950/40 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200"
+                  className="flex items-center gap-2 overflow-hidden rounded-xl border border-primary/25 bg-primary/10 px-2.5 py-1.5 text-[11px] text-foreground"
                 >
-                  <Compass className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400 animate-spin" />
+                  <Compass className="h-3.5 w-3.5 shrink-0 text-primary animate-spin" />
                   <span>
                     O controle ainda não apareceu. Aguarde a preparação da tela ou pause o
                     treinamento.

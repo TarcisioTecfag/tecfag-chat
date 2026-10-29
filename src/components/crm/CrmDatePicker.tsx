@@ -266,23 +266,27 @@ export function CrmDatePicker({
                 today.getFullYear() === currentMonth.getFullYear();
 
               return (
-                <button
+                <SystemTooltip
                   key={item.dateString}
-                  type="button"
-                  onClick={() => handleSelectDate(item.dateString!)}
-                  className={`h-7 w-full flex items-center justify-center rounded-md text-xs transition-colors cursor-pointer relative ${
-                    isSelected
-                      ? "bg-primary text-primary-foreground font-bold shadow-sm"
-                      : isToday
-                      ? "border border-primary/50 text-primary font-semibold hover:bg-primary/10"
-                      : "text-foreground hover:bg-muted/80 hover:text-foreground"
-                  }`}
+                  content={`Selecionar dia ${String(item.day).padStart(2, "0")}/${String(currentMonth.getMonth() + 1).padStart(2, "0")}/${currentMonth.getFullYear()}`}
                 >
-                  {item.day}
-                  {isToday && !isSelected && (
-                    <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDate(item.dateString!)}
+                    className={`h-7 w-full flex items-center justify-center rounded-md text-xs transition-colors cursor-pointer relative ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground font-bold shadow-sm"
+                        : isToday
+                        ? "border border-primary/50 text-primary font-semibold hover:bg-primary/10"
+                        : "text-foreground hover:bg-muted/80 hover:text-foreground"
+                    }`}
+                  >
+                    {item.day}
+                    {isToday && !isSelected && (
+                      <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                    )}
+                  </button>
+                </SystemTooltip>
               );
             })}
           </div>
@@ -294,16 +298,18 @@ export function CrmDatePicker({
               {parsedDate ? `Previsão: ${formattedDisplay}` : "Nenhuma data selecionada"}
             </span>
             {parsedDate && (
-              <button
-                type="button"
-                onClick={() => {
-                  onChange(null);
-                  setIsOpen(false);
-                }}
-                className="text-destructive hover:underline font-medium cursor-pointer"
-              >
-                Limpar
-              </button>
+              <SystemTooltip content="Remover data selecionada">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(null);
+                    setIsOpen(false);
+                  }}
+                  className="text-destructive hover:underline font-medium cursor-pointer"
+                >
+                  Limpar
+                </button>
+              </SystemTooltip>
             )}
           </div>
         </div>

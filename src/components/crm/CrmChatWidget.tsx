@@ -698,14 +698,15 @@ function MiniChatTemplateSelector({
       <div className="flex shrink-0 items-center justify-between border-b border-border/70 bg-muted/25 px-3 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
           {selectedTemplate ? (
-            <button
-              type="button"
-              onClick={handleBack}
-              className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
-              title="Voltar para a lista de templates"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-            </button>
+            <SystemTooltip content="Voltar para a lista de templates">
+              <button
+                type="button"
+                onClick={handleBack}
+                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
           ) : (
             <div className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
               <LayoutTemplate className="h-3.5 w-3.5" />
@@ -2400,7 +2401,6 @@ export function CrmChatWidget() {
                       <header
                         onPointerDown={startDrag}
                         className="flex h-14 shrink-0 items-center justify-between border-b border-border/70 bg-card/95 px-3 backdrop-blur-md cursor-grab active:cursor-grabbing select-none"
-                        title="Arraste para mover o mini chat para a esquerda ou direita"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <SystemTooltip content="Voltar para a lista">
@@ -2448,20 +2448,21 @@ export function CrmChatWidget() {
                                   </span>
                                 </>
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (selected.name) {
-                                      void navigator.clipboard?.writeText(selected.name);
-                                      toast.success("Nome copiado!");
-                                    }
-                                  }}
-                                  title="Clique para copiar o nome do cliente"
-                                  className="truncate text-left hover:text-primary transition-colors cursor-pointer"
-                                >
-                                  {selected.name}
-                                </button>
+                                <SystemTooltip content="Clique para copiar o nome do cliente">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (selected.name) {
+                                        void navigator.clipboard?.writeText(selected.name);
+                                        toast.success("Nome copiado!");
+                                      }
+                                    }}
+                                    className="truncate text-left hover:text-primary transition-colors cursor-pointer"
+                                  >
+                                    {selected.name}
+                                  </button>
+                                </SystemTooltip>
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
@@ -2471,20 +2472,21 @@ export function CrmChatWidget() {
                                 }`}
                               />
                               {selected.id !== "valentina" && selected.phone ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void navigator.clipboard?.writeText(selected.phone);
-                                    toast.success("Telefone copiado!");
-                                  }}
-                                  title="Clique para copiar o telefone"
-                                  className="truncate text-left hover:text-foreground transition-colors cursor-pointer"
-                                >
-                                  {selected.id === "__resolving__"
-                                    ? `${selected.phone} · Preparando atendimento...`
-                                    : `${selected.phone} · Em atendimento`}
-                                </button>
+                                <SystemTooltip content="Clique para copiar o telefone">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void navigator.clipboard?.writeText(selected.phone);
+                                      toast.success("Telefone copiado!");
+                                    }}
+                                    className="truncate text-left hover:text-foreground transition-colors cursor-pointer"
+                                  >
+                                    {selected.id === "__resolving__"
+                                      ? `${selected.phone} · Preparando atendimento...`
+                                      : `${selected.phone} · Em atendimento`}
+                                  </button>
+                                </SystemTooltip>
                               ) : (
                                 <span
                                   className={`truncate ${
@@ -3770,7 +3772,6 @@ export function CrmChatWidget() {
                     <header
                       onPointerDown={startDrag}
                       className="flex h-14 shrink-0 items-center justify-between border-b border-border/70 bg-card/95 px-3.5 backdrop-blur-md cursor-grab active:cursor-grabbing select-none"
-                      title="Arraste para mover o mini chat para a esquerda ou direita"
                     >
                       <div className="flex items-center gap-2">
                         <div className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary">
@@ -3861,12 +3862,15 @@ export function CrmChatWidget() {
                               className="h-9 w-9 rounded-full border border-primary/40 shadow-xs"
                             />
                             {aiUnreadCount > 0 && (
-                              <span
-                                title={`${aiUnreadCount} ${aiUnreadCount === 1 ? "mensagem não lida" : "mensagens não lidas"}`}
-                                className="absolute -top-1 -left-1 z-10 flex h-4.5 min-w-4.5 items-center justify-center rounded-full border-2 border-card bg-primary px-1 text-[9px] font-black text-primary-foreground shadow-soft animate-in zoom-in-50"
+                              <SystemTooltip
+                                content={`${aiUnreadCount} ${aiUnreadCount === 1 ? "mensagem não lida" : "mensagens não lidas"}`}
                               >
-                                {aiUnreadCount > 99 ? "99+" : aiUnreadCount}
-                              </span>
+                                <span
+                                  className="absolute -top-1 -left-1 z-10 flex h-4.5 min-w-4.5 items-center justify-center rounded-full border-2 border-card bg-primary px-1 text-[9px] font-black text-primary-foreground shadow-soft animate-in zoom-in-50"
+                                >
+                                  {aiUnreadCount > 99 ? "99+" : aiUnreadCount}
+                                </span>
+                              </SystemTooltip>
                             )}
                             <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-card bg-primary text-primary-foreground shadow-soft">
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
@@ -4034,32 +4038,31 @@ export function CrmChatWidget() {
 
         {/* Botão Gatilho / Barra Inferior Dockada (Oculta no mobile quando a MobileBottomNav já está visível com a aba Chat) */}
         {(!isMobile || !isAppShellPath(location.pathname) || open) && (
-          <motion.button
-            ref={buttonRef}
-            type="button"
-            data-drag-trigger="true"
-            onPointerDown={startDrag}
-            onClick={() => {
-              if (dragInfoRef.current.moved) return;
-              setOpen((previous) => !previous);
-            }}
-            aria-expanded={open}
-            aria-controls="crm-chat-window"
-            aria-label={open ? "Recolher conversas" : "Abrir conversas"}
-            whileHover={{ scale: isDragging ? 1 : 1.02 }}
-            whileTap={{ scale: isDragging ? 1 : 0.98 }}
-            className={`flex h-10 min-w-36 md:min-w-40 items-center justify-between gap-2 rounded-xl md:rounded-t-xl md:rounded-b-none border md:border-b-0 border-border/90 bg-card/95 hover:bg-card px-3 text-xs font-semibold text-foreground shadow-xl backdrop-blur-md transition-colors select-none ring-1 ring-black/5 dark:ring-white/5 ${
-              isDragging ? "cursor-grabbing shadow-2xl ring-primary/40" : "cursor-grab"
-            }`}
-            title="Clique para abrir/fechar · Arraste para mover para os lados"
-          >
-            <span className="flex items-center gap-1.5">
-              <span
-                className="hidden md:inline-flex text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors p-0.5"
-                title="Arraste horizontalmente"
-              >
-                <GripVertical className="h-3.5 w-3.5" />
-              </span>
+          <SystemTooltip content="Clique para abrir/fechar · Arraste para mover para os lados">
+            <motion.button
+              ref={buttonRef}
+              type="button"
+              data-drag-trigger="true"
+              onPointerDown={startDrag}
+              onClick={() => {
+                if (dragInfoRef.current.moved) return;
+                setOpen((previous) => !previous);
+              }}
+              aria-expanded={open}
+              aria-controls="crm-chat-window"
+              aria-label={open ? "Recolher conversas" : "Abrir conversas"}
+              whileHover={{ scale: isDragging ? 1 : 1.02 }}
+              whileTap={{ scale: isDragging ? 1 : 0.98 }}
+              className={`flex h-10 min-w-36 md:min-w-40 items-center justify-between gap-2 rounded-xl md:rounded-t-xl md:rounded-b-none border md:border-b-0 border-border/90 bg-card/95 hover:bg-card px-3 text-xs font-semibold text-foreground shadow-xl backdrop-blur-md transition-colors select-none ring-1 ring-black/5 dark:ring-white/5 ${
+                isDragging ? "cursor-grabbing shadow-2xl ring-primary/40" : "cursor-grab"
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="hidden md:inline-flex text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors p-0.5"
+                >
+                  <GripVertical className="h-3.5 w-3.5" />
+                </span>
               <span className="relative flex items-center justify-center">
                 <MessageCircle className="h-4 w-4 text-primary" />
                 {unread > 0 && (
@@ -4082,6 +4085,7 @@ export function CrmChatWidget() {
               />
             </span>
           </motion.button>
+          </SystemTooltip>
         )}
       </div>
 

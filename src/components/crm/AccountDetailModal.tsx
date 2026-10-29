@@ -35,6 +35,11 @@ import {
   extractCnpjDetailsFromAccount,
   buildAccountAddressFromCnpjDetails,
 } from "../../lib/crm/cnpj-account-mapper";
+import {
+  findDuplicateAccountByDocument,
+  useCheckDuplicateDocument,
+} from "../../lib/crm/use-check-duplicate-document";
+import { AlertCircle } from "lucide-react";
 
 interface AccountDetailModalProps {
   accountId: string | null;
@@ -112,6 +117,12 @@ export function AccountDetailModal({
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [originalCustomFields, setOriginalCustomFields] = useState<Record<string, unknown>>({});
 
+  const { duplicateAccount, checkingDuplicate } = useCheckDuplicateDocument(
+    document,
+    Boolean(isOpen && accountId),
+    accountId,
+  );
+
   const loadAccount = async (id: string) => {
     setLoading(true);
     try {
@@ -176,6 +187,13 @@ export function AccountDetailModal({
     }
     setIsSearchingCnpj(true);
     try {
+      const existing = await findDuplicateAccountByDocument(cleanDigits, accountId);
+      if (existing) {
+        toast.error(
+          `Este CNPJ já está cadastrado em "${existing.name || existing.tradeName || "Outra empresa"}".`
+        );
+        return;
+      }
       const info = await fetchCnpjInfo(cleanDigits);
       if (!info.valid || !info.details) {
         toast.warning(info.erro || "Não foi possível consultar os dados deste CNPJ. Preencha manualmente.");
@@ -214,6 +232,13 @@ export function AccountDetailModal({
     const docValidation = validateAccountDocument(type, document);
     if (!docValidation.valid) {
       toast.error(docValidation.error || "Documento inválido.");
+      return;
+    }
+
+    if (duplicateAccount) {
+      toast.error(
+        `Este ${type === "company" ? "CNPJ" : "CPF"} já pertence a "${duplicateAccount.name || duplicateAccount.tradeName || "Outro cliente"}".`
+      );
       return;
     }
 
@@ -582,6 +607,20 @@ export function AccountDetailModal({
                             </p>
                           );
                         })()}
+                        {duplicateAccount && (
+                          <div className="mt-1.5 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-300">
+                            <AlertCircle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+                            <div>
+                              <span className="font-bold block">
+                                Já existe um cliente cadastrado com este {type === "company" ? "CNPJ" : "CPF"}!
+                              </span>
+                              <span>
+                                Pertence a:{" "}
+                                <strong>{duplicateAccount.name || duplicateAccount.tradeName}</strong>. Não é permitido salvar outro cadastro com o mesmo documento.
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {type === "company" && (
@@ -1234,7 +1273,7 @@ export function AccountDetailModal({
               <button
                 type="submit"
                 form="account-detail-form"
-                disabled={saving}
+                disabled={saving || Boolean(duplicateAccount) || checkingDuplicate}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-primary-foreground bg-primary hover:opacity-90 rounded-[8px] shadow-xs transition-opacity cursor-pointer disabled:opacity-50"
               >
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
