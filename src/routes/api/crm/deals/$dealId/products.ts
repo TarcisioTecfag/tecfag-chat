@@ -10,7 +10,7 @@ import { eq, and } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
@@ -158,6 +158,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
             quantity: qty,
             unitPrice: price,
             discountPercent: discount,
+            discountAmount: body.discountAmount,
             notes: body.notes,
           });
 
@@ -167,6 +168,72 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/products")({
           });
         } catch (err: any) {
           console.error("[CRM Deal Products API] Erro no POST:", err);
+          return handleCrmError(err, corsHeaders);
+        }
+      },
+
+      /**
+       * PATCH /api/crm/deals/:dealId/products
+       * Atualiza desconto (% ou R$), quantidade ou valor unitário de um item da negociação
+       * ou aplica desconto geral em todos os itens da negociação.
+       */
+      PATCH: async ({ request, params }) => {
+        try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
+
+          const permError = requireCrmPermission(session, "canEditDeals");
+          if (permError) return permError;
+
+          const { dealId } = params as { dealId: string };
+          const body = await request.json();
+
+          if (body?.applyToAll) {
+            const result = await crmService.applyDealGlobalDiscount(
+              tenantId,
+              dealId,
+              session.operator.id,
+              {
+                discountPercent: body.discountPercent,
+                discountAmount: body.discountAmount,
+              }
+            );
+            return new Response(JSON.stringify({ success: true, ...result }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const dealProductId = typeof body?.dealProductId === "string" ? body.dealProductId.trim() : "";
+          if (!dealProductId) {
+            return new Response(JSON.stringify({ error: "dealProductId é obrigatório." }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const updated = await crmService.updateDealProduct(
+            tenantId,
+            dealId,
+            dealProductId,
+            session.operator.id,
+            {
+              quantity: body.quantity,
+              unitPrice: body.unitPrice,
+              discountPercent: body.discountPercent,
+              discountAmount: body.discountAmount,
+              notes: body.notes,
+            }
+          );
+
+          return new Response(JSON.stringify({ product: updated }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } catch (err: any) {
+          console.error("[CRM Deal Products API] Erro no PATCH:", err);
           return handleCrmError(err, corsHeaders);
         }
       },

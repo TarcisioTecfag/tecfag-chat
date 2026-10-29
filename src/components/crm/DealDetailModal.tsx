@@ -597,9 +597,21 @@ export function DealDetailModal({
   const [newProductName, setNewProductName] = useState("");
   const [newProductQty, setNewProductQty] = useState("1");
   const [newProductUnitPrice, setNewProductUnitPrice] = useState("");
-  const [newProductDiscount, setNewProductDiscount] = useState("0");
+  const [newProductDiscount, setNewProductDiscount] = useState("");
+  const [newProductDiscountMode, setNewProductDiscountMode] = useState<"percent" | "amount">("percent");
   const [newProductNotes, setNewProductNotes] = useState("");
   const [addingProduct, setAddingProduct] = useState(false);
+
+  // Edição de Desconto em Item Cadastrado e Desconto Geral
+  const [editingDiscountItemId, setEditingDiscountItemId] = useState<string | null>(null);
+  const [itemDiscountMode, setItemDiscountMode] = useState<"percent" | "amount" | "final">("percent");
+  const [itemDiscountInput, setItemDiscountInput] = useState("");
+  const [savingItemDiscount, setSavingItemDiscount] = useState(false);
+
+  const [globalDiscountOpen, setGlobalDiscountOpen] = useState(false);
+  const [globalDiscountMode, setGlobalDiscountMode] = useState<"percent" | "amount">("percent");
+  const [globalDiscountInput, setGlobalDiscountInput] = useState("");
+  const [savingGlobalDiscount, setSavingGlobalDiscount] = useState(false);
 
   // Proposta Comercial
   const [showProposalModal, setShowProposalModal] = useState(false);
@@ -985,15 +997,20 @@ export function DealDetailModal({
 
     setAddingProduct(true);
     try {
+      const parsedQty = parseFloat(String(newProductQty || "1").replace(",", ".")) || 1;
+      const parsedUnitPrice = parseFloat(String(newProductUnitPrice || "0").replace(",", ".")) || 0;
+      const parsedDiscountVal = parseFloat(String(newProductDiscount || "0").replace(",", ".")) || 0;
+
       const res = await fetch(`/api/crm/deals/${deal.id}/products`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productId: selectedCatalogId || null,
           name: newProductName.trim(),
-          quantity: parseFloat(newProductQty) || 1,
-          unitPrice: parseFloat(newProductUnitPrice) || 0,
-          discountPercent: parseFloat(newProductDiscount) || 0,
+          quantity: parsedQty,
+          unitPrice: parsedUnitPrice,
+          discountPercent: newProductDiscountMode === "percent" ? parsedDiscountVal : 0,
+          discountAmount: newProductDiscountMode === "amount" && parsedDiscountVal > 0 ? parsedDiscountVal : undefined,
           notes: newProductNotes.trim() || null,
         }),
       });
@@ -1008,7 +1025,7 @@ export function DealDetailModal({
       setNewProductName("");
       setNewProductQty("1");
       setNewProductUnitPrice("");
-      setNewProductDiscount("0");
+      setNewProductDiscount("");
       setNewProductNotes("");
       await loadDealDetail();
       if (onDealUpdated && deal) {
@@ -1018,6 +1035,107 @@ export function DealDetailModal({
       toast.error(err.message || "Erro ao adicionar produto.");
     } finally {
       setAddingProduct(false);
+    }
+  };
+
+  const handleOpenItemDiscount = (item: any) => {
+    setEditingDiscountItemId(item.id);
+    setItemDiscountMode("percent");
+    const pct = parseFloat(String(item.discountPercent || "0")) || 0;
+    setItemDiscountInput(pct > 0 ? String(pct) : "");
+  };
+
+  const handleSaveItemDiscount = async (item: any, overridePercent?: number) => {
+    if (!deal) return;
+    setSavingItemDiscount(true);
+    try {
+      const rawGross =
+        (parseFloat(String(item.quantity || "1")) || 1) *
+        (parseFloat(String(item.unitPrice || "0")) || 0);
+      const val =
+        overridePercent !== undefined
+          ? overridePercent
+          : parseFloat(String(itemDiscountInput || "0").replace(",", ".")) || 0;
+
+      const payload: Record<string, any> = {
+        dealProductId: item.id,
+      };
+
+      if (overridePercent !== undefined || itemDiscountMode === "percent") {
+        payload.discountPercent = Math.min(100, Math.max(0, val));
+      } else if (itemDiscountMode === "amount") {
+        payload.discountAmount = Math.min(rawGross, Math.max(0, val));
+      } else if (itemDiscountMode === "final") {
+        const finalPrice = Math.min(rawGross, Math.max(0, val));
+        payload.discountAmount = Math.max(0, rawGross - finalPrice);
+      }
+
+      const res = await fetch(`/api/crm/deals/${deal.id}/products`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erro ao aplicar desconto.");
+      }
+
+      toast.success(
+        overridePercent === 0
+          ? "Desconto removido do item."
+          : "Desconto aplicado e valor da negociação recalculado!",
+      );
+      setEditingDiscountItemId(null);
+      await loadDealDetail();
+    } catch (err: any) {
+      toast.error(err.message || "Falha ao aplicar desconto.");
+    } finally {
+      setSavingItemDiscount(false);
+    }
+  };
+
+  const handleApplyGlobalDiscount = async (overridePercent?: number) => {
+    if (!deal) return;
+    setSavingGlobalDiscount(true);
+    try {
+      const val =
+        overridePercent !== undefined
+          ? overridePercent
+          : parseFloat(String(globalDiscountInput || "0").replace(",", ".")) || 0;
+
+      const payload: Record<string, any> = {
+        applyToAll: true,
+      };
+      if (overridePercent !== undefined || globalDiscountMode === "percent") {
+        payload.discountPercent = Math.min(100, Math.max(0, val));
+      } else {
+        payload.discountAmount = Math.max(0, val);
+      }
+
+      const res = await fetch(`/api/crm/deals/${deal.id}/products`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erro ao aplicar desconto geral.");
+      }
+
+      toast.success(
+        overridePercent === 0
+          ? "Descontos removidos de todos os itens."
+          : "Desconto geral aplicado à negociação!",
+      );
+      setGlobalDiscountOpen(false);
+      setGlobalDiscountInput("");
+      await loadDealDetail();
+    } catch (err: any) {
+      toast.error(err.message || "Falha ao aplicar desconto geral.");
+    } finally {
+      setSavingGlobalDiscount(false);
     }
   };
 
@@ -4099,33 +4217,71 @@ export function DealDetailModal({
 
                         <div className="md:col-span-2">
                           <div className="relative flex items-center">
+                            <SystemTooltip
+                              content={
+                                newProductDiscountMode === "percent"
+                                  ? "Alternar para desconto em Reais (R$)"
+                                  : "Alternar para desconto em Porcentagem (%)"
+                              }
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setNewProductDiscountMode((prev) =>
+                                    prev === "percent" ? "amount" : "percent",
+                                  )
+                                }
+                                className="absolute left-1.5 flex h-5 items-center justify-center rounded bg-primary/15 px-1.5 text-[10px] font-bold text-primary hover:bg-primary/25 cursor-pointer"
+                              >
+                                {newProductDiscountMode === "percent" ? "%" : "R$"}
+                              </button>
+                            </SystemTooltip>
                             <input
                               type="text"
                               inputMode="decimal"
-                              placeholder="Desc %"
+                              placeholder={newProductDiscountMode === "percent" ? "Desconto %" : "Desconto R$"}
                               value={newProductDiscount}
                               onChange={(e) => setNewProductDiscount(e.target.value.replace(/[^0-9.,]/g, ""))}
-                              className="h-8 w-full rounded-lg border border-border bg-card px-2 pr-12 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                              className="h-8 w-full rounded-lg border border-border bg-card pl-8 pr-11 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                             />
                             <div className="absolute right-1 flex items-center gap-0.5">
-                              <SystemTooltip content="Diminuir desconto (-1%)">
+                              <SystemTooltip
+                                content={
+                                  newProductDiscountMode === "percent"
+                                    ? "Diminuir desconto (-1%)"
+                                    : "Diminuir desconto (-R$ 10)"
+                                }
+                              >
                                 <button
                                   type="button"
                                   onClick={() => {
                                     const cur = parseFloat(String(newProductDiscount || "0").replace(",", ".")) || 0;
-                                    setNewProductDiscount(String(Math.max(0, cur - 1)));
+                                    const step = newProductDiscountMode === "percent" ? 1 : 10;
+                                    const next = Math.max(0, cur - step);
+                                    setNewProductDiscount(next > 0 ? String(next) : "");
                                   }}
                                   className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
                                 >
                                   <ChevronDown className="h-3 w-3" />
                                 </button>
                               </SystemTooltip>
-                              <SystemTooltip content="Aumentar desconto (+1%)">
+                              <SystemTooltip
+                                content={
+                                  newProductDiscountMode === "percent"
+                                    ? "Aumentar desconto (+1%)"
+                                    : "Aumentar desconto (+R$ 10)"
+                                }
+                              >
                                 <button
                                   type="button"
                                   onClick={() => {
                                     const cur = parseFloat(String(newProductDiscount || "0").replace(",", ".")) || 0;
-                                    setNewProductDiscount(String(Math.min(100, cur + 1)));
+                                    const step = newProductDiscountMode === "percent" ? 1 : 10;
+                                    const next =
+                                      newProductDiscountMode === "percent"
+                                        ? Math.min(100, cur + step)
+                                        : cur + step;
+                                    setNewProductDiscount(String(next));
                                   }}
                                   className="flex h-6 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
                                 >
@@ -4152,74 +4308,470 @@ export function DealDetailModal({
 
                     {/* Tabela de Produtos Vinculados */}
                     <div className="space-y-3">
-                      <span className="text-xs font-bold text-foreground block">
-                        Itens Cadastrados ({deal?.products?.length || 0})
-                      </span>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-foreground block">
+                          Itens Cadastrados ({deal?.products?.length || 0})
+                        </span>
 
-                      {deal?.products && deal.products.length > 0 ? (
-                        <div className="rounded-xl border border-border overflow-hidden bg-card">
-                          <table className="w-full text-left text-xs border-collapse">
-                            <thead>
-                              <tr className="border-b border-border bg-muted/40 text-[11px] font-bold text-muted-foreground">
-                                <th className="p-3">Produto / Serviço</th>
-                                <th className="p-3 text-right">Qtd</th>
-                                <th className="p-3 text-right">Unitário</th>
-                                <th className="p-3 text-right">Desconto</th>
-                                <th className="p-3 text-right">Subtotal</th>
-                                <th className="p-3 text-center w-12">Ação</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border/60">
-                              {deal.products.map((item: any) => (
-                                <tr key={item.id} className="hover:bg-muted/10 transition-colors">
-                                  <td className="p-3 font-semibold text-foreground">
-                                    {item.name}
-                                    {item.notes && (
-                                      <span className="block text-[10px] text-muted-foreground font-normal">
-                                        {item.notes}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="p-3 text-right text-muted-foreground">
-                                    {parseFloat(item.quantity).toLocaleString("pt-BR", { maximumFractionDigits: 3 })}
-                                  </td>
-                                  <td className="p-3 text-right text-muted-foreground">
-                                    R$ {parseFloat(item.unitPrice).toFixed(2)}
-                                  </td>
-                                  <td className="p-3 text-right text-muted-foreground">
-                                    {parseFloat(item.discountPercent) > 0 ? `${item.discountPercent}%` : "-"}
-                                  </td>
-                                  <td className="p-3 text-right font-bold text-foreground">
-                                    R$ {parseFloat(item.totalPrice).toFixed(2)}
-                                  </td>
-                                  <td className="p-3 text-center">
-                                    <SystemTooltip content="Remover item">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoveProduct(item.id)}
-                                        className="p-1 rounded text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    </SystemTooltip>
-                                  </td>
+                        {deal?.products && deal.products.length > 0 && (
+                          <Popover open={globalDiscountOpen} onOpenChange={setGlobalDiscountOpen}>
+                            <SystemTooltip content="Aplicar um desconto percentual ou em Reais sobre todos os itens da negociação">
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[11px] font-bold text-primary hover:bg-muted/50 transition-colors cursor-pointer"
+                                >
+                                  <Percent className="h-3 w-3" />
+                                  <span>Aplicar Desconto Geral</span>
+                                </button>
+                              </PopoverTrigger>
+                            </SystemTooltip>
+                            <PopoverContent align="end" className="w-80 p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                  <Percent className="h-3.5 w-3.5 text-primary" />
+                                  Desconto Geral na Negociação
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setGlobalDiscountMode("percent")}
+                                  className={`rounded-md py-1 text-[11px] font-semibold transition cursor-pointer ${
+                                    globalDiscountMode === "percent"
+                                      ? "bg-card text-primary shadow-sm"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  Porcentagem (%)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setGlobalDiscountMode("amount")}
+                                  className={`rounded-md py-1 text-[11px] font-semibold transition cursor-pointer ${
+                                    globalDiscountMode === "amount"
+                                      ? "bg-card text-primary shadow-sm"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  Valor (R$)
+                                </button>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1">
+                                {[3, 5, 7, 10, 15].map((pct) => (
+                                  <button
+                                    key={pct}
+                                    type="button"
+                                    disabled={savingGlobalDiscount}
+                                    onClick={() => void handleApplyGlobalDiscount(pct)}
+                                    className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] font-semibold text-foreground hover:border-primary hover:text-primary transition cursor-pointer"
+                                  >
+                                    -{pct}%
+                                  </button>
+                                ))}
+                                <button
+                                  type="button"
+                                  disabled={savingGlobalDiscount}
+                                  onClick={() => void handleApplyGlobalDiscount(0)}
+                                  className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition cursor-pointer"
+                                >
+                                  Zerar
+                                </button>
+                              </div>
+
+                              <div className="relative flex items-center">
+                                <span className="absolute left-2.5 text-xs font-bold text-muted-foreground">
+                                  {globalDiscountMode === "percent" ? "%" : "R$"}
+                                </span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={globalDiscountInput}
+                                  onChange={(e) =>
+                                    setGlobalDiscountInput(e.target.value.replace(/[^0-9.,]/g, ""))
+                                  }
+                                  placeholder={
+                                    globalDiscountMode === "percent"
+                                      ? "Ex: 10"
+                                      : "Ex: 73,40"
+                                  }
+                                  className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                />
+                              </div>
+
+                              <div className="flex items-center justify-end gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setGlobalDiscountOpen(false)}
+                                  className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted cursor-pointer"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={savingGlobalDiscount || !globalDiscountInput.trim()}
+                                  onClick={() => void handleApplyGlobalDiscount()}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                                >
+                                  {savingGlobalDiscount && <Loader2 className="h-3 w-3 animate-spin" />}
+                                  Aplicar
+                                </button>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        )}
+                      </div>
+
+                      {deal?.products && deal.products.length > 0 ? (() => {
+                        const grossTotalCents = deal.products.reduce((acc: number, item: any) => {
+                          const q = parseFloat(String(item.quantity || "1")) || 1;
+                          const pCents = Math.round((parseFloat(String(item.unitPrice || "0")) || 0) * 100);
+                          return acc + Math.round(q * pCents);
+                        }, 0);
+                        const netTotalCents = Math.round((parseFloat(String(deal.value || "0")) || 0) * 100);
+                        const totalDiscountCents = Math.max(0, grossTotalCents - netTotalCents);
+                        const totalDiscountPct =
+                          grossTotalCents > 0 ? (totalDiscountCents / grossTotalCents) * 100 : 0;
+
+                        return (
+                          <div className="rounded-xl border border-border overflow-hidden bg-card">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="border-b border-border bg-muted/40 text-[11px] font-bold text-muted-foreground">
+                                  <th className="p-3">Produto / Serviço</th>
+                                  <th className="p-3 text-right">Qtd</th>
+                                  <th className="p-3 text-right">Unitário</th>
+                                  <th className="p-3 text-right">Desconto</th>
+                                  <th className="p-3 text-right">Subtotal</th>
+                                  <th className="p-3 text-center w-12">Ação</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                            <tfoot>
-                              <tr className="border-t border-border bg-muted/30 font-bold text-xs">
-                                <td colSpan={4} className="p-3 text-right text-muted-foreground">
-                                  Valor Total Recalculado:
-                                </td>
-                                <td className="p-3 text-right text-primary font-extrabold text-sm">
-                                  R$ {parseFloat(deal.value || "0").toFixed(2)}
-                                </td>
-                                <td></td>
-                              </tr>
-                            </tfoot>
-                          </table>
-                        </div>
-                      ) : (
+                              </thead>
+                              <tbody className="divide-y divide-border/60">
+                                {deal.products.map((item: any) => {
+                                  const qtyNum = parseFloat(String(item.quantity || "1")) || 1;
+                                  const unitNum = parseFloat(String(item.unitPrice || "0")) || 0;
+                                  const grossNum = qtyNum * unitNum;
+                                  const netNum = parseFloat(String(item.totalPrice || "0")) || 0;
+                                  const discPct = parseFloat(String(item.discountPercent || "0")) || 0;
+                                  const discAmount = Math.max(0, grossNum - netNum);
+                                  const isPopoverOpen = editingDiscountItemId === item.id;
+
+                                  // Cálculo de prévia ao vivo dentro do Popover de Desconto do Item
+                                  const previewInputNum =
+                                    parseFloat(String(itemDiscountInput || "0").replace(",", ".")) || 0;
+                                  let previewDiscountAmount = 0;
+                                  let previewDiscountPct = 0;
+                                  let previewFinalSubtotal = grossNum;
+
+                                  if (itemDiscountMode === "percent") {
+                                    previewDiscountPct = Math.min(100, Math.max(0, previewInputNum));
+                                    previewDiscountAmount = grossNum * (previewDiscountPct / 100);
+                                    previewFinalSubtotal = Math.max(0, grossNum - previewDiscountAmount);
+                                  } else if (itemDiscountMode === "amount") {
+                                    previewDiscountAmount = Math.min(grossNum, Math.max(0, previewInputNum));
+                                    previewFinalSubtotal = Math.max(0, grossNum - previewDiscountAmount);
+                                    previewDiscountPct =
+                                      grossNum > 0 ? (previewDiscountAmount / grossNum) * 100 : 0;
+                                  } else {
+                                    previewFinalSubtotal = Math.min(
+                                      grossNum,
+                                      Math.max(0, previewInputNum > 0 ? previewInputNum : grossNum),
+                                    );
+                                    previewDiscountAmount = Math.max(0, grossNum - previewFinalSubtotal);
+                                    previewDiscountPct =
+                                      grossNum > 0 ? (previewDiscountAmount / grossNum) * 100 : 0;
+                                  }
+
+                                  return (
+                                    <tr key={item.id} className="hover:bg-muted/10 transition-colors">
+                                      <td className="p-3 font-semibold text-foreground">
+                                        {item.name}
+                                        {item.notes && (
+                                          <span className="block text-[10px] text-muted-foreground font-normal">
+                                            {item.notes}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-right text-muted-foreground">
+                                        {qtyNum.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}
+                                      </td>
+                                      <td className="p-3 text-right text-muted-foreground whitespace-nowrap">
+                                        {unitNum.toLocaleString("pt-BR", {
+                                          style: "currency",
+                                          currency: "BRL",
+                                        })}
+                                      </td>
+                                      <td className="p-3 text-right">
+                                        <Popover
+                                          open={isPopoverOpen}
+                                          onOpenChange={(open) => {
+                                            if (open) handleOpenItemDiscount(item);
+                                            else setEditingDiscountItemId(null);
+                                          }}
+                                        >
+                                          <SystemTooltip content="Clique para aplicar ou editar o desconto deste item (% ou R$)">
+                                            <PopoverTrigger asChild>
+                                              {discPct > 0 || discAmount >= 0.01 ? (
+                                                <button
+                                                  type="button"
+                                                  className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary hover:bg-primary/20 transition cursor-pointer whitespace-nowrap"
+                                                >
+                                                  <span>
+                                                    -{discPct.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
+                                                  </span>
+                                                  <span className="text-[10px] font-normal opacity-85">
+                                                    (-
+                                                    {discAmount.toLocaleString("pt-BR", {
+                                                      style: "currency",
+                                                      currency: "BRL",
+                                                    })}
+                                                    )
+                                                  </span>
+                                                  <Pencil className="h-2.5 w-2.5 ml-0.5 opacity-75" />
+                                                </button>
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-muted/30 px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:border-primary hover:text-primary transition cursor-pointer whitespace-nowrap"
+                                                >
+                                                  <Percent className="h-3 w-3" />
+                                                  <span>Desconto</span>
+                                                </button>
+                                              )}
+                                            </PopoverTrigger>
+                                          </SystemTooltip>
+
+                                          <PopoverContent align="end" className="w-80 p-3 space-y-3 text-left">
+                                            <div className="space-y-0.5">
+                                              <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                                <Percent className="h-3.5 w-3.5 text-primary" />
+                                                <span>Desconto no Item</span>
+                                              </div>
+                                              <p className="text-[11px] text-muted-foreground line-clamp-1">
+                                                {item.name}
+                                              </p>
+                                            </div>
+
+                                            {/* Modo de Desconto: % | R$ | Preço Final */}
+                                            <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted/60 p-1">
+                                              {(
+                                                [
+                                                  { id: "percent" as const, label: "Porcentagem (%)" },
+                                                  { id: "amount" as const, label: "Desconto (R$)" },
+                                                  { id: "final" as const, label: "Preço Final" },
+                                                ]
+                                              ).map((m) => {
+                                                const active = itemDiscountMode === m.id;
+                                                return (
+                                                  <button
+                                                    key={m.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setItemDiscountMode(m.id);
+                                                      if (m.id === "percent") {
+                                                        setItemDiscountInput(discPct > 0 ? String(discPct) : "");
+                                                      } else if (m.id === "amount") {
+                                                        setItemDiscountInput(
+                                                          discAmount > 0 ? discAmount.toFixed(2).replace(".", ",") : "",
+                                                        );
+                                                      } else {
+                                                        setItemDiscountInput(netNum.toFixed(2).replace(".", ","));
+                                                      }
+                                                    }}
+                                                    className={`rounded-md px-1.5 py-1 text-[10px] font-semibold transition cursor-pointer ${
+                                                      active
+                                                        ? "bg-card text-primary shadow-sm"
+                                                        : "text-muted-foreground hover:text-foreground"
+                                                    }`}
+                                                  >
+                                                    {m.label}
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+
+                                            {/* Atalhos rápidos de porcentagem */}
+                                            <div className="flex flex-wrap items-center gap-1">
+                                              {[3, 5, 7, 10, 15, 20].map((pct) => (
+                                                <button
+                                                  key={pct}
+                                                  type="button"
+                                                  disabled={savingItemDiscount}
+                                                  onClick={() => void handleSaveItemDiscount(item, pct)}
+                                                  className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] font-semibold text-foreground hover:border-primary hover:text-primary transition cursor-pointer"
+                                                >
+                                                  -{pct}%
+                                                </button>
+                                              ))}
+                                              {discPct > 0 && (
+                                                <button
+                                                  type="button"
+                                                  disabled={savingItemDiscount}
+                                                  onClick={() => void handleSaveItemDiscount(item, 0)}
+                                                  className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10 transition cursor-pointer"
+                                                >
+                                                  Zerar
+                                                </button>
+                                              )}
+                                            </div>
+
+                                            {/* Campo de Valor do Desconto */}
+                                            <div className="relative flex items-center">
+                                              <span className="absolute left-2.5 text-xs font-bold text-muted-foreground">
+                                                {itemDiscountMode === "percent" ? "%" : "R$"}
+                                              </span>
+                                              <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={itemDiscountInput}
+                                                onChange={(e) =>
+                                                  setItemDiscountInput(e.target.value.replace(/[^0-9.,]/g, ""))
+                                                }
+                                                placeholder={
+                                                  itemDiscountMode === "percent"
+                                                    ? "Informe o % de desconto..."
+                                                    : itemDiscountMode === "amount"
+                                                      ? "Valor do desconto em R$..."
+                                                      : "Novo preço final em R$..."
+                                                }
+                                                className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                              />
+                                            </div>
+
+                                            {/* Resumo ao vivo do cálculo */}
+                                            <div className="rounded-lg border border-border/70 bg-muted/30 p-2.5 space-y-1 text-[11px]">
+                                              <div className="flex items-center justify-between text-muted-foreground">
+                                                <span>Valor Bruto:</span>
+                                                <span>
+                                                  {grossNum.toLocaleString("pt-BR", {
+                                                    style: "currency",
+                                                    currency: "BRL",
+                                                  })}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center justify-between text-primary font-semibold">
+                                                <span>Desconto:</span>
+                                                <span>
+                                                  -
+                                                  {previewDiscountAmount.toLocaleString("pt-BR", {
+                                                    style: "currency",
+                                                    currency: "BRL",
+                                                  })}{" "}
+                                                  ({previewDiscountPct.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%)
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center justify-between border-t border-border/60 pt-1 font-bold text-foreground">
+                                                <span>Subtotal Final:</span>
+                                                <span>
+                                                  {previewFinalSubtotal.toLocaleString("pt-BR", {
+                                                    style: "currency",
+                                                    currency: "BRL",
+                                                  })}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            <div className="flex items-center justify-end gap-2 pt-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => setEditingDiscountItemId(null)}
+                                                className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted cursor-pointer"
+                                              >
+                                                Cancelar
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={savingItemDiscount}
+                                                onClick={() => void handleSaveItemDiscount(item)}
+                                                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                                              >
+                                                {savingItemDiscount && (
+                                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                                )}
+                                                Aplicar Desconto
+                                              </button>
+                                            </div>
+                                          </PopoverContent>
+                                        </Popover>
+                                      </td>
+                                      <td className="p-3 text-right font-bold text-foreground whitespace-nowrap">
+                                        {discAmount >= 0.01 && (
+                                          <span className="block text-[10px] font-normal text-muted-foreground line-through">
+                                            {grossNum.toLocaleString("pt-BR", {
+                                              style: "currency",
+                                              currency: "BRL",
+                                            })}
+                                          </span>
+                                        )}
+                                        {netNum.toLocaleString("pt-BR", {
+                                          style: "currency",
+                                          currency: "BRL",
+                                        })}
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <SystemTooltip content="Remover item">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveProduct(item.id)}
+                                            className="p-1 rounded text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        </SystemTooltip>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                              <tfoot>
+                                {totalDiscountCents > 0 && (
+                                  <>
+                                    <tr className="border-t border-border/60 bg-muted/15 text-[11px] text-muted-foreground">
+                                      <td colSpan={4} className="px-3 py-1.5 text-right">
+                                        Subtotal Bruto:
+                                      </td>
+                                      <td className="px-3 py-1.5 text-right font-semibold">
+                                        {(grossTotalCents / 100).toLocaleString("pt-BR", {
+                                          style: "currency",
+                                          currency: "BRL",
+                                        })}
+                                      </td>
+                                      <td></td>
+                                    </tr>
+                                    <tr className="bg-muted/15 text-[11px] font-semibold text-primary">
+                                      <td colSpan={4} className="px-3 py-1.5 text-right">
+                                        Desconto Total Concedido ({totalDiscountPct.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%):
+                                      </td>
+                                      <td className="px-3 py-1.5 text-right">
+                                        -
+                                        {(totalDiscountCents / 100).toLocaleString("pt-BR", {
+                                          style: "currency",
+                                          currency: "BRL",
+                                        })}
+                                      </td>
+                                      <td></td>
+                                    </tr>
+                                  </>
+                                )}
+                                <tr className="border-t border-border bg-muted/30 font-bold text-xs">
+                                  <td colSpan={4} className="p-3 text-right text-muted-foreground">
+                                    Valor Total Recalculado:
+                                  </td>
+                                  <td className="p-3 text-right text-primary font-extrabold text-sm whitespace-nowrap">
+                                    {(parseFloat(deal.value || "0") || 0).toLocaleString("pt-BR", {
+                                      style: "currency",
+                                      currency: "BRL",
+                                    })}
+                                  </td>
+                                  <td></td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        );
+                      })() : (
                         <div className="rounded-xl border border-dashed border-border p-6 text-center space-y-1 bg-muted/5">
                           <Package className="h-6 w-6 text-muted-foreground/40 mx-auto" />
                           <p className="text-xs text-muted-foreground font-medium">

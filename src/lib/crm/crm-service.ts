@@ -6102,6 +6102,7 @@ export class CrmService {
       quantity: number | string;
       unitPrice: number | string;
       discountPercent?: number | string;
+      discountAmount?: number | string;
       notes?: string | null;
     }
   ): Promise<CrmDealProduct> {
@@ -6121,18 +6122,35 @@ export class CrmService {
       throw new Error(`Preço unitário inválido: ${data.unitPrice}. Não pode ser negativo.`);
     }
 
-    const discount = typeof data.discountPercent === "number"
-      ? data.discountPercent
-      : parseFloat(String(data.discountPercent ?? "0"));
-    if (isNaN(discount) || discount < 0 || discount > 100 || !isFinite(discount)) {
-      throw new Error(`Desconto percentual inválido: ${data.discountPercent}. Deve estar estritamente entre 0% e 100%.`);
-    }
-
-    // Cálculos monetários seguros em centavos (evita imprecisão de floating point)
     const unitPriceCents = Math.round(price * 100);
     const rawTotalCents = Math.round(qty * unitPriceCents);
-    const discountFactor = (100 - discount) / 100;
-    const discountedTotalCents = Math.max(0, Math.round(rawTotalCents * discountFactor));
+
+    let discount = 0;
+    let discountedTotalCents = rawTotalCents;
+
+    if (data.discountAmount !== undefined && data.discountAmount !== null && String(data.discountAmount).trim() !== "") {
+      const amountVal =
+        typeof data.discountAmount === "number"
+          ? data.discountAmount
+          : parseFloat(String(data.discountAmount).replace(",", "."));
+      if (isNaN(amountVal) || amountVal < 0 || !isFinite(amountVal)) {
+        throw new Error(`Desconto em R$ inválido: ${data.discountAmount}.`);
+      }
+      const discountCents = Math.min(rawTotalCents, Math.max(0, Math.round(amountVal * 100)));
+      discountedTotalCents = Math.max(0, rawTotalCents - discountCents);
+      discount = rawTotalCents > 0 ? Math.min(100, Math.max(0, (discountCents / rawTotalCents) * 100)) : 0;
+    } else {
+      discount =
+        typeof data.discountPercent === "number"
+          ? data.discountPercent
+          : parseFloat(String(data.discountPercent ?? "0").replace(",", "."));
+      if (isNaN(discount) || discount < 0 || discount > 100 || !isFinite(discount)) {
+        throw new Error(`Desconto percentual inválido: ${data.discountPercent}. Deve estar estritamente entre 0% e 100%.`);
+      }
+      const discountFactor = (100 - discount) / 100;
+      discountedTotalCents = Math.max(0, Math.round(rawTotalCents * discountFactor));
+    }
+
     const formattedItemTotal = (discountedTotalCents / 100).toFixed(2);
 
     // 2. Execução Atômica dentro de Transação
@@ -6226,6 +6244,297 @@ export class CrmService {
       });
 
       return inserted;
+    });
+  }
+
+  /**
+   * Atualiza quantidade, preço unitário ou desconto (% ou R$) de um item já vinculado à negociação,
+   * recalculando atomicamente o subtotal do item e o valor total da negociação.
+   */
+  async updateDealProduct(
+    tenantId: string,
+    dealId: string,
+    dealProductId: string,
+    operatorId: string | null,
+    data: {
+      quantity?: number | string;
+      unitPrice?: number | string;
+      discountPercent?: number | string;
+      discountAmount?: number | string;
+      notes?: string | null;
+    }
+  ): Promise<CrmDealProduct> {
+    return await db.transaction(async (tx) => {
+      const [deal] = await tx
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .for("update")
+        .limit(1);
+
+      if (!deal) {
+        throw new CrmNotFoundError("Negociação não encontrada.");
+      }
+
+      const [existing] = await tx
+        .select()
+        .from(crmDealProducts)
+        .where(
+          and(
+            eq(crmDealProducts.id, dealProductId),
+            eq(crmDealProducts.tenantId, tenantId),
+            eq(crmDealProducts.dealId, dealId)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        throw new CrmNotFoundError("Item da negociação não encontrado.");
+      }
+
+      const qty =
+        data.quantity !== undefined
+          ? typeof data.quantity === "number"
+            ? data.quantity
+            : parseFloat(String(data.quantity).replace(",", "."))
+          : parseFloat(String(existing.quantity || "1"));
+
+      if (isNaN(qty) || qty <= 0 || !isFinite(qty)) {
+        throw new CrmValidationError("Quantidade deve ser maior que zero.");
+      }
+
+      const price =
+        data.unitPrice !== undefined
+          ? typeof data.unitPrice === "number"
+            ? data.unitPrice
+            : parseFloat(String(data.unitPrice).replace(",", "."))
+          : parseFloat(String(existing.unitPrice || "0"));
+
+      if (isNaN(price) || price < 0 || !isFinite(price)) {
+        throw new CrmValidationError("Preço unitário não pode ser negativo.");
+      }
+
+      const unitPriceCents = Math.round(price * 100);
+      const rawTotalCents = Math.round(qty * unitPriceCents);
+
+      let discount = parseFloat(String(existing.discountPercent || "0")) || 0;
+      let discountedTotalCents = rawTotalCents;
+
+      if (data.discountAmount !== undefined && data.discountAmount !== null && String(data.discountAmount).trim() !== "") {
+        const amountVal =
+          typeof data.discountAmount === "number"
+            ? data.discountAmount
+            : parseFloat(String(data.discountAmount).replace(",", "."));
+        if (isNaN(amountVal) || amountVal < 0 || !isFinite(amountVal)) {
+          throw new CrmValidationError("Valor de desconto inválido.");
+        }
+        const discountCents = Math.min(rawTotalCents, Math.max(0, Math.round(amountVal * 100)));
+        discountedTotalCents = Math.max(0, rawTotalCents - discountCents);
+        discount = rawTotalCents > 0 ? Math.min(100, Math.max(0, (discountCents / rawTotalCents) * 100)) : 0;
+      } else {
+        if (data.discountPercent !== undefined && data.discountPercent !== null && String(data.discountPercent).trim() !== "") {
+          discount =
+            typeof data.discountPercent === "number"
+              ? data.discountPercent
+              : parseFloat(String(data.discountPercent).replace(",", "."));
+        }
+        if (isNaN(discount) || discount < 0 || discount > 100 || !isFinite(discount)) {
+          throw new CrmValidationError("Desconto percentual deve estar entre 0% e 100%.");
+        }
+        const discountFactor = (100 - discount) / 100;
+        discountedTotalCents = Math.max(0, Math.round(rawTotalCents * discountFactor));
+      }
+
+      const formattedItemTotal = (discountedTotalCents / 100).toFixed(2);
+      const now = new Date();
+
+      const [updated] = await tx
+        .update(crmDealProducts)
+        .set({
+          quantity: qty.toFixed(3),
+          unitPrice: (unitPriceCents / 100).toFixed(2),
+          discountPercent: discount.toFixed(2),
+          totalPrice: formattedItemTotal,
+          ...(data.notes !== undefined ? { notes: data.notes?.trim() || null } : {}),
+        })
+        .where(
+          and(
+            eq(crmDealProducts.id, dealProductId),
+            eq(crmDealProducts.tenantId, tenantId),
+            eq(crmDealProducts.dealId, dealId)
+          )
+        )
+        .returning();
+
+      const allItems = await tx
+        .select({ totalPrice: crmDealProducts.totalPrice })
+        .from(crmDealProducts)
+        .where(and(eq(crmDealProducts.tenantId, tenantId), eq(crmDealProducts.dealId, dealId)));
+
+      const totalCentsSum = allItems.reduce((acc: number, item: any) => {
+        return acc + Math.round((parseFloat(item.totalPrice) || 0) * 100);
+      }, 0);
+
+      const newDealValue = (totalCentsSum / 100).toFixed(2);
+
+      await tx
+        .update(crmDeals)
+        .set({
+          value: newDealValue,
+          updatedAt: now,
+          lastActivityAt: now,
+        })
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+
+      await tx.insert(crmDealEvents).values({
+        id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        tenantId,
+        dealId,
+        eventType: "value_changed",
+        operatorId,
+        metadata: {
+          source: "deal_product_discount_updated",
+          dealProductId,
+          productName: updated.name,
+          quantity: updated.quantity,
+          unitPrice: updated.unitPrice,
+          discountPercent: updated.discountPercent,
+          totalPrice: updated.totalPrice,
+          previousValue: deal.value,
+          newValue: newDealValue,
+        },
+        createdAt: now,
+      });
+
+      return updated;
+    });
+  }
+
+  /**
+   * Aplica um desconto geral (% ou R$) distribuído em todos os itens da negociação.
+   */
+  async applyDealGlobalDiscount(
+    tenantId: string,
+    dealId: string,
+    operatorId: string | null,
+    data: {
+      discountPercent?: number | string;
+      discountAmount?: number | string;
+    }
+  ): Promise<{ newDealValue: string; updatedCount: number }> {
+    return await db.transaction(async (tx) => {
+      const [deal] = await tx
+        .select()
+        .from(crmDeals)
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)))
+        .for("update")
+        .limit(1);
+
+      if (!deal) {
+        throw new CrmNotFoundError("Negociação não encontrada.");
+      }
+
+      const items = await tx
+        .select()
+        .from(crmDealProducts)
+        .where(and(eq(crmDealProducts.tenantId, tenantId), eq(crmDealProducts.dealId, dealId)));
+
+      if (items.length === 0) {
+        throw new CrmValidationError("A negociação não possui itens cadastrados para aplicar desconto.");
+      }
+
+      const rawCentsList = items.map((item) => {
+        const q = parseFloat(String(item.quantity || "1")) || 1;
+        const pCents = Math.round((parseFloat(String(item.unitPrice || "0")) || 0) * 100);
+        return Math.round(q * pCents);
+      });
+      const totalRawCents = rawCentsList.reduce((a, b) => a + b, 0);
+
+      let targetPercent = 0;
+      let targetDiscountCents: number | null = null;
+
+      if (data.discountAmount !== undefined && data.discountAmount !== null && String(data.discountAmount).trim() !== "") {
+        const amt =
+          typeof data.discountAmount === "number"
+            ? data.discountAmount
+            : parseFloat(String(data.discountAmount).replace(",", "."));
+        if (isNaN(amt) || amt < 0 || !isFinite(amt)) {
+          throw new CrmValidationError("Valor de desconto inválido.");
+        }
+        targetDiscountCents = Math.min(totalRawCents, Math.max(0, Math.round(amt * 100)));
+        targetPercent = totalRawCents > 0 ? Math.min(100, Math.max(0, (targetDiscountCents / totalRawCents) * 100)) : 0;
+      } else {
+        targetPercent =
+          typeof data.discountPercent === "number"
+            ? data.discountPercent
+            : parseFloat(String(data.discountPercent ?? "0").replace(",", "."));
+        if (isNaN(targetPercent) || targetPercent < 0 || targetPercent > 100 || !isFinite(targetPercent)) {
+          throw new CrmValidationError("Desconto percentual deve estar entre 0% e 100%.");
+        }
+      }
+
+      const now = new Date();
+      let remainingDiscountCents = targetDiscountCents ?? 0;
+      let totalFinalCents = 0;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const rawCents = rawCentsList[i];
+        let itemFinalCents = rawCents;
+        let itemDiscountPct = targetPercent;
+
+        if (targetDiscountCents !== null) {
+          const itemDiscCents =
+            i === items.length - 1
+              ? Math.min(rawCents, Math.max(0, remainingDiscountCents))
+              : totalRawCents > 0
+                ? Math.min(rawCents, Math.round((rawCents / totalRawCents) * targetDiscountCents))
+                : 0;
+          remainingDiscountCents = Math.max(0, remainingDiscountCents - itemDiscCents);
+          itemFinalCents = Math.max(0, rawCents - itemDiscCents);
+          itemDiscountPct = rawCents > 0 ? Math.min(100, Math.max(0, (itemDiscCents / rawCents) * 100)) : 0;
+        } else {
+          itemFinalCents = Math.max(0, Math.round(rawCents * ((100 - targetPercent) / 100)));
+        }
+
+        totalFinalCents += itemFinalCents;
+
+        await tx
+          .update(crmDealProducts)
+          .set({
+            discountPercent: itemDiscountPct.toFixed(2),
+            totalPrice: (itemFinalCents / 100).toFixed(2),
+          })
+          .where(and(eq(crmDealProducts.id, item.id), eq(crmDealProducts.tenantId, tenantId)));
+      }
+
+      const newDealValue = (totalFinalCents / 100).toFixed(2);
+
+      await tx
+        .update(crmDeals)
+        .set({
+          value: newDealValue,
+          updatedAt: now,
+          lastActivityAt: now,
+        })
+        .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+
+      await tx.insert(crmDealEvents).values({
+        id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        tenantId,
+        dealId,
+        eventType: "value_changed",
+        operatorId,
+        metadata: {
+          source: "deal_global_discount_applied",
+          discountPercent: targetPercent.toFixed(2),
+          previousValue: deal.value,
+          newValue: newDealValue,
+        },
+        createdAt: now,
+      });
+
+      return { newDealValue, updatedCount: items.length };
     });
   }
 
