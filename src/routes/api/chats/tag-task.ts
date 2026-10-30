@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../../../db";
 import { crmDealActivities, crmDealEvents, crmDeals, messages } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
-import { requireConversationWriteAccess } from "../../../lib/access-control/conversation-access";
+import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 import {
   getDealContext,
   assertDealContextVersion,
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/api/chats/tag-task")({
           const { conversationId, tagName, taskType = "task", dueDate, dueTime = "09:00" } = body;
           if (typeof conversationId !== "string" || !conversationId)
             return Response.json({ error: "Atendimento inválido." }, { status: 400 });
-          const denied = await requireConversationWriteAccess(session, conversationId);
+          const denied = await requireConversationAccess(session, conversationId);
           if (denied) return denied;
           if (!session.permissions.chat.canManageTags)
             return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
@@ -50,18 +50,20 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             return Response.json({ error: "Data inválida." }, { status: 400 });
           const result = await db.transaction(async (tx) => {
             const state = await getDealContext(tx, tenantId, conversationId, session.operator.id);
-            if (
-              state.conversation.operatorId !== session.operator.id ||
-              state.conversation.queueState !== "meus"
-            )
-              throw new DealContextError("O responsável pelo atendimento mudou.", "FORBIDDEN", 403);
             assertDealContextVersion(state.context, body.expectedContextVersion);
+            const openLinkedDeals = state.deals.filter((d) => d.status === "open" && d.isLinked);
             const deal =
               state.deals.find((d) => d.id === state.context.currentDealId) ||
               findActiveGraceDeal(state.deals, [
                 state.context.currentDealId,
                 state.context.previousDealId,
-              ]);
+              ]) ||
+              (state.conversation.queueState === "finalizados" && state.context.previousDealId
+                ? state.deals.find((d) => d.id === state.context.previousDealId && d.isLinked)
+                : null) ||
+              (state.conversation.queueState === "finalizados" && openLinkedDeals.length === 1
+                ? openLinkedDeals[0]
+                : null);
             if (!deal)
               throw new DealContextError(
                 "Selecione a negociação deste atendimento antes de criar a tarefa.",

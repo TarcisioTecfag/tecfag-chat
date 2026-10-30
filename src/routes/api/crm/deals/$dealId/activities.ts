@@ -28,8 +28,10 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities")({
           const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
           if (recordDenied) return recordDenied;
 
-          const permError = requireCrmPermission(session, "canViewCrm");
-          if (permError) return permError;
+          if (!session.permissions?.views?.chat && !session.permissions?.chat?.canManageTags) {
+            const permError = requireCrmPermission(session, "canViewCrm");
+            if (permError) return permError;
+          }
 
           const { dealId } = params as any;
           const url = new URL(request.url);

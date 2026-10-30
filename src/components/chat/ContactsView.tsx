@@ -374,11 +374,43 @@ export function ContactsView() {
 
   useEffect(() => {
     if (showSearchModal) {
-      setTimeout(() => globalSearchRef.current?.focus(), 80);
+      setTimeout(() => {
+        globalSearchRef.current?.focus();
+        globalSearchRef.current?.select();
+      }, 80);
     } else {
       setGlobalSearch("");
     }
   }, [showSearchModal]);
+
+  useEffect(() => {
+    const consumePendingSearch = (explicitQuery?: string) => {
+      let pendingQuery: string | null = explicitQuery ?? null;
+      if (pendingQuery === null) {
+        try {
+          pendingQuery = sessionStorage.getItem("open_global_conversation_search");
+          if (pendingQuery !== null) {
+            sessionStorage.removeItem("open_global_conversation_search");
+          }
+        } catch {}
+      }
+      if (pendingQuery !== null) {
+        setChannelFilter("all");
+        setShowSearchModal(true);
+        setGlobalSearch(pendingQuery);
+      }
+    };
+    consumePendingSearch();
+    const onOpenGlobalSearch = (evt: Event) => {
+      const detail = (evt as CustomEvent<{ query?: string }>).detail;
+      try {
+        sessionStorage.removeItem("open_global_conversation_search");
+      } catch {}
+      consumePendingSearch(detail?.query ?? "");
+    };
+    window.addEventListener("open-global-conversation-search", onOpenGlobalSearch);
+    return () => window.removeEventListener("open-global-conversation-search", onOpenGlobalSearch);
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

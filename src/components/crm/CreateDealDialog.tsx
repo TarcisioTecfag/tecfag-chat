@@ -185,6 +185,9 @@ export function CreateDealDialog({
     } else {
       setSelectedContacts([]);
     }
+    setSelectedAccount(null);
+    setContactOriginalAccount(null);
+    setPendingAccountReplacement(null);
     setIsAddingMoreContact(false);
     if (defaultConversationId) setSource("chat");
   }, [defaultContactId, defaultConversationId]);
@@ -207,7 +210,11 @@ export function CreateDealDialog({
     return () => clearTimeout(timer);
   }, [contactQuery, isOpen, showContactSearch, selectedContacts]);
 
-  const applyContactAccountToDeal = (contactId: string, contactNameLabel?: string) => {
+  const applyContactAccountToDeal = (
+    contactId: string,
+    contactNameLabel?: string,
+    options?: { silent?: boolean },
+  ) => {
     if (!contactId) return;
     fetch(`/api/contacts/${encodeURIComponent(contactId)}`)
       .then((res) => (res.ok ? res.json() : null))
@@ -232,7 +239,9 @@ export function CreateDealDialog({
           if (!selectedAccount && !isCreatingNewAccount) {
             setSelectedAccount(data.account);
             setHasAccount(true);
-            toast.info(`Empresa "${data.account.name}" vinculada automaticamente pelo contato.`);
+            if (!options?.silent) {
+              toast.info(`Empresa "${data.account.name}" vinculada automaticamente pelo contato.`);
+            }
           } else if (selectedAccount && selectedAccount.id !== data.account.id) {
             setPendingAccountReplacement({
               newAccount: data.account,
@@ -278,12 +287,12 @@ export function CreateDealDialog({
       .catch((err) => console.error("Erro ao carregar contatos da empresa:", err));
   };
 
-  // Busca conta vinculada ao contato pré-selecionado (se houver)
+  // Busca conta vinculada ao contato pré-selecionado somente quando o modal é aberto
   useEffect(() => {
-    if (defaultContactId) {
-      applyContactAccountToDeal(defaultContactId);
+    if (isOpen && defaultContactId) {
+      applyContactAccountToDeal(defaultContactId, undefined, { silent: true });
     }
-  }, [defaultContactId]);
+  }, [isOpen, defaultContactId]);
 
   // Sincroniza pipeline e estágios
   useEffect(() => {

@@ -712,6 +712,27 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
               <MessageSquare className="h-8 w-8 text-muted-foreground/30 mb-2" strokeWidth={1.5} />
               <p className="text-xs font-semibold">Nenhum atendimento</p>
               <p className="text-[10px] mt-0.5 max-w-[180px]">Não há conversas nesta fila com os filtros aplicados.</p>
+              {searchQuery.trim() !== "" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const queryToSearch = searchQuery.trim();
+                    try {
+                      sessionStorage.setItem("open_global_conversation_search", queryToSearch);
+                    } catch {}
+                    setActiveView("contacts");
+                    window.dispatchEvent(
+                      new CustomEvent("open-global-conversation-search", {
+                        detail: { query: queryToSearch },
+                      }),
+                    );
+                  }}
+                  className="mt-3 inline-flex items-center justify-center gap-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/25 px-3 py-1.5 text-[11px] font-bold text-primary transition cursor-pointer"
+                >
+                  <Search className="h-3 w-3 shrink-0" />
+                  Gostaria de procurar por conversas?
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

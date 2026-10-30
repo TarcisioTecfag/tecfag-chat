@@ -311,6 +311,51 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
               .where(and(eq(crmAccounts.id, contact.accountId), eq(crmAccounts.tenantId, session.tenantId)))
               .limit(1);
             account = acc || null;
+          } else {
+            const { crmAccounts, crmDeals } = await import("../../../db/schema");
+            const cleanCnpj = (contact.cnpj || "").replace(/\D/g, "");
+            if (cleanCnpj.length === 14) {
+              const [accByCnpj] = await db
+                .select()
+                .from(crmAccounts)
+                .where(
+                  and(
+                    eq(crmAccounts.tenantId, session.tenantId),
+                    sql`regexp_replace(${crmAccounts.document}, '[^0-9]', '', 'g') = ${cleanCnpj}`,
+                  ),
+                )
+                .limit(1);
+              if (accByCnpj) account = accByCnpj;
+            }
+            if (!account) {
+              const [dealWithAcc] = await db
+                .select({ account: crmAccounts })
+                .from(crmDealContacts)
+                .innerJoin(
+                  crmDeals,
+                  and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, session.tenantId)),
+                )
+                .innerJoin(
+                  crmAccounts,
+                  and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, session.tenantId)),
+                )
+                .where(
+                  and(
+                    eq(crmDealContacts.tenantId, session.tenantId),
+                    eq(crmDealContacts.contactId, contact.id),
+                  ),
+                )
+                .limit(1);
+              if (dealWithAcc?.account) account = dealWithAcc.account;
+            }
+            if (account?.id) {
+              await db
+                .update(contacts)
+                .set({ accountId: account.id })
+                .where(and(eq(contacts.id, contact.id), eq(contacts.tenantId, session.tenantId)))
+                .catch(() => {});
+              contact.accountId = account.id;
+            }
           }
 
           return new Response(JSON.stringify({ ...contact, account }), {

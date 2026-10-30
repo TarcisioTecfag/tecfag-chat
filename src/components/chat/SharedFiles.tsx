@@ -269,6 +269,87 @@ export function SharedFiles() {
   };
 
   const taskDealContext = useConversationDealContext(activeChat?.id);
+  const currentDealId = taskDealContext.data?.currentDeal?.id || null;
+  const currentDealTitle = taskDealContext.data?.currentDeal?.title || null;
+
+  const [isTasksExpanded, setIsTasksExpanded] = useState(false);
+  const [currentDealActivities, setCurrentDealActivities] = useState<any[]>([]);
+  const [loadingDealTasks, setLoadingDealTasks] = useState(false);
+
+  useEffect(() => {
+    setIsTasksExpanded(false);
+  }, [activeChat?.id]);
+
+  const fetchCurrentDealTasks = React.useCallback(
+    async (signal?: AbortSignal) => {
+      if (!currentDealId) {
+        setCurrentDealActivities([]);
+        setLoadingDealTasks(false);
+        return;
+      }
+      setLoadingDealTasks(true);
+      try {
+        const res = await fetch(
+          `/api/crm/deals/${encodeURIComponent(currentDealId)}/activities`,
+          { signal },
+        );
+        if (!res.ok) {
+          if (!signal?.aborted) setCurrentDealActivities([]);
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!signal?.aborted) {
+          setCurrentDealActivities(Array.isArray(data?.activities) ? data.activities : []);
+        }
+      } catch {
+        if (!signal?.aborted) setCurrentDealActivities([]);
+      } finally {
+        if (!signal?.aborted) setLoadingDealTasks(false);
+      }
+    },
+    [currentDealId],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchCurrentDealTasks(controller.signal);
+    const refreshTasks = () => {
+      void fetchCurrentDealTasks();
+    };
+    window.addEventListener("crm-deals-changed", refreshTasks);
+    window.addEventListener("conversation-deal-context-changed", refreshTasks);
+    return () => {
+      controller.abort();
+      window.removeEventListener("crm-deals-changed", refreshTasks);
+      window.removeEventListener("conversation-deal-context-changed", refreshTasks);
+    };
+  }, [fetchCurrentDealTasks]);
+
+  const currentDealTasks = useMemo(() => {
+    if (!currentDealId) return [];
+    return currentDealActivities
+      .filter(
+        (act) =>
+          act &&
+          (!act.dealId || act.dealId === currentDealId) &&
+          act.type !== "note" &&
+          act.type !== "system_event" &&
+          act.status !== "cancelled",
+      )
+      .sort((a, b) => {
+        const aDone = a.status === "completed" || Boolean(a.completedAt) ? 1 : 0;
+        const bDone = b.status === "completed" || Boolean(b.completedAt) ? 1 : 0;
+        if (aDone !== bDone) return aDone - bDone;
+        const aTime = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+        const bTime = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+        const safeA = Number.isNaN(aTime) ? Number.MAX_SAFE_INTEGER : aTime;
+        const safeB = Number.isNaN(bTime) ? Number.MAX_SAFE_INTEGER : bTime;
+        if (safeA !== safeB) return safeA - safeB;
+        const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return aCreated - bCreated;
+      });
+  }, [currentDealActivities, currentDealId]);
 
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [linkedAccount, setLinkedAccount] = useState<CrmAccountDTO | null>(null);
@@ -278,6 +359,9 @@ export function SharedFiles() {
     if (!activeChat) return false;
     setActiveTab(step.id === "chat.shared-files" ? "files" : step.id === "chat.events" ? "events" : "details");
     setIsEditingInfo(step.id === "chat.contact-edit");
+    if (step.id === "chat.task-create" || step.id === "chat.task-tag") {
+      setIsTasksExpanded(true);
+    }
     setShowJourneyModal(step.surface === "chat.journey-modal");
     return true;
   });
@@ -551,7 +635,15 @@ export function SharedFiles() {
     e.preventDefault();
     if (!taskSubject.trim()) return;
 
-    if (!taskDealContext.data?.hasCurrentDeal && !taskDealContext.data?.gracePeriodActive) {
+    const openLinkedDeals = (taskDealContext.data?.deals || []).filter(
+      (d) => d.status === "open" && d.isLinked,
+    );
+    const canResolveDeal =
+      Boolean(taskDealContext.data?.hasCurrentDeal) ||
+      Boolean(taskDealContext.data?.gracePeriodActive) ||
+      Boolean(taskDealContext.data?.previousDeal) ||
+      openLinkedDeals.length === 1;
+    if (!canResolveDeal) {
       toast.error("Selecione a negociação deste atendimento antes de criar a tarefa.");
       return;
     }
@@ -566,7 +658,7 @@ export function SharedFiles() {
         body: JSON.stringify({
           conversationId: activeChat.id,
           tagName: label,
-          expectedContextVersion: taskDealContext.data.version,
+          expectedContextVersion: taskDealContext.data?.version,
           taskType,
           dueDate: taskDate,
           dueTime: taskTime,
@@ -588,6 +680,7 @@ export function SharedFiles() {
       updateTags(activeChat.id, [...activeChat.tags, label]);
     }
     void taskDealContext.refresh();
+    void fetchCurrentDealTasks();
     window.dispatchEvent(new Event("crm-deals-changed"));
 
     // Reset form
@@ -1020,332 +1113,437 @@ export function SharedFiles() {
             </div>
           )}
 
-          {/* ── Tarefas ────────────────────────────────────────────────── */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
-              <ListTodo className="h-3.5 w-3.5 text-primary" />
-              Tarefas
-            </h4>
-
-            {/* Tarefas existentes */}
-            <div className="flex flex-wrap gap-1.5">
-              {activeChat.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center gap-1 rounded-lg bg-primary/8 px-2 py-0.5 text-[10px] font-bold text-primary border border-primary/15"
-                >
-                  <CheckSquare className="h-2.5 w-2.5 shrink-0" />
-                  {tag}
-                  <button
-                    onClick={() => handleRemoveTag(tag)}
-                    className="text-primary/60 hover:text-red-500 cursor-pointer ml-0.5 transition-colors"
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </span>
-              ))}
-              {activeChat.tags.length === 0 && (
-                <span className="text-[10px] text-muted-foreground italic">
-                  Nenhuma tarefa criada
-                </span>
-              )}
-            </div>
-
-            {/* Formulário de nova tarefa */}
-            <form data-tour="details.task-create" onSubmit={handleCreateTask} className="space-y-2">
-              {/* Nome da tarefa */}
-              <input
-                type="text"
-                placeholder="Nome da tarefa..."
-                value={taskSubject}
-                onChange={(e) => setTaskSubject(e.target.value)}
-                className="w-full h-8 rounded-lg bg-muted px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition"
+          {/* ── Tarefas (sempre minimizada ao abrir o painel lateral; expande ao clicar na seta discreta) ── */}
+          <div className="space-y-2.5">
+            <button
+              type="button"
+              onClick={() => setIsTasksExpanded((prev) => !prev)}
+              className="w-full flex items-center justify-between gap-2 py-0.5 text-left group cursor-pointer"
+            >
+              <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                <ListTodo className="h-3.5 w-3.5 text-primary" />
+                <span>Tarefas</span>
+                {currentDealTasks.length > 0 && (
+                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[9px] font-extrabold text-primary">
+                    {currentDealTasks.length}
+                  </span>
+                )}
+              </h4>
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-muted-foreground/60 group-hover:text-foreground transition-transform duration-200 ${
+                  isTasksExpanded ? "rotate-180" : ""
+                }`}
               />
+            </button>
 
-              {/* Tipo da tarefa — dropdown customizado com ícones */}
-              {(() => {
-                const TASK_TYPES = [
-                  { value: "task",     label: "Tarefa",   Icon: CheckSquare     },
-                  { value: "call",     label: "Ligação",  Icon: PhoneCall       },
-                  { value: "whatsapp", label: "WhatsApp", Icon: MessageSquare   },
-                  { value: "meeting",  label: "Reunião",  Icon: Users           },
-                  { value: "email",    label: "E-mail",   Icon: AtSign          },
-                  { value: "lunch",    label: "Almoço",   Icon: UtensilsCrossed },
-                  { value: "visit",    label: "Visita",   Icon: MapPin          },
-                ] as const;
-                const selected = TASK_TYPES.find((t) => t.value === taskType) ?? TASK_TYPES[0];
-                return (
-                  <div className="relative w-full">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
+            {isTasksExpanded && (
+              <div className="space-y-3 pt-0.5 animate-in fade-in duration-150">
+                {/* Formulário de nova tarefa */}
+                <form data-tour="details.task-create" onSubmit={handleCreateTask} className="space-y-2">
+                  {/* Nome da tarefa */}
+                  <input
+                    type="text"
+                    placeholder="Nome da tarefa..."
+                    value={taskSubject}
+                    onChange={(e) => setTaskSubject(e.target.value)}
+                    className="w-full h-8 rounded-lg bg-muted px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent focus:border-primary/30 transition"
+                  />
+
+                  {/* Tipo da tarefa — dropdown customizado com ícones */}
+                  {(() => {
+                    const TASK_TYPES = [
+                      { value: "task",     label: "Tarefa",   Icon: CheckSquare     },
+                      { value: "call",     label: "Ligação",  Icon: PhoneCall       },
+                      { value: "whatsapp", label: "WhatsApp", Icon: MessageSquare   },
+                      { value: "meeting",  label: "Reunião",  Icon: Users           },
+                      { value: "email",    label: "E-mail",   Icon: AtSign          },
+                      { value: "lunch",    label: "Almoço",   Icon: UtensilsCrossed },
+                      { value: "visit",    label: "Visita",   Icon: MapPin          },
+                    ] as const;
+                    const selected = TASK_TYPES.find((t) => t.value === taskType) ?? TASK_TYPES[0];
+                    return (
+                      <div className="relative w-full">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => setTaskTypeOpen((o) => !o)}
+                                className="w-full h-8 flex items-center gap-2 rounded-lg bg-muted px-2.5 text-xs text-foreground border border-transparent hover:border-primary/20 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-all cursor-pointer"
+                              >
+                                <selected.Icon className="h-3.5 w-3.5 text-primary shrink-0" />
+                                <span className="flex-1 text-left font-medium">{selected.label}</span>
+                                <ChevronDown className={`h-3 w-3 text-primary/60 transition-transform duration-200 ${taskTypeOpen ? "rotate-180" : ""}`} />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="bg-primary text-white text-[10px] font-semibold">
+                              Tipo da atividade comercial
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+                        {taskTypeOpen && (
+                          <div className="absolute z-50 top-[calc(100%+4px)] left-0 right-0 rounded-xl bg-card border border-border/60 shadow-xl overflow-hidden">
+                            {TASK_TYPES.map(({ value, label, Icon }) => {
+                              const isActive = taskType === value;
+                              return (
+                                <button
+                                  key={value}
+                                  type="button"
+                                  onClick={() => { setTaskType(value); setTaskTypeOpen(false); }}
+                                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-all cursor-pointer outline-none
+                                    ${isActive
+                                      ? "bg-primary/10 text-primary font-semibold"
+                                      : "text-foreground hover:bg-muted hover:text-foreground"
+                                    }`}
+                                >
+                                  <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                                  <span className="flex-1 text-left">{label}</span>
+                                  {isActive && <Check className="h-3 w-3 text-primary shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Seletor Rápido de Data & Horário ───────────────────── */}
+                  <div className="space-y-2">
+                    {/* Atalhos Rápidos de Data */}
+                    <div className="flex items-center gap-1">
+                      {[
+                        { label: "Hoje", offset: 0 },
+                        { label: "Amanhã", offset: 1 },
+                        { label: "+2 dias", offset: 2 },
+                        { label: "Próx. sem.", offset: 7 },
+                      ].map(({ label, offset }) => {
+                        const targetYMD = getRelativeDateYMD(offset);
+                        const isSelected = taskDueDate === targetYMD;
+                        return (
                           <button
+                            key={label}
                             type="button"
-                            onClick={() => setTaskTypeOpen((o) => !o)}
-                            className="w-full h-8 flex items-center gap-2 rounded-lg bg-muted px-2.5 text-xs text-foreground border border-transparent hover:border-primary/20 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-all cursor-pointer"
+                            onClick={() => setTaskDueDate(targetYMD)}
+                            className={`flex-1 py-1 rounded-md text-[10px] font-semibold transition-all cursor-pointer text-center ${
+                              isSelected
+                                ? "bg-primary text-primary-foreground shadow-xs"
+                                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border/40"
+                            }`}
                           >
-                            <selected.Icon className="h-3.5 w-3.5 text-primary shrink-0" />
-                            <span className="flex-1 text-left font-medium">{selected.label}</span>
-                            <ChevronDown className={`h-3 w-3 text-primary/60 transition-transform duration-200 ${taskTypeOpen ? "rotate-180" : ""}`} />
+                            {label}
                           </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" className="bg-primary text-white text-[10px] font-semibold">
-                          Tipo da atividade comercial
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                        );
+                      })}
+                    </div>
 
-                    {taskTypeOpen && (
-                      <div className="absolute z-50 top-[calc(100%+4px)] left-0 right-0 rounded-xl bg-card border border-border/60 shadow-xl overflow-hidden">
-                        {TASK_TYPES.map(({ value, label, Icon }) => {
-                          const isActive = taskType === value;
+                    {/* Inputs de Data e Hora com Popovers Customizados & Tooltips */}
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {/* Seletor Customizado de Data */}
+                      <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                        <SystemTooltip content="Selecione a data de vencimento da tarefa no calendário">
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="w-full h-8 px-2.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary flex items-center justify-between transition-all cursor-pointer group"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <CalendarDays className="h-3.5 w-3.5 text-primary shrink-0 group-hover:scale-105 transition-transform" />
+                                <span className="truncate tracking-tight font-semibold">{formattedDateBR}</span>
+                              </div>
+                              <ChevronDown className="h-3 w-3 text-muted-foreground opacity-60 shrink-0" />
+                            </button>
+                          </PopoverTrigger>
+                        </SystemTooltip>
+                        <PopoverContent className="w-[260px] p-2.5 rounded-2xl border border-border shadow-xl bg-card z-50" align="start">
+                          {/* Header do Mês e Navegação */}
+                          <div className="flex items-center justify-between mb-2 px-1">
+                            <button
+                              type="button"
+                              onClick={prevMonth}
+                              className="h-6 w-6 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                            </button>
+                            <span className="text-xs font-bold text-foreground">
+                              {MONTH_NAMES_PT[calendarMonth]} de {calendarYear}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={nextMonth}
+                              className="h-6 w-6 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                            >
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Linha dos dias da semana */}
+                          <div className="grid grid-cols-7 gap-1 mb-1 text-center">
+                            {WEEKDAY_NAMES_PT.map((w, idx) => (
+                              <span key={idx} className="text-[10px] font-bold text-muted-foreground">
+                                {w}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Grade dos dias do mês */}
+                          <div className="grid grid-cols-7 gap-1 text-center">
+                            {renderCalendarDays()}
+                          </div>
+
+                          {/* Ações Rápidas no Rodapé do Calendário */}
+                          <div className="flex items-center justify-between pt-2 mt-2 border-t border-border/50 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTaskDueDate(getRelativeDateYMD(0));
+                                setIsCalendarOpen(false);
+                              }}
+                              className="font-semibold text-primary hover:underline cursor-pointer"
+                            >
+                              Hoje
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTaskDueDate(getRelativeDateYMD(1));
+                                setIsCalendarOpen(false);
+                              }}
+                              className="font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                            >
+                              Amanhã
+                            </button>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      {/* Seletor Customizado de Hora */}
+                      <Popover open={isTimeOpen} onOpenChange={setIsTimeOpen}>
+                        <SystemTooltip content="Selecione o horário de vencimento da tarefa">
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="w-full h-8 px-2.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary flex items-center justify-between transition-all cursor-pointer group"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <Clock className="h-3.5 w-3.5 text-primary shrink-0 group-hover:scale-105 transition-transform" />
+                                <span className="font-semibold">{taskDueTime || "09:00"}</span>
+                              </div>
+                              <ChevronDown className="h-3 w-3 text-muted-foreground opacity-60 shrink-0" />
+                            </button>
+                          </PopoverTrigger>
+                        </SystemTooltip>
+                        <PopoverContent className="w-[180px] p-2 rounded-xl shadow-xl border border-border bg-card z-50" align="start">
+                          <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
+                            <div>
+                              <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
+                                Hora
+                              </div>
+                              <div className="h-40 overflow-y-auto space-y-0.5 scrollbar-thin pr-0.5">
+                                {HOURS_LIST.map((h) => {
+                                  const isSelected = selectedHour === h;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={h}
+                                      onClick={() => setTaskDueTime(`${h}:${selectedMin}`)}
+                                      className={`w-full py-0.5 rounded text-xs transition-colors cursor-pointer ${
+                                        isSelected
+                                          ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                                          : "text-foreground hover:bg-muted font-medium"
+                                      }`}
+                                    >
+                                      {h}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
+                                Minuto
+                              </div>
+                              <div className="h-40 overflow-y-auto space-y-0.5 scrollbar-thin pr-0.5">
+                                {MINUTES_LIST.map((m) => {
+                                  const isSelected = selectedMin === m;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={m}
+                                      onClick={() => {
+                                        setTaskDueTime(`${selectedHour}:${m}`);
+                                        setIsTimeOpen(false);
+                                      }}
+                                      className={`w-full py-0.5 rounded text-xs transition-colors cursor-pointer ${
+                                        isSelected
+                                          ? "bg-primary text-primary-foreground font-bold shadow-xs"
+                                          : "text-foreground hover:bg-muted font-medium"
+                                      }`}
+                                    >
+                                      {m}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    {/* Atalhos Rápidos de Horário */}
+                    <div className="flex items-center gap-1 justify-between pt-0.5">
+                      <span className="text-[9px] text-muted-foreground/80 font-medium uppercase tracking-wider pl-0.5">
+                        Horário:
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {["09:00", "11:00", "14:00", "16:00", "18:00"].map((timeStr) => {
+                          const isSelected = taskDueTime === timeStr;
                           return (
                             <button
-                              key={value}
+                              key={timeStr}
                               type="button"
-                              onClick={() => { setTaskType(value); setTaskTypeOpen(false); }}
-                              className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-all cursor-pointer outline-none
-                                ${isActive
-                                  ? "bg-primary/10 text-primary font-semibold"
-                                  : "text-foreground hover:bg-muted hover:text-foreground"
-                                }`}
+                              onClick={() => setTaskDueTime(timeStr)}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                                isSelected
+                                  ? "bg-primary/15 text-primary font-bold border border-primary/30"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                              }`}
                             >
-                              <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-                              <span className="flex-1 text-left">{label}</span>
-                              {isActive && <Check className="h-3 w-3 text-primary shrink-0" />}
+                              {timeStr}
                             </button>
                           );
                         })}
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Botão criar */}
+                  <button
+                    type="submit"
+                    disabled={!taskSubject.trim() || taskCreating}
+                    className="w-full h-8 flex items-center justify-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {taskCreating ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5" />
+                    )}
+                    {taskCreating ? "Criando..." : "Criar Tarefa"}
+                  </button>
+                </form>
+
+                {/* Tarefas criadas na negociação marcada como atual (ordenadas do vencimento mais próximo ao mais distante) */}
+                <div data-tour="details.task-tags" className="space-y-1.5 pt-1 border-t border-border/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                      Tarefas da negociação atual
+                    </span>
+                    {currentDealTitle && (
+                      <span className="text-[9px] font-semibold text-primary truncate max-w-[140px]">
+                        {currentDealTitle}
+                      </span>
                     )}
                   </div>
-                );
-              })()}
 
-              {/* ── Seletor Rápido de Data & Horário ───────────────────── */}
-              <div className="space-y-2">
-                {/* Atalhos Rápidos de Data */}
-                <div className="flex items-center gap-1">
-                  {[
-                    { label: "Hoje", offset: 0 },
-                    { label: "Amanhã", offset: 1 },
-                    { label: "+2 dias", offset: 2 },
-                    { label: "Próx. sem.", offset: 7 },
-                  ].map(({ label, offset }) => {
-                    const targetYMD = getRelativeDateYMD(offset);
-                    const isSelected = taskDueDate === targetYMD;
-                    return (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => setTaskDueDate(targetYMD)}
-                        className={`flex-1 py-1 rounded-md text-[10px] font-semibold transition-all cursor-pointer text-center ${
-                          isSelected
-                            ? "bg-primary text-primary-foreground shadow-xs"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border/40"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
+                  {!currentDealId ? (
+                    <p className="text-[10px] text-muted-foreground italic">
+                      Nenhuma negociação marcada como atual neste atendimento.
+                    </p>
+                  ) : loadingDealTasks ? (
+                    <p className="text-[10px] text-muted-foreground italic">
+                      Carregando tarefas...
+                    </p>
+                  ) : currentDealTasks.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground italic">
+                      Nenhuma tarefa criada nesta negociação.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5 scrollbar-thin">
+                      {currentDealTasks.map((task) => {
+                        const TASK_TYPE_META: Record<string, { label: string; Icon: any }> = {
+                          task: { label: "Tarefa", Icon: CheckSquare },
+                          call: { label: "Ligação", Icon: PhoneCall },
+                          whatsapp: { label: "WhatsApp", Icon: MessageSquare },
+                          meeting: { label: "Reunião", Icon: Users },
+                          email: { label: "E-mail", Icon: AtSign },
+                          lunch: { label: "Almoço", Icon: UtensilsCrossed },
+                          visit: { label: "Visita", Icon: MapPin },
+                        };
+                        const meta = TASK_TYPE_META[task.type] || TASK_TYPE_META.task;
+                        const TaskIcon = meta.Icon;
+                        const isCompleted = task.status === "completed" || Boolean(task.completedAt);
+                        const dueObj = task.dueDate ? new Date(task.dueDate) : null;
+                        const hasValidDue = Boolean(dueObj && !Number.isNaN(dueObj.getTime()));
+                        const nowMs = Date.now();
+                        const isOverdue = !isCompleted && hasValidDue && dueObj!.getTime() < nowMs;
+                        const dueDateLabel = hasValidDue
+                          ? `${String(dueObj!.getDate()).padStart(2, "0")}/${String(
+                              dueObj!.getMonth() + 1,
+                            ).padStart(2, "0")}/${dueObj!.getFullYear()} às ${String(
+                              dueObj!.getHours(),
+                            ).padStart(2, "0")}:${String(dueObj!.getMinutes()).padStart(2, "0")}`
+                          : "Sem vencimento";
 
-                {/* Inputs de Data e Hora com Popovers Customizados & Tooltips */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  {/* Seletor Customizado de Data */}
-                  <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-                    <SystemTooltip content="Selecione a data de vencimento da tarefa no calendário">
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className="w-full h-8 px-2.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary flex items-center justify-between transition-all cursor-pointer group"
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <CalendarDays className="h-3.5 w-3.5 text-primary shrink-0 group-hover:scale-105 transition-transform" />
-                            <span className="truncate tracking-tight font-semibold">{formattedDateBR}</span>
-                          </div>
-                          <ChevronDown className="h-3 w-3 text-muted-foreground opacity-60 shrink-0" />
-                        </button>
-                      </PopoverTrigger>
-                    </SystemTooltip>
-                    <PopoverContent className="w-[260px] p-2.5 rounded-2xl border border-border shadow-xl bg-card z-50" align="start">
-                      {/* Header do Mês e Navegação */}
-                      <div className="flex items-center justify-between mb-2 px-1">
-                        <button
-                          type="button"
-                          onClick={prevMonth}
-                          className="h-6 w-6 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                        </button>
-                        <span className="text-xs font-bold text-foreground">
-                          {MONTH_NAMES_PT[calendarMonth]} de {calendarYear}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={nextMonth}
-                          className="h-6 w-6 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
-                        >
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-
-                      {/* Linha dos dias da semana */}
-                      <div className="grid grid-cols-7 gap-1 mb-1 text-center">
-                        {WEEKDAY_NAMES_PT.map((w, idx) => (
-                          <span key={idx} className="text-[10px] font-bold text-muted-foreground">
-                            {w}
-                          </span>
-                        ))}
-                      </div>
-
-                      {/* Grade dos dias do mês */}
-                      <div className="grid grid-cols-7 gap-1 text-center">
-                        {renderCalendarDays()}
-                      </div>
-
-                      {/* Ações Rápidas no Rodapé do Calendário */}
-                      <div className="flex items-center justify-between pt-2 mt-2 border-t border-border/50 text-[10px]">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTaskDueDate(getRelativeDateYMD(0));
-                            setIsCalendarOpen(false);
-                          }}
-                          className="font-semibold text-primary hover:underline cursor-pointer"
-                        >
-                          Hoje
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTaskDueDate(getRelativeDateYMD(1));
-                            setIsCalendarOpen(false);
-                          }}
-                          className="font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
-                        >
-                          Amanhã
-                        </button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-
-                  {/* Seletor Customizado de Hora */}
-                  <Popover open={isTimeOpen} onOpenChange={setIsTimeOpen}>
-                    <SystemTooltip content="Selecione o horário de vencimento da tarefa">
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className="w-full h-8 px-2.5 rounded-lg bg-muted text-[11px] font-semibold text-foreground border border-border/40 hover:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary flex items-center justify-between transition-all cursor-pointer group"
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <Clock className="h-3.5 w-3.5 text-primary shrink-0 group-hover:scale-105 transition-transform" />
-                            <span className="font-semibold">{taskDueTime || "09:00"}</span>
-                          </div>
-                          <ChevronDown className="h-3 w-3 text-muted-foreground opacity-60 shrink-0" />
-                        </button>
-                      </PopoverTrigger>
-                    </SystemTooltip>
-                    <PopoverContent className="w-[180px] p-2 rounded-xl shadow-xl border border-border bg-card z-50" align="start">
-                      <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
-                        <div>
-                          <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
-                            Hora
-                          </div>
-                          <div className="h-40 overflow-y-auto space-y-0.5 scrollbar-thin pr-0.5">
-                            {HOURS_LIST.map((h) => {
-                              const isSelected = selectedHour === h;
-                              return (
-                                <button
-                                  type="button"
-                                  key={h}
-                                  onClick={() => setTaskDueTime(`${h}:${selectedMin}`)}
-                                  className={`w-full py-0.5 rounded text-xs transition-colors cursor-pointer ${
-                                    isSelected
-                                      ? "bg-primary text-primary-foreground font-bold shadow-xs"
-                                      : "text-foreground hover:bg-muted font-medium"
+                        return (
+                          <div
+                            key={task.id}
+                            className={`flex items-start justify-between gap-2 rounded-xl border p-2 text-xs transition ${
+                              isCompleted
+                                ? "border-border/50 bg-muted/25 opacity-70"
+                                : isOverdue
+                                  ? "border-red-500/30 bg-red-500/5"
+                                  : "border-primary/20 bg-primary/5"
+                            }`}
+                          >
+                            <div className="flex items-start gap-2 min-w-0 flex-1">
+                              <div
+                                className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md ${
+                                  isCompleted
+                                    ? "bg-emerald-500/15 text-emerald-500"
+                                    : isOverdue
+                                      ? "bg-red-500/15 text-red-500"
+                                      : "bg-primary/15 text-primary"
+                                }`}
+                              >
+                                <TaskIcon className="h-3 w-3" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <span
+                                  className={`block text-[11px] font-bold leading-snug truncate ${
+                                    isCompleted ? "line-through text-muted-foreground" : "text-foreground"
                                   }`}
                                 >
-                                  {h}
-                                </button>
-                              );
-                            })}
+                                  {task.title}
+                                </span>
+                                <div className="flex items-center flex-wrap gap-1.5 mt-0.5">
+                                  <span className="text-[9px] font-bold uppercase text-primary/80">
+                                    {meta.label}
+                                  </span>
+                                  <span className="text-[9px] text-muted-foreground">•</span>
+                                  <span
+                                    className={`text-[10px] font-semibold ${
+                                      isCompleted
+                                        ? "text-emerald-500"
+                                        : isOverdue
+                                          ? "text-red-500"
+                                          : "text-muted-foreground"
+                                    }`}
+                                  >
+                                    {dueDateLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
-                            Minuto
-                          </div>
-                          <div className="h-40 overflow-y-auto space-y-0.5 scrollbar-thin pr-0.5">
-                            {MINUTES_LIST.map((m) => {
-                              const isSelected = selectedMin === m;
-                              return (
-                                <button
-                                  type="button"
-                                  key={m}
-                                  onClick={() => {
-                                    setTaskDueTime(`${selectedHour}:${m}`);
-                                    setIsTimeOpen(false);
-                                  }}
-                                  className={`w-full py-0.5 rounded text-xs transition-colors cursor-pointer ${
-                                    isSelected
-                                      ? "bg-primary text-primary-foreground font-bold shadow-xs"
-                                      : "text-foreground hover:bg-muted font-medium"
-                                  }`}
-                                >
-                                  {m}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-
-                {/* Atalhos Rápidos de Horário */}
-                <div className="flex items-center gap-1 justify-between pt-0.5">
-                  <span className="text-[9px] text-muted-foreground/80 font-medium uppercase tracking-wider pl-0.5">
-                    Horário:
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {["09:00", "11:00", "14:00", "16:00", "18:00"].map((timeStr) => {
-                      const isSelected = taskDueTime === timeStr;
-                      return (
-                        <button
-                          key={timeStr}
-                          type="button"
-                          onClick={() => setTaskDueTime(timeStr)}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
-                            isSelected
-                              ? "bg-primary/15 text-primary font-bold border border-primary/30"
-                              : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                          }`}
-                        >
-                          {timeStr}
-                        </button>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {/* Botão criar */}
-              <button
-                type="submit"
-                disabled={!taskSubject.trim() || taskCreating}
-                className="w-full h-8 flex items-center justify-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-              >
-                {taskCreating ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Plus className="h-3.5 w-3.5" />
-                )}
-                {taskCreating ? "Criando..." : "Criar Tarefa"}
-              </button>
-            </form>
+            )}
           </div>
 
           {/* Painel de Negociações CRM Multi-Card */}
