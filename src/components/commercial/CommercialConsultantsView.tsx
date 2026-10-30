@@ -1,8 +1,6 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   Users,
-  Tv,
-  Star,
   Search,
   Settings,
   Gem,
@@ -18,8 +16,6 @@ import {
   Copy,
   AlertCircle,
   Loader2,
-  ShieldCheck,
-  CheckCircle2,
   Eye,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
@@ -53,7 +49,8 @@ interface CommercialConsultantsViewProps {
   onSelectProfile?: (operatorId: string) => void;
 }
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 7;
+const MODAL_USERS_PAGE_SIZE = 5;
 
 export const CommercialConsultantsView = React.memo(function CommercialConsultantsView({
   consultants,
@@ -65,14 +62,45 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
   const [searchTerm, setSearchTerm] = useState("");
   const [teamFilter, setTeamFilter] = useState<"all" | "maquinas" | "personnalite">("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const tableContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Calcula dinamicamente quantos consultores cabem na altura disponível da tela sem precisar de scroll vertical
+  useEffect(() => {
+    const el = tableContainerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+
+    const updatePageSize = () => {
+      const rect = el.getBoundingClientRect();
+      // Subtrai cabeçalho da tabela (~38px) e barra de paginação (~46px)
+      const availableBodyHeight = rect.height - 84;
+      if (availableBodyHeight > 120) {
+        // Cada linha compacta ocupa ~49px
+        const fittedRows = Math.floor(availableBodyHeight / 49);
+        const clamped = Math.max(4, Math.min(12, fittedRows));
+        setPageSize((prev) => (prev !== clamped ? clamped : prev));
+      }
+    };
+
+    updatePageSize();
+    const observer = new ResizeObserver(updatePageSize);
+    observer.observe(el);
+    window.addEventListener("resize", updatePageSize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updatePageSize);
+    };
+  }, []);
 
   // Estados de modais
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [editingConsultant, setEditingConsultant] = useState<ConsultantRow | null>(null);
   const [deletingConsultant, setDeletingConsultant] = useState<ConsultantRow | null>(null);
 
-  // Formulário Novo Consultor
+  // Formulário Novo Consultor (com busca e paginação 1 2 3 sem precisar scrollar)
   const [selectedOperatorId, setSelectedOperatorId] = useState("");
+  const [modalUserSearch, setModalUserSearch] = useState("");
+  const [modalUserPage, setModalUserPage] = useState(1);
   const [newDivision, setNewDivision] = useState<"maquinas" | "personnalite">("maquinas");
   const [newActiveOnTv, setNewActiveOnTv] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -86,22 +114,28 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
     return consultants.filter((c) => !c.division);
   }, [consultants]);
 
-  // Estatísticas do Topo (KPIs)
-  // Consultores ativos são aqueles cadastrados na operação comercial com status ativo/disponível
-  const activeConsultantsCount = useMemo(() => {
-    return consultants.filter((c) => Boolean(c.division)).length;
-  }, [consultants]);
+  const filteredUnassignedOperators = useMemo(() => {
+    const q = modalUserSearch.trim().toLowerCase();
+    if (!q) return unassignedOperators;
+    return unassignedOperators.filter(
+      (op) =>
+        op.name.toLowerCase().includes(q) ||
+        op.email.toLowerCase().includes(q) ||
+        op.operatorId.toLowerCase().includes(q),
+    );
+  }, [unassignedOperators, modalUserSearch]);
 
-  const visibleOnTvCount = useMemo(() => {
-    return consultants.filter((c) => Boolean(c.division) && (c.activeOnTv ?? true)).length;
-  }, [consultants]);
+  const modalTotalPages = Math.max(
+    1,
+    Math.ceil(filteredUnassignedOperators.length / MODAL_USERS_PAGE_SIZE),
+  );
+  const validModalUserPage = Math.min(modalUserPage, modalTotalPages);
+  const paginatedUnassignedOperators = useMemo(() => {
+    const start = (validModalUserPage - 1) * MODAL_USERS_PAGE_SIZE;
+    return filteredUnassignedOperators.slice(start, start + MODAL_USERS_PAGE_SIZE);
+  }, [filteredUnassignedOperators, validModalUserPage]);
 
-  const teamsCount = useMemo(() => {
-    const teams = new Set(consultants.map((c) => c.division?.toLowerCase()).filter(Boolean));
-    return teams.size || 2; // Máquinas e Personnalité
-  }, [consultants]);
-
-  // Filtragem
+  // Filtragem principal
   const filteredConsultants = useMemo(() => {
     let result = consultants.filter((c) => Boolean(c.division));
 
@@ -123,14 +157,14 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
     return result;
   }, [consultants, teamFilter, searchTerm]);
 
-  // Paginação
-  const totalPages = Math.max(1, Math.ceil(filteredConsultants.length / PAGE_SIZE));
+  // Paginação principal
+  const totalPages = Math.max(1, Math.ceil(filteredConsultants.length / pageSize));
   const validCurrentPage = Math.min(currentPage, totalPages);
 
   const paginatedConsultants = useMemo(() => {
-    const start = (validCurrentPage - 1) * PAGE_SIZE;
-    return filteredConsultants.slice(start, start + PAGE_SIZE);
-  }, [filteredConsultants, validCurrentPage]);
+    const start = (validCurrentPage - 1) * pageSize;
+    return filteredConsultants.slice(start, start + pageSize);
+  }, [filteredConsultants, validCurrentPage, pageSize]);
 
   // Alternar Visibilidade no BI TV com clique direto no Pill Switch
   const handleToggleTv = useCallback(
@@ -163,7 +197,6 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
     [onRefresh],
   );
 
-  // O CRM local usa o mesmo ID do operador autenticado.
   const handleCopyOperatorId = useCallback((operatorId: string) => {
     void navigator.clipboard.writeText(operatorId);
     toast.success("ID do usuário copiado.");
@@ -284,10 +317,9 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
     setIsSubmitting(true);
     try {
       if (!selectedOperatorId) {
-        throw new Error("Selecione um usuário existente do Tecfag Chat.");
+        throw new Error("Selecione um usuário existente do sistema.");
       }
 
-      // Vincula à equipe comercial
       const response = await fetch("/api/commercial/consultants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -307,6 +339,8 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
       toast.success("Novo consultor comercial adicionado com sucesso!");
       setIsNewModalOpen(false);
       setSelectedOperatorId("");
+      setModalUserSearch("");
+      setModalUserPage(1);
       if (onRefresh) await onRefresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao adicionar consultor.");
@@ -316,92 +350,12 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
   }, [selectedOperatorId, newDivision, newActiveOnTv, onRefresh]);
 
   return (
-    <div className="space-y-6">
-      {/* ── 1. Top Section: Header & Action ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <span className="text-[10px] font-bold uppercase tracking-[.18em] text-primary block mb-0.5 font-mono">
-            EQUIPE & OPERAÇÃO
-          </span>
-          <h2 className="font-mono text-2xl sm:text-3xl font-bold tracking-[-.05em] text-foreground dark:text-zinc-50">
-            Consultores & Equipes
-          </h2>
-          <p className="text-xs sm:text-sm text-muted-foreground dark:text-zinc-400 mt-1">
-            Gerencie quem aparece no BI TV e os dados de cada consultor comercial.
-          </p>
-        </div>
-
-        <div>
-          <SystemTooltip content="Adicionar novo consultor ou vincular operador existente à equipe">
-            <button
-              onClick={() => {
-                setIsNewModalOpen(true);
-                if (unassignedOperators.length > 0 && !selectedOperatorId) {
-                  setSelectedOperatorId(unassignedOperators[0].operatorId);
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-[4px] bg-primary px-4 py-2.5 text-xs font-mono font-bold text-primary-foreground shadow-sm transition hover:opacity-95 cursor-pointer"
-            >
-              <Plus className="h-4 w-4 stroke-[2.5]" />
-              <span>Novo consultor</span>
-            </button>
-          </SystemTooltip>
-        </div>
-      </div>
-
-      {/* ── 2. Top Metric KPI Cards (3 Cards) ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Card 1: Consultores Ativos */}
-        <div className="rounded-[4px] border border-border/80 bg-card p-5 dark:border-zinc-800 dark:bg-zinc-950/70 shadow-sm flex items-center gap-4 transition-all hover:border-primary/50">
-          <div className="h-11 w-11 rounded-[4px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-            <Users className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold text-foreground dark:text-zinc-50 font-mono leading-none tracking-tight">
-              {activeConsultantsCount}
-            </div>
-            <div className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 mt-1.5">
-              consultores ativos
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: Visíveis no BI TV */}
-        <div className="rounded-[4px] border border-border/80 bg-card p-5 dark:border-zinc-800 dark:bg-zinc-950/70 shadow-sm flex items-center gap-4 transition-all hover:border-primary/50">
-          <div className="h-11 w-11 rounded-[4px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-            <Tv className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold text-foreground dark:text-zinc-50 font-mono leading-none tracking-tight">
-              {visibleOnTvCount}
-            </div>
-            <div className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 mt-1.5">
-              visíveis no BI TV
-            </div>
-          </div>
-        </div>
-
-        {/* Card 3: Equipes */}
-        <div className="rounded-[4px] border border-border/80 bg-card p-5 dark:border-zinc-800 dark:bg-zinc-950/70 shadow-sm flex items-center gap-4 transition-all hover:border-primary/50">
-          <div className="h-11 w-11 rounded-[4px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-            <Star className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold text-foreground dark:text-zinc-50 font-mono leading-none tracking-tight">
-              {teamsCount}
-            </div>
-            <div className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 mt-1.5">
-              equipes ativas
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── 3. Search & Filter Bar ── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <div className="flex-1 min-h-0 flex flex-col gap-3 h-full overflow-hidden">
+      {/* ── 1. Search, Filters & Action Bar (Compact Single Row) ── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 shrink-0">
         {/* Barra de busca */}
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <input
             type="text"
             value={searchTerm}
@@ -409,14 +363,18 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
               setSearchTerm(e.target.value);
               setCurrentPage(1);
             }}
-            placeholder="Buscar consultor ou equipe..."
-            className="w-full rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/80 pl-10 pr-9 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary transition"
+            placeholder="Buscar consultor, e-mail ou equipe..."
+            className="w-full rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/80 pl-9 pr-8 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary transition"
           />
           {searchTerm && (
             <SystemTooltip content="Limpar busca">
               <button
-                onClick={() => setSearchTerm("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                type="button"
+                onClick={() => {
+                  setSearchTerm("");
+                  setCurrentPage(1);
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -424,10 +382,11 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
           )}
         </div>
 
-        {/* Botões de Filtro de Equipes & Exportar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+        {/* Botões de Filtro de Equipes, Exportar & Novo Consultor */}
+        <div className="flex flex-wrap items-center gap-1.5 font-mono">
           <SystemTooltip content="Mostrar consultores de todas as equipes">
             <button
+              type="button"
               onClick={() => {
                 setTeamFilter("all");
                 setCurrentPage(1);
@@ -438,12 +397,13 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                   : "border-border/60 bg-card/60 dark:border-zinc-800 dark:bg-zinc-900/60 text-muted-foreground hover:border-zinc-600 hover:text-foreground dark:text-zinc-400"
               }`}
             >
-              Todas as equipes
+              Todas ({consultants.filter((c) => Boolean(c.division)).length})
             </button>
           </SystemTooltip>
 
           <SystemTooltip content="Filtrar consultores da equipe Máquinas">
             <button
+              type="button"
               onClick={() => {
                 setTeamFilter("maquinas");
                 setCurrentPage(1);
@@ -461,6 +421,7 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
 
           <SystemTooltip content="Filtrar consultores da equipe Personnalité">
             <button
+              type="button"
               onClick={() => {
                 setTeamFilter("personnalite");
                 setCurrentPage(1);
@@ -478,57 +439,79 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
 
           <SystemTooltip content="Exportar consultores para planilha CSV">
             <button
+              type="button"
               onClick={handleExportCsv}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-[4px] text-xs font-bold font-mono border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-600 transition cursor-pointer whitespace-nowrap shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-xs font-bold font-mono border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-600 transition cursor-pointer whitespace-nowrap shadow-sm"
             >
               <Download className="h-3.5 w-3.5" />
               <span>Exportar</span>
             </button>
           </SystemTooltip>
+
+          <SystemTooltip content="Adicionar novo consultor ou vincular usuário existente à equipe comercial">
+            <button
+              type="button"
+              onClick={() => {
+                setIsNewModalOpen(true);
+                setModalUserSearch("");
+                setModalUserPage(1);
+                if (unassignedOperators.length > 0 && !selectedOperatorId) {
+                  setSelectedOperatorId(unassignedOperators[0].operatorId);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded-[4px] bg-primary px-3.5 py-1.5 text-xs font-mono font-bold text-primary-foreground shadow-sm transition hover:opacity-95 cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="h-3.5 w-3.5 stroke-[2.5]" />
+              <span>Novo consultor</span>
+            </button>
+          </SystemTooltip>
         </div>
       </div>
 
-      {/* ── 4. Data Table ── */}
-      <div className="rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
+      {/* ── 2. Data Table (Viewport-Fitted with Pagination 1 2 3) ── */}
+      <div
+        ref={tableContainerRef}
+        className="flex-1 min-h-0 flex flex-col justify-between rounded-[4px] border border-border/80 bg-card dark:border-zinc-800 dark:bg-zinc-950/70 overflow-hidden shadow-sm"
+      >
+        <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-border/80 dark:border-zinc-800 bg-muted/30 dark:bg-zinc-900/60">
-                <th className="px-6 py-3.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+                <th className="px-5 py-2.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                   CONSULTOR
                 </th>
-                <th className="px-6 py-3.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+                <th className="px-5 py-2.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                   EQUIPE
                 </th>
-                <th className="px-6 py-3.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+                <th className="px-5 py-2.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
                   E-MAIL
                 </th>
-                <th className="px-6 py-3.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 text-center">
+                <th className="px-5 py-2.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 text-center">
                   VISÍVEL NO BI TV
                 </th>
-                <th className="px-6 py-3.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 text-center">
+                <th className="px-5 py-2.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 text-center">
                   STATUS
                 </th>
-                <th className="px-6 py-3.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 text-right">
-                  {/* Ações */}
+                <th className="px-5 py-2.5 text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 text-right">
+                  AÇÕES
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/60">
+            <tbody className="divide-y divide-border/60 dark:divide-zinc-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-muted-foreground">
+                  <td colSpan={6} className="py-12 text-center text-muted-foreground">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
-                    <span className="text-xs">Carregando consultores...</span>
+                    <span className="text-xs font-mono">Carregando consultores...</span>
                   </td>
                 </tr>
               ) : paginatedConsultants.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-muted-foreground">
-                    <AlertCircle className="h-7 w-7 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm font-semibold">Nenhum consultor encontrado.</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Tente ajustar os filtros ou cadastre um novo consultor.
+                  <td colSpan={6} className="py-12 text-center text-muted-foreground">
+                    <AlertCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                    <p className="text-xs font-mono font-semibold">Nenhum consultor encontrado.</p>
+                    <p className="text-[11px] font-mono text-muted-foreground mt-0.5">
+                      Tente ajustar os filtros ou clique em &quot;Novo consultor&quot;.
                     </p>
                   </td>
                 </tr>
@@ -537,27 +520,22 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                   const isVisibleOnTv = consultant.activeOnTv ?? true;
                   const divisionDisplay = (consultant.division || "Sem equipe").toUpperCase();
 
-                  // Iniciais para avatar
-                  const initials = consultant.name
-                    .split(" ")
-                    .filter(Boolean)
-                    .slice(0, 2)
-                    .map((n) => n[0].toUpperCase())
-                    .join("");
-
                   return (
                     <tr
                       key={consultant.operatorId}
-                      className="hover:bg-muted/30 transition-colors group"
+                      className="hover:bg-muted/30 dark:hover:bg-zinc-900/40 transition-colors group"
                     >
                       {/* 1. Consultor vinculado ao usuário local */}
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-3">
+                      <td className="px-5 py-2">
+                        <div className="flex items-center gap-2.5">
                           <div className="relative shrink-0">
                             <img
-                              src={consultant.avatar || getDeterministicConsultantAvatar(consultant.name)}
+                              src={
+                                consultant.avatar ||
+                                getDeterministicConsultantAvatar(consultant.name)
+                              }
                               alt={consultant.name}
-                              className="h-9 w-9 rounded-[2px] object-cover border border-border dark:border-zinc-700"
+                              className="h-8 w-8 rounded-[2px] object-cover border border-border dark:border-zinc-700"
                               onError={(e) => {
                                 const img = e.currentTarget;
                                 const fallback = getDeterministicConsultantAvatar(consultant.name);
@@ -568,20 +546,21 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                             />
                             <span className="absolute bottom-0 right-0 h-2 w-2 rounded-[1px] bg-emerald-500 ring-1 ring-card" />
                           </div>
-                          <div>
-                            <div className="text-xs font-bold text-foreground dark:text-zinc-100">
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-foreground dark:text-zinc-100 truncate">
                               {consultant.name}
                             </div>
-                            <div className="text-[10px] text-muted-foreground dark:text-zinc-400 mt-0.5 flex items-center gap-1 font-mono">
+                            <div className="text-[10px] text-muted-foreground dark:text-zinc-400 flex items-center gap-1 font-mono">
                               <SystemTooltip
-                                content={`Usuário do Tecfag Chat: ${consultant.operatorId} (clique para copiar)`}
+                                content={`ID do usuário: ${consultant.operatorId} (clique para copiar)`}
                               >
                                 <button
+                                  type="button"
                                   onClick={() => handleCopyOperatorId(consultant.operatorId)}
                                   className="hover:text-primary transition flex items-center gap-1 cursor-pointer"
                                 >
                                   <span>
-                                    Usuário local:{" "}
+                                    ID:{" "}
                                     {consultant.operatorId.length > 10
                                       ? `${consultant.operatorId.slice(0, 8)}...`
                                       : consultant.operatorId}
@@ -595,21 +574,21 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                       </td>
 
                       {/* 2. Equipe */}
-                      <td className="px-6 py-3.5">
-                        <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-muted-foreground dark:text-zinc-400">
+                      <td className="px-5 py-2">
+                        <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-muted-foreground dark:text-zinc-300">
                           {divisionDisplay}
                         </span>
                       </td>
 
                       {/* 3. E-mail */}
-                      <td className="px-6 py-3.5">
+                      <td className="px-5 py-2">
                         <span className="text-xs font-mono text-muted-foreground dark:text-zinc-400">
                           {consultant.email}
                         </span>
                       </td>
 
-                      {/* 4. Visível no BI TV (Green Pill Toggle) */}
-                      <td className="px-6 py-3.5 text-center">
+                      {/* 4. Visível no BI TV */}
+                      <td className="px-5 py-2 text-center">
                         <div className="inline-flex justify-center">
                           <SystemTooltip
                             content={
@@ -619,8 +598,9 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                             }
                           >
                             <button
+                              type="button"
                               onClick={() => void handleToggleTv(consultant)}
-                              className={`rounded-[2px] px-2.5 py-1 text-[10px] font-mono font-bold transition flex items-center gap-1 shadow-sm cursor-pointer select-none active:scale-95 ${
+                              className={`rounded-[2px] px-2.5 py-0.5 text-[10px] font-mono font-bold transition flex items-center gap-1 shadow-sm cursor-pointer select-none active:scale-95 ${
                                 isVisibleOnTv
                                   ? "bg-emerald-500 hover:bg-emerald-600 text-white"
                                   : "bg-muted hover:bg-muted/80 text-muted-foreground dark:bg-zinc-800 dark:text-zinc-400"
@@ -642,11 +622,11 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                         </div>
                       </td>
 
-                      {/* 5. Status (Badge Pílula Ativo) */}
-                      <td className="px-6 py-3.5 text-center">
+                      {/* 5. Status */}
+                      <td className="px-5 py-2 text-center">
                         <div className="inline-flex justify-center">
                           <SystemTooltip content="Status operacional do consultor no sistema">
-                            <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-border/60 bg-muted/40 dark:border-zinc-800 dark:bg-zinc-900/60 px-2.5 py-0.5 text-[10px] font-mono font-bold uppercase text-foreground dark:text-zinc-300">
+                            <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-border/60 bg-muted/40 dark:border-zinc-800 dark:bg-zinc-900/60 px-2 py-0.5 text-[10px] font-mono font-bold uppercase text-foreground dark:text-zinc-300">
                               <span className="h-1.5 w-1.5 rounded-[1px] bg-emerald-500" />
                               <span>Ativo</span>
                             </span>
@@ -655,10 +635,11 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                       </td>
 
                       {/* 6. Ações */}
-                      <td className="px-6 py-3.5 text-right">
+                      <td className="px-5 py-2 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <SystemTooltip content="Copiar ID do usuário local">
                             <button
+                              type="button"
                               onClick={() => handleCopyOperatorId(consultant.operatorId)}
                               className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-primary hover:border-primary/50 transition cursor-pointer shadow-sm"
                             >
@@ -666,10 +647,10 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                             </button>
                           </SystemTooltip>
 
-                          {/* Botão Ver Início / Perfil */}
                           {Boolean(consultant.division) && onSelectProfile && (
                             <SystemTooltip content="Acessar tela de Início do consultor">
                               <button
+                                type="button"
                                 onClick={() => onSelectProfile(consultant.operatorId)}
                                 className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-emerald-400 hover:border-emerald-500/50 transition cursor-pointer shadow-sm"
                               >
@@ -678,9 +659,9 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                             </SystemTooltip>
                           )}
 
-                          {/* Botão Editar */}
                           <SystemTooltip content="Editar dados e equipe do consultor">
                             <button
+                              type="button"
                               onClick={() => handleOpenEdit(consultant)}
                               className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-600 transition cursor-pointer shadow-sm"
                             >
@@ -688,9 +669,9 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
                             </button>
                           </SystemTooltip>
 
-                          {/* Botão Excluir */}
                           <SystemTooltip content="Remover consultor da equipe comercial">
                             <button
+                              type="button"
                               onClick={() => setDeletingConsultant(consultant)}
                               className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-red-500 hover:border-red-500/50 transition cursor-pointer shadow-sm"
                             >
@@ -707,107 +688,222 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
           </table>
         </div>
 
-        {/* ── 5. Table Footer / Paginação ── */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-3 border-t border-border/80 dark:border-zinc-800 bg-muted/20 dark:bg-zinc-950/60 font-mono">
+        {/* ── 3. Table Footer / Paginação Sempre Visível (1 2 3...) ── */}
+        <div className="shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3 px-5 py-2.5 border-t border-border/80 dark:border-zinc-800 bg-muted/20 dark:bg-zinc-950/60 font-mono">
           <div className="text-[11px] text-muted-foreground dark:text-zinc-400">
             {filteredConsultants.length > 0 ? (
               <>
                 Mostrando{" "}
                 <span className="font-bold text-foreground dark:text-zinc-100">
-                  {Math.min((validCurrentPage - 1) * PAGE_SIZE + 1, filteredConsultants.length)}
+                  {Math.min((validCurrentPage - 1) * pageSize + 1, filteredConsultants.length)}
                 </span>{" "}
                 a{" "}
                 <span className="font-bold text-foreground dark:text-zinc-100">
-                  {Math.min(validCurrentPage * PAGE_SIZE, filteredConsultants.length)}
+                  {Math.min(validCurrentPage * pageSize, filteredConsultants.length)}
                 </span>{" "}
                 de{" "}
                 <span className="font-bold text-foreground dark:text-zinc-100">
                   {filteredConsultants.length}
                 </span>{" "}
-                registros
+                consultores
               </>
             ) : (
               "Nenhum registro"
             )}
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center gap-1">
-              <SystemTooltip content="Página anterior">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={validCurrentPage === 1}
-                  className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-600 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer shadow-sm"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </button>
-              </SystemTooltip>
+          <div className="flex items-center gap-1">
+            <SystemTooltip content="Página anterior">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={validCurrentPage === 1}
+                className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-600 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer shadow-sm"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
 
-              {Array.from({ length: totalPages }).map((_, idx) => {
-                const pageNum = idx + 1;
-                const isActive = pageNum === validCurrentPage;
-                return (
-                  <SystemTooltip key={pageNum} content={`Página ${pageNum}`}>
-                    <button
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`h-7 min-w-[28px] px-2 rounded-[2px] text-xs font-mono font-bold transition cursor-pointer border shadow-sm ${
-                        isActive
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border/60 bg-card/60 dark:border-zinc-800 dark:bg-zinc-900/60 text-muted-foreground hover:border-zinc-600 hover:text-foreground dark:text-zinc-400"
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  </SystemTooltip>
-                );
-              })}
+            {Array.from({ length: totalPages }).map((_, idx) => {
+              const pageNum = idx + 1;
+              const isActive = pageNum === validCurrentPage;
+              return (
+                <SystemTooltip key={pageNum} content={`Página ${pageNum}`}>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`h-7 min-w-[28px] px-2 rounded-[2px] text-xs font-mono font-bold transition cursor-pointer border shadow-sm ${
+                      isActive
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border/60 bg-card/60 dark:border-zinc-800 dark:bg-zinc-900/60 text-muted-foreground hover:border-zinc-600 hover:text-foreground dark:text-zinc-400"
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                </SystemTooltip>
+              );
+            })}
 
-              <SystemTooltip content="Próxima página">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={validCurrentPage === totalPages}
-                  className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-600 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer shadow-sm"
-                >
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              </SystemTooltip>
-            </div>
-          )}
+            <SystemTooltip content="Próxima página">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={validCurrentPage === totalPages}
+                className="h-7 w-7 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground hover:border-zinc-600 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer shadow-sm"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
+          </div>
         </div>
       </div>
 
-      {/* ── 6. Modais / Diálogos Customizados (Zero tooltips nativos, Zero selects nativos feios) ── */}
+      {/* ── 4. Modais Customizados ── */}
 
-      {/* Modal: Novo Consultor */}
+      {/* Modal: Novo Consultor (Com listagem de usuários paginada 1 2 3 sem precisar scrollar) */}
       <Dialog open={isNewModalOpen} onOpenChange={setIsNewModalOpen}>
-        <DialogContent className="sm:max-w-md rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950 p-6 shadow-xl font-sans">
+        <DialogContent className="sm:max-w-lg rounded-[4px] border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-950 p-6 shadow-xl font-sans">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
               <Users className="h-5 w-5 text-primary" />
               <span className="font-mono">Novo Consultor Comercial</span>
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
-              Vincule um usuário já cadastrado no Tecfag Chat a uma equipe comercial.
+              Selecione um usuário para vincular a uma equipe comercial.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
-                Usuário do Tecfag Chat
-              </label>
-              <select
-                value={selectedOperatorId}
-                onChange={(e) => setSelectedOperatorId(e.target.value)}
-                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary cursor-pointer"
-              >
-                <option value="">Selecione um usuário...</option>
-                {unassignedOperators.map((op) => (
-                  <option key={op.operatorId} value={op.operatorId}>
-                    {op.name} ({op.email})
-                  </option>
-                ))}
-              </select>
+          <div className="space-y-4 py-1">
+            {/* Campo de Usuários posicionado na tela com paginação 1 2 3 (sem precisar scrollar) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400">
+                  Usuários disponíveis ({filteredUnassignedOperators.length})
+                </label>
+                <div className="relative w-52">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    value={modalUserSearch}
+                    onChange={(e) => {
+                      setModalUserSearch(e.target.value);
+                      setModalUserPage(1);
+                    }}
+                    placeholder="Filtrar usuário..."
+                    className="w-full rounded-[3px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 pl-7 pr-6 py-1 text-[11px] font-mono text-foreground outline-none focus:border-primary"
+                  />
+                  {modalUserSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalUserSearch("");
+                        setModalUserPage(1);
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background/60 dark:bg-zinc-900/50 overflow-hidden">
+                {paginatedUnassignedOperators.length === 0 ? (
+                  <div className="py-6 text-center text-xs font-mono text-muted-foreground">
+                    Nenhum usuário disponível para vínculo.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border/60 dark:divide-zinc-800/60">
+                    {paginatedUnassignedOperators.map((op) => {
+                      const isSelected = selectedOperatorId === op.operatorId;
+                      return (
+                        <button
+                          key={op.operatorId}
+                          type="button"
+                          onClick={() => setSelectedOperatorId(op.operatorId)}
+                          className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition cursor-pointer ${
+                            isSelected
+                              ? "bg-primary/10 dark:bg-primary/20 text-foreground"
+                              : "hover:bg-muted/40 dark:hover:bg-zinc-800/60 text-foreground"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={op.avatar || getDeterministicConsultantAvatar(op.name)}
+                              alt={op.name}
+                              className="h-7 w-7 rounded-[2px] object-cover shrink-0 border border-border/80 dark:border-zinc-700"
+                              onError={(e) => {
+                                const fallback = getDeterministicConsultantAvatar(op.name);
+                                if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                              }}
+                            />
+                            <div className="min-w-0">
+                              <div className="text-xs font-mono font-bold truncate">{op.name}</div>
+                              <div className="text-[10px] font-mono text-muted-foreground truncate">
+                                {op.email}
+                              </div>
+                            </div>
+                          </div>
+                          <div
+                            className={`h-4 w-4 rounded-[2px] border flex items-center justify-center shrink-0 ${
+                              isSelected
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border dark:border-zinc-700"
+                            }`}
+                          >
+                            {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Paginação 1 2 3 dos usuários disponíveis */}
+                {modalTotalPages > 1 && (
+                  <div className="flex items-center justify-between px-3 py-2 border-t border-border/80 dark:border-zinc-800 bg-muted/20 dark:bg-zinc-950/60 font-mono">
+                    <span className="text-[10px] text-muted-foreground">
+                      Página {validModalUserPage} de {modalTotalPages}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setModalUserPage((p) => Math.max(1, p - 1))}
+                        disabled={validModalUserPage === 1}
+                        className="h-6 w-6 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground disabled:opacity-40 cursor-pointer"
+                      >
+                        <ChevronLeft className="h-3 w-3" />
+                      </button>
+                      {Array.from({ length: modalTotalPages }).map((_, idx) => {
+                        const pageNum = idx + 1;
+                        const active = pageNum === validModalUserPage;
+                        return (
+                          <button
+                            key={pageNum}
+                            type="button"
+                            onClick={() => setModalUserPage(pageNum)}
+                            className={`h-6 min-w-[24px] px-1.5 rounded-[2px] text-[11px] font-mono font-bold border transition cursor-pointer ${
+                              active
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border/60 bg-card dark:border-zinc-800 dark:bg-zinc-900 text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setModalUserPage((p) => Math.min(modalTotalPages, p + 1))}
+                        disabled={validModalUserPage === modalTotalPages}
+                        className="h-6 w-6 rounded-[2px] flex items-center justify-center border border-border/80 dark:border-zinc-800 bg-card dark:bg-zinc-900 text-muted-foreground hover:text-foreground disabled:opacity-40 cursor-pointer"
+                      >
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Seleção de Equipe */}
@@ -885,7 +981,7 @@ export const CommercialConsultantsView = React.memo(function CommercialConsultan
             </button>
             <button
               type="button"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !selectedOperatorId}
               onClick={() => void handleSaveNewConsultant()}
               className="px-4 py-2 rounded-[4px] bg-primary text-primary-foreground text-xs font-mono font-bold shadow-sm hover:brightness-110 disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5"
             >

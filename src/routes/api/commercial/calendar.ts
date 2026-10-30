@@ -12,6 +12,7 @@ import {
 import { requireSession } from "../../../lib/auth-session";
 import { isCommercialWinStage, roundPercent, saoPauloDay } from "../../../lib/commercial/metrics";
 import { buildConsultantOperatorAliasMap } from "../../../lib/commercial/avatar-matcher";
+import { ensureBrazilianHolidaysSeeded } from "../../../lib/commercial/brazilian-holidays";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
@@ -36,6 +37,7 @@ export const Route = createFileRoute("/api/commercial/calendar")({
         const [year, monthNumber] = month.split("-").map(Number);
         const nextMonth = `${monthNumber === 12 ? year + 1 : year}-${String(monthNumber === 12 ? 1 : monthNumber + 1).padStart(2, "0")}-01`;
         try {
+          await ensureBrazilianHolidaysSeeded(tenantId);
           const [days, stageRows, goalRows, operatorRows] = await Promise.all([
             db
               .select()
@@ -215,22 +217,37 @@ export const Route = createFileRoute("/api/commercial/calendar")({
             businessDays += 1;
             if (isPastMonth) {
               elapsedDays += 1;
-            } else if (isCurrentMonth && dateStr <= today) {
+            } else if (isCurrentMonth && dateStr < today) {
               elapsedDays += 1;
             }
           }
           const remainingDays = Math.max(0, businessDays - elapsedDays);
+          const effectiveRemainingDays =
+            remainingDays > 0 ? remainingDays : isCurrentMonth ? 1 : businessDays;
 
-          const totalTarget = goalRows.reduce((acc, g) => acc + Number(g.targetValue || 0), 0);
+          const profiledOperatorIds = new Set(profiledConsultants.map((c) => c.operatorId));
+          const canonicalGoalsMap = new Map<string, (typeof goalRows)[number]>();
+          for (const g of goalRows) {
+            const canonicalId = aliasResolution.resolve(g.operatorId) || g.operatorId;
+            if (!profiledOperatorIds.has(canonicalId)) continue;
+            if (!canonicalGoalsMap.has(canonicalId) || g.operatorId === canonicalId) {
+              canonicalGoalsMap.set(canonicalId, { ...g, operatorId: canonicalId });
+            }
+          }
+          const normalizedGoals = Array.from(canonicalGoalsMap.values());
+
+          const totalTarget = normalizedGoals.reduce((acc, g) => acc + Number(g.targetValue || 0), 0);
           const totalRealized = validWonDeals.reduce((acc, d) => acc + d.value, 0);
           const gap = Math.max(0, totalTarget - totalRealized);
           const attainment = roundPercent(
             totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0,
             1,
           );
-          const dailyRequired = remainingDays > 0 ? gap / remainingDays : 0;
+          const dailyRequired =
+            effectiveRemainingDays > 0 ? gap / effectiveRemainingDays : 0;
           const linearDailyTarget = businessDays > 0 ? totalTarget / businessDays : 0;
-          const runRate = elapsedDays > 0 ? (totalRealized / elapsedDays) * businessDays : 0;
+          const runRate =
+            elapsedDays > 0 ? (totalRealized / elapsedDays) * businessDays : totalRealized;
 
           let bestDay = { day: 0, date: "", value: 0, count: 0 };
           for (const [date, dealList] of closingMap.entries()) {
@@ -246,8 +263,8 @@ export const Route = createFileRoute("/api/commercial/calendar")({
             today,
             days,
             closings,
-            goals: goalRows,
-            consultants: operatorRows,
+            goals: normalizedGoals,
+            consultants: profiledConsultants,
             summary: {
               totalTarget,
               totalRealized,

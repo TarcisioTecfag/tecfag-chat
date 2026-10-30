@@ -25,6 +25,7 @@ import {
   type MaturityRule,
 } from "./metrics";
 import { buildConsultantOperatorAliasMap } from "./avatar-matcher";
+import { ensureBrazilianHolidaysSeeded } from "./brazilian-holidays";
 
 type Division = "personnalite" | "maquinas" | null;
 type OperatorRow = {
@@ -36,6 +37,7 @@ type OperatorRow = {
 };
 
 export async function getCommercialBi(tenantId: string, division: Division, now = new Date()) {
+  await ensureBrazilianHolidaysSeeded(tenantId);
   const today = saoPauloDay(now);
   const month = today.slice(0, 7);
   const [year, monthNumber] = month.split("-").map(Number);

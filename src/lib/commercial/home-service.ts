@@ -24,8 +24,10 @@ import {
   type CommercialCalendarDay,
 } from "./metrics";
 import { buildConsultantOperatorAliasMap } from "./avatar-matcher";
+import { ensureBrazilianHolidaysSeeded } from "./brazilian-holidays";
 
 export async function getCommercialHome(tenantId: string, operatorId: string, now = new Date()) {
+  await ensureBrazilianHolidaysSeeded(tenantId);
   const today = saoPauloDay(now);
   const month = today.slice(0, 7);
   const monthStart = `${month}-01`;

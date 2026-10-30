@@ -48,6 +48,7 @@ import {
   buildConsultantOperatorAliasMap,
   type ConsultantAliasResolution,
 } from "./avatar-matcher";
+import { ensureBrazilianHolidaysSeeded } from "./brazilian-holidays";
 
 type AnalysisOptions = {
   tenantId: string;
@@ -57,6 +58,7 @@ type AnalysisOptions = {
 };
 
 async function getScope({ tenantId, division, includeHidden }: AnalysisOptions) {
+  await ensureBrazilianHolidaysSeeded(tenantId);
   const [allConsultants, allTenantOperators, settingsRows, stages] = await Promise.all([
     db
       .select({

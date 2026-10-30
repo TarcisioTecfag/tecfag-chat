@@ -12,6 +12,7 @@ import {
 import { requireSession } from "../../../lib/auth-session";
 import { isCommercialWinStage, roundPercent, saoPauloDay } from "../../../lib/commercial/metrics";
 import { buildConsultantOperatorAliasMap } from "../../../lib/commercial/avatar-matcher";
+import { ensureBrazilianHolidaysSeeded } from "../../../lib/commercial/brazilian-holidays";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
@@ -29,6 +30,7 @@ export const Route = createFileRoute("/api/commercial/goals")({
         const month = new URL(request.url).searchParams.get("month") || saoPauloDay().slice(0, 7);
         if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return json({ error: "Mês inválido." }, 400);
         try {
+          await ensureBrazilianHolidaysSeeded(tenantId);
           const today = saoPauloDay();
           const [year, monthNumber] = month.split("-").map(Number);
           const monthStart = `${month}-01`;
@@ -121,37 +123,47 @@ export const Route = createFileRoute("/api/commercial/goals")({
             }
           }
 
-          // 4. Negociações ganhas / em fechamento no mês para apurar realizado por consultor
-          const wonDeals = await db
-            .select({
-              operatorId: crmDeals.operatorId,
-              value: crmDeals.value,
-              closedAt: crmDeals.closedAt,
-              createdAt: crmDeals.createdAt,
-            })
-            .from(crmDeals)
-            .where(
-              and(
-                eq(crmDeals.tenantId, tenantId),
-                or(
-                  eq(crmDeals.status, "won"),
-                  winStageIdsArray.length
-                    ? and(eq(crmDeals.status, "open"), inArray(crmDeals.stageId, winStageIdsArray))
-                    : undefined,
-                ),
-                or(
-                  and(
-                    gte(crmDeals.closedAt, windowStartDate),
-                    lt(crmDeals.closedAt, windowEndDate),
+          // 4. Negociações ganhas / em fechamento no mês + negociações em andamento na carteira
+          const [wonDeals, openDeals] = await Promise.all([
+            db
+              .select({
+                operatorId: crmDeals.operatorId,
+                value: crmDeals.value,
+                closedAt: crmDeals.closedAt,
+                createdAt: crmDeals.createdAt,
+              })
+              .from(crmDeals)
+              .where(
+                and(
+                  eq(crmDeals.tenantId, tenantId),
+                  or(
+                    eq(crmDeals.status, "won"),
+                    winStageIdsArray.length
+                      ? and(eq(crmDeals.status, "open"), inArray(crmDeals.stageId, winStageIdsArray))
+                      : undefined,
                   ),
-                  and(
-                    sql`${crmDeals.closedAt} IS NULL`,
-                    gte(crmDeals.createdAt, windowStartDate),
-                    lt(crmDeals.createdAt, windowEndDate),
+                  or(
+                    and(
+                      gte(crmDeals.closedAt, windowStartDate),
+                      lt(crmDeals.closedAt, windowEndDate),
+                    ),
+                    and(
+                      sql`${crmDeals.closedAt} IS NULL`,
+                      gte(crmDeals.createdAt, windowStartDate),
+                      lt(crmDeals.createdAt, windowEndDate),
+                    ),
                   ),
                 ),
               ),
-            );
+            db
+              .select({
+                operatorId: crmDeals.operatorId,
+                value: crmDeals.value,
+                stageId: crmDeals.stageId,
+              })
+              .from(crmDeals)
+              .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.status, "open"))),
+          ]);
 
           const realizedMap = new Map<string, number>();
           for (const deal of wonDeals) {
@@ -161,6 +173,23 @@ export const Route = createFileRoute("/api/commercial/goals")({
             if (saoPauloDay(effectiveClosedAt).slice(0, 7) !== month) continue;
             const current = realizedMap.get(canonicalOpId) || 0;
             realizedMap.set(canonicalOpId, current + Number(deal.value || 0));
+          }
+
+          const winStageIdsSet = new Set(winStageIdsArray);
+          const openPortfolioValueMap = new Map<string, number>();
+          const openPortfolioCountMap = new Map<string, number>();
+          for (const deal of openDeals) {
+            if (deal.stageId && winStageIdsSet.has(deal.stageId)) continue;
+            const canonicalOpId = aliasResolution.resolve(deal.operatorId) || deal.operatorId;
+            if (!canonicalOpId) continue;
+            openPortfolioValueMap.set(
+              canonicalOpId,
+              (openPortfolioValueMap.get(canonicalOpId) || 0) + Number(deal.value || 0),
+            );
+            openPortfolioCountMap.set(
+              canonicalOpId,
+              (openPortfolioCountMap.get(canonicalOpId) || 0) + 1,
+            );
           }
 
           // 5. Cálculo dos dias úteis
@@ -184,11 +213,13 @@ export const Route = createFileRoute("/api/commercial/goals")({
             businessDays += 1;
             if (isPastMonth) {
               elapsedDays += 1;
-            } else if (isCurrentMonth && dateStr <= today) {
+            } else if (isCurrentMonth && dateStr < today) {
               elapsedDays += 1;
             }
           }
           const remainingDays = Math.max(0, businessDays - elapsedDays);
+          const effectiveRemainingDays =
+            remainingDays > 0 ? remainingDays : isCurrentMonth ? 1 : businessDays;
 
           // 6. Estruturação dos dados por consultor
           const consultants = operatorRows.map((op) => {
@@ -196,6 +227,8 @@ export const Route = createFileRoute("/api/commercial/goals")({
             const targetValue = Number(goal?.targetValue || 0);
             const conversionRate = Number(goal?.conversionRate ?? 10);
             const realizedValue = realizedMap.get(op.operatorId) || 0;
+            const openPortfolioValue = openPortfolioValueMap.get(op.operatorId) || 0;
+            const openPortfolioCount = openPortfolioCountMap.get(op.operatorId) || 0;
             const dailyTarget = businessDays > 0 ? targetValue / businessDays : 0;
             const attainment = roundPercent(
               targetValue > 0 ? (realizedValue / targetValue) * 100 : 0,
@@ -212,6 +245,8 @@ export const Route = createFileRoute("/api/commercial/goals")({
               activeOnTv: op.activeOnTv ?? true,
               targetValue,
               conversionRate,
+              openPortfolioValue,
+              openPortfolioCount,
               dailyTarget,
               realizedValue,
               attainment,
@@ -223,13 +258,22 @@ export const Route = createFileRoute("/api/commercial/goals")({
           // 7. Totais consolidados
           const totalTarget = consultants.reduce((acc, c) => acc + c.targetValue, 0);
           const totalRealized = consultants.reduce((acc, c) => acc + c.realizedValue, 0);
+          const totalOpenPortfolioValue = consultants.reduce(
+            (acc, c) => acc + c.openPortfolioValue,
+            0,
+          );
+          const totalOpenPortfolioCount = consultants.reduce(
+            (acc, c) => acc + c.openPortfolioCount,
+            0,
+          );
           const totalGap = Math.max(0, totalTarget - totalRealized);
           const totalAttainment = roundPercent(
             totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0,
             1,
           );
           const consultantsWithGoal = consultants.filter((c) => c.targetValue > 0).length;
-          const dailyRequired = remainingDays > 0 ? totalGap / remainingDays : 0;
+          const dailyRequired =
+            effectiveRemainingDays > 0 ? totalGap / effectiveRemainingDays : 0;
           const totalDailyTarget = businessDays > 0 ? totalTarget / businessDays : 0;
           const validRates = consultants
             .filter((c) => c.targetValue > 0)
@@ -263,6 +307,8 @@ export const Route = createFileRoute("/api/commercial/goals")({
             totals: {
               targetValue: totalTarget,
               realizedValue: totalRealized,
+              totalOpenPortfolioValue,
+              totalOpenPortfolioCount,
               gap: totalGap,
               attainment: totalAttainment,
               consultantsWithGoal,
@@ -287,121 +333,156 @@ export const Route = createFileRoute("/api/commercial/goals")({
         try {
           const body = await request.json();
           const month = typeof body.month === "string" ? body.month : "";
-          const operatorId = typeof body.operatorId === "string" ? body.operatorId.trim() : "";
+          const rawOperatorIds: string[] = Array.isArray(body.operatorIds)
+            ? body.operatorIds
+                .map((id: unknown) => (typeof id === "string" ? id.trim() : ""))
+                .filter(Boolean)
+            : typeof body.operatorId === "string" && body.operatorId.trim()
+              ? [body.operatorId.trim()]
+              : [];
 
-          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !operatorId) {
-            return json({ error: "Mês e consultor são obrigatórios." }, 400);
+          const targetOperatorIds = Array.from(new Set(rawOperatorIds));
+
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || targetOperatorIds.length === 0) {
+            return json({ error: "Mês e pelo menos um consultor são obrigatórios." }, 400);
           }
 
-          const [operator] = await db
-            .select({ id: operators.id, name: operators.name })
-            .from(operators)
-            .where(and(eq(operators.tenantId, tenantId), eq(operators.id, operatorId)))
-            .limit(1);
-          if (!operator) return json({ error: "Operador não encontrado neste tenant." }, 404);
-
-          // Buscar meta existente se houver para suportar edição inline parcial
-          const [existingGoal] = await db
-            .select()
-            .from(commercialGoals)
-            .where(
-              and(
-                eq(commercialGoals.tenantId, tenantId),
-                eq(commercialGoals.month, month),
-                eq(commercialGoals.operatorId, operatorId),
-              ),
-            )
-            .limit(1);
-
-          const targetValue =
-            body.targetValue !== undefined && body.targetValue !== null && body.targetValue !== ""
-              ? Number(body.targetValue)
-              : existingGoal
-                ? Number(existingGoal.targetValue)
-                : 0;
-
-          const conversionRate =
+          const hasTargetInput =
+            body.targetValue !== undefined && body.targetValue !== null && body.targetValue !== "";
+          const hasRateInput =
             body.conversionRate !== undefined &&
             body.conversionRate !== null &&
-            body.conversionRate !== ""
-              ? Number(body.conversionRate)
-              : existingGoal
-                ? Number(existingGoal.conversionRate)
-                : 10;
+            body.conversionRate !== "";
+
+          const parsedTargetInput = hasTargetInput ? Number(body.targetValue) : null;
+          const parsedRateInput = hasRateInput ? Number(body.conversionRate) : null;
 
           if (
-            !Number.isFinite(targetValue) ||
-            targetValue < 0 ||
-            targetValue > 999_999_999_999 ||
-            !Number.isFinite(conversionRate) ||
-            conversionRate < 0 ||
-            conversionRate > 100
+            (parsedTargetInput !== null &&
+              (!Number.isFinite(parsedTargetInput) ||
+                parsedTargetInput < 0 ||
+                parsedTargetInput > 999_999_999_999)) ||
+            (parsedRateInput !== null &&
+              (!Number.isFinite(parsedRateInput) ||
+                parsedRateInput < 0 ||
+                parsedRateInput > 100))
           ) {
             return json({ error: "Meta ou conversão inválidos." }, 400);
           }
 
-          // Validar que o operador é um consultor cadastrado na aba Consultores
-          const [profile] = await db
-            .select({ division: commercialConsultantProfiles.division })
-            .from(commercialConsultantProfiles)
-            .where(
-              and(
-                eq(commercialConsultantProfiles.tenantId, tenantId),
-                eq(commercialConsultantProfiles.operatorId, operatorId),
+          const [validOperators, existingProfiles, existingGoals] = await Promise.all([
+            db
+              .select({ id: operators.id, name: operators.name })
+              .from(operators)
+              .where(
+                and(eq(operators.tenantId, tenantId), inArray(operators.id, targetOperatorIds)),
               ),
-            )
-            .limit(1);
-
-          if (!profile || !profile.division) {
-            return json(
-              {
-                error:
-                  "Este operador não está cadastrado como consultor comercial. Cadastre-o primeiro na aba Consultores atribuindo uma equipe.",
-                code: "CONSULTANT_NOT_REGISTERED",
-              },
-              400,
-            );
-          }
-
-          if (body.division && body.division !== profile.division) {
-            if (!["personnalite", "maquinas"].includes(body.division)) {
-              return json(
-                { error: "Divisão inválida. Escolha 'personnalite' ou 'maquinas'." },
-                400,
-              );
-            }
-            await db
-              .update(commercialConsultantProfiles)
-              .set({ division: body.division, updatedAt: new Date() })
+            db
+              .select({
+                operatorId: commercialConsultantProfiles.operatorId,
+                division: commercialConsultantProfiles.division,
+              })
+              .from(commercialConsultantProfiles)
               .where(
                 and(
                   eq(commercialConsultantProfiles.tenantId, tenantId),
-                  eq(commercialConsultantProfiles.operatorId, operatorId),
+                  inArray(commercialConsultantProfiles.operatorId, targetOperatorIds),
                 ),
-              );
+              ),
+            db
+              .select()
+              .from(commercialGoals)
+              .where(
+                and(
+                  eq(commercialGoals.tenantId, tenantId),
+                  eq(commercialGoals.month, month),
+                  inArray(commercialGoals.operatorId, targetOperatorIds),
+                ),
+              ),
+          ]);
+
+          if (validOperators.length !== targetOperatorIds.length) {
+            return json({ error: "Operador não encontrado neste tenant." }, 404);
           }
 
-          const [goal] = await db
-            .insert(commercialGoals)
-            .values({
-              id: crypto.randomUUID(),
-              tenantId,
-              month,
-              operatorId,
-              targetValue: targetValue.toFixed(2),
-              conversionRate: conversionRate.toFixed(2),
-              createdByOperatorId: session.operator.id,
-            })
-            .onConflictDoUpdate({
-              target: [commercialGoals.tenantId, commercialGoals.month, commercialGoals.operatorId],
-              set: {
+          const profileMap = new Map(existingProfiles.map((p) => [p.operatorId, p.division]));
+          for (const opId of targetOperatorIds) {
+            if (!profileMap.get(opId)) {
+              return json(
+                {
+                  error:
+                    "Este operador não está cadastrado como consultor comercial. Cadastre-o primeiro na aba Consultores atribuindo uma equipe.",
+                  code: "CONSULTANT_NOT_REGISTERED",
+                },
+                400,
+              );
+            }
+          }
+
+          const existingGoalMap = new Map(existingGoals.map((g) => [g.operatorId, g]));
+          const savedGoals = [];
+
+          for (const opId of targetOperatorIds) {
+            const existingGoal = existingGoalMap.get(opId);
+            const targetValue =
+              parsedTargetInput !== null
+                ? parsedTargetInput
+                : existingGoal
+                  ? Number(existingGoal.targetValue)
+                  : 0;
+            const conversionRate =
+              parsedRateInput !== null
+                ? parsedRateInput
+                : existingGoal
+                  ? Number(existingGoal.conversionRate)
+                  : 10;
+
+            if (body.division && body.division !== profileMap.get(opId)) {
+              if (!["personnalite", "maquinas"].includes(body.division)) {
+                return json(
+                  { error: "Divisão inválida. Escolha 'personnalite' ou 'maquinas'." },
+                  400,
+                );
+              }
+              await db
+                .update(commercialConsultantProfiles)
+                .set({ division: body.division, updatedAt: new Date() })
+                .where(
+                  and(
+                    eq(commercialConsultantProfiles.tenantId, tenantId),
+                    eq(commercialConsultantProfiles.operatorId, opId),
+                  ),
+                );
+            }
+
+            const [goal] = await db
+              .insert(commercialGoals)
+              .values({
+                id: crypto.randomUUID(),
+                tenantId,
+                month,
+                operatorId: opId,
                 targetValue: targetValue.toFixed(2),
                 conversionRate: conversionRate.toFixed(2),
-                updatedAt: new Date(),
-              },
-            })
-            .returning();
-          return json({ goal });
+                createdByOperatorId: session.operator.id,
+              })
+              .onConflictDoUpdate({
+                target: [
+                  commercialGoals.tenantId,
+                  commercialGoals.month,
+                  commercialGoals.operatorId,
+                ],
+                set: {
+                  targetValue: targetValue.toFixed(2),
+                  conversionRate: conversionRate.toFixed(2),
+                  updatedAt: new Date(),
+                },
+              })
+              .returning();
+            savedGoals.push(goal);
+          }
+
+          return json({ goal: savedGoals[0], goals: savedGoals });
         } catch (error) {
           console.error("[commercial/goals] POST:", error);
           return json({ error: "Falha ao salvar meta." }, 500);

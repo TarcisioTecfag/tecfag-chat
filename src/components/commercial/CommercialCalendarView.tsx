@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/dialog";
 import { saoPauloDay } from "@/lib/commercial/metrics";
 import { getDeterministicConsultantAvatar } from "@/lib/commercial/avatar-matcher";
+import { CrmDatePicker } from "@/components/crm/CrmDatePicker";
 import { cn } from "@/lib/utils";
 
 export type CalendarDeal = {
@@ -279,6 +280,30 @@ export function CommercialCalendarView({
     setPickerYear(Number(month.split("-")[0]) || 2026);
   }, [month, loadCalendar]);
 
+  // Sincronização automática em segundo plano (sem necessidade de botão manual)
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadCalendar(month, true);
+      }
+    }, 30_000);
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        void loadCalendar(month, true);
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+    };
+  }, [month, loadCalendar]);
+
   // Se trocar de mês, ajusta a data selecionada para manter consistência
   useEffect(() => {
     if (!selectedDate.startsWith(month)) {
@@ -357,7 +382,8 @@ export function CommercialCalendarView({
   const filteredData = useMemo(() => {
     if (!data) return null;
 
-    const consultants = data.consultants || [];
+    // Mostrar estritamente usuários que são consultores comerciais (com divisão definida)
+    const consultants = (data.consultants || []).filter((c) => Boolean(c.division));
     const goals = data.goals || [];
     const rawClosings = data.closings || [];
     const holidays = data.days || [];
@@ -406,12 +432,13 @@ export function CommercialCalendarView({
 
     // 4. Métricas de Pacing
     const businessDays = data.summary?.businessDays || 22;
-    const elapsedDays = data.summary?.elapsedDays || 5;
-    const remainingDays = Math.max(0, businessDays - elapsedDays);
+    const elapsedDays = data.summary?.elapsedDays ?? 0;
+    const remainingDays = data.summary?.remainingDays ?? Math.max(0, businessDays - elapsedDays);
+    const effectiveRemainingDays = remainingDays > 0 ? remainingDays : 1;
 
     const gap = Math.max(0, totalTarget - totalRealized);
     const attainment = totalTarget > 0 ? (totalRealized / totalTarget) * 100 : 0;
-    const dailyRequired = remainingDays > 0 ? gap / remainingDays : 0;
+    const dailyRequired = gap > 0 ? gap / effectiveRemainingDays : 0;
     const linearDailyTarget = businessDays > 0 ? totalTarget / businessDays : 0;
     const runRate = elapsedDays > 0 ? (totalRealized / elapsedDays) * businessDays : totalRealized;
 
@@ -575,8 +602,12 @@ export function CommercialCalendarView({
 
   const selectedConsultantObj = useMemo(() => {
     if (selectedConsultantId === "all") return null;
-    return data?.consultants.find((c) => c.operatorId === selectedConsultantId) || null;
-  }, [selectedConsultantId, data]);
+    return (
+      filteredData?.consultants.find((c) => c.operatorId === selectedConsultantId) ||
+      (data?.consultants || []).find((c) => Boolean(c.division) && c.operatorId === selectedConsultantId) ||
+      null
+    );
+  }, [selectedConsultantId, filteredData, data]);
 
   const currentTodayNumber = month === todayStr.slice(0, 7) ? Number(todayStr.split("-")[2]) : null;
 
@@ -817,7 +848,7 @@ export function CommercialCalendarView({
                   <span>Todos os Consultores</span>
                   {selectedConsultantId === "all" && <Check className="h-3.5 w-3.5" />}
                 </button>
-                {data?.consultants.map((c) => {
+                {(filteredData?.consultants || []).map((c) => {
                   const isSel = selectedConsultantId === c.operatorId;
                   const cAvatar = c.avatar || getDeterministicConsultantAvatar(c.name);
                   return (
@@ -861,17 +892,6 @@ export function CommercialCalendarView({
             </PopoverContent>
           </Popover>
         </div>
-
-        {/* Botão Sincronizar */}
-        <button
-          type="button"
-          onClick={() => void loadCalendar(month, true)}
-          disabled={syncing || loading}
-          className="flex items-center gap-1.5 rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900 px-3 py-1.5 text-xs font-mono font-bold text-foreground hover:bg-muted/40 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", (syncing || loading) && "animate-spin text-primary")} />
-          <span>Sincronizar</span>
-        </button>
       </div>
 
       {/* ──────────────────────────────────────────────────────────── */}
@@ -1316,7 +1336,7 @@ export function CommercialCalendarView({
             </div>
           </div>
 
-          {/* Rodapé da Coluna Direita: Ações de Feriados e Recálculo */}
+          {/* Rodapé da Coluna Direita: Ações de Feriados */}
           <div className="mt-5 flex items-center justify-between border-t border-border/80 dark:border-zinc-800 pt-3 text-xs font-mono">
             <button
               type="button"
@@ -1329,11 +1349,11 @@ export function CommercialCalendarView({
 
             <button
               type="button"
-              onClick={() => void loadCalendar(month, true)}
+              onClick={() => setAddHolidayOpen(true)}
               className="flex items-center gap-1.5 font-bold text-primary hover:underline transition-colors cursor-pointer"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-              <span>Recalcular dias</span>
+              <Plus className="h-3.5 w-3.5" />
+              <span>Adicionar feriado</span>
             </button>
           </div>
         </div>
@@ -1484,12 +1504,12 @@ export function CommercialCalendarView({
               <label className="text-[10px] font-mono font-bold uppercase tracking-[.14em] text-muted-foreground dark:text-zinc-400 block mb-1.5">
                 Data do Ajuste
               </label>
-              <input
-                type="date"
-                required
+              <CrmDatePicker
                 value={holidayForm.date}
-                onChange={(e) => setHolidayForm((f) => ({ ...f, date: e.target.value }))}
-                className="w-full rounded-[4px] border border-border/80 dark:border-zinc-800 bg-background dark:bg-zinc-900/80 px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
+                onChange={(val) => setHolidayForm((f) => ({ ...f, date: val || todayStr }))}
+                placeholder="Selecionar data do feriado..."
+                tooltipText="Selecionar data do feriado ou ajuste"
+                className="w-full"
               />
             </div>
 

@@ -456,6 +456,34 @@ export function CommercialManagementView() {
             />
           )}
         </div>
+      ) : tab === "consultants" ? (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-4 sm:p-5 gap-3">
+          {error && (
+            <p
+              role="alert"
+              className="shrink-0 rounded-[4px] border border-red-300 bg-red-50 p-3 text-xs font-mono text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+            >
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p
+              role="status"
+              className="shrink-0 rounded-[4px] border border-emerald-300 bg-emerald-50 p-3 text-xs font-mono text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+            >
+              {notice}
+            </p>
+          )}
+          <CommercialConsultantsView
+            consultants={consultants}
+            loading={loading}
+            onRefresh={load}
+            onSelectProfile={(opId) => {
+              setActiveProfileOperatorId(opId);
+              setTab("profiles");
+            }}
+          />
+        </div>
       ) : (
         <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
           <div className="w-full space-y-6">
@@ -481,18 +509,6 @@ export function CommercialManagementView() {
               </div>
             ) : (
               <>
-                {tab === "consultants" && (
-                  <CommercialConsultantsView
-                    consultants={consultants}
-                    loading={loading}
-                    onRefresh={load}
-                    onSelectProfile={(opId) => {
-                      setActiveProfileOperatorId(opId);
-                      setTab("profiles");
-                    }}
-                  />
-                )}
-
                 {tab === "goals" && <CommercialGoalsView initialMonth={month} />}
 
               {tab === "calendar" && <CommercialCalendarView initialMonth={month} />}
