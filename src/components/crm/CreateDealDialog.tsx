@@ -478,19 +478,9 @@ export function CreateDealDialog({
         setRating(3);
         setDealCustomFields({});
         setAccountCustomFields({});
-        if (!defaultContactId) {
-          setSelectedContacts([]);
-          setIsAddingMoreContact(false);
-          setContactQuery("");
-          setSelectedAccount(null);
-          setHasAccount(false);
-          setIsCreatingNewAccount(false);
-          setAccountName("");
-          setAccountDocument("");
-          setAccountTradeName("");
-          setAccountPhone("");
-          setAccountEmail("");
-        }
+        setIsAddingMoreContact(false);
+        setContactQuery("");
+        setIsCreatingNewAccount(false);
       } else {
         onClose();
       }

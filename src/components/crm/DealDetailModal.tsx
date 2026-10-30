@@ -2417,10 +2417,16 @@ export function DealDetailModal({
       // Ignorar evento de auditoria se for criação de nota comercial (já é exibido com o card de anotação da atividade)
       if (evt.eventType === "note_created") return;
       if (evt.eventType === "conversation_action" && deal.activities?.some((activity: any) => activity.id === `chat-${evt.metadata?.messageId}` || activity.id === `brief-${evt.metadata?.messageId}`)) return;
+      const rawActionType = String(
+        evt.metadata?.attendanceEventType || evt.metadata?.actionType || ""
+      ).trim();
       if (
         evt.eventType === "conversation_action" &&
-        (evt.metadata?.actionType === "attendance.context_selected" ||
-          evt.metadata?.attendanceEventType === "attendance.context_selected")
+        (rawActionType === "attendance.context_selected" ||
+          rawActionType === "message.sending" ||
+          rawActionType === "message.accepted" ||
+          rawActionType === "message.delivered" ||
+          rawActionType === "message.read")
       ) {
         return;
       }
@@ -2494,6 +2500,8 @@ export function DealDetailModal({
 
       const isConvEvent =
         String(evt.eventType || "").includes("conversation") || Boolean(evt.metadata?.conversationId);
+      const isWindow24h =
+        evt.eventType === "conversation_action" && rawActionType === "conversation.window_24h";
 
       items.push({
         id: `evt-${evt.id}`,
@@ -2508,6 +2516,17 @@ export function DealDetailModal({
           ? "bg-primary/10 text-primary border border-primary/20"
           : "bg-muted text-muted-foreground",
         source: isConvEvent ? "conversas" : "crm",
+        conversationWindow24h: isWindow24h
+          ? {
+              conversationId: evt.metadata?.conversationId || null,
+              messagesCount: Number(evt.metadata?.messagesCount || 1),
+              mediaCount: Number(evt.metadata?.mediaCount || 0),
+              windowStartAt: evt.metadata?.windowStartAt || null,
+              windowEndAt: evt.metadata?.windowEndAt || evt.createdAt,
+              lastMessagePreview: evt.metadata?.lastMessagePreview || description || null,
+              actors: Array.isArray(evt.metadata?.actors) ? evt.metadata.actors : [],
+            }
+          : null,
       });
     });
 
@@ -3798,6 +3817,12 @@ export function DealDetailModal({
                     <ContactDealsList
                       deals={deal?.contactDeals || []}
                       currentDealId={deal?.id || dealId || ""}
+                      contactName={
+                        deal?.contacts?.[0]?.contact?.name ||
+                        deal?.contacts?.[0]?.name ||
+                        undefined
+                      }
+                      onOpenDeal={onOpenDeal}
                     />
                   </div>
                 )}
@@ -6552,8 +6577,48 @@ export function DealDetailModal({
                                   {item.marketingEvent.deals.map((link: { id: string; title: string })=><a key={link.id} href={`/crm/deals/${encodeURIComponent(link.id)}`} className="block text-xs font-semibold text-primary">{link.id === dealId ? "Esta negociação" : "Abrir negociação"}: {link.title}</a>)}
                                   <details className="text-xs"><summary className="cursor-pointer text-primary">Detalhes da conversão/evento</summary><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] mt-2">{JSON.stringify(item.marketingEvent.webhookRaw ? { evento: item.marketingEvent.raw, avisoRecebido: item.marketingEvent.webhookRaw } : item.marketingEvent.raw, null, 2)}</pre></details>
                                 </div>}
-                                {item.description && (
-                                  item.isNote ? (
+                                {item.conversationWindow24h ? (
+                                  <div className="mt-2.5 ml-9 rounded-lg border border-border/80 bg-muted/20 p-3 space-y-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                                          <MessageSquare className="h-3 w-3" />
+                                          {item.conversationWindow24h.messagesCount}{" "}
+                                          {item.conversationWindow24h.messagesCount === 1
+                                            ? "mensagem no ciclo de 24h"
+                                            : "mensagens no ciclo de 24h"}
+                                        </span>
+                                        {item.conversationWindow24h.mediaCount > 0 && (
+                                          <span className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                                            <Paperclip className="h-3 w-3" />
+                                            {item.conversationWindow24h.mediaCount}{" "}
+                                            {item.conversationWindow24h.mediaCount === 1
+                                              ? "mídia enviada"
+                                              : "mídias enviadas"}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setActiveTab("chat")}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                                      >
+                                        <span>Abrir na aba Conversas</span>
+                                        <ExternalLink className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                    {item.conversationWindow24h.lastMessagePreview && (
+                                      <p className="text-xs text-muted-foreground leading-relaxed break-words">
+                                        <span className="font-semibold text-foreground/80">
+                                          Última mensagem:{" "}
+                                        </span>
+                                        {item.conversationWindow24h.lastMessagePreview}
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  item.description &&
+                                  (item.isNote ? (
                                     <div className="mt-3 rounded-sm border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed font-normal break-words shadow-2xs">
                                       {renderMarkdownContent(item.description)}
                                     </div>
@@ -6561,7 +6626,7 @@ export function DealDetailModal({
                                     <div className="mt-2 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pl-9 break-words">
                                       {renderCrmMediaOrTextContent(item.description)}
                                     </div>
-                                  )
+                                  ))
                                 )}
                               </div>
                             </div>

@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SystemTooltip } from "@/components/ui/tooltip";
+import { SystemTooltip, TooltipProvider } from "@/components/ui/tooltip";
 import type { RdJourney, RelatedDeal } from "@/lib/rd-marketing/journey-types";
 import type { RdEventPage } from "@/lib/rd-marketing/api-types";
 import { DealStatusBadge } from "./deal-status-config";
@@ -16,10 +16,12 @@ export function ContactDealsList({
   deals,
   currentDealId,
   contactName,
+  onOpenDeal,
 }: {
   deals: RelatedDeal[];
   currentDealId: string;
   contactName?: string;
+  onOpenDeal?: (dealId: string) => void;
 }) {
   if (!deals.length) {
     return (
@@ -36,10 +38,11 @@ export function ContactDealsList({
   }
 
   return (
-    <section
-      aria-label="Negociações vinculadas ao contato"
-      className="rounded-xl border border-border bg-card p-3 sm:p-4 space-y-3"
-    >
+    <TooltipProvider delayDuration={150}>
+      <section
+        aria-label="Negociações vinculadas ao contato"
+        className="rounded-xl border border-border bg-card p-3 sm:p-4 space-y-3"
+      >
       <div className="flex items-center gap-2">
         <BriefcaseBusiness className="h-4 w-4 text-primary shrink-0" />
         <h3 className="text-sm font-semibold text-foreground">Negociações deste contato</h3>
@@ -55,7 +58,7 @@ export function ContactDealsList({
         ) : null}
         As negociações em andamento aparecem primeiro, seguidas pelo histórico.
       </p>
-      <div className="grid gap-3 md:grid-cols-2 max-h-[420px] overflow-y-auto pr-1">
+      <div className="grid gap-3 md:grid-cols-2">
         {sortContactDeals(deals).map((deal) => {
           const current = deal.id === currentDealId;
           let value = "Valor não informado";
@@ -81,6 +84,12 @@ export function ContactDealsList({
               <a
                 href={`/crm/deals/${encodeURIComponent(deal.id)}`}
                 aria-current={current ? "page" : undefined}
+                onClick={(e) => {
+                  if (onOpenDeal && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                    e.preventDefault();
+                    if (!current) onOpenDeal(deal.id);
+                  }
+                }}
                 className={`group min-w-0 rounded-lg border p-3 space-y-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   current ? "border-primary/30 bg-primary/5" : "border-border bg-background"
                 }`}
@@ -131,7 +140,8 @@ export function ContactDealsList({
           );
         })}
       </div>
-    </section>
+      </section>
+    </TooltipProvider>
   );
 }
 
@@ -161,6 +171,7 @@ export function RdMarketingJourneyControls({
   journey,
 }: Props) {
   return (
+    <TooltipProvider delayDuration={150}>
     <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-xs font-bold">Jornada RD Marketing do contato</span>
@@ -251,5 +262,6 @@ export function RdMarketingJourneyControls({
         </>
       )}
     </div>
+    </TooltipProvider>
   );
 }

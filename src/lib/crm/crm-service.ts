@@ -464,11 +464,30 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
   if (typeof filters.contactId === "string" && filters.contactId.trim()) {
     const targetContactId = filters.contactId.trim();
     conditions.push(
-      sql`EXISTS (
-        SELECT 1 FROM crm_deal_contacts dc
-        WHERE dc.deal_id = ${crmDeals.id}
-          AND dc.tenant_id = ${tenantId}
-          AND dc.contact_id = ${targetContactId}
+      sql`(
+        EXISTS (
+          SELECT 1 FROM crm_deal_contacts dc
+          WHERE dc.deal_id = ${crmDeals.id}
+            AND dc.tenant_id = ${tenantId}
+            AND dc.contact_id = ${targetContactId}
+        )
+        OR EXISTS (
+          SELECT 1 FROM crm_conversation_deals cd
+          JOIN conversations conv
+            ON conv.id = cd.conversation_id
+           AND conv.tenant_id = cd.tenant_id
+          WHERE cd.deal_id = ${crmDeals.id}
+            AND cd.tenant_id = ${tenantId}
+            AND cd.is_active = true
+            AND conv.contact_id = ${targetContactId}
+        )
+        OR EXISTS (
+          SELECT 1 FROM contacts ct
+          WHERE ct.id = ${targetContactId}
+            AND ct.tenant_id = ${tenantId}
+            AND ct.account_id IS NOT NULL
+            AND ct.account_id = ${crmDeals.accountId}
+        )
       )`
     );
   }
@@ -1754,6 +1773,19 @@ export class CrmService {
           .update(contacts)
           .set({ accountId: newAccountId })
           .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+
+        if (newAccountId) {
+          const accountDeals = await tx
+            .select({ id: crmDeals.id })
+            .from(crmDeals)
+            .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.accountId, newAccountId)));
+          for (const accDeal of accountDeals) {
+            await linkContactToDeal(tx, tenantId, accDeal.id, contactId, {
+              role: "participant",
+              operatorId,
+            });
+          }
+        }
       }
 
       return { contactId, accountId: newAccountId };
@@ -3007,8 +3039,8 @@ export class CrmService {
       account = acc || null;
     }
 
-    // Contatos participantes
-    const dealContactsRaw = await db
+    // Contatos participantes (sincroniza automaticamente contatos da empresa quando a negociação tem accountId mas ainda não tem participantes diretos)
+    let dealContactsRaw = await db
       .select({
         dealContact: crmDealContacts,
         contact: contacts,
@@ -3022,6 +3054,28 @@ export class CrmService {
           eq(crmDealContacts.dealId, dealId)
         )
       );
+
+    if (dealContactsRaw.length === 0 && deal.accountId) {
+      try {
+        await syncAccountDealContacts(db, tenantId, dealId, deal.accountId, deal.operatorId);
+        dealContactsRaw = await db
+          .select({
+            dealContact: crmDealContacts,
+            contact: contacts,
+          })
+          .from(crmDealContacts)
+          .innerJoin(contacts, and(eq(crmDealContacts.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
+          .where(
+            and(
+              eq(crmDealContacts.tenantId, tenantId),
+              eq(contacts.tenantId, tenantId),
+              eq(crmDealContacts.dealId, dealId)
+            )
+          );
+      } catch {
+        // Ignora em mocks parciais
+      }
+    }
 
     const mappedContacts = dealContactsRaw.map((r) => ({
       ...r.dealContact,
@@ -3227,7 +3281,14 @@ export class CrmService {
           .orderBy(desc(attendanceEvents.createdAt));
 
         const existingEventIds = new Set(rawEvents.map((e) => e.id));
+        const ignoredTransientStatusTypes = new Set([
+          "message.sending",
+          "message.accepted",
+          "message.delivered",
+          "message.read",
+        ]);
         for (const attEv of convAttendanceEvents) {
+          if (ignoredTransientStatusTypes.has(attEv.eventType)) continue;
           const projectedId = `attendance-${attEv.id}`;
           if (existingEventIds.has(projectedId)) continue;
 
@@ -3268,7 +3329,7 @@ export class CrmService {
       }
     }
 
-    // Enriquece eventos de mensagem do atendimento com o conteúdo integral da mensagem (para renderizar preview real de imagem, áudio, vídeo e documentos)
+    // Enriquece eventos de mensagem do atendimento com o conteúdo integral da mensagem (apenas para message.created / notas)
     const msgContentById = new Map<string, string>();
     try {
       const eventMessageIds = Array.from(
@@ -3295,8 +3356,20 @@ export class CrmService {
     }
 
     const seenCompletedActivityKeys = new Set<string>();
-    const filteredEvents = rawEvents.filter((ev) => {
+    const transientMessageStatusEvents = new Set([
+      "message.sending",
+      "message.accepted",
+      "message.delivered",
+      "message.read",
+    ]);
+    const preFilteredEvents = rawEvents.filter((ev) => {
       const meta = (ev.metadata && typeof ev.metadata === "object" ? ev.metadata : {}) as Record<string, any>;
+      if (ev.eventType === "conversation_action") {
+        const actionType = String(meta.attendanceEventType || meta.actionType || "").trim();
+        if (transientMessageStatusEvents.has(actionType)) {
+          return false;
+        }
+      }
       const actKey = String(meta.activityId || meta.activityTitle || "").trim();
       if (ev.eventType === "activity_completed" && actKey) {
         if (seenCompletedActivityKeys.has(actKey)) {
@@ -3314,6 +3387,168 @@ export class CrmService {
       }
       return true;
     });
+
+    // Consolida eventos de mensagens ("message.created" / "conversation.window_24h") em janelas de 24 horas
+    // por conversa para evitar poluir o Histórico da negociação mensagem por mensagem ou repetir mídias.
+    const WINDOW_24H_MS = 24 * 60 * 60 * 1000;
+    const messageEventsByConv = new Map<string, typeof preFilteredEvents>();
+    const nonMessageEvents: typeof preFilteredEvents = [];
+
+    for (const ev of preFilteredEvents) {
+      const meta = (ev.metadata && typeof ev.metadata === "object" ? ev.metadata : {}) as Record<string, any>;
+      const actionType = String(meta.attendanceEventType || meta.actionType || "").trim();
+      if (
+        ev.eventType === "conversation_action" &&
+        (actionType === "message.created" || actionType === "conversation.window_24h")
+      ) {
+        const convKey = String(meta.conversationId || "default");
+        const list = messageEventsByConv.get(convKey) || [];
+        list.push(ev);
+        messageEventsByConv.set(convKey, list);
+      } else {
+        nonMessageEvents.push(ev);
+      }
+    }
+
+    const consolidatedMessageWindows: typeof preFilteredEvents = [];
+    for (const [convKey, convMsgEvents] of messageEventsByConv.entries()) {
+      const sortedAsc = [...convMsgEvents].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      let currentBucket: {
+        baseEvent: (typeof preFilteredEvents)[number];
+        windowStartMs: number;
+        windowEndMs: number;
+        seenMessageKeys: Set<string>;
+        messagesCount: number;
+        outboundCount: number;
+        mediaCount: number;
+        actors: Set<string>;
+        lastMessagePreview: string;
+        lastActorName: string | null;
+        lastOperatorId: string | null;
+      } | null = null;
+
+      const extractCleanMessagePreview = (evItem: (typeof preFilteredEvents)[number]): { preview: string; isMedia: boolean; countDelta: number; mediaDelta: number } => {
+        const m = (evItem.metadata && typeof evItem.metadata === "object" ? evItem.metadata : {}) as Record<string, any>;
+        const aType = String(m.attendanceEventType || m.actionType || "").trim();
+        if (aType === "conversation.window_24h" && typeof m.messagesCount === "number") {
+          return {
+            preview: String(m.lastMessagePreview || m.description || "Interação registrada no atendimento").trim(),
+            isMedia: Number(m.mediaCount || 0) > 0,
+            countDelta: Math.max(1, Number(m.messagesCount || 1)),
+            mediaDelta: Math.max(0, Number(m.mediaCount || 0)),
+          };
+        }
+        const rawFull =
+          (typeof m.messageId === "string" && msgContentById.get(m.messageId)) ||
+          String(m.description || "");
+        const isMedia =
+          rawFull.includes("[MEDIA:") ||
+          rawFull.includes("[LOCAL_MEDIA:") ||
+          String(m.description || "").includes("[MEDIA:");
+        let cleaned = String(m.description || rawFull)
+          .replace(/^.*?(enviou uma mensagem|registrou uma mensagem \([^)]+\)):\s*/i, "")
+          .replace(/\[(?:LOCAL_)?MEDIA:[a-zA-Z]+\][^\n]*\n?/gi, "")
+          .trim();
+        if (!cleaned) {
+          cleaned = isMedia ? "[Mídia enviada]" : "Mensagem enviada";
+        } else if (isMedia) {
+          cleaned = `[Mídia] ${cleaned}`;
+        }
+        return {
+          preview: cleaned.slice(0, 240),
+          isMedia,
+          countDelta: 1,
+          mediaDelta: isMedia ? 1 : 0,
+        };
+      };
+
+      const flushBucket = (bucket: NonNullable<typeof currentBucket>) => {
+        const baseMeta =
+          bucket.baseEvent.metadata && typeof bucket.baseEvent.metadata === "object"
+            ? { ...(bucket.baseEvent.metadata as Record<string, any>) }
+            : {};
+        delete baseMeta.messageId;
+        delete baseMeta.fullMessageContent;
+        const actorsList = Array.from(bucket.actors).filter(Boolean);
+        const summaryDesc = `Interação consolidada (janela de 24h): ${bucket.messagesCount} ${
+          bucket.messagesCount === 1 ? "mensagem registrada" : "mensagens registradas"
+        }${
+          bucket.mediaCount > 0
+            ? ` · ${bucket.mediaCount} ${bucket.mediaCount === 1 ? "mídia" : "mídias"}`
+            : ""
+        }. Última: ${bucket.lastMessagePreview}`;
+
+        consolidatedMessageWindows.push({
+          ...bucket.baseEvent,
+          operatorId: bucket.lastOperatorId || bucket.baseEvent.operatorId,
+          createdAt: new Date(bucket.windowEndMs),
+          metadata: {
+            ...baseMeta,
+            conversationId: convKey === "default" ? baseMeta.conversationId : convKey,
+            actionType: "conversation.window_24h",
+            attendanceEventType: "conversation.window_24h",
+            actorName: bucket.lastActorName || baseMeta.actorName || actorsList[0] || "Atendimento",
+            actors: actorsList,
+            messagesCount: bucket.messagesCount,
+            outboundCount: bucket.outboundCount,
+            mediaCount: bucket.mediaCount,
+            windowStartAt: new Date(bucket.windowStartMs).toISOString(),
+            windowEndAt: new Date(bucket.windowEndMs).toISOString(),
+            lastMessagePreview: bucket.lastMessagePreview,
+            description: summaryDesc,
+          },
+        });
+      };
+
+      for (const evItem of sortedAsc) {
+        const m = (evItem.metadata && typeof evItem.metadata === "object" ? evItem.metadata : {}) as Record<string, any>;
+        const ts = new Date(evItem.createdAt).getTime();
+        const msgKey = String(m.messageId || m.attendanceEventId || evItem.id);
+        const { preview, countDelta, mediaDelta } = extractCleanMessagePreview(evItem);
+        const actor = String(m.actorName || "").trim();
+
+        if (!currentBucket || ts - currentBucket.windowStartMs > WINDOW_24H_MS) {
+          if (currentBucket) flushBucket(currentBucket);
+          currentBucket = {
+            baseEvent: evItem,
+            windowStartMs: m.windowStartAt ? Math.min(ts, new Date(m.windowStartAt).getTime() || ts) : ts,
+            windowEndMs: m.windowEndAt ? Math.max(ts, new Date(m.windowEndAt).getTime() || ts) : ts,
+            seenMessageKeys: new Set([msgKey]),
+            messagesCount: countDelta,
+            outboundCount: countDelta,
+            mediaCount: mediaDelta,
+            actors: new Set(actor ? [actor] : []),
+            lastMessagePreview: preview,
+            lastActorName: actor || null,
+            lastOperatorId: evItem.operatorId || null,
+          };
+        } else {
+          if (!currentBucket.seenMessageKeys.has(msgKey)) {
+            currentBucket.seenMessageKeys.add(msgKey);
+            currentBucket.messagesCount += countDelta;
+            currentBucket.outboundCount += countDelta;
+            currentBucket.mediaCount += mediaDelta;
+          }
+          currentBucket.windowEndMs = Math.max(currentBucket.windowEndMs, ts);
+          if (actor) {
+            currentBucket.actors.add(actor);
+            currentBucket.lastActorName = actor;
+          }
+          if (evItem.operatorId) {
+            currentBucket.lastOperatorId = evItem.operatorId;
+          }
+          currentBucket.lastMessagePreview = preview;
+          currentBucket.baseEvent = evItem;
+        }
+      }
+      if (currentBucket) flushBucket(currentBucket);
+    }
+
+    const filteredEvents = [...nonMessageEvents, ...consolidatedMessageWindows].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
 
     const tenantOpsMap = new Map<string, { name: string; avatar: string | null }>();
     try {
@@ -3434,9 +3669,17 @@ export class CrmService {
     let contactDeals: any[] = [];
     let savedRdJourneyContactIds: string[] = [];
     try {
-      const participantIds = Array.from(
-        new Set(mappedContacts.map((c) => c.contactId).filter(Boolean))
-      );
+      const participantIdsSet = new Set(mappedContacts.map((c) => c.contactId).filter(Boolean));
+      if (deal.accountId) {
+        const accountContacts = await db
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(and(eq(contacts.tenantId, tenantId), eq(contacts.accountId, deal.accountId)));
+        for (const ac of accountContacts) {
+          if (ac.id) participantIdsSet.add(ac.id);
+        }
+      }
+      const participantIds = Array.from(participantIdsSet);
       if (participantIds.length > 0) {
         const seenDealIds = new Set<string>();
         for (const cId of participantIds) {
@@ -4717,6 +4960,26 @@ export class CrmService {
             { source: "bulk_company_deal", originDealId: deal.id },
             tx
           );
+
+          await syncAccountDealContacts(tx, tenantId, newDealId, deal.accountId, operatorId);
+
+          const originDealContacts = await tx
+            .select({
+              contactId: crmDealContacts.contactId,
+              isPrimary: crmDealContacts.isPrimary,
+              role: crmDealContacts.role,
+            })
+            .from(crmDealContacts)
+            .where(and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.dealId, deal.id)));
+
+          for (const odc of originDealContacts) {
+            await linkContactToDeal(tx, tenantId, newDealId, odc.contactId, {
+              isPrimary: odc.isPrimary,
+              role: odc.role || "participant",
+              operatorId,
+            });
+          }
+
           createdIds.push(newDealId);
         }
 

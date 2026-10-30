@@ -125,6 +125,10 @@ export function formatDealEvent(
       const rawDesc = text(meta.description);
       const cleanDesc = rawDesc
         ? rawDesc
+            .replace(/registrou uma mensagem \([^)]+\):/gi, "enviou uma mensagem:")
+            .replace(/\(pending\)/gi, "(enviada)")
+            .replace(/\(sending\)/gi, "(enviada)")
+            .replace(/\(accepted\)/gi, "(enviada)")
             .replace(/\(sent\)/gi, "(enviada)")
             .replace(/\(delivered\)/gi, "(entregue)")
             .replace(/\(read\)/gi, "(lida)")

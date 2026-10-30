@@ -59,6 +59,7 @@ export const Route = createFileRoute("/api/chats/$conversationId/events")({
             and(
               eq(attendanceEvents.tenantId, tenantId),
               eq(attendanceEvents.conversationId, params.conversationId),
+              sql`${attendanceEvents.eventType} NOT IN ('message.sending', 'message.accepted', 'message.delivered', 'message.read')`,
               cursor
                 ? or(
                     lt(attendanceEvents.createdAt, cursor.at),

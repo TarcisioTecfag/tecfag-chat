@@ -185,6 +185,24 @@ export async function getContactDealRows(
   const contactIds = await resolveRelatedContactIds(reader, tenantId, contactId);
   if (contactIds.length === 0) return [];
 
+  let relatedAccountIds: string[] = [];
+  try {
+    const contactAccounts = await reader
+      .select({ accountId: contacts.accountId })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.tenantId, tenantId),
+          contactIds.length === 1 ? eq(contacts.id, contactIds[0]) : inArray(contacts.id, contactIds),
+        ),
+      );
+    relatedAccountIds = Array.from(
+      new Set(contactAccounts.map((c) => c.accountId).filter((id): id is string => Boolean(id))),
+    );
+  } catch {
+    // Mantém vazio em mocks parciais
+  }
+
   const contactFilter = (column: typeof crmDealContacts.contactId | typeof conversations.contactId) =>
     contactIds.length === 1 ? eq(column, contactIds[0]) : inArray(column, contactIds);
 
@@ -222,6 +240,19 @@ export async function getContactDealRows(
           ),
         ),
     );
+  const accountMatch =
+    relatedAccountIds.length > 0
+      ? relatedAccountIds.length === 1
+        ? eq(crmDeals.accountId, relatedAccountIds[0])
+        : inArray(crmDeals.accountId, relatedAccountIds)
+      : undefined;
+  const isLinkedExpr = accountMatch
+    ? sql<boolean>`(${participant} OR ${conversationLink(true)} OR (${accountMatch} AND NOT ${conversationLink(false)}))`
+    : sql<boolean>`(${participant} OR ${conversationLink(true)})`;
+  const whereMatch = accountMatch
+    ? or(participant, conversationLink(false), accountMatch)
+    : or(participant, conversationLink(false));
+
   const rows = await reader
     .select({
       deal: crmDeals,
@@ -230,7 +261,7 @@ export async function getContactDealRows(
       pipelineName: crmPipelines.name,
       accountName: crmAccounts.name,
       operatorName: operators.name,
-      isLinked: sql<boolean>`(${participant} OR ${conversationLink(true)})`,
+      isLinked: isLinkedExpr,
     })
     .from(crmDeals)
     .leftJoin(crmStages, and(eq(crmStages.tenantId, tenantId), eq(crmStages.id, crmDeals.stageId)))
@@ -246,7 +277,7 @@ export async function getContactDealRows(
       operators,
       and(eq(operators.tenantId, tenantId), eq(operators.id, crmDeals.operatorId)),
     )
-    .where(and(eq(crmDeals.tenantId, tenantId), or(participant, conversationLink(false))))
+    .where(and(eq(crmDeals.tenantId, tenantId), whereMatch))
     .orderBy(
       sql`CASE WHEN ${crmDeals.status} = 'open' THEN 0 ELSE 1 END`,
       desc(crmDeals.createdAt),

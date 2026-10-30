@@ -1430,7 +1430,7 @@ export function ConversationDealsPanel({
         }}
         pipelines={pipelines}
         operators={operators}
-        defaultContactId={contactId}
+        defaultContactId={contactId || contactInfo?.id}
         defaultConversationId={conversationId}
         defaultAccountName={customerName}
         currentOperatorId={currentOperatorId}
