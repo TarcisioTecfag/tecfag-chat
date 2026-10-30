@@ -11,6 +11,7 @@ export interface RodizioOperatorConfig {
   operatorId: string;
   isParticipating: boolean; // default: true
   isOnLeave: boolean; // default: false
+  leaveDate?: string | null; // YYYY-MM-DD (Brasília) — folga válida apenas para o dia
   isPenalized: boolean; // default: false
   leadsReceivedCount: number; // default: 0
   recentLeads: Array<{
@@ -26,14 +27,15 @@ export interface FlowOperator {
   email?: string;
   avatar?: string | null;
   isParticipating: boolean; // Ativo = true, Inativo = false (default: true)
-  isOnLeave: boolean; // Em Folga = true, Normal = false (default: false)
+  isOnLeave: boolean; // Em Folga no dia = true, Normal = false (default: false)
+  leaveDate?: string | null; // YYYY-MM-DD (Brasília) — folga diária sem alterar compensação
   isPenalized?: boolean; // Penalizado = true (default: false)
   area: string; // "maquinas" | "personalite" | "pecas" | "tecnica" | "pos_venda" | "financeiro"
   funnels: string[]; // e.g. ["Máquinas"], ["Personnalité"], etc.
   compensation: number; // Saldo de compensação (+1, +2, 0, etc.)
   crmId?: string; // CRM ID/tag e.g. "Andreia Camargo - 123 (vendas5@tecfag.com.br)"
   departmentTag?: string; // "COMERCIAL", "PÓS-VENDA", "FINANCEIRO", "SUPORTE"
-  roleTag?: string; // "SDR", "VENDEDOR", "CONSULTOR", "TÉCNICO"
+  roleTag?: string; // "CONSULTOR", "VENDEDOR", "TÉCNICO", "PÓS-VENDA", "FINANCEIRO", "SDR"
   talosId?: string; // Talos ID e.g. "67a8540b625a60007f9d712"
   leadsReceivedCount: number; // default: 0
   recentLeads?: Array<{
@@ -42,6 +44,54 @@ export interface FlowOperator {
     receivedAt: string;
   }>;
   addedAt?: string;
+}
+
+export function getBrtTodayYmd(referenceDate: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(referenceDate);
+  const year = parts.find((p) => p.type === "year")?.value || "1970";
+  const month = parts.find((p) => p.type === "month")?.value || "01";
+  const day = parts.find((p) => p.type === "day")?.value || "01";
+  return `${year}-${month}-${day}`;
+}
+
+export function isOperatorOnLeaveToday(
+  op: { isOnLeave?: boolean; leaveDate?: string | null },
+  todayBrt: string = getBrtTodayYmd(),
+): boolean {
+  if (!op.isOnLeave) return false;
+  if (op.leaveDate && op.leaveDate !== todayBrt) return false;
+  return true;
+}
+
+export function getDefaultDepartmentForArea(area?: string): string {
+  switch ((area || "").toLowerCase()) {
+    case "tecnica":
+    case "assistencia_tecnica":
+      return "TÉCNICA";
+    case "pos_venda":
+      return "PÓS-VENDA";
+    case "financeiro":
+      return "FINANCEIRO";
+    default:
+      return "COMERCIAL";
+  }
+}
+
+export function getDefaultRoleTagForArea(area?: string, currentRoleTag?: string): string {
+  const normArea = (area || "").toLowerCase();
+  const normRole = (currentRoleTag || "").trim().toUpperCase();
+  if (normRole && normRole !== "SDR") return normRole;
+  if (normArea === "sdr") return "SDR";
+  if (normArea === "tecnica" || normArea === "assistencia_tecnica") return "TÉCNICO";
+  if (normArea === "pos_venda") return "PÓS-VENDA";
+  if (normArea === "financeiro") return "FINANCEIRO";
+  if (normArea === "pecas") return "VENDEDOR";
+  return "CONSULTOR";
 }
 
 export const FLOW_AREAS = [
@@ -155,10 +205,10 @@ export const DEFAULT_TECFAG_FLOW_OPERATORS: FlowOperator[] = [
     isPenalized: false,
     area: "maquinas",
     funnels: ["Máquinas"],
-    compensation: 1,
+    compensation: 0,
     crmId: "Andreia Camargo - 123 (vendas5@tecfag.com.br)",
     departmentTag: "COMERCIAL",
-    roleTag: "SDR",
+    roleTag: "CONSULTOR",
     talosId: "67a8540b625a60007f9d712",
     leadsReceivedCount: 0,
     recentLeads: [],
@@ -172,10 +222,10 @@ export const DEFAULT_TECFAG_FLOW_OPERATORS: FlowOperator[] = [
     isPenalized: false,
     area: "maquinas",
     funnels: ["Máquinas"],
-    compensation: 1,
+    compensation: 0,
     crmId: "Beatriz Ribeiro - 96 (vendas7@tecfag.com.br)",
     departmentTag: "COMERCIAL",
-    roleTag: "SDR",
+    roleTag: "CONSULTOR",
     talosId: "67aa25f85f215a90087ae1b3",
     leadsReceivedCount: 0,
     recentLeads: [],
@@ -189,10 +239,10 @@ export const DEFAULT_TECFAG_FLOW_OPERATORS: FlowOperator[] = [
     isPenalized: false,
     area: "maquinas",
     funnels: ["Máquinas"],
-    compensation: 2,
+    compensation: 0,
     crmId: "Denise Gomes - 34 (vendas16@tecfag.com.br)",
     departmentTag: "COMERCIAL",
-    roleTag: "SDR",
+    roleTag: "CONSULTOR",
     talosId: "68642f75f72dc700073997dc",
     leadsReceivedCount: 0,
     recentLeads: [],
@@ -206,10 +256,10 @@ export const DEFAULT_TECFAG_FLOW_OPERATORS: FlowOperator[] = [
     isPenalized: false,
     area: "maquinas",
     funnels: ["Máquinas"],
-    compensation: 2,
+    compensation: 0,
     crmId: "Melissa Gomes - 80 (vendas3@tecfag.com.br)",
     departmentTag: "COMERCIAL",
-    roleTag: "SDR",
+    roleTag: "CONSULTOR",
     talosId: "67aa62a1e41d2000079ec9c8",
     leadsReceivedCount: 0,
     recentLeads: [],
@@ -223,10 +273,10 @@ export const DEFAULT_TECFAG_FLOW_OPERATORS: FlowOperator[] = [
     isPenalized: false,
     area: "maquinas",
     funnels: ["Máquinas"],
-    compensation: 1,
+    compensation: 0,
     crmId: "Victor Goes - 95 (vendas12@tecfag.com.br)",
     departmentTag: "COMERCIAL",
-    roleTag: "SDR",
+    roleTag: "CONSULTOR",
     talosId: "67e30d56a511660007613725",
     leadsReceivedCount: 0,
     recentLeads: [],
@@ -243,7 +293,7 @@ export const DEFAULT_TECFAG_FLOW_OPERATORS: FlowOperator[] = [
     compensation: 0,
     crmId: "Diana Gimenes - 93 (vendas14@tecfag.com.br)",
     departmentTag: "COMERCIAL",
-    roleTag: "SDR",
+    roleTag: "CONSULTOR",
     talosId: "681a748952774a000797adac",
     leadsReceivedCount: 0,
     recentLeads: [],
@@ -257,10 +307,10 @@ export const DEFAULT_TECFAG_FLOW_OPERATORS: FlowOperator[] = [
     isPenalized: false,
     area: "personalite",
     funnels: ["Personnalité"],
-    compensation: 1,
+    compensation: 0,
     crmId: "Jhordan Rueda - 102 (vendas4@tecfag.com.br)",
     departmentTag: "COMERCIAL",
-    roleTag: "SDR",
+    roleTag: "CONSULTOR",
     talosId: "67aa6824348cd4000761dc56",
     leadsReceivedCount: 0,
     recentLeads: [],

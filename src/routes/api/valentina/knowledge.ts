@@ -211,7 +211,7 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
 
         try {
           if (tenantId === "tecfag") {
-            await ensureTecfagManualsKnowledgePopulated(tenantId);
+            void ensureTecfagManualsKnowledgePopulated(tenantId).catch(() => {});
           }
 
           let folders = await db
@@ -430,17 +430,19 @@ export const Route = createFileRoute("/api/valentina/knowledge")({
 
             if (
               effectiveFormat === "real" &&
-              item.base64 &&
+              (item.base64 || item.content) &&
               (effectiveType === "image" ||
-                ["png", "jpg", "jpeg", "gif", "webp", "pdf", "docx", "doc"].includes(ext))
+                ["png", "jpg", "jpeg", "gif", "webp", "pdf", "docx", "doc", "xlsx", "xls", "csv", "txt", "md", "json"].includes(ext))
             ) {
-              realBase64 = item.base64;
-              const safeExt = ext || "jpg";
+              realBase64 = item.base64 || null;
+              const safeExt = ext || (effectiveType === "image" ? "jpg" : "txt");
               const safeFileName = `${fileId}.${safeExt}`;
               mediaUrl = `/knowledge-media/${safeFileName}`;
               try {
                 const filePath = path.join(MEDIA_DIR, safeFileName);
-                const buf = Buffer.from(item.base64, "base64");
+                const buf = item.base64
+                  ? Buffer.from(item.base64, "base64")
+                  : Buffer.from(item.content || "", "utf-8");
                 await fs.promises.writeFile(filePath, buf);
               } catch (saveErr: any) {
                 console.warn(`[knowledge.ts] Aviso ao gravar arquivo em disco (${safeFileName}):`, saveErr?.message);

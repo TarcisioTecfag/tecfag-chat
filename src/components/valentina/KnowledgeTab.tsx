@@ -2,18 +2,154 @@
 // 📚 KNOWLEDGE BASE TAB — Gerenciamento de arquivos e pastas da Valentina
 // ══════════════════════════════════════════════════════════════════════════════
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useMemo } from "react";
 import { 
   Folder, FolderPlus, FolderUp, Edit3, Trash2, ChevronDown, ChevronRight,
   Brain, Paperclip, UploadCloud, FileText, Image as ImageIcon, Check, X,
-  Eye, Sparkles, BookOpen, Loader2, ListChecks, Lightbulb
+  Eye, Sparkles, BookOpen, Loader2, ListChecks, Lightbulb, Search
 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
   Folder as FolderType, 
   KnowledgeFile as FileType,
 } from "./valentina-mock-data";
+
+function MoveFolderParentPopover({
+  currentFolder,
+  folders,
+  onMove,
+}: {
+  currentFolder: FolderType;
+  folders: FolderType[];
+  onMove: (folderId: string, targetParentId: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const parentFolder = folders.find((f) => f.id === currentFolder.parentId);
+  const availableTargets = folders.filter((f) => f.id !== currentFolder.id);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <SystemTooltip content="Alterar pasta pai deste diretório">
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 text-[10px] bg-muted/70 hover:bg-muted border border-border rounded-lg px-2 py-0.5 text-foreground font-semibold transition cursor-pointer"
+          >
+            <Folder className="h-3 w-3 text-primary shrink-0" />
+            <span className="truncate max-w-[140px]">
+              {parentFolder ? `Dentro de: ${parentFolder.name}` : "Pasta na Raiz"}
+            </span>
+            <ChevronDown className="h-2.5 w-2.5 opacity-60 shrink-0" />
+          </button>
+        </PopoverTrigger>
+      </SystemTooltip>
+      <PopoverContent align="start" className="w-56 p-1.5 bg-popover border-border rounded-xl shadow-2xl">
+        <div className="max-h-56 overflow-y-auto scrollbar-thin space-y-0.5">
+          <button
+            type="button"
+            onClick={() => {
+              onMove(currentFolder.id, null);
+              setOpen(false);
+            }}
+            className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+              !currentFolder.parentId
+                ? "bg-primary/15 text-primary"
+                : "text-foreground hover:bg-muted/70"
+            }`}
+          >
+            <span className="truncate">Pasta na Raiz</span>
+            {!currentFolder.parentId && <Check className="h-3 w-3 shrink-0" />}
+          </button>
+          {availableTargets.map((f) => {
+            const isSelected = currentFolder.parentId === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => {
+                  onMove(currentFolder.id, f.id);
+                  setOpen(false);
+                }}
+                className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                  isSelected
+                    ? "bg-primary/15 text-primary font-bold"
+                    : "text-foreground hover:bg-muted/70"
+                }`}
+              >
+                <span className="truncate">Dentro de: {f.name}</span>
+                {isSelected && <Check className="h-3 w-3 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function MoveFileToFolderPopover({
+  file,
+  folders,
+  onMove,
+}: {
+  file: FileType;
+  folders: FolderType[];
+  onMove: (fileId: string, targetFolderId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const currentFolder = folders.find((f) => f.id === file.folderId);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <SystemTooltip content="Mover arquivo para outra pasta">
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 text-[10px] bg-muted/60 hover:bg-muted border border-border rounded-lg px-2 py-1 text-foreground font-semibold transition cursor-pointer max-w-[135px]"
+          >
+            <Folder className="h-3 w-3 text-primary shrink-0" />
+            <span className="truncate">{currentFolder?.name || "Pasta"}</span>
+            <ChevronDown className="h-2.5 w-2.5 opacity-60 shrink-0" />
+          </button>
+        </PopoverTrigger>
+      </SystemTooltip>
+      <PopoverContent align="end" className="w-56 p-1.5 bg-popover border-border rounded-xl shadow-2xl">
+        <div className="px-2 py-1 text-[9px] font-black uppercase tracking-wider text-muted-foreground border-b border-border/50 mb-1">
+          Mover para pasta
+        </div>
+        <div className="max-h-56 overflow-y-auto scrollbar-thin space-y-0.5">
+          {folders.map((f) => {
+            const isSelected = file.folderId === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => {
+                  onMove(file.id, f.id);
+                  setOpen(false);
+                }}
+                className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                  isSelected
+                    ? "bg-primary/15 text-primary font-bold"
+                    : "text-foreground hover:bg-muted/70"
+                }`}
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <Folder className="h-3 w-3 shrink-0 opacity-70" />
+                  <span className="truncate">{f.name}</span>
+                </span>
+                {isSelected && <Check className="h-3 w-3 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 interface UploadQueueItem {
   file: File;
@@ -58,6 +194,14 @@ export function KnowledgeTab() {
   // Content carregado sob demanda (Ver RAG / Ver Foto) — não vem mais na listagem
   const [loadingContentId, setLoadingContentId] = useState<string | null>(null);
   const [loadedContent, setLoadedContent] = useState<Record<string, string>>({});
+  // Paginação e busca local dentro da pasta selecionada para performance instantânea
+  const [folderFileSearch, setFolderFileSearch] = useState("");
+  const [visibleFilesLimit, setVisibleFilesLimit] = useState(50);
+
+  React.useEffect(() => {
+    setVisibleFilesLimit(50);
+    setFolderFileSearch("");
+  }, [selectedFolderId]);
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -836,18 +980,19 @@ export function KnowledgeTab() {
           >
             <div className="flex items-center gap-1.5 min-w-0">
               {hasChildren ? (
-                <button
-                  type="button"
-                  onClick={(e) => toggleFolderExpanded(folder.id, e)}
-                  className="p-1 -ml-1 rounded-md hover:bg-muted-foreground/15 text-muted-foreground/70 hover:text-foreground transition cursor-pointer"
-                  title={isExpanded ? "Recolher subpastas" : "Expandir subpastas"}
-                >
-                  {isExpanded ? (
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                  )}
-                </button>
+                <SystemTooltip content={isExpanded ? "Recolher subpastas" : "Expandir subpastas"}>
+                  <button
+                    type="button"
+                    onClick={(e) => toggleFolderExpanded(folder.id, e)}
+                    className="p-1 -ml-1 rounded-md hover:bg-muted-foreground/15 text-muted-foreground/70 hover:text-foreground transition cursor-pointer"
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                  </button>
+                </SystemTooltip>
               ) : (
                 <span className="w-5 shrink-0" />
               )}
@@ -896,27 +1041,29 @@ export function KnowledgeTab() {
                 </>
               ) : (
                 <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingFolderId(folder.id);
-                      setEditingFolderName(folder.name);
-                    }}
-                    className="p-1 rounded hover:bg-card hover:text-foreground text-muted-foreground cursor-pointer"
-                    title="Renomear"
-                  >
-                    <Edit3 className="h-3 w-3" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteFolder(folder.id);
-                    }}
-                    className="p-1 rounded hover:bg-card hover:text-red-500 text-muted-foreground cursor-pointer"
-                    title="Excluir"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  <SystemTooltip content="Renomear pasta">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingFolderId(folder.id);
+                        setEditingFolderName(folder.name);
+                      }}
+                      className="p-1 rounded hover:bg-card hover:text-foreground text-muted-foreground cursor-pointer"
+                    >
+                      <Edit3 className="h-3 w-3" />
+                    </button>
+                  </SystemTooltip>
+                  <SystemTooltip content="Excluir pasta">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFolder(folder.id);
+                      }}
+                      className="p-1 rounded hover:bg-card hover:text-red-500 text-muted-foreground cursor-pointer"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </SystemTooltip>
                 </>
               )}
             </div>
@@ -943,7 +1090,19 @@ export function KnowledgeTab() {
   };
 
   const currentFolder = folders.find((f) => f.id === selectedFolderId);
-  const currentFolderFiles = files.filter((file) => file.folderId === selectedFolderId);
+  const currentFolderFiles = useMemo(
+    () => files.filter((file) => file.folderId === selectedFolderId),
+    [files, selectedFolderId]
+  );
+  const filteredFolderFiles = useMemo(() => {
+    const q = folderFileSearch.trim().toLowerCase();
+    if (!q) return currentFolderFiles;
+    return currentFolderFiles.filter((file) => file.name.toLowerCase().includes(q));
+  }, [currentFolderFiles, folderFileSearch]);
+  const visibleFolderFiles = useMemo(
+    () => filteredFolderFiles.slice(0, visibleFilesLimit),
+    [filteredFolderFiles, visibleFilesLimit]
+  );
 
   return (
     <div className="flex flex-col lg:flex-row flex-1 overflow-y-auto lg:overflow-hidden gap-4 min-h-0">
@@ -954,14 +1113,15 @@ export function KnowledgeTab() {
           <span className="text-xs font-black uppercase text-muted-foreground select-none">Diretórios</span>
           <div className="flex items-center gap-1">
             {/* Subir Pasta */}
-            <button
-              onClick={() => folderInputRef.current?.click()}
-              className="flex items-center gap-1 py-1 px-2.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground/80 hover:text-foreground text-[10px] font-extrabold shadow-soft transition cursor-pointer border border-border"
-              title="Importa uma pasta do seu computador mantendo a hierarquia de subpastas"
-            >
-              <FolderUp className="h-3 w-3" />
-              <span>Subir Pasta</span>
-            </button>
+            <SystemTooltip content="Importa uma pasta do seu computador mantendo a hierarquia de subpastas">
+              <button
+                onClick={() => folderInputRef.current?.click()}
+                className="flex items-center gap-1 py-1 px-2.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground/80 hover:text-foreground text-[10px] font-extrabold shadow-soft transition cursor-pointer border border-border"
+              >
+                <FolderUp className="h-3 w-3" />
+                <span>Subir Pasta</span>
+              </button>
+            </SystemTooltip>
             <input
               ref={folderInputRef}
               type="file"
@@ -1052,56 +1212,70 @@ export function KnowledgeTab() {
                 {currentFolderFiles.length} {currentFolderFiles.length === 1 ? "arquivo" : "arquivos"} nesta pasta
               </p>
               {currentFolder && folders.length > 1 && (
-                <select
-                  aria-label="Mover pasta atual para outro diretório"
-                  value={currentFolder.parentId || "__root__"}
-                  onChange={(e) =>
-                    handleMoveFolderToParent(
-                      currentFolder.id,
-                      e.target.value === "__root__" ? null : e.target.value
-                    )
-                  }
-                  className="text-[10px] bg-muted/70 border border-border rounded-lg px-2 py-0.5 text-foreground font-semibold outline-none focus:border-primary cursor-pointer"
-                >
-                  <option value="__root__">Pasta na Raiz</option>
-                  {folders
-                    .filter((f) => f.id !== currentFolder.id)
-                    .map((f) => (
-                      <option key={f.id} value={f.id}>
-                        Dentro de: {f.name}
-                      </option>
-                    ))}
-                </select>
+                <MoveFolderParentPopover
+                  currentFolder={currentFolder}
+                  folders={folders}
+                  onMove={handleMoveFolderToParent}
+                />
               )}
             </div>
           </div>
 
-          {/* Formato de Upload selector com harmonia verde visual */}
-          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border select-none shrink-0">
-            <button
-              onClick={() => setUploadMode("embeddings")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
-                uploadMode === "embeddings"
-                  ? "bg-primary text-primary-foreground shadow-soft"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-              title={`Salva o arquivo como vetor de IA no cérebro ${persona.gender === "female" ? "da" : "do"} ${persona.name}`}
-            >
-              <Brain className="h-3.5 w-3.5" />
-              <span>Embeddings</span>
-            </button>
-            <button
-              onClick={() => setUploadMode("real")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
-                uploadMode === "real"
-                  ? "bg-primary text-primary-foreground shadow-soft"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-              title={`Salva o arquivo no formato real para ${persona.name} enviar diretamente aos clientes`}
-            >
-              <Paperclip className="h-3.5 w-3.5" />
-              <span>Formato Real</span>
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {currentFolderFiles.length > 5 && (
+              <div className="relative">
+                <Search className="h-3 w-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={folderFileSearch}
+                  onChange={(e) => {
+                    setFolderFileSearch(e.target.value);
+                    setVisibleFilesLimit(50);
+                  }}
+                  placeholder="Filtrar arquivos..."
+                  className="h-7 w-36 sm:w-44 pl-7 pr-6 rounded-lg bg-muted/60 border border-border text-[10px] text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
+                />
+                {folderFileSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setFolderFileSearch("")}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Formato de Upload selector com harmonia visual */}
+            <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border select-none shrink-0">
+              <SystemTooltip content={`Salva o arquivo como vetor de IA no cérebro ${persona.gender === "female" ? "da" : "do"} ${persona.name}`}>
+                <button
+                  onClick={() => setUploadMode("embeddings")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
+                    uploadMode === "embeddings"
+                      ? "bg-primary text-primary-foreground shadow-soft"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Brain className="h-3.5 w-3.5" />
+                  <span>Embeddings</span>
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content={`Salva o arquivo no formato real (Catálogo, Chat e Triagem) além de extrair texto RAG se for documento`}>
+                <button
+                  onClick={() => setUploadMode("real")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${
+                    uploadMode === "real"
+                      ? "bg-primary text-primary-foreground shadow-soft"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Paperclip className="h-3.5 w-3.5" />
+                  <span>Formato Real</span>
+                </button>
+              </SystemTooltip>
+            </div>
           </div>
         </div>
 
@@ -1136,7 +1310,7 @@ export function KnowledgeTab() {
             </div>
 
             <div className="mt-1 px-3 py-1 rounded bg-card border border-border text-[9px] font-black uppercase text-primary">
-              {uploadMode === "embeddings" ? "Modo Ativo: Embedding de IA" : "Modo Ativo: Formato Real de Envio"}
+              {uploadMode === "embeddings" ? "Modo Ativo: Embedding de IA" : "Modo Ativo: Formato Real de Envio + RAG"}
             </div>
           </div>
         ) : (
@@ -1199,16 +1373,18 @@ export function KnowledgeTab() {
           </div>
         )}
 
-        {/* Lista de Arquivos */}
+        {/* Lista de Arquivos (Paginada para performance instantânea) */}
         <div className="flex-1 overflow-y-auto mt-4 scrollbar-thin min-h-0 pr-1 select-none">
           {selectedFolderId ? (
-            currentFolderFiles.length === 0 ? (
+            filteredFolderFiles.length === 0 ? (
               <div className="text-center text-muted-foreground/60 text-xs py-16">
-                Pasta vazia. Suba arquivos acima ou mova itens para cá!
+                {folderFileSearch.trim()
+                  ? `Nenhum arquivo encontrado para "${folderFileSearch}".`
+                  : "Pasta vazia. Suba arquivos acima ou mova itens para cá!"}
               </div>
             ) : (
-              <div className="space-y-2">
-                {currentFolderFiles.map((file) => (
+              <div className="space-y-2 pb-2">
+                {visibleFolderFiles.map((file) => (
                   <div
                     draggable
                     onDragStart={(e) => handleFileDragStart(e, file.id)}
@@ -1226,81 +1402,92 @@ export function KnowledgeTab() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                      {/* Seletor explícito para mover arquivo entre pastas sem exigir drag-and-drop */}
+                      {/* Seletor customizado (Popover) para mover arquivo entre pastas sem exigir drag-and-drop */}
                       {folders.length > 1 && (
-                        <select
-                          aria-label={`Mover ${file.name} para outra pasta`}
-                          value={file.folderId || ""}
-                          onChange={(e) => handleMoveFileToFolder(file.id, e.target.value)}
-                          className="text-[10px] bg-muted/60 border border-border rounded-lg px-2 py-1 text-foreground font-semibold outline-none focus:border-primary cursor-pointer max-w-[130px] truncate"
-                          title="Mover arquivo para outra pasta"
-                        >
-                          {folders.map((f) => (
-                            <option key={f.id} value={f.id}>
-                              📁 {f.name}
-                            </option>
-                          ))}
-                        </select>
+                        <MoveFileToFolderPopover
+                          file={file}
+                          folders={folders}
+                          onMove={handleMoveFileToFolder}
+                        />
                       )}
 
-                      {/* Botão de Ver Conteúdo Extraído (RAG Inspector) — oculto para fotos em Formato Real */}
+                      {/* Botão de Ver Conteúdo Extraído (RAG Inspector) — disponível para Embeddings e Documentos em Formato Real */}
                       {!(file.format === "real" && file.type === "image") && (
-                        <button
-                          type="button"
-                          disabled={loadingContentId === file.id}
-                          onClick={async () => {
-                            const content = await fetchFileContent(file.id);
-                            setPreviewFile({ ...file, content } as any);
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-primary-soft/40 text-[10px] font-bold text-foreground hover:text-primary transition cursor-pointer shadow-soft disabled:opacity-50"
-                          title="Ver o texto que a IA aprendeu deste arquivo"
-                        >
-                          {loadingContentId === file.id
-                            ? <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                            : <Eye className="h-3 w-3 text-primary" />
-                          }
-                          <span>Ver RAG</span>
-                        </button>
+                        <SystemTooltip content="Ver o texto que a IA aprendeu deste arquivo">
+                          <button
+                            type="button"
+                            disabled={loadingContentId === file.id}
+                            onClick={async () => {
+                              const content = await fetchFileContent(file.id);
+                              setPreviewFile({ ...file, content } as any);
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-primary-soft/40 text-[10px] font-bold text-foreground hover:text-primary transition cursor-pointer shadow-soft disabled:opacity-50"
+                          >
+                            {loadingContentId === file.id
+                              ? <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                              : <Eye className="h-3 w-3 text-primary" />
+                            }
+                            <span>Ver RAG</span>
+                          </button>
+                        </SystemTooltip>
                       )}
 
                       {/* Botão Ver Foto — apenas para Formato Real + imagem (abre instantaneamente via stream binário) */}
                       {file.format === "real" && file.type === "image" && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPreviewImageFile(file as any);
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/20 text-[10px] font-bold text-foreground hover:text-amber-600 transition cursor-pointer shadow-soft"
-                          title={`Visualizar a imagem real que ${persona.name} envia`}
-                        >
-                          <ImageIcon className="h-3 w-3 text-amber-500" />
-                          <span>Ver Foto</span>
-                        </button>
+                        <SystemTooltip content={`Visualizar a imagem real que ${persona.name} envia`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewImageFile(file as any);
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card border border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/20 text-[10px] font-bold text-foreground hover:text-amber-600 transition cursor-pointer shadow-soft"
+                          >
+                            <ImageIcon className="h-3 w-3 text-amber-500" />
+                            <span>Ver Foto</span>
+                          </button>
+                        </SystemTooltip>
                       )}
 
-                      {/* Badge do Formato em Harmonia Verde */}
+                      {/* Badge do Formato */}
                       {file.format === "embeddings" ? (
-                        <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-primary-soft text-primary border border-primary/25 select-none" title="Armazenado no cérebro da IA para aprendizado">
-                          <Brain className="h-2.5 w-2.5" />
-                          <span>Embedding</span>
-                        </span>
+                        <SystemTooltip content="Armazenado no cérebro da IA para aprendizado RAG">
+                          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-primary-soft text-primary border border-primary/25 select-none">
+                            <Brain className="h-2.5 w-2.5" />
+                            <span>Embedding</span>
+                          </span>
+                        </SystemTooltip>
                       ) : (
-                        <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-primary-soft/60 text-primary/80 border border-primary/20 select-none" title="Arquivo real disponível para envio direto aos clientes">
-                          <Paperclip className="h-2.5 w-2.5" />
-                          <span>Real</span>
-                        </span>
+                        <SystemTooltip content="Arquivo real disponível para envio direto (Catálogo, Chat e Triagem)">
+                          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-primary-soft/60 text-primary/80 border border-primary/20 select-none">
+                            <Paperclip className="h-2.5 w-2.5" />
+                            <span>Real</span>
+                          </span>
+                        </SystemTooltip>
                       )}
 
-                      <button
-                        onClick={() => handleDeleteFile(file.id)}
-                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-lg hover:bg-muted hover:text-red-500 text-muted-foreground transition cursor-pointer"
-                        title="Remover arquivo"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <SystemTooltip content="Remover arquivo">
+                        <button
+                          onClick={() => handleDeleteFile(file.id)}
+                          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-lg hover:bg-muted hover:text-red-500 text-muted-foreground transition cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </SystemTooltip>
                     </div>
                   </div>
                 ))}
+
+                {filteredFolderFiles.length > visibleFilesLimit && (
+                  <div className="pt-2 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleFilesLimit((prev) => prev + 50)}
+                      className="px-4 py-2 rounded-xl border border-border bg-muted/40 hover:bg-muted text-[11px] font-bold text-foreground transition cursor-pointer"
+                    >
+                      Mostrar mais arquivos ({filteredFolderFiles.length - visibleFilesLimit} restantes)
+                    </button>
+                  </div>
+                )}
               </div>
             )
           ) : (

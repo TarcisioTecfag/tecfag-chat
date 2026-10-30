@@ -42,9 +42,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   FlowOperator,
   getFlowConfiguration,
+  getDefaultRoleTagForArea,
+  getDefaultDepartmentForArea,
+  getBrtTodayYmd,
 } from "@/lib/valentina/rodizio-types";
 
 // ─── Ícone por Área ─────────────────────────────────────────────────────────
@@ -226,10 +230,20 @@ export function FluxosTab() {
     if (!targetOp) return;
 
     const nextLeave = !targetOp.isOnLeave;
+    const todayBrt = getBrtTodayYmd();
 
-    // Atualização otimista
+    // Atualização otimista (folga diária NUNCA altera compensação)
     setOperators((prev) =>
-      prev.map((o) => (o.id === operatorId ? { ...o, isOnLeave: nextLeave } : o))
+      prev.map((o) =>
+        o.id === operatorId
+          ? {
+              ...o,
+              isOnLeave: nextLeave,
+              leaveDate: nextLeave ? todayBrt : null,
+              compensation: o.compensation ?? 0,
+            }
+          : o
+      )
     );
 
     try {
@@ -244,10 +258,14 @@ export function FluxosTab() {
       });
 
       if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && Array.isArray(data.operators)) {
+          setOperators(data.operators);
+        }
         toast.success(
           nextLeave
-            ? `${targetOp.name} agora está em folga (pausado do rodízio).`
-            : `${targetOp.name} retornou da folga e está ATIVO no rodízio!`
+            ? `${targetOp.name} está em folga hoje (removido do rodízio do dia, sem alterar compensação).`
+            : `${targetOp.name} retornou da folga e voltou a receber leads hoje!`
         );
       } else {
         toast.error("Erro ao atualizar folga no servidor.");
@@ -256,6 +274,38 @@ export function FluxosTab() {
     } catch (e) {
       console.error("Erro ao alternar folga:", e);
       toast.error("Erro de comunicação com o servidor.");
+      fetchRodizioData();
+    }
+  };
+
+  // Atualizar Cargo / Função (roleTag) do operador
+  const handleUpdateRoleTag = async (operatorId: string, newRoleTag: string) => {
+    const targetOp = operators.find((o) => o.id === operatorId);
+    if (!targetOp) return;
+
+    setOperators((prev) =>
+      prev.map((o) => (o.id === operatorId ? { ...o, roleTag: newRoleTag } : o))
+    );
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/valentina/rodizio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_operator",
+          tenantId: tenant,
+          operatorId,
+          patch: { roleTag: newRoleTag },
+        }),
+      });
+      if (res.ok) {
+        toast.success(`Função de ${targetOp.name} atualizada para ${newRoleTag}!`);
+      } else {
+        toast.error("Erro ao atualizar função do operador.");
+        fetchRodizioData();
+      }
+    } catch {
+      toast.error("Erro de conexão ao salvar função.");
       fetchRodizioData();
     }
   };
@@ -750,15 +800,15 @@ export function FluxosTab() {
                                       </h3>
 
                                       {/* Badge Departamento */}
-                                      <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
-                                        {op.departmentTag || "COMERCIAL"}
+                                      <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
+                                        {op.departmentTag || getDefaultDepartmentForArea(op.area)}
                                       </span>
 
                                       {/* Badge Status */}
                                       {op.isOnLeave ? (
                                         <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
                                           <Palmtree className="h-2.5 w-2.5" />
-                                          FOLGA
+                                          FOLGA HOJE
                                         </span>
                                       ) : op.isParticipating ? (
                                         <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
@@ -771,10 +821,46 @@ export function FluxosTab() {
                                         </span>
                                       )}
 
-                                      {/* Badge Role */}
-                                      <span className="px-2 py-0.5 rounded-lg text-[9px] font-bold text-muted-foreground border border-border bg-card">
-                                        {op.roleTag || "SDR"}
-                                      </span>
+                                      {/* Badge Role (Clicável via Popover para alterar cargo/função) */}
+                                      <Popover>
+                                        <SystemTooltip content="Função na escala (clique para alterar)">
+                                          <PopoverTrigger asChild>
+                                            <button
+                                              type="button"
+                                              className="px-2 py-0.5 rounded-lg text-[9px] font-bold text-muted-foreground hover:text-foreground border border-border hover:border-primary/30 bg-card hover:bg-muted/60 transition flex items-center gap-1 cursor-pointer"
+                                            >
+                                              <span>{getDefaultRoleTagForArea(op.area, op.roleTag)}</span>
+                                              <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+                                            </button>
+                                          </PopoverTrigger>
+                                        </SystemTooltip>
+                                        <PopoverContent align="start" sideOffset={6} className="w-40 p-1.5 rounded-xl">
+                                          <p className="px-2 py-1 text-[9px] font-extrabold uppercase tracking-wider text-muted-foreground border-b border-border/60 mb-1">
+                                            Função na Escala
+                                          </p>
+                                          {["CONSULTOR", "VENDEDOR", "TÉCNICO", "PÓS-VENDA", "FINANCEIRO", "SDR"].map(
+                                            (roleOption) => {
+                                              const currentRole = getDefaultRoleTagForArea(op.area, op.roleTag);
+                                              const isCurrent = currentRole === roleOption;
+                                              return (
+                                                <button
+                                                  key={roleOption}
+                                                  type="button"
+                                                  onClick={() => handleUpdateRoleTag(op.id, roleOption)}
+                                                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                                                    isCurrent
+                                                      ? "bg-primary text-primary-foreground"
+                                                      : "text-foreground hover:bg-muted"
+                                                  }`}
+                                                >
+                                                  <span>{roleOption}</span>
+                                                  {isCurrent && <Check className="h-3 w-3" />}
+                                                </button>
+                                              );
+                                            }
+                                          )}
+                                        </PopoverContent>
+                                      </Popover>
                                     </div>
 
                                     {/* Linha de IDs / Metadados */}
@@ -783,17 +869,18 @@ export function FluxosTab() {
                                         <span className="flex items-center gap-1 font-mono">
                                           <span>Talos ID:</span>
                                           <span className="font-semibold text-foreground/80">{op.talosId}</span>
-                                          <button
-                                            onClick={() => copyToClipboard(op.talosId!, `talos-${op.id}`)}
-                                            className="hover:text-foreground cursor-pointer"
-                                            title="Copiar Talos ID"
-                                          >
-                                            {copiedId === `talos-${op.id}` ? (
-                                              <Check className="h-2.5 w-2.5 text-emerald-500" />
-                                            ) : (
-                                              <Copy className="h-2.5 w-2.5" />
-                                            )}
-                                          </button>
+                                          <SystemTooltip content="Copiar Talos ID">
+                                            <button
+                                              onClick={() => copyToClipboard(op.talosId!, `talos-${op.id}`)}
+                                              className="hover:text-foreground cursor-pointer"
+                                            >
+                                              {copiedId === `talos-${op.id}` ? (
+                                                <Check className="h-2.5 w-2.5 text-emerald-500" />
+                                              ) : (
+                                                <Copy className="h-2.5 w-2.5" />
+                                              )}
+                                            </button>
+                                          </SystemTooltip>
                                         </span>
                                       )}
 
@@ -802,22 +889,23 @@ export function FluxosTab() {
                                         <span className="font-semibold text-foreground/80">
                                           {op.crmId || `${op.name} (${op.email || ""})`}
                                         </span>
-                                        <button
-                                          onClick={() =>
-                                            copyToClipboard(
-                                              op.crmId || `${op.name} (${op.email || ""})`,
-                                              `crm-${op.id}`
-                                            )
-                                          }
-                                          className="hover:text-foreground cursor-pointer"
-                                          title="Copiar CRM ID"
-                                        >
-                                          {copiedId === `crm-${op.id}` ? (
-                                            <Check className="h-2.5 w-2.5 text-emerald-500" />
-                                          ) : (
-                                            <Copy className="h-2.5 w-2.5" />
-                                          )}
-                                        </button>
+                                        <SystemTooltip content="Copiar CRM ID">
+                                          <button
+                                            onClick={() =>
+                                              copyToClipboard(
+                                                op.crmId || `${op.name} (${op.email || ""})`,
+                                                `crm-${op.id}`
+                                              )
+                                            }
+                                            className="hover:text-foreground cursor-pointer"
+                                          >
+                                            {copiedId === `crm-${op.id}` ? (
+                                              <Check className="h-2.5 w-2.5 text-emerald-500" />
+                                            ) : (
+                                              <Copy className="h-2.5 w-2.5" />
+                                            )}
+                                          </button>
+                                        </SystemTooltip>
                                       </span>
                                     </div>
                                   </div>
@@ -884,8 +972,8 @@ export function FluxosTab() {
                                 <SystemTooltip
                                   content={
                                     op.isOnLeave
-                                      ? "Retirar operador da folga e reativar recebimento de leads"
-                                      : "Colocar operador em folga (pausa recebimento de leads temporariamente)"
+                                      ? "Retirar operador da folga do dia e reativar recebimento de leads hoje"
+                                      : "Colocar operador em folga hoje (remove do rodízio apenas no dia, sem alterar compensação)"
                                   }
                                 >
                                   <button
@@ -893,7 +981,7 @@ export function FluxosTab() {
                                     className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center gap-1.5 shadow-xs border ${
                                       op.isOnLeave
                                         ? "bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                                        : "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600"
+                                        : "bg-primary hover:bg-primary-hover text-primary-foreground border-primary"
                                     }`}
                                   >
                                     <Palmtree className="h-3.5 w-3.5" />
@@ -1146,17 +1234,23 @@ function AddOperatorModal({
   const [selectedOpId, setSelectedOpId] = useState<string>("");
   const [selectedArea, setSelectedArea] = useState<string>(initialArea || "maquinas");
   const [selectedFunnels, setSelectedFunnels] = useState<string[]>([]);
-  const [departmentTag, setDepartmentTag] = useState("COMERCIAL");
-  const [roleTag, setRoleTag] = useState("SDR");
+  const [departmentTag, setDepartmentTag] = useState(() =>
+    getDefaultDepartmentForArea(initialArea || "maquinas")
+  );
+  const [roleTag, setRoleTag] = useState(() =>
+    getDefaultRoleTagForArea(initialArea || "maquinas")
+  );
   const [compensation, setCompensation] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Inicializar funis padrão quando troca a área
+  // Inicializar funis, departamento e função padrão quando troca a área
   useEffect(() => {
     const areaDef = FLOW_AREAS.find((a) => a.id === selectedArea);
     if (areaDef) {
       setSelectedFunnels([...areaDef.defaultFunnels]);
     }
+    setDepartmentTag(getDefaultDepartmentForArea(selectedArea));
+    setRoleTag(getDefaultRoleTagForArea(selectedArea));
   }, [selectedArea, FLOW_AREAS]);
 
   // Filtrar operadores do sistema disponíveis
@@ -1420,7 +1514,7 @@ function AddOperatorModal({
               Função
             </label>
             <div className="flex gap-1 flex-wrap">
-              {["SDR", "VENDEDOR", "CONSULTOR", "TÉCNICO"].map((role) => (
+              {["CONSULTOR", "VENDEDOR", "TÉCNICO", "PÓS-VENDA", "FINANCEIRO", "SDR"].map((role) => (
                 <button
                   type="button"
                   key={role}

@@ -218,7 +218,7 @@ export async function ensureTecfagManualsKnowledgePopulated(tenantId: string): P
           contentLen: sql<number>`LENGTH(TRIM(COALESCE(${knowledgeFiles.content}, '')))`,
         })
         .from(knowledgeFiles)
-        .where(eq(knowledgeFiles.tenantId, "tecfag"));
+        .where(and(eq(knowledgeFiles.tenantId, "tecfag"), eq(knowledgeFiles.type, "pdf")));
 
       const existingByName = new Map<string, (typeof existingPdfRows)[number]>();
       for (const row of existingPdfRows) {

@@ -4285,6 +4285,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
             attachment,
             imageBase64,
             imageFileName,
+            audioBase64,
+            audioMimeType,
+            audioFileName,
             knowledgeBase,
             threadHistory,
           } = body;
@@ -4324,9 +4327,9 @@ export const Route = createFileRoute("/api/valentina/messages")({
             );
           }
 
-          if (!content && !attachment && !imageBase64) {
+          if (!content && !attachment && !imageBase64 && !audioBase64) {
             return new Response(
-              JSON.stringify({ error: "content, attachment ou imageBase64 são obrigatórios" }),
+              JSON.stringify({ error: "content, attachment, imageBase64 ou audioBase64 são obrigatórios" }),
               { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
@@ -4336,6 +4339,11 @@ export const Route = createFileRoute("/api/valentina/messages")({
             attachment?.base64 &&
               ((typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("image/")) ||
                 (typeof attachment.name === "string" && /\.(?:jpg|jpeg|png|webp|gif|bmp)$/i.test(attachment.name)))
+          );
+          const isAttachmentAudio = Boolean(
+            attachment?.base64 &&
+              ((typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("audio/")) ||
+                (typeof attachment.name === "string" && /\.(?:webm|ogg|mp3|wav|m4a|aac|mp4)$/i.test(attachment.name)))
           );
           const effectiveImageBase64: string | undefined =
             typeof imageBase64 === "string" && imageBase64.trim()
@@ -4351,8 +4359,26 @@ export const Route = createFileRoute("/api/valentina/messages")({
             (typeof content === "string"
               ? content.match(/\[Arquivo\s+(?:anexado|enviado):\s*([^\]]+)\]/i)?.[1]?.trim()
               : undefined);
-          const effectiveAttachment = isAttachmentImage ? undefined : attachment;
+          const effectiveAudioBase64: string | undefined =
+            typeof audioBase64 === "string" && audioBase64.trim()
+              ? audioBase64.trim()
+              : isAttachmentAudio
+              ? attachment.base64.startsWith("data:")
+                ? attachment.base64
+                : `data:${attachment.mimeType || "audio/webm"};base64,${attachment.base64}`
+              : undefined;
+          const effectiveAudioMimeType: string =
+            (typeof audioMimeType === "string" && audioMimeType.trim()) ||
+            (isAttachmentAudio && typeof attachment?.mimeType === "string" ? attachment.mimeType : "") ||
+            (effectiveAudioBase64?.match(/^data:([^;]+);base64,/i)?.[1] ?? "audio/webm");
+          const effectiveAudioFileName: string | undefined =
+            (typeof audioFileName === "string" && audioFileName.trim()) ||
+            (isAttachmentAudio && typeof attachment?.name === "string" ? attachment.name : undefined) ||
+            (effectiveAudioBase64 ? "Mensagem_de_voz.webm" : undefined);
+
+          const effectiveAttachment = isAttachmentImage || isAttachmentAudio ? undefined : attachment;
           const hasAttachedImage = Boolean(effectiveImageBase64);
+          const hasAttachedAudio = Boolean(effectiveAudioBase64);
 
           // ── Detecta se é Supervisora/Diretoria ou Copiloto do Vendedor ─────
           // scope "admin" → Diretoria / Supervisora (Módulo IA Gestão)
@@ -4405,10 +4431,12 @@ export const Route = createFileRoute("/api/valentina/messages")({
           const rawContentString =
             typeof content === "string" && content.trim() !== "[object Object]" ? content.trim() : "";
           const rawContentTrimmed = stripAttachmentTagsFromQuery(rawContentString);
-          const userText =
+          let userText =
             rawContentTrimmed ||
             (hasAttachedImage
               ? `Analise visualmente a foto enviada${effectiveImageFileName ? ` (${effectiveImageFileName})` : ""} e me dê os detalhes do que aparece nela.`
+              : hasAttachedAudio
+              ? `Ouça e responda o áudio enviado (${effectiveAudioFileName || "Mensagem de voz"}).`
               : `[Arquivo enviado: ${effectiveAttachment?.name ?? "documento"}]`);
 
           // ── Busca histórico recente da conversa antes de inserir a nova ─────
@@ -4838,6 +4866,51 @@ export const Route = createFileRoute("/api/valentina/messages")({
             broadcastLiveProgress();
           }
 
+          if (effectiveAudioBase64) {
+            const tAudio0 = Date.now();
+            try {
+              const { vertexAi } = await import("../../../lib/vertex-ai");
+              if (vertexAi.isReady()) {
+                const audioMatch = effectiveAudioBase64.match(/^data:([^;]+);base64,(.+)$/);
+                const rawAudioMime = (audioMatch ? audioMatch[1] : effectiveAudioMimeType || "audio/webm").split(";")[0].trim() || "audio/webm";
+                const rawAudioB64 = audioMatch ? audioMatch[2] : effectiveAudioBase64;
+                const transcribed = await vertexAi.generateText(
+                  [
+                    { inlineData: { mimeType: rawAudioMime, data: rawAudioB64 } },
+                    { text: "Transcreva fielmente em português o que foi dito neste áudio. Retorne apenas a transcrição direta sem comentários adicionais." },
+                  ],
+                  "gemini-2.5-flash",
+                  undefined,
+                  {
+                    tenantId,
+                    feature: "call_transcription",
+                    metadata: { operatorId, scope },
+                  }
+                );
+                const cleanTranscript = (transcribed || "").trim();
+                if (cleanTranscript) {
+                  userText = rawContentTrimmed && !/^🎤\s*\[?Áudio/i.test(rawContentTrimmed)
+                    ? `${rawContentTrimmed}\n[Transcrição do áudio]: ${cleanTranscript}`
+                    : cleanTranscript;
+                  fileContext += `\n\n🎤 ÁUDIO DE VOZ ENVIADO PELO USUÁRIO (TRANSCRIÇÃO FIEL):\n"${cleanTranscript}"`;
+                }
+              }
+            } catch (audioErr: any) {
+              console.warn("[valentina/messages] Falha ao transcrever áudio prévio:", audioErr?.message);
+            }
+            const audioMs = Math.max(15, Date.now() - tAudio0);
+            liveExecutedSteps.push({
+              id: "step-audio-inline",
+              kind: "read",
+              actionVerb: "Ouviu",
+              targetLabel: effectiveAudioFileName || "mensagem de voz",
+              scopeTag: `#multimodal-audio • ${audioMs}ms`,
+              badgeType: "ai",
+              detailText: `Mensagem de voz ouvida e transcrita via Vertex AI em ${audioMs}ms.`,
+            });
+            broadcastLiveProgress();
+          }
+
           let managerContextText = "";
           let operatorContextResult: OperatorContextResult | null = null;
           let activeVtexLookup: Awaited<ReturnType<typeof lookupVtexProductsForAssistant>> | null = null;
@@ -5136,6 +5209,14 @@ export const Route = createFileRoute("/api/valentina/messages")({
                 const match = effectiveImageBase64.match(/^data:([^;]+);base64,(.+)$/);
                 const mimeType = match ? match[1] : "image/jpeg";
                 const rawB64 = match ? match[2] : effectiveImageBase64;
+                promptInput = [
+                  { inlineData: { mimeType, data: rawB64 } },
+                  { text: systemPrompt },
+                ];
+              } else if (effectiveAudioBase64 && typeof effectiveAudioBase64 === "string") {
+                const match = effectiveAudioBase64.match(/^data:([^;]+);base64,(.+)$/);
+                const mimeType = (match ? match[1] : effectiveAudioMimeType || "audio/webm").split(";")[0].trim() || "audio/webm";
+                const rawB64 = match ? match[2] : effectiveAudioBase64;
                 promptInput = [
                   { inlineData: { mimeType, data: rawB64 } },
                   { text: systemPrompt },

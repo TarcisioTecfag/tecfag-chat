@@ -606,10 +606,10 @@ export function SdrKanbanBoard({
                               <div
                                 className={`h-full rounded-full transition-all duration-300 ${
                                   isConcluida
-                                    ? "bg-emerald-500"
+                                    ? "bg-primary"
                                     : progress > 50
                                     ? "bg-primary"
-                                    : "bg-amber-500"
+                                    : "bg-primary/65"
                                 }`}
                                 style={{ width: `${progress}%` }}
                               />
@@ -619,7 +619,7 @@ export function SdrKanbanBoard({
                           {/* Status Pill & Time Row */}
                           <div className="mt-2 flex items-center justify-between gap-1 text-[10px]">
                             {isConcluida ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/15 text-primary border border-primary/30">
                                 <CheckCircle2 className="h-2.5 w-2.5" />
                                 Triagem concluída
                               </span>

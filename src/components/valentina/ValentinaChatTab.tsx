@@ -7,13 +7,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Send, Sparkles, AlertTriangle, Clock, Users, Award, ChevronDown, RefreshCw, X,
   FileText, FileSpreadsheet, File as FileIcon, Paperclip, Check, ZoomIn, Image as ImageIcon,
-  History, PanelRightOpen, Bot, Building2, Globe, Database,
+  History, PanelRightOpen, Bot, Building2, Globe, Database, Mic, Square, Trash2,
+  FolderClosed, FolderInput, FolderOutput, FolderPlus, Plus, Play, Pause,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ValentinaBlockRenderer } from "./chat-blocks/ValentinaBlockRenderer";
-import { ValentinaThreadRail } from "./chat-blocks/ValentinaThreadRail";
+import { ValentinaThreadRail, type CreateFolderOptions } from "./chat-blocks/ValentinaThreadRail";
 import { AgenticThoughtTrace } from "./chat-blocks/AgenticThoughtTrace";
 import { MessageKnowledgeSourceButton, VtexProductPreviewCard } from "@/components/chat/ChatMessageBubble";
 import {
@@ -23,7 +27,7 @@ import {
   type AgenticThoughtTraceData,
 } from "@/lib/valentina/agentic-thought-trace";
 import type {
-  ValentinaChatMessage, ValentinaThread, ValentinaFolder,
+  ValentinaChatMessage, ValentinaThread, ValentinaFolder, AttachedAudioInfo,
 } from "./chat-blocks/valentina-chat-types";
 
 type KnowledgeBase = "valem" | "tecfag" | "all";
@@ -42,32 +46,62 @@ interface AttachedImage {
 const ACCEPTED_FILE_TYPES = ".pdf,.txt,.doc,.docx,.xls,.xlsx";
 const ACCEPTED_IMAGE_TYPES = "image/jpeg,image/png,image/gif,image/webp,image/avif";
 
-const BASE_OPTIONS: { value: KnowledgeBase; label: string; icon: React.ElementType; iconColor: string }[] = [
-  { value: "valem",  label: "Valem",       icon: Building2, iconColor: "text-primary" },
-  { value: "tecfag", label: "Tecfag",      icon: Bot,       iconColor: "text-blue-500" },
-  { value: "all",    label: "Toda a Base", icon: Globe,     iconColor: "text-purple-500" },
+const BASE_OPTIONS: {
+  value: KnowledgeBase;
+  label: string;
+  icon: React.ElementType;
+  iconColor: string;
+  chipBg: string;
+}[] = [
+  {
+    value: "valem",
+    label: "Valem",
+    icon: Building2,
+    iconColor: "text-teal-500 dark:text-teal-400",
+    chipBg: "bg-teal-500/12 border-teal-500/25",
+  },
+  {
+    value: "tecfag",
+    label: "Tecfag",
+    icon: Bot,
+    iconColor: "text-red-500 dark:text-red-400",
+    chipBg: "bg-red-500/12 border-red-500/25",
+  },
+  {
+    value: "all",
+    label: "Toda a Base",
+    icon: Globe,
+    iconColor: "text-amber-500 dark:text-amber-400",
+    chipBg: "bg-amber-500/12 border-amber-500/25",
+  },
 ];
 
 const INITIAL_SUGGESTIONS = [
   { text: "Como está o tempo médio de atendimento (TMA) geral?", icon: Clock, iconColor: "text-primary" },
-  { text: "Quem são os operadores com mais gargalo de fila?", icon: Users, iconColor: "text-blue-500" },
+  { text: "Quem são os operadores com mais gargalo de fila?", icon: Users, iconColor: "text-teal-500" },
   { text: "Qual é a taxa de conversão do SDR de hoje?", icon: Award, iconColor: "text-amber-500" },
   { text: "Quantos alertas de estouro de SLA tivemos hoje?", icon: AlertTriangle, iconColor: "text-rose-500" },
 ];
 
 const SECONDARY_SUGGESTIONS = [
   { text: "Gere um gráfico do funil de vendas desta semana", icon: Sparkles, iconColor: "text-primary" },
-  { text: "Puxe um relatório detalhado por vendedor", icon: FileSpreadsheet, iconColor: "text-blue-500" },
-  { text: "Quais objeções mais aparecem nas conversas dos leads?", icon: Bot, iconColor: "text-purple-500" },
+  { text: "Puxe um relatório detalhado por vendedor", icon: FileSpreadsheet, iconColor: "text-teal-500" },
+  { text: "Quais objeções mais aparecem nas conversas dos leads?", icon: Bot, iconColor: "text-red-500" },
   { text: "Quais são os 5 principais alertas da operação hoje?", icon: AlertTriangle, iconColor: "text-amber-500" },
 ];
 
 /**
- * Avatar Oficial Padrão da IA (Renderiza a imagem oficial do sistema com fallback e tema claro/escuro)
+ * Avatar Oficial Padrão da IA (Sempre redondo e harmonizado)
  */
 function ValentinaAvatar({ className = "h-8 w-8" }: { className?: string }) {
   const { tenant } = useChat();
-  return <AiAvatar tenantId={tenant} className={className} />;
+  return (
+    <AiAvatar
+      tenantId={tenant}
+      className={`rounded-full border border-border/70 shadow-xs ${className}`}
+      imgClassName="rounded-full"
+    />
+  );
 }
 
 /**
@@ -165,13 +199,17 @@ export function ValentinaChatTab() {
   const [suggestionsKey, setSuggestionsKey] = useState("set1");
   const [isRefreshingSuggestions, setIsRefreshingSuggestions] = useState(false);
 
-  // Anexos e Input
+  // Anexos, Gravação de Áudio e Input
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [liveThoughtTrace, setLiveThoughtTrace] = useState<AgenticThoughtTraceData | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
+  const [attachedAudio, setAttachedAudio] = useState<AttachedAudioInfo | null>(null);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [fullscreenSrc, setFullscreenSrc] = useState<string | null>(null);
+  const [headerFolderPopoverOpen, setHeaderFolderPopoverOpen] = useState(false);
 
   // Seletor de Base
   const [selectedBase, setSelectedBase] = useState<KnowledgeBase>(tenant as KnowledgeBase);
@@ -183,6 +221,12 @@ export function ValentinaChatTab() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingStartMsRef = useRef<number>(0);
+  const sendImmediatelyAfterStopRef = useRef<boolean>(false);
   const abortCtrl = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const generationRef = useRef(0);
@@ -192,6 +236,7 @@ export function ValentinaChatTab() {
       userMessageText: string;
       fileSnap: AttachedFile | null;
       imageSnap: AttachedImage | null;
+      audioSnap: AttachedAudioInfo | null;
     }>
   >([]);
 
@@ -226,6 +271,16 @@ export function ValentinaChatTab() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // Cleanup do gravador de áudio ao desmontar
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((tr) => tr.stop());
+      }
+    };
+  }, []);
+
   // Auto-resize da textarea
   useEffect(() => {
     const ta = textareaRef.current;
@@ -239,6 +294,11 @@ export function ValentinaChatTab() {
     if (!activeThreadId) return null;
     return threads.find((t) => t.id === activeThreadId) || null;
   }, [threads, activeThreadId]);
+
+  const activeFolder = useMemo(() => {
+    if (!activeThread?.folderId) return null;
+    return folders.find((f) => f.id === activeThread.folderId) || null;
+  }, [activeThread, folders]);
 
   const activeMessages = activeThread?.messages || [];
 
@@ -292,14 +352,34 @@ export function ValentinaChatTab() {
     setThreads((prev) =>
       prev.map((t) => (t.id === id ? { ...t, folderId, updatedAt: Date.now() } : t))
     );
+    const targetFolder = folderId ? folders.find((f) => f.id === folderId) : null;
+    if (targetFolder) {
+      toast.success(`Conversa movida para a pasta "${targetFolder.name}"`);
+    } else {
+      toast.success("Conversa removida da pasta");
+    }
   };
 
-  const createFolder = (name: string) => {
+  const createFolder = (name: string, options?: CreateFolderOptions) => {
+    const newFolderId = `folder_${Date.now()}`;
     const newFolder: ValentinaFolder = {
-      id: `folder_${Date.now()}`,
+      id: newFolderId,
       name,
     };
     setFolders((prev) => [...prev, newFolder]);
+    if (options?.moveThreadId) {
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === options.moveThreadId ? { ...t, folderId: newFolderId, updatedAt: Date.now() } : t
+        )
+      );
+      toast.success(`Pasta "${name}" criada com a conversa vinculada!`);
+    } else if (options?.startNewThread) {
+      createNewThread(newFolderId);
+      toast.success(`Nova conversa iniciada dentro da pasta "${name}"!`);
+    } else {
+      toast.success(`Pasta "${name}" criada com sucesso!`);
+    }
   };
 
   const renameFolder = (folderId: string, newName: string) => {
@@ -329,15 +409,126 @@ export function ValentinaChatTab() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.type.startsWith("video/")) {
-      alert("Vídeos não são suportados. Apenas imagens.");
+      toast.error("Vídeos não são suportados. Apenas imagens.");
       return;
-    };
+    }
     const reader = new FileReader();
     reader.onloadend = () => {
       setAttachedImage({ name: file.name, dataUrl: reader.result as string });
     };
     reader.readAsDataURL(file);
     e.target.value = "";
+  };
+
+  // ── Gravação de Áudio (Microfone) ─────────────────────────────────────────
+  const formatRecordingDuration = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  const startAudioRecording = async () => {
+    if (isRecordingAudio) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
+      sendImmediatelyAfterStopRef.current = false;
+
+      const preferredMime =
+        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
+          ? "audio/ogg;codecs=opus"
+          : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "";
+
+      const recorder = preferredMime
+        ? new MediaRecorder(stream, { mimeType: preferredMime })
+        : new MediaRecorder(stream);
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          audioChunksRef.current.push(ev.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const elapsedSec = Math.max(1, Math.round((Date.now() - recordingStartMsRef.current) / 1000));
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((tr) => tr.stop());
+          mediaStreamRef.current = null;
+        }
+        setIsRecordingAudio(false);
+
+        if (audioChunksRef.current.length === 0) return;
+        const rawMime = (recorder.mimeType || "audio/webm").split(";")[0].trim() || "audio/webm";
+        const ext = rawMime.includes("mp4") ? "m4a" : rawMime.includes("ogg") ? "ogg" : "webm";
+        const blob = new Blob(audioChunksRef.current, { type: rawMime });
+        audioChunksRef.current = [];
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result as string;
+          const audioObj: AttachedAudioInfo = {
+            dataUrl,
+            name: `Audio_${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(/:/g, "-")}.${ext}`,
+            mimeType: rawMime,
+            durationSec: elapsedSec,
+          };
+          if (sendImmediatelyAfterStopRef.current) {
+            sendImmediatelyAfterStopRef.current = false;
+            void handleSendMessage(undefined, audioObj);
+          } else {
+            setAttachedAudio(audioObj);
+          }
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      mediaRecorderRef.current = recorder;
+      recordingStartMsRef.current = Date.now();
+      setRecordingSeconds(0);
+      setIsRecordingAudio(true);
+      recorder.start();
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(Math.max(0, Math.floor((Date.now() - recordingStartMsRef.current) / 1000)));
+      }, 500);
+    } catch {
+      toast.error("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
+    }
+  };
+
+  const stopAudioRecording = (sendImmediately = false) => {
+    sendImmediatelyAfterStopRef.current = sendImmediately;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const cancelAudioRecording = () => {
+    sendImmediatelyAfterStopRef.current = false;
+    audioChunksRef.current = [];
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((tr) => tr.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsRecordingAudio(false);
+    setRecordingSeconds(0);
   };
 
   // Alternar sugestões com animação fluída de rotação e fade/scale
@@ -354,9 +545,10 @@ export function ValentinaChatTab() {
   };
 
   // Envio de mensagem com debounce natural de 8s (reseta a cada nova mensagem)
-  const handleSendMessage = async (textOverride?: string) => {
+  const handleSendMessage = async (textOverride?: string, audioOverride?: AttachedAudioInfo | null) => {
     const text = (textOverride ?? input).trim();
-    if (!text && !attachedFile && !attachedImage) return;
+    const effectiveAudioToUse = audioOverride ?? attachedAudio;
+    if (!text && !attachedFile && !attachedImage && !effectiveAudioToUse) return;
 
     let targetThreadId = activeThreadId;
     if (!targetThreadId) {
@@ -372,8 +564,15 @@ export function ValentinaChatTab() {
 
     const fileSnap = attachedFile;
     const imageSnap = attachedImage;
+    const audioSnap = effectiveAudioToUse;
 
-    const userMessageText = text || (fileSnap ? fileSnap.name : imageSnap?.name || "");
+    const userMessageText =
+      text ||
+      (audioSnap
+        ? `🎤 Mensagem de voz (${formatRecordingDuration(audioSnap.durationSec || 1)})`
+        : fileSnap
+        ? fileSnap.name
+        : imageSnap?.name || "");
 
     const userMsg: ValentinaChatMessage = {
       id: `op-${Date.now()}`,
@@ -382,13 +581,19 @@ export function ValentinaChatTab() {
       timestamp: new Date().toISOString(),
       attachedFileInfo: fileSnap ? { name: fileSnap.name, mimeType: fileSnap.mimeType } : undefined,
       attachedImageInfo: imageSnap ? { dataUrl: imageSnap.dataUrl, name: imageSnap.name } : undefined,
+      attachedAudioInfo: audioSnap || undefined,
     };
 
     setThreads((prev) =>
       prev.map((t) => {
         if (t.id === targetThreadId) {
           const isFirst = t.messages.length === 0;
-          const newTitle = isFirst ? (text.length > 32 ? `${text.slice(0, 32)}…` : text) : t.title;
+          const titleCandidate = text || (audioSnap ? "Mensagem de voz" : userMessageText);
+          const newTitle = isFirst
+            ? titleCandidate.length > 32
+              ? `${titleCandidate.slice(0, 32)}…`
+              : titleCandidate
+            : t.title;
           return {
             ...t,
             title: newTitle,
@@ -403,6 +608,7 @@ export function ValentinaChatTab() {
     setInput("");
     setAttachedFile(null);
     setAttachedImage(null);
+    setAttachedAudio(null);
 
     abortCtrl.current?.abort();
     abortCtrl.current = null;
@@ -413,7 +619,7 @@ export function ValentinaChatTab() {
 
     const myGeneration = ++generationRef.current;
     setLiveThoughtTrace({
-      taskTitle: "Trabalhando",
+      taskTitle: audioSnap ? "Ouvindo e transcrevendo áudio" : "Trabalhando",
       finishedTitle: "Resposta enviada",
       totalDurationSeconds: 1,
       scope: "admin",
@@ -428,14 +634,16 @@ export function ValentinaChatTab() {
       userMessageText,
       fileSnap,
       imageSnap,
+      audioSnap,
     });
 
     const isSingleCasualWait =
       !fileSnap &&
       !imageSnap &&
+      !audioSnap &&
       queuedAdminInputsRef.current.length === 1 &&
       isCasualConversationQuery(text);
-    const debounceWaitMs = isSingleCasualWait ? 2000 : 8000;
+    const debounceWaitMs = audioSnap ? 1200 : isSingleCasualWait ? 2000 : 8000;
 
     debounceTimerRef.current = setTimeout(() => {
       debounceTimerRef.current = null;
@@ -455,6 +663,7 @@ export function ValentinaChatTab() {
         .join(" • ");
       const batchFile = [...batch].reverse().find((b) => b.fileSnap)?.fileSnap || null;
       const batchImage = [...batch].reverse().find((b) => b.imageSnap)?.imageSnap || null;
+      const batchAudio = [...batch].reverse().find((b) => b.audioSnap)?.audioSnap || null;
 
       const initialTrace = buildInitialLiveTraceForIntent({
         userQuery: combinedUserMessageText,
@@ -462,7 +671,7 @@ export function ValentinaChatTab() {
         personaName: persona.name,
         knowledgeBase: selectedBase || tenant || "tecfag",
         hasAttachedImage: Boolean(batchImage),
-        attachedFileName: batchFile?.name || batchImage?.name || null,
+        attachedFileName: batchFile?.name || batchImage?.name || batchAudio?.name || null,
       });
 
       setLiveThoughtTrace(initialTrace);
@@ -480,7 +689,11 @@ export function ValentinaChatTab() {
             body: JSON.stringify({
               tenantId: tenant,
               operatorId: currentOperatorId || "system",
-              content: combinedText || "[veja o arquivo/imagem anexada]",
+              content:
+                combinedText ||
+                (batchAudio
+                  ? ""
+                  : "[veja o arquivo/imagem anexada]"),
               scope: "admin",
               knowledgeBase: selectedBase,
               threadHistory,
@@ -494,6 +707,13 @@ export function ValentinaChatTab() {
                   }
                 : {}),
               ...(batchImage ? { imageBase64: batchImage.dataUrl } : {}),
+              ...(batchAudio
+                ? {
+                    audioBase64: batchAudio.dataUrl,
+                    audioMimeType: batchAudio.mimeType,
+                    audioFileName: batchAudio.name,
+                  }
+                : {}),
             }),
           });
 
@@ -608,8 +828,8 @@ export function ValentinaChatTab() {
   // ── Render da Barra de Input ──────────────────────────────────────────────
   const renderInputBar = (placeholder: string) => (
     <div className="flex flex-col rounded-2xl bg-card border border-border/80 shadow-soft focus-within:border-primary/60 transition-all duration-200">
-      {/* Previews de Anexo */}
-      {(attachedFile || attachedImage) && (
+      {/* Previews de Anexo (Arquivo, Imagem ou Áudio Gravado) */}
+      {(attachedFile || attachedImage || attachedAudio) && (
         <div className="flex flex-wrap items-center gap-2.5 px-4 pt-3 pb-1">
           {attachedFile && (
             <div className="flex items-center gap-2 bg-muted/70 border border-border/60 rounded-xl px-3 py-1.5">
@@ -648,67 +868,169 @@ export function ValentinaChatTab() {
               </motion.button>
             </div>
           )}
+          {attachedAudio && (
+            <div className="flex items-center gap-2.5 bg-primary/10 border border-primary/25 rounded-xl px-3 py-1.5">
+              <div className="grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground shrink-0">
+                <Mic className="h-3.5 w-3.5" />
+              </div>
+              <audio
+                controls
+                src={attachedAudio.dataUrl}
+                className="h-7 max-w-[210px] sm:max-w-[260px]"
+              />
+              <span className="text-[10px] font-bold text-primary tabular-nums">
+                {formatRecordingDuration(attachedAudio.durationSec || 1)}
+              </span>
+              <SystemTooltip content="Remover áudio gravado">
+                <button
+                  type="button"
+                  onClick={() => setAttachedAudio(null)}
+                  className="grid h-5 w-5 place-items-center rounded-full hover:bg-rose-500/15 hover:text-rose-500 text-muted-foreground transition cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </SystemTooltip>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Linha Textarea + Seletor de Base (Abre para CIMA) */}
-      <div className="flex items-start gap-2 px-4 pt-3">
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          rows={1}
-          className="flex-1 bg-transparent text-xs sm:text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none leading-relaxed py-0.5"
-          style={{ minHeight: "28px", maxHeight: "144px", overflowY: "auto" }}
-        />
+      {/* Modo Gravação de Áudio Ativa vs Modo Digitação */}
+      {isRecordingAudio ? (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-primary/8 rounded-t-2xl">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+            </span>
+            <span className="text-xs font-extrabold text-foreground">
+              Gravando áudio para {persona.name}...
+            </span>
+            <span className="rounded-lg bg-background/80 border border-border px-2 py-0.5 text-xs font-mono font-bold text-primary tabular-nums">
+              {formatRecordingDuration(recordingSeconds)}
+            </span>
+            <div className="hidden sm:flex items-center gap-1 h-4">
+              {[0, 1, 2, 3, 4, 5].map((bar) => (
+                <motion.span
+                  key={bar}
+                  animate={{ height: ["6px", "16px", "8px", "14px", "6px"] }}
+                  transition={{
+                    duration: 0.9,
+                    repeat: Infinity,
+                    delay: bar * 0.12,
+                    ease: "easeInOut",
+                  }}
+                  className="w-1 rounded-full bg-primary/80"
+                />
+              ))}
+            </div>
+          </div>
 
-        {/* Seletor de Base de Conhecimento */}
-        <div className="relative shrink-0" ref={baseDropdownRef}>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowBaseDropdown((v) => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted/60 text-muted-foreground text-[11px] font-bold cursor-pointer hover:bg-muted hover:text-foreground transition-all whitespace-nowrap mt-0.5"
-          >
-            <BaseIcon className={`h-3.5 w-3.5 ${selectedOpt.iconColor}`} />
-            <span>{selectedOpt.label}</span>
-            <ChevronDown className={`h-3 w-3 transition-transform duration-150 ${showBaseDropdown ? "rotate-180" : ""}`} />
-          </motion.button>
-
-          <AnimatePresence>
-            {showBaseDropdown && (
-              <motion.div
-                initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                transition={{ duration: 0.15, ease: "easeOut" }}
-                className="absolute right-0 bottom-full mb-2 z-50 min-w-[160px] rounded-2xl bg-card border border-border shadow-card py-1.5 overflow-hidden"
+          <div className="flex items-center gap-2">
+            <SystemTooltip content="Cancelar gravação">
+              <button
+                type="button"
+                onClick={cancelAudioRecording}
+                className="flex items-center gap-1 rounded-xl border border-border bg-card px-2.5 py-1.5 text-xs font-bold text-muted-foreground hover:border-destructive/40 hover:text-destructive transition cursor-pointer"
               >
-                {BASE_OPTIONS.map((opt) => {
-                  const Icon = opt.icon;
-                  return (
-                    <button
-                      key={opt.value}
-                      onClick={() => { setSelectedBase(opt.value); setShowBaseDropdown(false); }}
-                      className="flex w-full items-center gap-2.5 px-3.5 py-2 text-xs font-semibold hover:bg-muted/60 transition cursor-pointer"
-                    >
-                      <Icon className={`h-4 w-4 ${opt.iconColor}`} />
-                      <span className="flex-1 text-left text-foreground">{opt.label}</span>
-                      {selectedBase === opt.value && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                    </button>
-                  );
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                <Trash2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Cancelar</span>
+              </button>
+            </SystemTooltip>
+
+            <SystemTooltip content="Parar e revisar antes de enviar">
+              <button
+                type="button"
+                onClick={() => stopAudioRecording(false)}
+                className="flex items-center gap-1 rounded-xl border border-primary/30 bg-primary/12 px-2.5 py-1.5 text-xs font-bold text-primary hover:bg-primary/20 transition cursor-pointer"
+              >
+                <Square className="h-3 w-3 fill-current" />
+                <span className="hidden sm:inline">Revisar</span>
+              </button>
+            </SystemTooltip>
+
+            <SystemTooltip content={`Enviar áudio direto para ${persona.name}`}>
+              <button
+                type="button"
+                onClick={() => stopAudioRecording(true)}
+                className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-90 transition cursor-pointer"
+              >
+                <Send className="h-3.5 w-3.5" />
+                <span>Enviar Áudio</span>
+              </button>
+            </SystemTooltip>
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Linha Textarea + Seletor de Base (Abre para CIMA) */
+        <div className="flex items-start gap-2 px-4 pt-3">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            rows={1}
+            className="flex-1 bg-transparent text-xs sm:text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none leading-relaxed py-0.5"
+            style={{ minHeight: "28px", maxHeight: "144px", overflowY: "auto" }}
+          />
+
+          {/* Seletor de Base de Conhecimento Harmonizado */}
+          <div className="relative shrink-0" ref={baseDropdownRef}>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setShowBaseDropdown((v) => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-muted/50 border border-border/70 text-foreground text-[11px] font-bold cursor-pointer hover:bg-muted hover:border-border transition-all whitespace-nowrap mt-0.5"
+            >
+              <span className={`grid h-4.5 w-4.5 place-items-center rounded-md border ${selectedOpt.chipBg}`}>
+                <BaseIcon className={`h-3 w-3 ${selectedOpt.iconColor}`} />
+              </span>
+              <span>{selectedOpt.label}</span>
+              <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform duration-150 ${showBaseDropdown ? "rotate-180" : ""}`} />
+            </motion.button>
+
+            <AnimatePresence>
+              {showBaseDropdown && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                  className="absolute right-0 bottom-full mb-2 z-50 min-w-[180px] rounded-2xl bg-card border border-border shadow-card p-1.5 overflow-hidden"
+                >
+                  {BASE_OPTIONS.map((opt) => {
+                    const Icon = opt.icon;
+                    const isSelected = selectedBase === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => {
+                          setSelectedBase(opt.value);
+                          setShowBaseDropdown(false);
+                        }}
+                        className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-xs font-semibold transition cursor-pointer ${
+                          isSelected ? "bg-muted/80 text-foreground" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <span className={`grid h-6 w-6 place-items-center rounded-lg border ${opt.chipBg} shrink-0`}>
+                          <Icon className={`h-3.5 w-3.5 ${opt.iconColor}`} />
+                        </span>
+                        <span className="flex-1 text-left">{opt.label}</span>
+                        {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
 
       {/* Footer da Barra com Cores da Marca (text-primary) */}
       <div className="flex items-center justify-between px-4 pb-3 pt-2 border-t border-border/40">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <input ref={fileInputRef} type="file" accept={ACCEPTED_FILE_TYPES} onChange={handleFileChange} className="hidden" />
           <motion.button
             whileHover={{ scale: 1.03 }}
@@ -730,6 +1052,27 @@ export function ValentinaChatTab() {
           >
             <ImageIcon className="h-3.5 w-3.5" /> Usar imagem
           </motion.button>
+
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            type="button"
+            onClick={() => {
+              if (isRecordingAudio) {
+                stopAudioRecording(false);
+              } else {
+                void startAudioRecording();
+              }
+            }}
+            className={`flex items-center gap-1.5 text-xs font-bold transition cursor-pointer ${
+              isRecordingAudio
+                ? "text-red-500 animate-pulse"
+                : "text-primary hover:text-primary/80"
+            }`}
+          >
+            <Mic className="h-3.5 w-3.5" />
+            {isRecordingAudio ? "Gravando..." : "Gravar áudio"}
+          </motion.button>
         </div>
 
         <div className="flex items-center gap-3">
@@ -740,7 +1083,7 @@ export function ValentinaChatTab() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => handleSendMessage()}
-            disabled={!input.trim() && !attachedFile && !attachedImage}
+            disabled={!input.trim() && !attachedFile && !attachedImage && !attachedAudio}
             className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition shadow-sm cursor-pointer"
           >
             <Send className="h-4 w-4" />
@@ -765,13 +1108,13 @@ export function ValentinaChatTab() {
       {/* Coluna Central do Chat */}
       <div className="flex min-w-0 flex-1 flex-col h-full rounded-2xl border border-border/80 bg-card shadow-card overflow-hidden">
         {/* Header do Chat */}
-        <header className="flex items-center justify-between border-b border-border/80 bg-card px-5 py-3 shrink-0">
+        <header className="flex items-center justify-between border-b border-border/80 bg-card px-5 py-3 shrink-0 gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <ValentinaAvatar className="h-9 w-9" />
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xs font-extrabold text-foreground">{persona.name}</h2>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 border border-emerald-500/25 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online
                 </span>
               </div>
@@ -781,24 +1124,136 @@ export function ValentinaChatTab() {
             </div>
           </div>
 
-          {/* Botão de Histórico (se colapsado) */}
-          {!isRailOpen && (
-            <ValentinaThreadRail
-              threads={threads}
-              folders={folders}
-              activeThreadId={activeThreadId}
-              isOpen={false}
-              onToggleOpen={() => setIsRailOpen(true)}
-              onSelectThread={(id) => setActiveThreadId(id)}
-              onNewThread={createNewThread}
-              onDeleteThread={deleteThread}
-              onRenameThread={renameThread}
-              onMoveThread={moveThread}
-              onCreateFolder={createFolder}
-              onRenameFolder={renameFolder}
-              onDeleteFolder={deleteFolder}
-            />
-          )}
+          <div className="flex items-center gap-2">
+            {/* Botão / Seletor Rápido de Pasta para a Conversa Atual */}
+            <Popover open={headerFolderPopoverOpen} onOpenChange={setHeaderFolderPopoverOpen}>
+              <SystemTooltip
+                content={
+                  activeFolder
+                    ? `Pasta atual: ${activeFolder.name} (clique para alterar ou remover)`
+                    : "Organizar conversa em uma pasta ou iniciar conversa a partir de uma pasta"
+                }
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      activeFolder
+                        ? "bg-primary/12 border-primary/30 text-primary hover:bg-primary/20"
+                        : "bg-card border-border/80 text-muted-foreground hover:text-foreground hover:bg-muted/70"
+                    }`}
+                  >
+                    <FolderClosed className="h-3.5 w-3.5 text-primary" />
+                    <span className="max-w-[140px] truncate">
+                      {activeFolder ? activeFolder.name : "Pastas"}
+                    </span>
+                    <ChevronDown className="h-3 w-3 opacity-70" />
+                  </button>
+                </PopoverTrigger>
+              </SystemTooltip>
+              <PopoverContent align="end" className="w-64 p-2 rounded-2xl border border-border bg-card shadow-2xl">
+                <div className="space-y-1">
+                  <div className="px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                    {activeThread ? "Mover conversa atual para" : "Pastas de conversas"}
+                  </div>
+
+                  {activeThread && activeFolder && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        moveThread(activeThread.id, null);
+                        setHeaderFolderPopoverOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
+                    >
+                      <FolderOutput className="h-3.5 w-3.5 shrink-0" />
+                      <span>Remover da pasta &ldquo;{activeFolder.name}&rdquo;</span>
+                    </button>
+                  )}
+
+                  {folders.length === 0 ? (
+                    <p className="px-2.5 py-2 text-[11px] text-muted-foreground">
+                      Nenhuma pasta criada ainda.
+                    </p>
+                  ) : (
+                    folders.map((f) => {
+                      const isCurrent = activeThread?.folderId === f.id;
+                      return (
+                        <div
+                          key={f.id}
+                          className="flex items-center justify-between gap-1 rounded-xl hover:bg-muted/60 px-2 py-1.5 transition"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (activeThread) {
+                                moveThread(activeThread.id, isCurrent ? null : f.id);
+                              } else {
+                                createNewThread(f.id);
+                              }
+                              setHeaderFolderPopoverOpen(false);
+                            }}
+                            className="flex flex-1 items-center gap-2 text-left text-xs font-semibold text-foreground truncate cursor-pointer"
+                          >
+                            <FolderClosed className="h-3.5 w-3.5 text-primary shrink-0" />
+                            <span className="truncate">{f.name}</span>
+                            {isCurrent && <Check className="h-3.5 w-3.5 text-primary shrink-0 ml-auto" />}
+                          </button>
+
+                          <SystemTooltip content={`Iniciar nova conversa em "${f.name}"`}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                createNewThread(f.id);
+                                setHeaderFolderPopoverOpen(false);
+                                toast.success(`Nova conversa iniciada na pasta "${f.name}"`);
+                              }}
+                              className="rounded-lg p-1 text-muted-foreground hover:bg-primary/15 hover:text-primary transition cursor-pointer shrink-0"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          </SystemTooltip>
+                        </div>
+                      );
+                    })
+                  )}
+
+                  <div className="border-t border-border/60 pt-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHeaderFolderPopoverOpen(false);
+                        setIsRailOpen(true);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-bold text-primary hover:bg-primary/10 transition cursor-pointer"
+                    >
+                      <FolderPlus className="h-3.5 w-3.5" />
+                      <span>Gerenciar / Criar nova pasta...</span>
+                    </button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Botão de Histórico (se colapsado) */}
+            {!isRailOpen && (
+              <ValentinaThreadRail
+                threads={threads}
+                folders={folders}
+                activeThreadId={activeThreadId}
+                isOpen={false}
+                onToggleOpen={() => setIsRailOpen(true)}
+                onSelectThread={(id) => setActiveThreadId(id)}
+                onNewThread={createNewThread}
+                onDeleteThread={deleteThread}
+                onRenameThread={renameThread}
+                onMoveThread={moveThread}
+                onCreateFolder={createFolder}
+                onRenameFolder={renameFolder}
+                onDeleteFolder={deleteFolder}
+              />
+            )}
+          </div>
         </header>
 
         {/* Conteúdo Principal do Chat */}
@@ -814,6 +1269,13 @@ export function ValentinaChatTab() {
                 transition={{ duration: 0.2 }}
                 className="flex flex-col items-center justify-center flex-1 h-full min-h-[460px] py-6 text-center max-w-3xl sm:max-w-4xl mx-auto my-auto w-full"
               >
+                {activeFolder && (
+                  <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/25 px-3 py-1 text-xs font-bold text-primary">
+                    <FolderClosed className="h-3.5 w-3.5" />
+                    <span>Nova conversa na pasta &ldquo;{activeFolder.name}&rdquo;</span>
+                  </div>
+                )}
+
                 {/* Frase Inicial com Tipografia e Fontes de Destaque Maior */}
                 <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
                   Olá, <span className="text-primary font-black">{operatorFirstName}</span>
@@ -822,7 +1284,7 @@ export function ValentinaChatTab() {
                   O que você gostaria de saber hoje?
                 </h2>
                 <p className="text-xs sm:text-sm text-muted-foreground mt-1.5 max-w-lg">
-                  Use uma das sugestões abaixo ou faça sua própria pergunta para iniciar
+                  Use uma das sugestões abaixo, digite ou envie um áudio para iniciar
                 </p>
 
                 {/* Grid de Cards de Sugestões Ampliados com Transição Animada */}
@@ -895,17 +1357,27 @@ export function ValentinaChatTab() {
                           <span className="text-[10px] text-muted-foreground">{formatTime(msg.timestamp)}</span>
                           <span className="text-xs font-bold text-foreground">{operatorProfile?.name || "Você"}</span>
                         </div>
-                        <div className="rounded-2xl rounded-tr-xs bg-primary px-4 py-2.5 text-xs sm:text-sm text-primary-foreground shadow-xs">
+                        <div className="rounded-2xl rounded-tr-xs bg-primary px-4 py-2.5 text-xs sm:text-sm text-primary-foreground shadow-xs space-y-1.5">
                           {msg.attachedImageInfo && (
                             <img
                               src={msg.attachedImageInfo.dataUrl}
                               alt=""
-                              className="mb-2 max-h-48 rounded-xl object-cover border border-white/20"
+                              className="mb-1 max-h-48 rounded-xl object-cover border border-white/20"
                             />
                           )}
                           {msg.attachedFileInfo && (
-                            <div className="mb-1.5 flex items-center gap-1.5 rounded-lg bg-black/10 px-2.5 py-1 text-[11px] font-bold">
+                            <div className="flex items-center gap-1.5 rounded-lg bg-black/15 px-2.5 py-1 text-[11px] font-bold">
                               <Paperclip className="h-3 w-3" /> {msg.attachedFileInfo.name}
+                            </div>
+                          )}
+                          {msg.attachedAudioInfo && (
+                            <div className="flex items-center gap-2 rounded-xl bg-black/15 px-2.5 py-1.5">
+                              <Mic className="h-3.5 w-3.5 shrink-0" />
+                              <audio
+                                controls
+                                src={msg.attachedAudioInfo.dataUrl}
+                                className="h-7 max-w-[210px] sm:max-w-[250px]"
+                              />
                             </div>
                           )}
                           <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>

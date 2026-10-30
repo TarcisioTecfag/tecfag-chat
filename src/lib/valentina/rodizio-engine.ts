@@ -27,6 +27,10 @@ import {
   FLOW_AREAS,
   ALL_FLOW_FUNNELS,
   DEFAULT_TECFAG_FLOW_OPERATORS,
+  getBrtTodayYmd,
+  isOperatorOnLeaveToday,
+  getDefaultRoleTagForArea,
+  getDefaultDepartmentForArea,
 } from "./rodizio-types";
 
 export * from "./rodizio-types";
@@ -104,8 +108,11 @@ export class RodizioEngine {
 
       // Se já existem flowOperators salvos, usamos exclusivamente os configurados
       if (Array.isArray(configData.flowOperators)) {
+        const todayBrt = getBrtTodayYmd();
         const mappedOps: FlowOperator[] = configData.flowOperators.map((flowOp: FlowOperator) => {
           const matchedDbOp = matchDbOp(flowOp);
+          const areaKey = flowOp.area || "maquinas";
+          const activeLeave = isOperatorOnLeaveToday(flowOp, todayBrt);
 
           return {
             ...flowOp,
@@ -114,9 +121,12 @@ export class RodizioEngine {
             email: matchedDbOp?.email || flowOp.email,
             avatar: matchedDbOp?.avatar || flowOp.avatar,
             isParticipating: flowOp.isParticipating ?? true,
-            isOnLeave: flowOp.isOnLeave ?? false,
+            isOnLeave: activeLeave,
+            leaveDate: activeLeave ? flowOp.leaveDate || todayBrt : null,
             isPenalized: flowOp.isPenalized ?? false,
-            area: flowOp.area || "maquinas",
+            area: areaKey,
+            departmentTag: flowOp.departmentTag || getDefaultDepartmentForArea(areaKey),
+            roleTag: getDefaultRoleTagForArea(areaKey, flowOp.roleTag),
             funnels: getAiPersona(tenantId).triagePolicy === "industrial"
               ? normalizeIndustrialFunnels(Array.isArray(flowOp.funnels) ? flowOp.funnels : [])
               : Array.isArray(flowOp.funnels) && flowOp.funnels.length > 0 ? flowOp.funnels : ["Máquinas"],
@@ -268,6 +278,7 @@ export class RodizioEngine {
     const currentOps = await this.getRodizioState(tenantId);
     const existingIndex = currentOps.findIndex((o) => o.id === newOp.id);
 
+    const areaKey = newOp.area || "maquinas";
     const fullOp: FlowOperator = {
       id: newOp.id,
       name: newOp.name,
@@ -275,13 +286,14 @@ export class RodizioEngine {
       avatar: newOp.avatar || undefined,
       isParticipating: newOp.isParticipating ?? true,
       isOnLeave: newOp.isOnLeave ?? false,
+      leaveDate: newOp.isOnLeave ? getBrtTodayYmd() : null,
       isPenalized: newOp.isPenalized ?? false,
-      area: newOp.area || "maquinas",
+      area: areaKey,
       funnels: Array.isArray(newOp.funnels) && newOp.funnels.length > 0 ? newOp.funnels : ["Máquinas"],
       compensation: typeof newOp.compensation === "number" ? newOp.compensation : 0,
       crmId: newOp.crmId || `${newOp.name} (${newOp.email || ""})`,
-      departmentTag: newOp.departmentTag || "COMERCIAL",
-      roleTag: newOp.roleTag || "SDR",
+      departmentTag: newOp.departmentTag || getDefaultDepartmentForArea(areaKey),
+      roleTag: getDefaultRoleTagForArea(areaKey, newOp.roleTag),
       talosId: newOp.talosId || "",
       leadsReceivedCount: newOp.leadsReceivedCount || 0,
       recentLeads: newOp.recentLeads || [],
@@ -368,15 +380,34 @@ export class RodizioEngine {
   }
 
   /**
-   * Alterna folga do operador
+   * Alterna folga diária do operador (remove apenas no dia atual, NUNCA altera compensação)
    */
   static async toggleLeave(tenantId: string, operatorId: string): Promise<FlowOperator[]> {
-    if (getAiPersona(tenantId).triagePolicy === "industrial")
-      return mutateIndustrialRodizio(db, tenantId, (ops) => ops.map((op) => op.id !== operatorId ? op : { ...op, isOnLeave: !op.isOnLeave }));
+    const todayBrt = getBrtTodayYmd();
+    if (getAiPersona(tenantId).triagePolicy === "industrial") {
+      return mutateIndustrialRodizio(db, tenantId, (ops) =>
+        ops.map((op) => {
+          if (op.id !== operatorId) return op;
+          const nextLeave = !isOperatorOnLeaveToday(op, todayBrt);
+          return {
+            ...op,
+            isOnLeave: nextLeave,
+            leaveDate: nextLeave ? todayBrt : null,
+            compensation: op.compensation ?? 0,
+          };
+        }),
+      );
+    }
     const currentOps = await this.getRodizioState(tenantId);
     const updatedList = currentOps.map((op) => {
       if (op.id !== operatorId) return op;
-      return { ...op, isOnLeave: !op.isOnLeave };
+      const nextLeave = !isOperatorOnLeaveToday(op, todayBrt);
+      return {
+        ...op,
+        isOnLeave: nextLeave,
+        leaveDate: nextLeave ? todayBrt : null,
+        compensation: op.compensation ?? 0,
+      };
     });
 
     await this.saveFlowOperators(tenantId, updatedList);

@@ -1,7 +1,13 @@
 import { and, eq, sql } from "drizzle-orm";
 import { agentConfigs } from "../../db/schema";
 import type { db } from "../../db";
-import type { FlowOperator } from "../valentina/rodizio-types";
+import {
+  type FlowOperator,
+  getBrtTodayYmd,
+  isOperatorOnLeaveToday,
+  getDefaultRoleTagForArea,
+  getDefaultDepartmentForArea,
+} from "../valentina/rodizio-types";
 import { normalizeIndustrialFunnels } from "./industrial-policy";
 
 export type IndustrialDatabase = typeof db;
@@ -27,12 +33,15 @@ export async function writeIndustrialRodizio(
   rowId: string,
   config: RodizioConfig,
 ) {
+  const todayBrt = getBrtTodayYmd();
   const operatorsMap = { ...((config.operatorsMap || {}) as Record<string, unknown>) };
   for (const op of config.flowOperators || []) {
+    const activeLeave = isOperatorOnLeaveToday(op, todayBrt);
     operatorsMap[op.id] = {
       operatorId: op.id,
       isParticipating: op.isParticipating,
-      isOnLeave: op.isOnLeave,
+      isOnLeave: activeLeave,
+      leaveDate: activeLeave ? op.leaveDate || todayBrt : null,
       isPenalized: Boolean(op.isPenalized),
       leadsReceivedCount: op.leadsReceivedCount,
       recentLeads: op.recentLeads || [],
@@ -51,16 +60,31 @@ export async function mutateIndustrialRodizio(
   mutate: (ops: FlowOperator[], config: RodizioConfig) => FlowOperator[],
 ): Promise<FlowOperator[]> {
   return database.transaction(async (tx) => {
+    const todayBrt = getBrtTodayYmd();
     const row = await lockIndustrialRodizio(tx, tenantId);
     const config = (row?.config || {}) as RodizioConfig;
-    const current = (Array.isArray(config.flowOperators) ? config.flowOperators : []).map((op) => ({
-      ...op,
-      funnels: normalizeIndustrialFunnels(Array.isArray(op.funnels) ? op.funnels : []),
-    }));
-    const next = mutate(current, config).map((op) => ({
-      ...op,
-      funnels: normalizeIndustrialFunnels(Array.isArray(op.funnels) ? op.funnels : []),
-    }));
+    const current = (Array.isArray(config.flowOperators) ? config.flowOperators : []).map((op) => {
+      const activeLeave = isOperatorOnLeaveToday(op, todayBrt);
+      return {
+        ...op,
+        isOnLeave: activeLeave,
+        leaveDate: activeLeave ? op.leaveDate || todayBrt : null,
+        departmentTag: op.departmentTag || getDefaultDepartmentForArea(op.area),
+        roleTag: getDefaultRoleTagForArea(op.area, op.roleTag),
+        funnels: normalizeIndustrialFunnels(Array.isArray(op.funnels) ? op.funnels : []),
+      };
+    });
+    const next = mutate(current, config).map((op) => {
+      const activeLeave = isOperatorOnLeaveToday(op, todayBrt);
+      return {
+        ...op,
+        isOnLeave: activeLeave,
+        leaveDate: activeLeave ? op.leaveDate || todayBrt : null,
+        departmentTag: op.departmentTag || getDefaultDepartmentForArea(op.area),
+        roleTag: getDefaultRoleTagForArea(op.area, op.roleTag),
+        funnels: normalizeIndustrialFunnels(Array.isArray(op.funnels) ? op.funnels : []),
+      };
+    });
     if (row) await writeIndustrialRodizio(tx, tenantId, row.id, { ...config, flowOperators: next });
     else
       await tx.insert(agentConfigs).values({

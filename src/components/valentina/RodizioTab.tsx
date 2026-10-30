@@ -36,6 +36,7 @@ import {
   HelpCircle,
   Loader2,
   SlidersHorizontal,
+  ChevronLeft,
   ChevronDown,
   ChevronRight,
   Bot,
@@ -50,6 +51,8 @@ import {
 import { toast } from "sonner";
 import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   RodizioStats,
   LeadByDay,
@@ -800,23 +803,24 @@ function LeadCardItem({
 
       <div className="flex items-center gap-1 shrink-0">
         {/* Botão de Reatribuir */}
-        <button
-          ref={btnRef}
-          title="Mover lead para outro vendedor"
-          disabled={isReassigning}
-          onClick={onToggleDropdown}
-          className={`opacity-0 group-hover/card:opacity-100 focus:opacity-100 flex items-center justify-center w-5 h-5 rounded-md transition-all cursor-pointer ${
-            isOpen
-              ? "opacity-100 text-primary bg-primary-soft border border-primary/30"
-              : "text-muted-foreground hover:text-primary hover:bg-muted border border-transparent"
-          }`}
-        >
-          {isReassigning ? (
-            <Loader2 size={10} className="animate-spin text-primary" />
-          ) : (
-            <ArrowRightLeft size={10} />
-          )}
-        </button>
+        <SystemTooltip content="Mover lead para outro vendedor">
+          <button
+            ref={btnRef}
+            disabled={isReassigning}
+            onClick={onToggleDropdown}
+            className={`opacity-0 group-hover/card:opacity-100 focus:opacity-100 flex items-center justify-center w-5 h-5 rounded-md transition-all cursor-pointer ${
+              isOpen
+                ? "opacity-100 text-primary bg-primary-soft border border-primary/30"
+                : "text-muted-foreground hover:text-primary hover:bg-muted border border-transparent"
+            }`}
+          >
+            {isReassigning ? (
+              <Loader2 size={10} className="animate-spin text-primary" />
+            ) : (
+              <ArrowRightLeft size={10} />
+            )}
+          </button>
+        </SystemTooltip>
 
         {isOpen && (
           <ReassignDropdown
@@ -831,35 +835,37 @@ function LeadCardItem({
 
         {/* Botão de Excluir */}
         {onDeleteCard && (
-          <button
-            onClick={() => onDeleteCard(card.id, card.name)}
-            title="Remover atendimento do operador"
-            className="opacity-0 group-hover/card:opacity-100 focus:opacity-100 flex items-center justify-center w-4.5 h-4.5 rounded text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border border-transparent transition-all shrink-0 cursor-pointer"
-          >
-            <X size={10} />
-          </button>
+          <SystemTooltip content="Remover atendimento do operador">
+            <button
+              onClick={() => onDeleteCard(card.id, card.name)}
+              className="opacity-0 group-hover/card:opacity-100 focus:opacity-100 flex items-center justify-center w-4.5 h-4.5 rounded text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border border-transparent transition-all shrink-0 cursor-pointer"
+            >
+              <X size={10} />
+            </button>
+          </SystemTooltip>
         )}
 
         {/* Botão Abrir com Mini Pop-up de 3 Opções */}
-        <button
-          ref={openBtnRef}
-          type="button"
-          onClick={onToggleOpenActionPopup}
-          title="Escolher o que abrir (Triagem SDR, Conversa ou Negociação CRM)"
-          className={`text-[9px] font-bold px-1.5 py-0.5 rounded border transition-all shrink-0 inline-flex items-center gap-0.5 cursor-pointer ${
-            isOpenActionPopup
-              ? "bg-primary text-primary-foreground border-primary shadow-2xs"
-              : "text-muted-foreground hover:text-primary hover:bg-primary-soft/60 border-border/60 hover:border-primary/30"
-          }`}
-        >
-          Abrir
-          <ChevronDown
-            size={8}
-            className={`opacity-80 transition-transform duration-150 ${
-              isOpenActionPopup ? "rotate-180" : ""
+        <SystemTooltip content="Escolher o que abrir (Triagem SDR, Conversa ou Negociação CRM)">
+          <button
+            ref={openBtnRef}
+            type="button"
+            onClick={onToggleOpenActionPopup}
+            className={`text-[9px] font-bold px-1.5 py-0.5 rounded border transition-all shrink-0 inline-flex items-center gap-0.5 cursor-pointer ${
+              isOpenActionPopup
+                ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                : "text-muted-foreground hover:text-primary hover:bg-primary-soft/60 border-border/60 hover:border-primary/30"
             }`}
-          />
-        </button>
+          >
+            Abrir
+            <ChevronDown
+              size={8}
+              className={`opacity-80 transition-transform duration-150 ${
+                isOpenActionPopup ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+        </SystemTooltip>
 
         {isOpenActionPopup && (
           <LeadOpenActionPopup
@@ -920,13 +926,14 @@ function CrmDealsModal({
             </p>
           </div>
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => downloadDealsCSV(filtered, period)}
-              title={`Exportar ${filtered.length} deals para CSV`}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 transition-all cursor-pointer"
-            >
-              <Download size={15} />
-            </button>
+            <SystemTooltip content={`Exportar ${filtered.length} deals para CSV`}>
+              <button
+                onClick={() => downloadDealsCSV(filtered, period)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 transition-all cursor-pointer"
+              >
+                <Download size={15} />
+              </button>
+            </SystemTooltip>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all cursor-pointer"
@@ -1204,29 +1211,31 @@ function OperatorStatusModal({
                     {op.isParticipating ? "Participando" : "Inativo"}
                   </button>
 
-                  <button
-                    onClick={() => onUpdateOperatorState(op.id, "isOnLeave")}
-                    title="Definir folga"
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer border flex items-center gap-1 ${
-                      op.isOnLeave
-                        ? "bg-amber-500 text-white border-amber-500"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80 border-border"
-                    }`}
-                  >
-                    <Palmtree size={11} /> Folga
-                  </button>
+                  <SystemTooltip content="Definir folga do dia">
+                    <button
+                      onClick={() => onUpdateOperatorState(op.id, "isOnLeave")}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer border flex items-center gap-1 ${
+                        op.isOnLeave
+                          ? "bg-amber-500 text-white border-amber-500"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80 border-border"
+                      }`}
+                    >
+                      <Palmtree size={11} /> Folga
+                    </button>
+                  </SystemTooltip>
 
-                  <button
-                    onClick={() => onUpdateOperatorState(op.id, "isPenalized")}
-                    title="Pausar recebimento"
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer border flex items-center gap-1 ${
-                      op.isPenalized
-                        ? "bg-red-500 text-white border-red-500"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80 border-border"
-                    }`}
-                  >
-                    <Ban size={11} /> Pausar
-                  </button>
+                  <SystemTooltip content="Pausar recebimento">
+                    <button
+                      onClick={() => onUpdateOperatorState(op.id, "isPenalized")}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer border flex items-center gap-1 ${
+                        op.isPenalized
+                          ? "bg-red-500 text-white border-red-500"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80 border-border"
+                      }`}
+                    >
+                      <Ban size={11} /> Pausar
+                    </button>
+                  </SystemTooltip>
                 </div>
               </div>
             );
@@ -1235,6 +1244,547 @@ function OperatorStatusModal({
       </div>
     </div>,
     document.body
+  );
+}
+
+// ─── Popovers Harmoniosos de Calendário do Sistema (Sem Input Nativo) ─────────
+
+const MONTH_NAMES_PT = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+];
+const WEEK_DAYS_PT = ["D", "S", "T", "Q", "Q", "S", "S"];
+
+function toLocalYmd(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function formatYmdShort(ymd: string): string {
+  if (!ymd) return "";
+  const parts = ymd.split("-");
+  if (parts.length !== 3) return ymd;
+  return `${parts[2]}/${parts[1]}`;
+}
+
+function formatYmdFull(ymd: string): string {
+  if (!ymd) return "—";
+  const parts = ymd.split("-");
+  if (parts.length !== 3) return ymd;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function buildMonthGrid(viewDate: Date) {
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const startDay = new Date(year, month, 1).getDay();
+
+  const cells: Array<{ day: number | null; ymd: string | null }> = [];
+  for (let i = 0; i < startDay; i++) {
+    cells.push({ day: null, ymd: null });
+  }
+  for (let d = 1; d <= totalDays; d++) {
+    const mStr = String(month + 1).padStart(2, "0");
+    const dStr = String(d).padStart(2, "0");
+    cells.push({ day: d, ymd: `${year}-${mStr}-${dStr}` });
+  }
+  return cells;
+}
+
+function SingleDateFilterPopover({
+  isActive,
+  selectedDate,
+  onSelectDate,
+  onClear,
+}: {
+  isActive: boolean;
+  selectedDate: string;
+  onSelectDate: (ymd: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const todayYmd = toLocalYmd(new Date());
+  const [viewMonth, setViewMonth] = useState<Date>(() => {
+    if (selectedDate) {
+      const [y, m] = selectedDate.split("-").map(Number);
+      if (y && m) return new Date(y, m - 1, 1);
+    }
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  const cells = buildMonthGrid(viewMonth);
+
+  const handlePickOffset = (offsetDays: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    onSelectDate(toLocalYmd(d));
+    setOpen(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <SystemTooltip
+        content={
+          isActive && selectedDate
+            ? `Filtrando pelo dia ${formatYmdFull(selectedDate)} (clique para alterar)`
+            : "Escolher dia específico"
+        }
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={`px-2 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              isActive
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-card/60"
+            }`}
+          >
+            <Calendar size={13} />
+            {isActive && selectedDate && (
+              <span className="text-[10px] font-extrabold tracking-tight">
+                {formatYmdShort(selectedDate)}
+              </span>
+            )}
+          </button>
+        </PopoverTrigger>
+      </SystemTooltip>
+
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-72 p-3.5 rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl"
+      >
+        <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-border/70">
+          <div className="flex items-center gap-1.5">
+            <div className="h-6 w-6 rounded-lg bg-primary-soft text-primary flex items-center justify-center">
+              <Calendar size={12} />
+            </div>
+            <div>
+              <p className="text-[11px] font-extrabold text-foreground leading-none">
+                Dia Específico
+              </p>
+              <p className="text-[9px] text-muted-foreground mt-0.5">
+                Selecione uma data para filtrar leads
+              </p>
+            </div>
+          </div>
+          {isActive && selectedDate && (
+            <button
+              type="button"
+              onClick={() => {
+                onClear();
+                setOpen(false);
+              }}
+              className="text-[10px] font-bold text-muted-foreground hover:text-primary px-1.5 py-0.5 rounded-md hover:bg-muted transition cursor-pointer"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
+
+        {/* Atalhos rápidos */}
+        <div className="grid grid-cols-3 gap-1.5 mb-3">
+          {[
+            { label: "Hoje", offset: 0 },
+            { label: "Ontem", offset: -1 },
+            { label: "Anteontem", offset: -2 },
+          ].map((preset) => {
+            const d = new Date();
+            d.setDate(d.getDate() + preset.offset);
+            const ymd = toLocalYmd(d);
+            const isSelected = isActive && selectedDate === ymd;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => handlePickOffset(preset.offset)}
+                className={`py-1 px-2 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                  isSelected
+                    ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                    : "bg-muted/50 text-muted-foreground border-border/60 hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Navegação de Mês */}
+        <div className="flex items-center justify-between mb-2 px-1">
+          <button
+            type="button"
+            onClick={() =>
+              setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))
+            }
+            className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <span className="text-[11px] font-extrabold text-foreground">
+            {MONTH_NAMES_PT[viewMonth.getMonth()]} {viewMonth.getFullYear()}
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))
+            }
+            className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+
+        {/* Cabeçalho dos dias da semana */}
+        <div className="grid grid-cols-7 gap-0.5 text-center mb-1">
+          {WEEK_DAYS_PT.map((w, i) => (
+            <span key={i} className="text-[9px] font-extrabold text-muted-foreground py-0.5">
+              {w}
+            </span>
+          ))}
+        </div>
+
+        {/* Grade de dias */}
+        <div className="grid grid-cols-7 gap-0.5">
+          {cells.map((cell, idx) => {
+            if (!cell.day || !cell.ymd) {
+              return <div key={`empty-${idx}`} className="h-7" />;
+            }
+            const isFuture = cell.ymd > todayYmd;
+            const isSelected = isActive && selectedDate === cell.ymd;
+            const isToday = cell.ymd === todayYmd;
+
+            return (
+              <button
+                key={cell.ymd}
+                type="button"
+                disabled={isFuture}
+                onClick={() => {
+                  onSelectDate(cell.ymd!);
+                  setOpen(false);
+                }}
+                className={`h-7 w-full rounded-lg text-[10px] font-bold transition flex items-center justify-center ${
+                  isFuture
+                    ? "text-muted-foreground/30 cursor-not-allowed"
+                    : isSelected
+                    ? "bg-primary text-primary-foreground font-extrabold shadow-xs cursor-pointer"
+                    : isToday
+                    ? "border border-primary/40 bg-primary-soft/50 text-primary cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                    : "text-foreground hover:bg-muted cursor-pointer"
+                }`}
+              >
+                {cell.day}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DateRangeFilterPopover({
+  isActive,
+  dateFrom,
+  dateTo,
+  onApplyRange,
+  onClear,
+}: {
+  isActive: boolean;
+  dateFrom: string;
+  dateTo: string;
+  onApplyRange: (from: string, to: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const todayYmd = toLocalYmd(new Date());
+  const [draftFrom, setDraftFrom] = useState(dateFrom || "");
+  const [draftTo, setDraftTo] = useState(dateTo || "");
+  const [selectingStep, setSelectingStep] = useState<"from" | "to">("from");
+  const [viewMonth, setViewMonth] = useState<Date>(() => {
+    const base = dateTo || dateFrom;
+    if (base) {
+      const [y, m] = base.split("-").map(Number);
+      if (y && m) return new Date(y, m - 1, 1);
+    }
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  useEffect(() => {
+    if (open) {
+      setDraftFrom(dateFrom || "");
+      setDraftTo(dateTo || "");
+      setSelectingStep("from");
+    }
+  }, [open, dateFrom, dateTo]);
+
+  const cells = buildMonthGrid(viewMonth);
+
+  const handleDayClick = (ymd: string) => {
+    if (selectingStep === "from" || !draftFrom || (draftFrom && draftTo)) {
+      setDraftFrom(ymd);
+      setDraftTo("");
+      setSelectingStep("to");
+    } else {
+      if (ymd < draftFrom) {
+        setDraftTo(draftFrom);
+        setDraftFrom(ymd);
+      } else {
+        setDraftTo(ymd);
+      }
+      setSelectingStep("from");
+    }
+  };
+
+  const handleQuickRange = (type: "7d" | "15d" | "this_month" | "last_month") => {
+    const now = new Date();
+    if (type === "7d") {
+      const start = new Date();
+      start.setDate(now.getDate() - 6);
+      onApplyRange(toLocalYmd(start), toLocalYmd(now));
+      setOpen(false);
+    } else if (type === "15d") {
+      const start = new Date();
+      start.setDate(now.getDate() - 14);
+      onApplyRange(toLocalYmd(start), toLocalYmd(now));
+      setOpen(false);
+    } else if (type === "this_month") {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      onApplyRange(toLocalYmd(start), toLocalYmd(now));
+      setOpen(false);
+    } else if (type === "last_month") {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0);
+      onApplyRange(toLocalYmd(start), toLocalYmd(end));
+      setOpen(false);
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <SystemTooltip
+        content={
+          isActive && dateFrom && dateTo
+            ? `Período: ${formatYmdFull(dateFrom)} até ${formatYmdFull(dateTo)} (clique para alterar)`
+            : "Escolher período (intervalo de datas)"
+        }
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={`px-2 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              isActive
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-card/60"
+            }`}
+          >
+            <CalendarRange size={13} />
+            {isActive && dateFrom && dateTo && (
+              <span className="text-[10px] font-extrabold tracking-tight">
+                {formatYmdShort(dateFrom)} - {formatYmdShort(dateTo)}
+              </span>
+            )}
+          </button>
+        </PopoverTrigger>
+      </SystemTooltip>
+
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-80 p-3.5 rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl"
+      >
+        <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-border/70">
+          <div className="flex items-center gap-1.5">
+            <div className="h-6 w-6 rounded-lg bg-primary-soft text-primary flex items-center justify-center">
+              <CalendarRange size={12} />
+            </div>
+            <div>
+              <p className="text-[11px] font-extrabold text-foreground leading-none">
+                Filtrar por Período
+              </p>
+              <p className="text-[9px] text-muted-foreground mt-0.5">
+                Escolha a data inicial e a data final
+              </p>
+            </div>
+          </div>
+          {(isActive || draftFrom || draftTo) && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraftFrom("");
+                setDraftTo("");
+                onClear();
+                setOpen(false);
+              }}
+              className="text-[10px] font-bold text-muted-foreground hover:text-primary px-1.5 py-0.5 rounded-md hover:bg-muted transition cursor-pointer"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
+
+        {/* Atalhos rápidos de período */}
+        <div className="grid grid-cols-4 gap-1 mb-2.5">
+          {[
+            { id: "7d" as const, label: "7 dias" },
+            { id: "15d" as const, label: "15 dias" },
+            { id: "this_month" as const, label: "Este mês" },
+            { id: "last_month" as const, label: "Mês ant." },
+          ].map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => handleQuickRange(p.id)}
+              className="py-1 px-1.5 rounded-lg text-[9px] font-bold bg-muted/50 text-muted-foreground border border-border/60 hover:text-foreground hover:bg-muted transition cursor-pointer"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Indicadores de Início e Fim */}
+        <div className="grid grid-cols-2 gap-2 mb-2.5">
+          <button
+            type="button"
+            onClick={() => setSelectingStep("from")}
+            className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+              selectingStep === "from"
+                ? "border-primary bg-primary-soft/40"
+                : "border-border bg-muted/30"
+            }`}
+          >
+            <span className="block text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+              Data Inicial
+            </span>
+            <span className="text-[11px] font-extrabold text-foreground">
+              {draftFrom ? formatYmdFull(draftFrom) : "Selecionar..."}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectingStep("to")}
+            className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+              selectingStep === "to"
+                ? "border-primary bg-primary-soft/40"
+                : "border-border bg-muted/30"
+            }`}
+          >
+            <span className="block text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+              Data Final
+            </span>
+            <span className="text-[11px] font-extrabold text-foreground">
+              {draftTo ? formatYmdFull(draftTo) : "Selecionar..."}
+            </span>
+          </button>
+        </div>
+
+        {/* Navegação de Mês */}
+        <div className="flex items-center justify-between mb-2 px-1">
+          <button
+            type="button"
+            onClick={() =>
+              setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))
+            }
+            className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <span className="text-[11px] font-extrabold text-foreground">
+            {MONTH_NAMES_PT[viewMonth.getMonth()]} {viewMonth.getFullYear()}
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))
+            }
+            className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+
+        {/* Cabeçalho dos dias da semana */}
+        <div className="grid grid-cols-7 gap-0.5 text-center mb-1">
+          {WEEK_DAYS_PT.map((w, i) => (
+            <span key={i} className="text-[9px] font-extrabold text-muted-foreground py-0.5">
+              {w}
+            </span>
+          ))}
+        </div>
+
+        {/* Grade de dias */}
+        <div className="grid grid-cols-7 gap-0.5">
+          {cells.map((cell, idx) => {
+            if (!cell.day || !cell.ymd) {
+              return <div key={`empty-${idx}`} className="h-7" />;
+            }
+            const isFuture = cell.ymd > todayYmd;
+            const isStart = draftFrom === cell.ymd;
+            const isEnd = draftTo === cell.ymd;
+            const isInRange =
+              Boolean(draftFrom && draftTo) && cell.ymd > draftFrom && cell.ymd < draftTo;
+
+            return (
+              <button
+                key={cell.ymd}
+                type="button"
+                disabled={isFuture}
+                onClick={() => handleDayClick(cell.ymd!)}
+                className={`h-7 w-full rounded-lg text-[10px] font-bold transition flex items-center justify-center ${
+                  isFuture
+                    ? "text-muted-foreground/30 cursor-not-allowed"
+                    : isStart || isEnd
+                    ? "bg-primary text-primary-foreground font-extrabold shadow-xs cursor-pointer"
+                    : isInRange
+                    ? "bg-primary/15 text-primary font-bold cursor-pointer"
+                    : "text-foreground hover:bg-muted cursor-pointer"
+                }`}
+              >
+                {cell.day}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Botão de Aplicar Período */}
+        <div className="mt-3 pt-2.5 border-t border-border/70 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={!draftFrom || !draftTo}
+            onClick={() => {
+              if (!draftFrom || !draftTo) return;
+              onApplyRange(draftFrom, draftTo);
+              setOpen(false);
+            }}
+            className="px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-[10px] font-extrabold hover:bg-primary-hover transition cursor-pointer disabled:opacity-40 shadow-xs"
+          >
+            Aplicar Período
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1604,16 +2154,17 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
               {effective}
             </span>
             {op.compensation !== 0 && (
-              <span
-                title={`Compensação manual: ${op.compensation > 0 ? "+" : ""}${op.compensation}`}
-                className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold ${
-                  op.compensation > 0
-                    ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
-                    : "text-red-500 bg-red-500/10"
-                }`}
-              >
-                {op.compensation > 0 ? `+${op.compensation}` : op.compensation}
-              </span>
+              <SystemTooltip content={`Compensação manual: ${op.compensation > 0 ? "+" : ""}${op.compensation}`}>
+                <span
+                  className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold cursor-help ${
+                    op.compensation > 0
+                      ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
+                      : "text-red-500 bg-red-500/10"
+                  }`}
+                >
+                  {op.compensation > 0 ? `+${op.compensation}` : op.compensation}
+                </span>
+              </SystemTooltip>
             )}
           </div>
         </div>
@@ -1716,102 +2267,51 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
               ))}
             </div>
 
-            {/* Alternador de Modo de Filtro */}
+            {/* Filtros Diretos de Data (Popovers do Sistema com SystemTooltip) */}
             <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-xl border border-border">
-              <button
-                onClick={() => setOpFilterMode("single")}
-                title="Data específica"
-                className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                  opFilterMode === "single"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Calendar size={13} />
-              </button>
-              <button
-                onClick={() => setOpFilterMode("range")}
-                title="Intervalo de datas"
-                className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
-                  opFilterMode === "range"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <CalendarRange size={13} />
-              </button>
+              <SingleDateFilterPopover
+                isActive={opFilterMode === "single"}
+                selectedDate={opDateFrom}
+                onSelectDate={(ymd) => {
+                  setOpFilterMode("single");
+                  setOpDateFrom(ymd);
+                  setOpDateTo("");
+                }}
+                onClear={() => {
+                  setOpFilterMode("preset");
+                  setOpDateFrom("");
+                  setOpDateTo("");
+                }}
+              />
+              <DateRangeFilterPopover
+                isActive={opFilterMode === "range"}
+                dateFrom={opDateFrom}
+                dateTo={opDateTo}
+                onApplyRange={(from, to) => {
+                  setOpFilterMode("range");
+                  setOpDateFrom(from);
+                  setOpDateTo(to);
+                }}
+                onClear={() => {
+                  setOpFilterMode("preset");
+                  setOpDateFrom("");
+                  setOpDateTo("");
+                }}
+              />
             </div>
 
             {/* Botão Exportar CSV */}
-            <button
-              onClick={() => downloadOperatorsCSV(operators, opPeriod)}
-              title="Baixar planilha de operadores em CSV"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border transition shadow-xs cursor-pointer"
-            >
-              <Download size={12} />
-              CSV
-            </button>
+            <SystemTooltip content="Baixar planilha de operadores em CSV">
+              <button
+                onClick={() => downloadOperatorsCSV(operators, opPeriod)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border transition shadow-xs cursor-pointer"
+              >
+                <Download size={12} />
+                CSV
+              </button>
+            </SystemTooltip>
           </div>
         </div>
-
-        {/* Inputs de Data Personalizada */}
-        {opFilterMode !== "preset" && (
-          <div className="flex items-center gap-2 justify-end flex-wrap pb-2 border-b border-line animate-fadeIn">
-            {opFilterMode === "single" && (
-              <>
-                <span className="text-[11px] text-muted-foreground font-semibold">Data:</span>
-                <input
-                  type="date"
-                  value={opDateFrom}
-                  max={new Date().toISOString().slice(0, 10)}
-                  onChange={(e) => {
-                    setOpDateFrom(e.target.value);
-                    setOpDateTo("");
-                  }}
-                  className="px-2.5 py-1 rounded-lg border border-border text-xs text-foreground bg-muted/40 focus:outline-none focus:border-primary transition-all"
-                />
-                {opDateFrom && (
-                  <button
-                    onClick={() => fetchDashboard(false)}
-                    className="px-3 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary-hover transition cursor-pointer"
-                  >
-                    Filtrar
-                  </button>
-                )}
-              </>
-            )}
-
-            {opFilterMode === "range" && (
-              <>
-                <span className="text-[11px] text-muted-foreground font-semibold">De:</span>
-                <input
-                  type="date"
-                  value={opDateFrom}
-                  max={opDateTo || new Date().toISOString().slice(0, 10)}
-                  onChange={(e) => setOpDateFrom(e.target.value)}
-                  className="px-2.5 py-1 rounded-lg border border-border text-xs text-foreground bg-muted/40 focus:outline-none focus:border-primary transition-all"
-                />
-                <span className="text-[11px] text-muted-foreground font-semibold">Até:</span>
-                <input
-                  type="date"
-                  value={opDateTo}
-                  min={opDateFrom}
-                  max={new Date().toISOString().slice(0, 10)}
-                  onChange={(e) => setOpDateTo(e.target.value)}
-                  className="px-2.5 py-1 rounded-lg border border-border text-xs text-foreground bg-muted/40 focus:outline-none focus:border-primary transition-all"
-                />
-                {opDateFrom && opDateTo && (
-                  <button
-                    onClick={() => fetchDashboard(false)}
-                    className="px-3 py-1 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary-hover transition cursor-pointer"
-                  >
-                    Filtrar
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )}
 
         {/* ── 6 COLUNAS DE SETORES COM ÍCONES VETORIAIS (SEM EMOJIS) ────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
@@ -2028,13 +2528,14 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
             ))}
           </div>
 
-          <button
-            onClick={() => fetchDashboard(false)}
-            title="Atualizar dados ao vivo"
-            className="p-2 rounded-xl bg-card border border-border text-muted-foreground hover:text-foreground transition-all shadow-xs cursor-pointer"
-          >
-            <RefreshCw size={13} className={isLoading ? "animate-spin text-primary" : ""} />
-          </button>
+          <SystemTooltip content="Atualizar dados ao vivo">
+            <button
+              onClick={() => fetchDashboard(false)}
+              className="p-2 rounded-xl bg-card border border-border text-muted-foreground hover:text-foreground transition-all shadow-xs cursor-pointer"
+            >
+              <RefreshCw size={13} className={isLoading ? "animate-spin text-primary" : ""} />
+            </button>
+          </SystemTooltip>
         </div>
       </div>
 

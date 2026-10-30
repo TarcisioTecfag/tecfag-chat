@@ -31,7 +31,7 @@ export function AiAvatar({
     return (
       <div
         className={cn(
-          "relative flex items-center justify-center shrink-0 overflow-hidden bg-primary/10 border border-primary/20 font-bold text-xs text-primary",
+          "relative flex items-center justify-center shrink-0 overflow-hidden rounded-full bg-primary/10 border border-primary/20 font-bold text-xs text-primary",
           className
         )}
         onClick={onClick}
@@ -45,7 +45,7 @@ export function AiAvatar({
   if (isTecfag && persona.avatarLightUrl && persona.avatarDarkUrl) {
     return (
       <div
-        className={cn("relative shrink-0 overflow-hidden select-none", className)}
+        className={cn("relative shrink-0 overflow-hidden select-none rounded-full", className)}
         onClick={onClick}
         {...props}
       >
@@ -53,13 +53,13 @@ export function AiAvatar({
           src={persona.avatarLightUrl}
           alt={alt || `${persona.name} IA`}
           onError={() => setHasError(true)}
-          className={cn("h-full w-full object-cover dark:hidden", imgClassName)}
+          className={cn("h-full w-full rounded-full object-cover dark:hidden", imgClassName)}
         />
         <img
           src={persona.avatarDarkUrl}
           alt={alt || `${persona.name} IA`}
           onError={() => setHasError(true)}
-          className={cn("h-full w-full object-cover hidden dark:block", imgClassName)}
+          className={cn("h-full w-full rounded-full object-cover hidden dark:block", imgClassName)}
         />
       </div>
     );
@@ -67,7 +67,7 @@ export function AiAvatar({
 
   return (
     <div
-      className={cn("relative shrink-0 overflow-hidden select-none", className)}
+      className={cn("relative shrink-0 overflow-hidden select-none rounded-full", className)}
       onClick={onClick}
       {...props}
     >
@@ -75,7 +75,7 @@ export function AiAvatar({
         src={persona.avatarUrl}
         alt={alt || `${persona.name} IA`}
         onError={() => setHasError(true)}
-        className={cn("h-full w-full object-cover", imgClassName)}
+        className={cn("h-full w-full rounded-full object-cover", imgClassName)}
       />
     </div>
   );

@@ -88,6 +88,13 @@ export interface AttachedImageInfo {
   name: string;
 }
 
+export interface AttachedAudioInfo {
+  dataUrl: string;
+  name: string;
+  mimeType: string;
+  durationSec?: number;
+}
+
 import type { AgenticThoughtTraceData } from "@/lib/valentina/agentic-thought-trace";
 import type {
   KnowledgeSourceItem,
@@ -103,6 +110,7 @@ export interface ValentinaChatMessage {
   blocks?: ValentinaMessageBlock[];
   attachedFileInfo?: AttachedFileInfo;
   attachedImageInfo?: AttachedImageInfo;
+  attachedAudioInfo?: AttachedAudioInfo;
   thoughtTrace?: AgenticThoughtTraceData;
   vtexProductPreview?: VtexProductPreviewItem | null;
   vtexProductPreviews?: VtexProductPreviewItem[];

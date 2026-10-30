@@ -579,14 +579,14 @@ function getMergedCollectedData(
 function StatusBadge({ status }: { status: SdrTriageSession["status"] }) {
   const styles = {
     active: "bg-primary-soft text-primary border-primary/20",
-    completed: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    abandoned: "bg-primary-soft/50 text-muted-foreground border-border",
+    completed: "bg-primary/15 text-primary border-primary/30 shadow-2xs",
+    abandoned: "bg-muted/70 text-muted-foreground border-border",
   };
   const labels = { active: "Ativo", completed: "Concluído", abandoned: "Encerrado" };
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${styles[status]}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors ${styles[status]}`}>
       {status === "active" && <Circle className="h-2 w-2 fill-primary text-primary animate-pulse" />}
-      {status === "completed" && <CheckCircle className="h-2.5 w-2.5 text-emerald-600" />}
+      {status === "completed" && <CheckCircle className="h-2.5 w-2.5 text-primary" />}
       {status === "abandoned" && <Clock className="h-2.5 w-2.5 text-muted-foreground" />}
       {labels[status]}
     </span>
@@ -1335,8 +1335,8 @@ export function SdrTab({
                   onClick={() => setStatusFilter(statusFilter === "active" ? "all" : "active")}
                   className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 cursor-pointer border ${
                     statusFilter === "active"
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
+                      ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                      : "bg-card text-muted-foreground border-border hover:bg-primary-soft/60 hover:text-primary hover:border-primary/25"
                   }`}
                 >
                   <Circle className="h-2.5 w-2.5 fill-current" />
@@ -1347,8 +1347,8 @@ export function SdrTab({
                   onClick={() => setStatusFilter(statusFilter === "completed" ? "all" : "completed")}
                   className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold transition flex items-center gap-1 cursor-pointer border ${
                     statusFilter === "completed"
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary-soft text-primary border-primary/20 hover:bg-primary-soft/80"
+                      ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                      : "bg-card text-muted-foreground border-border hover:bg-primary-soft/60 hover:text-primary hover:border-primary/25"
                   }`}
                 >
                   <CheckCircle className="h-3 w-3" />

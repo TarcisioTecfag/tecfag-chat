@@ -401,8 +401,8 @@ export function IndustrialTriageSettings() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"info" | "success" | "error">("info");
 
-  // Layout & Navegação
-  const [isExpanded, setIsExpanded] = useState(true);
+  // Layout & Navegação — sempre inicia minimizado por padrão
+  const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveSectionTab>("catalog");
   const [referenceDateTime, setReferenceDateTime] = useState<Date>(() => new Date());
 

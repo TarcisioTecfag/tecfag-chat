@@ -101,7 +101,7 @@ export class SupervisorEngine {
       .where(
         and(
           eq(conversations.queueState, "meus"),
-          eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId),
+          eq(conversations.tenantId, tenantId),
           // Bug fix (AGENTS.md): Excluir contatos do Live Chat do site se houver.
           // O Supervisor monitora apenas conversas WhatsApp — o Live Chat
           // tem seu próprio mecanismo de follow-up (livechatWs.ts).
