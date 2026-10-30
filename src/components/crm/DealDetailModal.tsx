@@ -227,6 +227,45 @@ export function renderInlineMarkdown(text: string, depth = 0): React.ReactNode {
         cleanUrl.startsWith("/")
           ? cleanUrl
           : `https://${cleanUrl}`;
+
+      const isAttachmentLink =
+        label.trim().startsWith("📎") || cleanUrl.includes("/api/crm/deals/") && cleanUrl.includes("/files/");
+      if (isAttachmentLink) {
+        const cleanLabel = label.replace(/^📎\s*/, "").trim();
+        const sizeMatch = cleanLabel.match(/^(.*?)\s*\(([^)]+)\)$/);
+        const displayFileName = sizeMatch ? sizeMatch[1].trim() : cleanLabel;
+        const displaySize = sizeMatch ? sizeMatch[2].trim() : null;
+        const cat = getFileCategory(displayFileName, "");
+        const badge = getCategoryBadge(cat, displayFileName);
+        const BadgeIcon = badge.icon;
+
+        return (
+          <a
+            key={index}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            download={displayFileName}
+            className="my-1.5 flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2 text-xs shadow-2xs hover:border-primary/50 hover:bg-muted/30 transition-colors max-w-sm no-underline group"
+          >
+            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${badge.color}`}>
+              <BadgeIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-bold text-foreground group-hover:text-primary transition-colors">
+                {displayFileName}
+              </p>
+              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">
+                {badge.label}{displaySize ? ` • ${displaySize}` : ""}
+              </p>
+            </div>
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+              <Download className="h-3.5 w-3.5" />
+            </div>
+          </a>
+        );
+      }
+
       return (
         <a
           key={index}
@@ -266,6 +305,124 @@ export function renderInlineMarkdown(text: string, depth = 0): React.ReactNode {
 
     return part;
   });
+}
+
+export function renderCrmMediaOrTextContent(
+  rawText?: string | null,
+  options?: { compact?: boolean }
+): React.ReactNode {
+  if (!rawText) return null;
+  const cleaned = String(rawText)
+    .replace(/\(sent\)/gi, "(enviada)")
+    .replace(/\(delivered\)/gi, "(entregue)")
+    .replace(/\(read\)/gi, "(lida)")
+    .replace(/\(received\)/gi, "(recebida)");
+
+  // Detecta [MEDIA:image|video|audio|document|sticker]<id>(:<extra>)? em qualquer posição da string
+  const mediaMatch = cleaned.match(
+    /^(.*?)\[MEDIA:(image|video|audio|document|sticker)\]([^\s:]+)(?::([^\n]+))?(?:\n([\s\S]*))?$/i
+  );
+  if (mediaMatch) {
+    const [, prefix, rawType, messageId, extraName, caption] = mediaMatch;
+    const type = rawType.toLowerCase();
+    const mediaUrl = `/api/baileys/media?messageId=${encodeURIComponent(messageId)}`;
+    const fileName = (extraName || (type === "image" ? "Imagem" : type === "audio" ? "Áudio" : type === "video" ? "Vídeo" : "Arquivo")).trim();
+
+    if (options?.compact) {
+      const typeLabel =
+        type === "image"
+          ? "📷 Imagem"
+          : type === "audio"
+          ? "🎵 Áudio"
+          : type === "video"
+          ? "🎬 Vídeo"
+          : type === "sticker"
+          ? "✨ Figurinha"
+          : `📎 ${fileName}`;
+      return (
+        <span className="inline-flex items-center gap-1.5 font-medium text-foreground/90 not-italic">
+          {prefix ? <span>{prefix.trim()} </span> : null}
+          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+            {typeLabel}
+          </span>
+          {caption ? <span className="truncate">{caption.trim()}</span> : null}
+        </span>
+      );
+    }
+
+    const cat = getFileCategory(fileName, type === "document" ? "" : `${type}/*`);
+    const badge = getCategoryBadge(cat, fileName);
+    const BadgeIcon = badge.icon;
+
+    return (
+      <div className="space-y-2">
+        {prefix && prefix.trim() && (
+          <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">
+            {prefix.trim()}
+          </p>
+        )}
+        {(type === "image" || type === "sticker") && (
+          <a
+            href={mediaUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block max-w-full overflow-hidden rounded-xl border border-border bg-muted/20 hover:border-primary/50 transition-colors shadow-2xs"
+          >
+            <img
+              src={mediaUrl}
+              alt={fileName}
+              className="max-h-56 max-w-full object-contain rounded-xl block"
+              loading="lazy"
+            />
+          </a>
+        )}
+        {type === "audio" && (
+          <div className="rounded-xl border border-border bg-card p-2.5 max-w-xs shadow-2xs space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+              Áudio do Atendimento
+            </span>
+            <audio controls preload="metadata" src={mediaUrl} className="h-8 w-full" />
+          </div>
+        )}
+        {type === "video" && (
+          <div className="overflow-hidden rounded-xl border border-border bg-black/5 max-w-sm shadow-2xs">
+            <video controls preload="metadata" src={mediaUrl} className="max-h-56 w-full object-contain" />
+          </div>
+        )}
+        {type === "document" && (
+          <a
+            href={mediaUrl}
+            download={fileName}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 max-w-sm shadow-2xs hover:border-primary/50 hover:bg-muted/30 transition-colors no-underline group"
+          >
+            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${badge.color}`}>
+              <BadgeIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-bold text-foreground group-hover:text-primary transition-colors">
+                {fileName}
+              </p>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wide">
+                {badge.label}
+              </p>
+            </div>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+              <Download className="h-4 w-4" />
+            </div>
+          </a>
+        )}
+        {caption && caption.trim() && (
+          <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap break-words">
+            {caption.trim()}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return cleaned;
 }
 
 export function renderMarkdownContent(text: string) {
@@ -364,6 +521,15 @@ function serializeRichNoteNode(
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
   const el = node as HTMLElement;
   const tag = el.tagName.toUpperCase();
+
+  // Bloco inline de anexo inserido na posição do cursor
+  const noteFileUrl = el.getAttribute("data-note-file-url");
+  if (noteFileUrl) {
+    const noteFileName = el.getAttribute("data-note-file-name") || "Arquivo";
+    const noteFileSize = Number(el.getAttribute("data-note-file-size") || 0);
+    const sizeLabel = noteFileSize > 0 ? ` (${formatBytes(noteFileSize)})` : "";
+    return `\n[📎 ${noteFileName}${sizeLabel}](${noteFileUrl})\n`;
+  }
 
   if (tag === "BR") return "\n";
   if (tag === "IMG") {
@@ -573,12 +739,27 @@ export function DealDetailModal({
   const [loading, setLoading] = useState(() => !initialCachedDeal);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deal, setDeal] = useState<any>(() => initialCachedDeal);
-  const [customFieldDraft, setCustomFieldDraft] = useState<Record<string, unknown>>({});
+  const dealRef = React.useRef<any>(initialCachedDeal);
+  dealRef.current = deal;
+  const [customFieldDraft, setCustomFieldDraft] = useState<Record<string, unknown>>(() =>
+    ((initialCachedDeal?.customFields || {}) as Record<string, unknown>)
+  );
+  const savedDealCustomFieldsRef = React.useRef<Record<string, unknown>>(
+    ((initialCachedDeal?.customFields || {}) as Record<string, unknown>)
+  );
+  const latestDealCustomFieldsDraftRef = React.useRef<Record<string, unknown>>(
+    ((initialCachedDeal?.customFields || {}) as Record<string, unknown>)
+  );
   const [savingDealCustomFields, setSavingDealCustomFields] = useState(false);
   const [savedDealCustomFields, setSavedDealCustomFields] = useState(false);
   const dealCustomFieldsTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    setCustomFieldDraft((deal?.customFields || {}) as Record<string, unknown>);
+    const incoming = (deal?.customFields || {}) as Record<string, unknown>;
+    savedDealCustomFieldsRef.current = incoming;
+    if (!dealCustomFieldsTimerRef.current && !savingDealCustomFields) {
+      setCustomFieldDraft(incoming);
+      latestDealCustomFieldsDraftRef.current = incoming;
+    }
   }, [deal?.id, deal?.customFields]);
 
   const [activeTab, setActiveTab] = useState<
@@ -768,9 +949,21 @@ export function DealDetailModal({
   const [isNoteLinkPromptOpen, setIsNoteLinkPromptOpen] = useState(false);
   const [noteLinkLabel, setNoteLinkLabel] = useState("");
   const [noteLinkUrl, setNoteLinkUrl] = useState("https://");
+  const [isUploadingNoteInlineFile, setIsUploadingNoteInlineFile] = useState(false);
+  const [isDraggingNoteEditor, setIsDraggingNoteEditor] = useState(false);
+
+  const captureNoteSelectionRange = () => {
+    const editor = noteEditorRef.current;
+    if (!editor) return;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+      savedNoteRangeRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
 
   const updateNoteToolbarState = () => {
     try {
+      captureNoteSelectionRange();
       setNoteActiveFormats({
         bold: document.queryCommandState("bold"),
         italic: document.queryCommandState("italic"),
@@ -856,9 +1049,14 @@ export function DealDetailModal({
     syncNoteEditorState();
   };
 
-  const handleAddNoteFiles = (incoming: FileList | File[]) => {
+  const handleInsertFilesIntoNoteEditor = async (
+    incoming: FileList | File[],
+    dropPoint?: { x: number; y: number }
+  ) => {
+    const activeDeal = dealRef.current || deal;
+    if (!activeDeal) return;
     const MAX_SIZE = 100 * 1024 * 1024;
-    const added: File[] = [];
+    const validFiles: File[] = [];
     for (let i = 0; i < incoming.length; i++) {
       const f = incoming[i];
       if (!f || f.size === 0) continue;
@@ -869,14 +1067,91 @@ export function DealDetailModal({
       if (!f.name || f.name === "image.png" || f.name === "blob") {
         const ext = (f.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
         const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-        added.push(new File([f], `anexo-${stamp}-${i + 1}.${ext}`, { type: f.type || "image/png" }));
+        validFiles.push(new File([f], `anexo-${stamp}-${i + 1}.${ext}`, { type: f.type || "image/png" }));
       } else {
-        added.push(f);
+        validFiles.push(f);
       }
     }
-    if (added.length > 0) {
-      setNotePendingFiles((prev) => [...prev, ...added]);
+    if (validFiles.length === 0) return;
+
+    setIsUploadingNoteInlineFile(true);
+    try {
+      const formData = new FormData();
+      for (const f of validFiles) {
+        formData.append("files", f);
+      }
+      const uploadRes = await fetch(`/api/crm/deals/${activeDeal.id}/files`, {
+        method: "POST",
+        body: formData,
+      });
+      const uploadData = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.error || "Erro ao inserir arquivo na anotação.");
+      }
+
+      const uploadedFiles = Array.isArray(uploadData.files) ? uploadData.files : [];
+      const editor = noteEditorRef.current;
+      if (editor && uploadedFiles.length > 0) {
+        editor.focus();
+        const sel = window.getSelection();
+        let targetRange: Range | null = null;
+
+        if (dropPoint && typeof document.caretRangeFromPoint === "function") {
+          const dropRange = document.caretRangeFromPoint(dropPoint.x, dropPoint.y);
+          if (dropRange && editor.contains(dropRange.startContainer)) {
+            targetRange = dropRange;
+          }
+        }
+        if (!targetRange && savedNoteRangeRef.current && editor.contains(savedNoteRangeRef.current.startContainer)) {
+          targetRange = savedNoteRangeRef.current;
+        }
+        if (targetRange && sel) {
+          sel.removeAllRanges();
+          sel.addRange(targetRange);
+        }
+
+        const htmlChunks: string[] = [];
+        for (const uf of uploadedFiles) {
+          const fileName = String(uf.fileName || "arquivo")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+          const fileUrl = String(uf.downloadUrl || uf.url || "").replace(/"/g, "&quot;");
+          const imgUrl = String(uf.url || uf.downloadUrl || "").replace(/"/g, "&quot;");
+          const fileSize = Number(uf.fileSize || 0);
+          const sizeLabel = fileSize > 0 ? ` (${formatBytes(fileSize)})` : "";
+          const cat = getFileCategory(uf.fileName || "", uf.mimeType || "");
+          const badge = getCategoryBadge(cat, uf.fileName || "");
+
+          if (cat === "image") {
+            htmlChunks.push(
+              `<div><img src="${imgUrl}" alt="${fileName}" class="my-1.5 max-h-56 max-w-full rounded-lg border border-border object-contain block" /></div><div><br></div>`
+            );
+          } else {
+            htmlChunks.push(
+              `<div contenteditable="false" data-note-file-url="${fileUrl}" data-note-file-name="${fileName}" data-note-file-size="${fileSize}" class="my-1.5 flex items-center justify-between gap-2.5 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs font-semibold text-foreground max-w-sm select-none shadow-2xs"><div class="flex items-center gap-2 min-w-0"><span class="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary uppercase shrink-0">${badge.label}</span><span class="truncate font-bold text-foreground">${fileName}</span><span class="text-[10px] text-muted-foreground shrink-0">${sizeLabel}</span></div></div><div><br></div>`
+            );
+          }
+        }
+
+        if (htmlChunks.length > 0) {
+          document.execCommand("insertHTML", false, htmlChunks.join(""));
+          syncNoteEditorState();
+          captureNoteSelectionRange();
+        }
+      }
+
+      void loadDealDetail(true, true);
+    } catch (err: any) {
+      toast.error(err.message || "Não foi possível inserir o arquivo na anotação.");
+    } finally {
+      setIsUploadingNoteInlineFile(false);
     }
+  };
+
+  const handleAddNoteFiles = (incoming: FileList | File[], dropPoint?: { x: number; y: number }) => {
+    void handleInsertFilesIntoNoteEditor(incoming, dropPoint);
   };
 
   const handleRemoveNotePendingFile = (idx: number) => {
@@ -908,7 +1183,8 @@ export function DealDetailModal({
       const isRichTableCopy = plainText.trim().length > 0 && htmlText.includes("<table");
       if (!isRichTableCopy) {
         e.preventDefault();
-        handleAddNoteFiles(files);
+        captureNoteSelectionRange();
+        void handleInsertFilesIntoNoteEditor(files);
         return;
       }
     }
@@ -1020,11 +1296,7 @@ export function DealDetailModal({
         throw new Error("Erro ao salvar anotação.");
       }
 
-      toast.success(
-        notePendingFiles.length > 0
-          ? "Anotação e arquivos salvos no histórico e na aba Arquivos!"
-          : "Anotação salva no histórico!"
-      );
+      toast.success("Anotação salva no histórico!");
       if (noteEditorRef.current) {
         noteEditorRef.current.innerHTML = "";
       }
@@ -1629,16 +1901,21 @@ export function DealDetailModal({
   if (!isOpen || !dealId) return null;
 
   // Atualização com concorrência otimista
-  const updateDeal = async (patch: Record<string, any>, options?: { silent?: boolean }): Promise<boolean> => {
-    if (!deal) return false;
+  const updateDeal = async (
+    patch: Record<string, any>,
+    options?: { silent?: boolean; skipVersionCheck?: boolean }
+  ): Promise<boolean> => {
+    const activeDeal = dealRef.current || deal;
+    if (!activeDeal) return false;
     try {
-      const res = await fetch(`/api/crm/deals/${deal.id}`, {
+      const payload: Record<string, any> = { ...patch };
+      if (!options?.skipVersionCheck && activeDeal.version !== undefined) {
+        payload.expectedVersion = activeDeal.version;
+      }
+      const res = await fetch(`/api/crm/deals/${activeDeal.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...patch,
-          expectedVersion: deal.version,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (res.status === 409) {
@@ -1653,13 +1930,14 @@ export function DealDetailModal({
       }
 
       const data = await res.json();
-      invalidateDealCache(deal.id);
+      invalidateDealCache(activeDeal.id);
       setDeal((prev: any) => ({ ...prev, ...data.deal }));
+      dealRef.current = { ...(dealRef.current || {}), ...data.deal };
       onDealUpdated(data.deal);
       if (!options?.silent) {
         toast.success("Negociação atualizada com sucesso.");
       }
-      void loadDealDetail(true, true);
+      await loadDealDetail(true, true);
       return true;
     } catch (err: any) {
       console.error("[DealDetailModal] Erro no patch:", err);
@@ -1670,18 +1948,23 @@ export function DealDetailModal({
 
   const handleDealCustomFieldsChange = (nextDraft: Record<string, any>) => {
     setCustomFieldDraft(nextDraft);
+    latestDealCustomFieldsDraftRef.current = nextDraft;
     setSavedDealCustomFields(false);
-    if (dealCustomFieldsSaveTimerRef.current) {
-      clearTimeout(dealCustomFieldsSaveTimerRef.current);
+    if (dealCustomFieldsTimerRef.current) {
+      clearTimeout(dealCustomFieldsTimerRef.current);
     }
-    dealCustomFieldsSaveTimerRef.current = setTimeout(async () => {
-      if (!deal) return;
-      const diff = changedCustomFieldValues(deal?.customFields || {}, nextDraft);
+    dealCustomFieldsTimerRef.current = setTimeout(async () => {
+      dealCustomFieldsTimerRef.current = null;
+      const activeDeal = dealRef.current || deal;
+      if (!activeDeal) return;
+      const latestDraft = latestDealCustomFieldsDraftRef.current;
+      const diff = changedCustomFieldValues(savedDealCustomFieldsRef.current, latestDraft);
       if (Object.keys(diff).length === 0) return;
       setSavingDealCustomFields(true);
-      const ok = await updateDeal({ customFields: diff }, { silent: true });
+      const ok = await updateDeal({ customFields: diff }, { silent: true, skipVersionCheck: true });
       setSavingDealCustomFields(false);
       if (ok) {
+        savedDealCustomFieldsRef.current = { ...savedDealCustomFieldsRef.current, ...diff };
         setSavedDealCustomFields(true);
         setTimeout(() => setSavedDealCustomFields(false), 2000);
       }
@@ -2134,7 +2417,13 @@ export function DealDetailModal({
       // Ignorar evento de auditoria se for criação de nota comercial (já é exibido com o card de anotação da atividade)
       if (evt.eventType === "note_created") return;
       if (evt.eventType === "conversation_action" && deal.activities?.some((activity: any) => activity.id === `chat-${evt.metadata?.messageId}` || activity.id === `brief-${evt.metadata?.messageId}`)) return;
-      if (evt.eventType === "conversation_action" && evt.metadata?.actionType === "attendance.context_selected") return;
+      if (
+        evt.eventType === "conversation_action" &&
+        (evt.metadata?.actionType === "attendance.context_selected" ||
+          evt.metadata?.attendanceEventType === "attendance.context_selected")
+      ) {
+        return;
+      }
       if (evt.eventType === "conversation_action" && evt.metadata?.activityId && deal.activities?.some((activity: any) => activity.id === evt.metadata.activityId)) return;
 
       const { title, description } = formatDealEvent(evt, stageNames, operatorsMap);
@@ -2213,7 +2502,9 @@ export function DealDetailModal({
         authorAvatar: authorAvatar || null,
         date: new Date(evt.createdAt),
         iconType: "history",
-        badgeColor: "bg-muted text-muted-foreground",
+        badgeColor: isConvEvent
+          ? "bg-primary/10 text-primary border border-primary/20"
+          : "bg-muted text-muted-foreground",
         source: isConvEvent ? "conversas" : "crm",
       });
     });
@@ -2297,11 +2588,18 @@ export function DealDetailModal({
     // 4. Evidências Comerciais
     (deal.evidences || []).forEach((evi: any) => {
       const authorName = evi.createdByName || evi.message?.senderName || "Chat";
+      const rawMsgContent = String(evi.message?.content || evi.message?.text || "").trim();
+      const isMediaEvidence = rawMsgContent.includes("[MEDIA:") || rawMsgContent.includes("[LOCAL_MEDIA:");
+      const eviDescription = isMediaEvidence
+        ? [rawMsgContent, evi.note || evi.notes].filter(Boolean).join("\n")
+        : rawMsgContent
+        ? `"${rawMsgContent.substring(0, 240)}"`
+        : evi.note || evi.notes || null;
       items.push({
         id: `evi-${evi.id}`,
         category: "evidence",
         title: `Evidência Marcada (${evi.evidenceType || "Mensagem"})`,
-        description: evi.message?.content ? `"${evi.message.content.substring(0, 160)}..."` : evi.notes || null,
+        description: eviDescription,
         author: authorName,
         authorAvatar: resolveAvatar(authorName, evi.createdByOperatorId),
         date: new Date(evi.createdAt),
@@ -2364,48 +2662,6 @@ export function DealDetailModal({
         iconType: "questionnaire",
         badgeColor: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
         source: "crm",
-      });
-    });
-
-    // 8. Histórico de Conversas Vinculadas (Filtro "Do: Conversas")
-    (deal.conversations || []).forEach((conv: any) => {
-      const convMessages = Array.isArray(conv.messages) ? conv.messages : [];
-      const transcriptLines = convMessages.map((msg: any) => {
-        const timeStr = msg.timestamp
-          ? new Date(msg.timestamp).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "";
-        const senderLabel =
-          msg.sender === "client" || msg.sender === "customer"
-            ? conv.contactName || "Cliente"
-            : msg.senderName || conv.operatorName || "Atendente";
-        const body = (msg.text || "").trim() || `[${msg.type || "Mídia"}]`;
-        return `${timeStr ? `[${timeStr}] ` : ""}${senderLabel}: ${body}`;
-      });
-
-      const descriptionText =
-        transcriptLines.length > 0
-          ? transcriptLines.join("\n")
-          : conv.lastMessageText
-          ? `Última mensagem: "${conv.lastMessageText}"`
-          : "Conversa vinculada a esta negociação.";
-
-      const convAuthor = conv.operatorName || conv.contactName || "Atendimento Chat";
-      items.push({
-        id: `conv-history-${conv.conversationId || conv.id}`,
-        category: "event",
-        title: `Histórico de Conversa (${(conv.channel || "WhatsApp").toUpperCase()}) — ${conv.contactName || "Contato"}`,
-        description: descriptionText,
-        author: convAuthor,
-        authorAvatar: resolveAvatar(conv.operatorName, conv.operatorId),
-        date: new Date(conv.lastMessageTime || conv.linkedAt || deal.createdAt || Date.now()),
-        iconType: "chat",
-        badgeColor: "bg-primary/10 text-primary border border-primary/20",
-        source: "conversas",
       });
     });
 
@@ -3106,6 +3362,7 @@ export function DealDetailModal({
                       </div>
                       <ContactCustomFieldsCard
                         contactId={c.contactId}
+                        dealId={deal?.id}
                         onSaved={() => void loadDealDetail(true, true)}
                       />
                     </div>
@@ -4051,14 +4308,14 @@ export function DealDetailModal({
                                 </p>
 
                                 {c.lastMessageText && (
-                                  <p className="text-[11px] text-muted-foreground/90 italic truncate max-w-md">
-                                    "{c.lastMessageText}"
+                                  <div className="text-[11px] text-muted-foreground/90 max-w-md pt-0.5">
+                                    {renderCrmMediaOrTextContent(c.lastMessageText)}
                                     {c.lastMessageTime && (
                                       <span className="ml-1 text-[10px] opacity-75 not-italic">
                                         • {new Date(c.lastMessageTime).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                                       </span>
                                     )}
-                                  </p>
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -4182,8 +4439,8 @@ export function DealDetailModal({
                           </div>
 
                           {/* Balão da Mensagem */}
-                          <div className="rounded-lg bg-muted/50 p-3 text-xs text-foreground font-mono whitespace-pre-wrap border border-border/40">
-                            {evi.message?.content || evi.message?.text || "(Mensagem sem conteúdo textual)"}
+                          <div className="rounded-lg bg-muted/50 p-3 text-xs text-foreground whitespace-pre-wrap border border-border/40">
+                            {renderCrmMediaOrTextContent(evi.message?.content || evi.message?.text || "(Mensagem sem conteúdo textual)")}
                           </div>
 
                           {/* Nota Explicativa Comercial */}
@@ -4224,14 +4481,16 @@ export function DealDetailModal({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowProposalModal(true)}
-                          className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>Emitir Proposta Comercial</span>
-                        </button>
+                        <SystemTooltip content="Em desenvolvimento">
+                          <button
+                            type="button"
+                            onClick={() => setDevFeatureModal("Emitir Proposta Comercial")}
+                            className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            <span>Emitir Proposta Comercial</span>
+                          </button>
+                        </SystemTooltip>
                       </div>
                     </div>
 
@@ -5232,10 +5491,18 @@ export function DealDetailModal({
                     </div>
 
                     {/* Propostas Comerciais Emitidas */}
-                    <div className="space-y-3 pt-2">
-                      <span className="text-xs font-bold text-foreground block">
-                        Propostas Comerciais Emitidas ({deal?.proposals?.length || 0})
-                      </span>
+                    <div
+                      onClick={() => setDevFeatureModal("Propostas Comerciais Emitidas")}
+                      className="space-y-3 pt-2 rounded-xl border border-dashed border-border/80 bg-muted/10 p-4 hover:border-primary/40 hover:bg-primary/[0.02] transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-foreground block">
+                          Propostas Comerciais Emitidas ({deal?.proposals?.length || 0})
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                          Em desenvolvimento
+                        </span>
+                      </div>
 
                       {deal?.proposals && deal.proposals.length > 0 ? (
                         <div className="space-y-3">
@@ -5877,20 +6144,36 @@ export function DealDetailModal({
                           onDragOver={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
+                            if (!isDraggingNoteEditor) setIsDraggingNoteEditor(true);
+                          }}
+                          onDragLeave={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (e.currentTarget === e.target) setIsDraggingNoteEditor(false);
                           }}
                           onDrop={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
+                            setIsDraggingNoteEditor(false);
                             if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-                              handleAddNoteFiles(e.dataTransfer.files);
+                              void handleInsertFilesIntoNoteEditor(e.dataTransfer.files, {
+                                x: e.clientX,
+                                y: e.clientY,
+                              });
                             }
                           }}
-                          className="overflow-hidden rounded-sm border border-border bg-card p-4 space-y-3 shadow-xs"
+                          className={`overflow-hidden rounded-sm border p-4 space-y-3 shadow-xs transition-colors ${
+                            isDraggingNoteEditor
+                              ? "border-primary bg-primary/[0.04] ring-1 ring-primary/30"
+                              : "border-border bg-card"
+                          }`}
                         >
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
                             <span className="text-xs font-bold text-foreground">Anotação</span>
                             <span className="text-[10px] text-muted-foreground">
-                              Cole fotos (Ctrl+V) ou anexe planilhas, PDF, Word, RAR e outros arquivos
+                              {isUploadingNoteInlineFile
+                                ? "Enviando arquivo e inserindo no texto..."
+                                : "Cole (Ctrl+V), arraste e solte ou clique em Anexar para inserir fotos e arquivos direto no texto"}
                             </span>
                           </div>
 
@@ -6048,10 +6331,32 @@ export function DealDetailModal({
                               suppressContentEditableWarning
                               onInput={syncNoteEditorState}
                               onPaste={handleNotePaste}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (!isDraggingNoteEditor) setIsDraggingNoteEditor(true);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setIsDraggingNoteEditor(false);
+                                if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+                                  void handleInsertFilesIntoNoteEditor(e.dataTransfer.files, {
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                  });
+                                }
+                              }}
                               onKeyUp={updateNoteToolbarState}
                               onMouseUp={updateNoteToolbarState}
                               className="w-full bg-transparent text-xs text-foreground outline-none min-h-[90px] leading-relaxed break-words [&_b]:font-extrabold [&_strong]:font-extrabold [&_i]:italic [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_a]:text-primary [&_a]:font-semibold [&_a]:underline"
                             />
+                            {isUploadingNoteInlineFile && (
+                              <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <span>Inserindo arquivo na anotação...</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Pré-visualização de fotos e arquivos anexados na anotação */}
@@ -6197,7 +6502,11 @@ export function DealDetailModal({
                                           : item.title}
                                       </span>
                                       <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide uppercase ${item.badgeColor}`}>
-                                        {item.source === "marketing" ? "RD Marketing" : item.category === "event"
+                                        {item.source === "marketing"
+                                          ? "RD Marketing"
+                                          : item.source === "conversas"
+                                          ? "Conversas"
+                                          : item.category === "event"
                                           ? "Auditoria"
                                           : item.category === "activity"
                                           ? item.isNote
@@ -6245,9 +6554,9 @@ export function DealDetailModal({
                                       {renderMarkdownContent(item.description)}
                                     </div>
                                   ) : (
-                                    <p className="mt-2 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pl-9 break-words">
-                                      {item.description}
-                                    </p>
+                                    <div className="mt-2 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pl-9 break-words">
+                                      {renderCrmMediaOrTextContent(item.description)}
+                                    </div>
                                   )
                                 )}
                               </div>

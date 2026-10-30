@@ -52,6 +52,7 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             accountId?: string | null;
             accountChangeReason?: string;
             customFields?: Record<string, unknown>;
+            dealId?: string;
           } | null;
           if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "Dados inválidos." }, { status: 400 });
 
@@ -101,11 +102,23 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             updates.tags = body.tags;
           }
           if ("cnpjDetails" in body) updates.cnpjDetails = body.cnpjDetails;
+          const prevCustomFieldsObj: Record<string, unknown> =
+            typeof currentContact.customFields === "string"
+              ? (() => {
+                  try {
+                    return JSON.parse(currentContact.customFields) || {};
+                  } catch {
+                    return {};
+                  }
+                })()
+              : currentContact.customFields && typeof currentContact.customFields === "object"
+              ? (currentContact.customFields as Record<string, unknown>)
+              : {};
           let contactFieldDefs: CustomFieldDefinition[] = [];
           if (body.customFields !== undefined) {
             contactFieldDefs = await listCustomFields(session.tenantId, "contact");
             const patch = validateFieldValues(contactFieldDefs, body.customFields);
-            updates.customFields = { ...currentContact.customFields, ...patch };
+            updates.customFields = { ...prevCustomFieldsObj, ...patch };
           }
 
           if (updates.phone || (!updates.phone && updates.email)) {
@@ -167,10 +180,22 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             if ("cnpj" in updates) pushChange("CNPJ", currentContact.cnpj, updatedContact.cnpj);
 
             if (updates.customFields !== undefined) {
+              const nextCustomFieldsObj: Record<string, unknown> =
+                typeof updatedContact.customFields === "string"
+                  ? (() => {
+                      try {
+                        return JSON.parse(updatedContact.customFields) || {};
+                      } catch {
+                        return {};
+                      }
+                    })()
+                  : updatedContact.customFields && typeof updatedContact.customFields === "object"
+                  ? (updatedContact.customFields as Record<string, unknown>)
+                  : {};
               const cfDiffs = diffCustomFieldValues(
                 contactFieldDefs,
-                currentContact.customFields as Record<string, unknown>,
-                updatedContact.customFields as Record<string, unknown>,
+                prevCustomFieldsObj,
+                nextCustomFieldsObj,
               );
               for (const d of cfDiffs) {
                 changes.push({
@@ -191,7 +216,13 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
                     eq(crmDealContacts.contactId, contactId),
                   ),
                 );
-              const uniqueDealIds = Array.from(new Set(linkedDealContacts.map((r) => r.dealId)));
+              const extraDealIds: string[] = [];
+              if (typeof body.dealId === "string" && body.dealId.trim()) {
+                extraDealIds.push(body.dealId.trim());
+              }
+              const uniqueDealIds = Array.from(
+                new Set([...linkedDealContacts.map((r) => r.dealId), ...extraDealIds])
+              );
               const now = new Date();
               for (const dealId of uniqueDealIds) {
                 await db.insert(crmDealEvents).values({

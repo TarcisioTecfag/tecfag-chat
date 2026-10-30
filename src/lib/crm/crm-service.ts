@@ -31,7 +31,10 @@ import {
   rdMarketingConnections,
   rdMarketingJourneyLinks,
   rdMarketingJourneyPages,
+  attendanceEvents,
+  conversationDealContexts,
 } from "../../db/schema";
+import { getDealContext } from "./conversation-deal-context";
 import type {
   CrmAccount,
   CrmPipeline,
@@ -3092,31 +3095,9 @@ export class CrmService {
       )
       .orderBy(desc(conversations.lastMessageTime));
 
-    const convMessagesByConvId = new Map<string, Array<typeof messages.$inferSelect>>();
-    try {
-      const linkedConvIds = Array.from(
-        new Set(convDealsRaw.map((r) => r.conversation?.id).filter(Boolean) as string[])
-      );
-      if (linkedConvIds.length > 0) {
-        const linkedMessages = await db
-          .select()
-          .from(messages)
-          .where(
-            and(
-              eq(messages.tenantId, tenantId),
-              inArray(messages.conversationId, linkedConvIds)
-            )
-          )
-          .orderBy(asc(messages.sentAt));
-        for (const msg of linkedMessages) {
-          const list = convMessagesByConvId.get(msg.conversationId) || [];
-          list.push(msg);
-          convMessagesByConvId.set(msg.conversationId, list);
-        }
-      }
-    } catch {
-      // Ignora em mocks parciais de testes unitários
-    }
+    const linkedConvIds = Array.from(
+      new Set(convDealsRaw.map((r) => r.conversation?.id).filter(Boolean) as string[])
+    );
 
     const mappedConversations = convDealsRaw.map((r) => {
       const mainChan = r.contact?.mainChannel || "whatsapp";
@@ -3133,7 +3114,6 @@ export class CrmService {
         operatorName: r.operatorName || (r.conversation.operatorId ? "Operador" : "Na Fila"),
         lastMessageText: r.conversation.lastMessageText || null,
         lastMessageTime: r.conversation.lastMessageTime || null,
-        messages: convMessagesByConvId.get(r.conversation.id) || [],
       };
     });
 
@@ -3177,12 +3157,142 @@ export class CrmService {
     });
     const nextTask: any = nextTasks[0] || null;
 
+    // Garante vínculo de contexto de atendimento para conversas ativas quando esta negociação está aberta
+    if (linkedConvIds.length > 0 && deal.status === "open") {
+      try {
+        for (const convId of linkedConvIds) {
+          await db.transaction((tx) => getDealContext(tx, tenantId, convId, deal.operatorId || null));
+        }
+      } catch {
+        // Ignora caso em ambiente de teste unitário ou conversa finalizada
+      }
+    }
+
     // Eventos de auditoria (com deduplicação de conclusões repetidas para a mesma tarefa)
     const rawEvents = await db
       .select()
       .from(crmDealEvents)
       .where(and(eq(crmDealEvents.tenantId, tenantId), eq(crmDealEvents.dealId, dealId)))
       .orderBy(desc(crmDealEvents.createdAt));
+
+    // Mescla ações individuais da aba Histórico de Conversas (attendance_events) na timeline da negociação
+    if (linkedConvIds.length > 0) {
+      try {
+        const allConvDealLinks = await db
+          .select({
+            conversationId: crmConversationDeals.conversationId,
+            dealId: crmConversationDeals.dealId,
+          })
+          .from(crmConversationDeals)
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              inArray(crmConversationDeals.conversationId, linkedConvIds),
+              eq(crmConversationDeals.isActive, true)
+            )
+          );
+        const dealsPerConv = new Map<string, Set<string>>();
+        for (const link of allConvDealLinks) {
+          const set = dealsPerConv.get(link.conversationId) || new Set<string>();
+          set.add(link.dealId);
+          dealsPerConv.set(link.conversationId, set);
+        }
+
+        const contexts = await db
+          .select({
+            conversationId: conversationDealContexts.conversationId,
+            currentDealId: conversationDealContexts.currentDealId,
+          })
+          .from(conversationDealContexts)
+          .where(
+            and(
+              eq(conversationDealContexts.tenantId, tenantId),
+              inArray(conversationDealContexts.conversationId, linkedConvIds)
+            )
+          );
+        const currentDealPerConv = new Map<string, string | null>();
+        for (const ctx of contexts) {
+          currentDealPerConv.set(ctx.conversationId, ctx.currentDealId);
+        }
+
+        const convAttendanceEvents = await db
+          .select()
+          .from(attendanceEvents)
+          .where(
+            and(
+              eq(attendanceEvents.tenantId, tenantId),
+              inArray(attendanceEvents.conversationId, linkedConvIds)
+            )
+          )
+          .orderBy(desc(attendanceEvents.createdAt));
+
+        const existingEventIds = new Set(rawEvents.map((e) => e.id));
+        for (const attEv of convAttendanceEvents) {
+          const projectedId = `attendance-${attEv.id}`;
+          if (existingEventIds.has(projectedId)) continue;
+
+          const convDealsSet = dealsPerConv.get(attEv.conversationId);
+          const isSoleDealForConv = !convDealsSet || (convDealsSet.size === 1 && convDealsSet.has(dealId));
+          const isCurrentDealForConv = currentDealPerConv.get(attEv.conversationId) === dealId;
+
+          if (attEv.dealId === dealId || (attEv.dealId === null && (isCurrentDealForConv || isSoleDealForConv))) {
+            const attMeta =
+              attEv.metadata && typeof attEv.metadata === "object"
+                ? (attEv.metadata as Record<string, any>)
+                : {};
+            rawEvents.push({
+              id: projectedId,
+              tenantId,
+              dealId,
+              operatorId: attEv.operatorId,
+              eventType: "conversation_action",
+              fromStageId: null,
+              toStageId: null,
+              fromStatus: null,
+              toStatus: null,
+              metadata: {
+                ...attMeta,
+                attendanceEventId: attEv.id,
+                conversationId: attEv.conversationId,
+                attendanceEventType: attEv.eventType,
+                actorName: attEv.actorName,
+                description: attEv.description,
+              },
+              createdAt: attEv.createdAt,
+            });
+            existingEventIds.add(projectedId);
+          }
+        }
+      } catch {
+        // Ignora em mocks parciais
+      }
+    }
+
+    // Enriquece eventos de mensagem do atendimento com o conteúdo integral da mensagem (para renderizar preview real de imagem, áudio, vídeo e documentos)
+    const msgContentById = new Map<string, string>();
+    try {
+      const eventMessageIds = Array.from(
+        new Set(
+          rawEvents
+            .map((ev) => {
+              const m = ev.metadata && typeof ev.metadata === "object" ? (ev.metadata as Record<string, any>) : null;
+              return m && typeof m.messageId === "string" ? m.messageId : null;
+            })
+            .filter(Boolean) as string[]
+        )
+      );
+      if (eventMessageIds.length > 0) {
+        const msgRows = await db
+          .select({ id: messages.id, content: messages.content })
+          .from(messages)
+          .where(and(eq(messages.tenantId, tenantId), inArray(messages.id, eventMessageIds)));
+        for (const r of msgRows) {
+          if (r.content) msgContentById.set(r.id, r.content);
+        }
+      }
+    } catch {
+      // Ignora em mocks parciais
+    }
 
     const seenCompletedActivityKeys = new Set<string>();
     const filteredEvents = rawEvents.filter((ev) => {
@@ -3221,10 +3331,22 @@ export class CrmService {
     const aiPersona = getAiPersona(tenantId);
     const events = filteredEvents.map((ev) => {
       const meta = (ev.metadata && typeof ev.metadata === "object" ? { ...(ev.metadata as Record<string, any>) } : {}) as Record<string, any>;
+      if (typeof meta.messageId === "string" && msgContentById.has(meta.messageId)) {
+        const fullContent = msgContentById.get(meta.messageId)!;
+        meta.fullMessageContent = fullContent;
+        // Se a descrição continha tag de mídia possivelmente truncada em 140 caracteres, reconstrói com a tag completa
+        if (typeof meta.description === "string" && (meta.description.includes("[MEDIA:") || fullContent.startsWith("[MEDIA:") || fullContent.startsWith("[LOCAL_MEDIA:"))) {
+          const prefixIdx = meta.description.indexOf("[MEDIA:");
+          const prefix = prefixIdx > 0 ? meta.description.slice(0, prefixIdx).trim() : meta.description.replace(/:\s*.*$/, ":");
+          meta.description = `${prefix} ${fullContent}`;
+        }
+      }
       const isAiOrigin =
         meta.origin === "auto_sdr" ||
         meta.origin === "rodizio_reassignment" ||
-        meta.actorType === "ai_sdr";
+        meta.actorType === "ai_sdr" ||
+        meta.actorName === aiPersona.name ||
+        (typeof meta.actorName === "string" && meta.actorName.startsWith("IA "));
       const isRdOrigin =
         meta.actorType === "rd_marketing" ||
         meta.actorName === "Automação RD Station Marketing" ||
@@ -3245,7 +3367,10 @@ export class CrmService {
         operatorAvatar = null;
       } else if (meta.actorName) {
         operatorName = String(meta.actorName);
-        operatorAvatar = meta.actorAvatar || null;
+        operatorAvatar =
+          meta.actorAvatar ||
+          (ev.operatorId && tenantOpsMap.has(ev.operatorId) ? tenantOpsMap.get(ev.operatorId)!.avatar : null) ||
+          null;
       } else if (ev.operatorId && tenantOpsMap.has(ev.operatorId)) {
         const op = tenantOpsMap.get(ev.operatorId)!;
         operatorName = op.name;
@@ -3789,6 +3914,16 @@ export class CrmService {
       }
 
       if (targetAccountId) await syncAccountDealContacts(tx, tenantId, dealId, targetAccountId, operatorId);
+
+      if (deal.status === "open" && linkedConversationIds.size > 0) {
+        try {
+          for (const convId of linkedConversationIds) {
+            await getDealContext(tx, tenantId, convId, operatorId);
+          }
+        } catch {
+          // Ignora caso em mocks parciais de testes unitários
+        }
+      }
 
       if (!data.marketingOrigin) await enqueueRdCommercial(tx, tenantId, deal, null);
       return deal;

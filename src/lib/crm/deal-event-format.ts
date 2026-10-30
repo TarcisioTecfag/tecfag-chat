@@ -120,8 +120,25 @@ export function formatDealEvent(
     case "conversation_context_changed":
       return { title: meta.toDealId ? (meta.direction === "released" ? "Atendimento direcionado a outra negociação" : "Negociação do atendimento definida") : "Atendimento aguardando nova negociação",
         description: meta.reason === "automatic" ? "Selecionada automaticamente por ser a única negociação em andamento." : "A alteração vale apenas para as próximas ações do atendimento." };
-    case "conversation_action":
-      return { title: attendanceEventLabels[String(meta.actionType)] || (meta.actionType === "note" ? "Nota do atendimento" : "Ação no atendimento"), description: text(meta.description) };
+    case "conversation_action": {
+      const actionType = text(meta.attendanceEventType) || text(meta.actionType);
+      const rawDesc = text(meta.description);
+      const cleanDesc = rawDesc
+        ? rawDesc
+            .replace(/\(sent\)/gi, "(enviada)")
+            .replace(/\(delivered\)/gi, "(entregue)")
+            .replace(/\(read\)/gi, "(lida)")
+            .replace(/\(received\)/gi, "(recebida)")
+        : null;
+      return {
+        title:
+          (actionType ? attendanceEventLabels[actionType] : null) ||
+          (actionType === "note" || actionType === "note.created"
+            ? "Nota do atendimento"
+            : "Ação no atendimento"),
+        description: cleanDesc,
+      };
+    }
     case "created":
       return { title: "Negociação criada", description: null };
 

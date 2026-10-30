@@ -6,9 +6,11 @@ import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEdit
 
 export function ContactCustomFieldsCard({
   contactId,
+  dealId,
   onSaved,
 }: {
   contactId: string;
+  dealId?: string;
   onSaved?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -18,6 +20,7 @@ export function ContactCustomFieldsCard({
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const savedRef = useRef<Record<string, unknown>>({});
+  const latestValuesRef = useRef<Record<string, unknown>>({});
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -35,6 +38,7 @@ export function ContactCustomFieldsCard({
           setValues(initial);
           setSaved(initial);
           savedRef.current = initial;
+          latestValuesRef.current = initial;
         }
       })
       .catch((error) => {
@@ -66,11 +70,11 @@ export function ContactCustomFieldsCard({
       const response = await fetch(`/api/contacts/${encodeURIComponent(contactId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customFields: diff }),
+        body: JSON.stringify({ customFields: diff, ...(dealId ? { dealId } : {}) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Não foi possível salvar.");
-      const updatedFields = data.contact?.customFields || nextValues;
+      const updatedFields = data.contact?.customFields || { ...savedRef.current, ...diff };
       setSaved(updatedFields);
       savedRef.current = updatedFields;
       setJustSaved(true);
@@ -85,11 +89,12 @@ export function ContactCustomFieldsCard({
 
   const handleValuesChange = (nextValues: Record<string, unknown>) => {
     setValues(nextValues);
+    latestValuesRef.current = nextValues;
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
     debounceTimerRef.current = setTimeout(() => {
-      void persistChanges(nextValues);
+      void persistChanges(latestValuesRef.current);
     }, 500);
   };
 
