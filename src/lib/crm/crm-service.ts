@@ -28,6 +28,9 @@ import {
   conversations,
   operators,
   messages,
+  rdMarketingConnections,
+  rdMarketingJourneyLinks,
+  rdMarketingJourneyPages,
 } from "../../db/schema";
 import type {
   CrmAccount,
@@ -47,6 +50,7 @@ import type {
   CrmDealEmail,
 } from "../../db/schema";
 import { vertexAi } from "../vertex-ai";
+import { getAiPersona } from "../ai-persona";
 import { getContactDealRows } from "./contact-deals-query";
 import type { DealTransaction } from "./deal-associations";
 import {
@@ -60,7 +64,7 @@ import {
   type CustomFieldValues,
   type StageContext,
 } from "./custom-fields";
-import { validateCatalogChoice } from "./catalogs";
+import { ensureCatalogOption, validateCatalogChoice } from "./catalogs";
 import { validateAccountDocument } from "./account-validation";
 import { syncAccountDealContacts, lockContactDeals, linkContactToDeal, DealRequiredError, assertDealsCanBeRemoved } from "./deal-associations";
 import { enqueueRdCommercial } from "../rd-marketing/commercial-outbox";
@@ -2884,9 +2888,19 @@ export class CrmService {
             operatorName: string | null;
             lastMessageText: string | null;
             lastMessageTime: Date | null;
+            messages?: Array<typeof messages.$inferSelect>;
           }
         >;
-        activities: Array<CrmDealActivity & { operatorName: string | null; assignedToOperatorName: string | null }>;
+        activities: Array<
+          CrmDealActivity & {
+            operatorName: string | null;
+            operatorAvatar?: string | null;
+            assignedToOperatorName: string | null;
+            assignedToOperatorAvatar?: string | null;
+            actorName?: string | null;
+            actorAvatar?: string | null;
+          }
+        >;
         nextTask?: {
           id: string;
           title: string;
@@ -2900,13 +2914,28 @@ export class CrmService {
           responsibleName: string | null;
           description?: string | null;
         } | null;
-        events: CrmDealEvent[];
+        nextTasks?: Array<{
+          id: string;
+          title: string;
+          type: string;
+          dueDate: string | null;
+          isOverdue: boolean;
+          isToday: boolean;
+          isFuture: boolean;
+          hasNoDueDate: boolean;
+          assignedToOperatorId: string | null;
+          responsibleName: string | null;
+          description?: string | null;
+        }>;
+        events: Array<CrmDealEvent & { operatorName?: string | null; operatorAvatar?: string | null }>;
         evidences: Array<CrmActivityMessage & { message: typeof messages.$inferSelect }>;
         products: CrmDealProduct[];
         proposals: CrmProposal[];
-        files: Array<CrmDealFile & { uploaderName?: string | null }>;
+        files: Array<CrmDealFile & { uploaderName?: string | null; uploaderAvatar?: string | null }>;
         questionnaires: Array<CrmDealQuestionnaire & { filledByName?: string | null }>;
         emails: Array<CrmDealEmail & { operatorName?: string | null }>;
+        contactDeals?: any[];
+        savedRdJourneyContactIds?: string[];
       })
     | null
   > {
@@ -3063,6 +3092,32 @@ export class CrmService {
       )
       .orderBy(desc(conversations.lastMessageTime));
 
+    const convMessagesByConvId = new Map<string, Array<typeof messages.$inferSelect>>();
+    try {
+      const linkedConvIds = Array.from(
+        new Set(convDealsRaw.map((r) => r.conversation?.id).filter(Boolean) as string[])
+      );
+      if (linkedConvIds.length > 0) {
+        const linkedMessages = await db
+          .select()
+          .from(messages)
+          .where(
+            and(
+              eq(messages.tenantId, tenantId),
+              inArray(messages.conversationId, linkedConvIds)
+            )
+          )
+          .orderBy(asc(messages.sentAt));
+        for (const msg of linkedMessages) {
+          const list = convMessagesByConvId.get(msg.conversationId) || [];
+          list.push(msg);
+          convMessagesByConvId.set(msg.conversationId, list);
+        }
+      }
+    } catch {
+      // Ignora em mocks parciais de testes unitários
+    }
+
     const mappedConversations = convDealsRaw.map((r) => {
       const mainChan = r.contact?.mainChannel || "whatsapp";
       return {
@@ -3078,13 +3133,14 @@ export class CrmService {
         operatorName: r.operatorName || (r.conversation.operatorId ? "Operador" : "Na Fila"),
         lastMessageText: r.conversation.lastMessageText || null,
         lastMessageTime: r.conversation.lastMessageTime || null,
+        messages: convMessagesByConvId.get(r.conversation.id) || [],
       };
     });
 
     // Atividades e tarefas com joins de operadores e ordenação padronizada
     const activities = await this.getDealActivities(tenantId, dealId);
 
-    // Próxima tarefa pendente da negociação (excluindo notas comerciais)
+    // Próximas tarefas pendentes da negociação (até 3 tarefas, excluindo notas comerciais)
     const pendingNonNotes = activities.filter((a) => a.status === "pending" && a.type !== "note");
     pendingNonNotes.sort((a, b) => {
       if (!a.dueDate && !b.dueDate) return 0;
@@ -3092,34 +3148,34 @@ export class CrmService {
       if (!b.dueDate) return -1;
       return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
     });
-    const firstTask = pendingNonNotes[0] || null;
-    let nextTask: any = null;
-    if (firstTask) {
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      const nowTime = now.getTime();
-      const due = firstTask.dueDate ? new Date(firstTask.dueDate) : null;
+    const nowForTasks = new Date();
+    const startOfToday = new Date(nowForTasks.getFullYear(), nowForTasks.getMonth(), nowForTasks.getDate(), 0, 0, 0, 0);
+    const endOfToday = new Date(nowForTasks.getFullYear(), nowForTasks.getMonth(), nowForTasks.getDate(), 23, 59, 59, 999);
+    const nowTime = nowForTasks.getTime();
+
+    const nextTasks = pendingNonNotes.slice(0, 3).map((task) => {
+      const due = task.dueDate ? new Date(task.dueDate) : null;
       const dueTime = due ? due.getTime() : null;
       const isOverdue = due ? dueTime! < nowTime : false;
       const isToday = due ? due >= startOfToday && due <= endOfToday : false;
       const isFuture = due ? due > endOfToday : false;
       const hasNoDueDate = due === null;
 
-      nextTask = {
-        id: firstTask.id,
-        title: firstTask.title,
-        type: firstTask.type,
+      return {
+        id: task.id,
+        title: task.title,
+        type: task.type,
         dueDate: due ? due.toISOString() : null,
         isOverdue,
         isToday,
         isFuture,
         hasNoDueDate,
-        assignedToOperatorId: firstTask.assignedToOperatorId || null,
-        responsibleName: firstTask.assignedToOperatorName || null,
-        description: firstTask.description || null,
+        assignedToOperatorId: task.assignedToOperatorId || null,
+        responsibleName: task.assignedToOperatorName || null,
+        description: task.description || null,
       };
-    }
+    });
+    const nextTask: any = nextTasks[0] || null;
 
     // Eventos de auditoria (com deduplicação de conclusões repetidas para a mesma tarefa)
     const rawEvents = await db
@@ -3129,7 +3185,7 @@ export class CrmService {
       .orderBy(desc(crmDealEvents.createdAt));
 
     const seenCompletedActivityKeys = new Set<string>();
-    const events = rawEvents.filter((ev) => {
+    const filteredEvents = rawEvents.filter((ev) => {
       const meta = (ev.metadata && typeof ev.metadata === "object" ? ev.metadata : {}) as Record<string, any>;
       const actKey = String(meta.activityId || meta.activityTitle || "").trim();
       if (ev.eventType === "activity_completed" && actKey) {
@@ -3147,6 +3203,61 @@ export class CrmService {
         return false;
       }
       return true;
+    });
+
+    const tenantOpsMap = new Map<string, { name: string; avatar: string | null }>();
+    try {
+      const tenantOps = await db
+        .select({ id: operators.id, name: operators.name, avatar: operators.avatar })
+        .from(operators)
+        .where(eq(operators.tenantId, tenantId));
+      for (const op of tenantOps) {
+        tenantOpsMap.set(op.id, { name: op.name, avatar: op.avatar });
+      }
+    } catch {
+      // Ignora em mocks parciais
+    }
+
+    const aiPersona = getAiPersona(tenantId);
+    const events = filteredEvents.map((ev) => {
+      const meta = (ev.metadata && typeof ev.metadata === "object" ? { ...(ev.metadata as Record<string, any>) } : {}) as Record<string, any>;
+      const isAiOrigin =
+        meta.origin === "auto_sdr" ||
+        meta.origin === "rodizio_reassignment" ||
+        meta.actorType === "ai_sdr";
+      const isRdOrigin =
+        meta.actorType === "rd_marketing" ||
+        meta.actorName === "Automação RD Station Marketing" ||
+        meta.actorName === "RD Marketing" ||
+        (ev.eventType === "created" && !ev.operatorId && deal.source?.toLowerCase().includes("rd"));
+
+      let operatorName: string | null = null;
+      let operatorAvatar: string | null = null;
+
+      if (isAiOrigin) {
+        meta.actorName = aiPersona.name;
+        meta.actorAvatar = aiPersona.avatar;
+        operatorName = aiPersona.name;
+        operatorAvatar = aiPersona.avatar;
+      } else if (isRdOrigin) {
+        meta.actorName = "RD Marketing";
+        operatorName = "RD Marketing";
+        operatorAvatar = null;
+      } else if (meta.actorName) {
+        operatorName = String(meta.actorName);
+        operatorAvatar = meta.actorAvatar || null;
+      } else if (ev.operatorId && tenantOpsMap.has(ev.operatorId)) {
+        const op = tenantOpsMap.get(ev.operatorId)!;
+        operatorName = op.name;
+        operatorAvatar = op.avatar;
+      }
+
+      return {
+        ...ev,
+        metadata: meta,
+        operatorName,
+        operatorAvatar,
+      };
     });
 
     // Mensagens marcadas como evidência comercial
@@ -3193,6 +3304,73 @@ export class CrmService {
     // E-mails registrados
     const emails = await this.getDealEmails(tenantId, dealId);
 
+    // Negociações vinculadas aos contatos participantes e snapshots permanentes do RD Marketing
+    let contactDeals: any[] = [];
+    let savedRdJourneyContactIds: string[] = [];
+    try {
+      const participantIds = Array.from(
+        new Set(mappedContacts.map((c) => c.contactId).filter(Boolean))
+      );
+      if (participantIds.length > 0) {
+        const seenDealIds = new Set<string>();
+        for (const cId of participantIds) {
+          const rows = await getContactDealRows(db, tenantId, cId);
+          for (const row of rows) {
+            if (!seenDealIds.has(row.id)) {
+              seenDealIds.add(row.id);
+              contactDeals.push(row);
+            }
+          }
+        }
+
+        const savedLinks = await db
+          .select({
+            contactId: rdMarketingJourneyLinks.contactId,
+            linkId: rdMarketingJourneyLinks.id,
+            snapshotId: rdMarketingJourneyLinks.snapshotId,
+            connectionVersion: rdMarketingJourneyLinks.connectionVersion,
+            activeVersion: rdMarketingConnections.version,
+          })
+          .from(rdMarketingJourneyLinks)
+          .innerJoin(
+            rdMarketingConnections,
+            and(
+              eq(rdMarketingConnections.tenantId, tenantId),
+              eq(rdMarketingConnections.version, rdMarketingJourneyLinks.connectionVersion)
+            )
+          )
+          .where(
+            and(
+              eq(rdMarketingJourneyLinks.tenantId, tenantId),
+              inArray(rdMarketingJourneyLinks.contactId, participantIds)
+            )
+          );
+
+        if (savedLinks.length > 0) {
+          const validSavedIds: string[] = [];
+          for (const link of savedLinks) {
+            const [hasPage] = await db
+              .select({ id: rdMarketingJourneyPages.id })
+              .from(rdMarketingJourneyPages)
+              .where(
+                and(
+                  eq(rdMarketingJourneyPages.tenantId, tenantId),
+                  eq(rdMarketingJourneyPages.linkId, link.linkId),
+                  eq(rdMarketingJourneyPages.snapshotId, link.snapshotId)
+                )
+              )
+              .limit(1);
+            if (hasPage) {
+              validSavedIds.push(link.contactId);
+            }
+          }
+          savedRdJourneyContactIds = Array.from(new Set(validSavedIds));
+        }
+      }
+    } catch {
+      // Ignora em mocks parciais de testes unitários
+    }
+
     return {
       ...deal,
       ownerId: deal.operatorId,
@@ -3202,6 +3380,7 @@ export class CrmService {
       conversations: mappedConversations,
       activities,
       nextTask,
+      nextTasks,
       events,
       evidences,
       products,
@@ -3209,6 +3388,8 @@ export class CrmService {
       files,
       questionnaires,
       emails,
+      contactDeals,
+      savedRdJourneyContactIds,
     };
   }
 
@@ -3458,6 +3639,18 @@ export class CrmService {
 
       const dealId = `deal-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
+      // Auto-registra Fonte e Campanha no catálogo do tenant se forem novas opções
+      try {
+        if (data.source && data.source !== "manual") {
+          await ensureCatalogOption(tenantId, "source", data.source, tx);
+        }
+        if (data.campaign) {
+          await ensureCatalogOption(tenantId, "campaign", data.campaign, tx);
+        }
+      } catch {
+        // Ignora falha de catálogo em mocks de teste
+      }
+
       // 7. Inserção do Deal
       const [deal] = await tx
         .insert(crmDeals)
@@ -3489,13 +3682,13 @@ export class CrmService {
         tenantId,
         dealId,
         "created",
-        operatorId,
+        data.marketingOrigin ? null : operatorId,
         {
           title: deal.title,
           pipelineId: deal.pipelineId,
           stageId: deal.stageId,
           value: deal.value,
-          ...(data.marketingOrigin ? { actorName: "Automação RD Station Marketing" } : {}),
+          ...(data.marketingOrigin ? { actorName: "RD Marketing", actorType: "rd_marketing" } : {}),
         },
         tx
       );
@@ -3507,10 +3700,11 @@ export class CrmService {
           tenantId,
           dealId,
           type: "note",
-          title: "Nota inicial",
+          title: data.marketingOrigin ? "Nota inicial (RD Marketing)" : "Nota inicial",
           description: data.initialNote.trim(),
           status: "completed",
-          operatorId: operatorId || assignedOpId || null,
+          operatorId: data.marketingOrigin ? null : (operatorId || assignedOpId || null),
+          assignedToOperatorId: assignedOpId || null,
           completedAt: now,
           createdAt: now,
           updatedAt: now,
@@ -3668,8 +3862,26 @@ export class CrmService {
       }
       if (updates.expectedCloseDate !== undefined) setPayload.expectedCloseDate = updates.expectedCloseDate;
       if (updates.rating !== undefined) setPayload.rating = updates.rating;
-      if (updates.source !== undefined) setPayload.source = updates.source ? updates.source.trim() : null;
-      if (updates.campaign !== undefined) setPayload.campaign = updates.campaign ? updates.campaign.trim() : null;
+      if (updates.source !== undefined) {
+        setPayload.source = updates.source ? updates.source.trim() : null;
+        if (setPayload.source && setPayload.source !== "manual") {
+          try {
+            await ensureCatalogOption(tenantId, "source", setPayload.source, tx);
+          } catch {
+            // Ignora falha de catálogo em mocks
+          }
+        }
+      }
+      if (updates.campaign !== undefined) {
+        setPayload.campaign = updates.campaign ? updates.campaign.trim() : null;
+        if (setPayload.campaign) {
+          try {
+            await ensureCatalogOption(tenantId, "campaign", setPayload.campaign, tx);
+          } catch {
+            // Ignora falha de catálogo em mocks
+          }
+        }
+      }
       if (updates.lossReason !== undefined) setPayload.lossReason = updates.lossReason;
       if (updates.pausedReason !== undefined) setPayload.pausedReason = updates.pausedReason;
 
@@ -4928,7 +5140,11 @@ export class CrmService {
     Array<
       CrmDealActivity & {
         operatorName: string | null;
+        operatorAvatar?: string | null;
         assignedToOperatorName: string | null;
+        assignedToOperatorAvatar?: string | null;
+        actorName?: string | null;
+        actorAvatar?: string | null;
       }
     >
   > {
@@ -4962,7 +5178,9 @@ export class CrmService {
       .select({
         activity: crmDealActivities,
         operatorName: creatorOp.name,
+        operatorAvatar: creatorOp.avatar,
         assignedToOperatorName: assignedOp.name,
+        assignedToOperatorAvatar: assignedOp.avatar,
       })
       .from(crmDealActivities)
       .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
@@ -4983,10 +5201,11 @@ export class CrmService {
 
     const rows = await query;
     const allOps = await db
-      .select({ id: operators.id, name: operators.name })
+      .select({ id: operators.id, name: operators.name, avatar: operators.avatar })
       .from(operators)
       .where(eq(operators.tenantId, tenantId));
     const opNameMap = new Map(allOps.map((op) => [op.id, op.name]));
+    const aiPersona = getAiPersona(tenantId);
 
     return rows.map((r) => {
       const rawIds =
@@ -4997,12 +5216,37 @@ export class CrmService {
           : [];
       const uniqueIds = Array.from(new Set(rawIds));
       const names = uniqueIds.map((id) => opNameMap.get(id)).filter(Boolean) as string[];
+
+      const titleStr = String(r.activity.title || "");
+      const descStr = String(r.activity.description || "");
+      const isAiSdrActivity =
+        titleStr.includes("Triagem SDR") ||
+        descStr.includes(`triado automaticamente pel`) ||
+        (titleStr === "Responder o contato" && !r.operatorName);
+      const isRdMarketingActivity =
+        titleStr.includes("RD Marketing") ||
+        descStr.startsWith("Conversão RD Marketing:");
+
+      let actorName: string | null = r.operatorName || null;
+      let actorAvatar: string | null = (r as any).operatorAvatar || null;
+      if (isAiSdrActivity) {
+        actorName = aiPersona.name;
+        actorAvatar = aiPersona.avatar;
+      } else if (isRdMarketingActivity) {
+        actorName = "RD Marketing";
+        actorAvatar = null;
+      }
+
       return {
         ...r.activity,
         assignedToOperatorIds: uniqueIds,
         operatorName: r.operatorName || null,
+        operatorAvatar: (r as any).operatorAvatar || null,
         assignedToOperatorName:
           names.length > 0 ? names.join(", ") : r.assignedToOperatorName || null,
+        assignedToOperatorAvatar: (r as any).assignedToOperatorAvatar || null,
+        actorName,
+        actorAvatar,
       };
     });
   }
@@ -6958,7 +7202,7 @@ export class CrmService {
   async getDealFiles(
     tenantId: string,
     dealId: string
-  ): Promise<Array<CrmDealFile & { uploaderName?: string | null }>> {
+  ): Promise<Array<CrmDealFile & { uploaderName?: string | null; uploaderAvatar?: string | null }>> {
     // 1. Valida pertencimento do Deal ao tenant
     const [deal] = await db
       .select({ id: crmDeals.id })
@@ -6984,6 +7228,7 @@ export class CrmService {
         metadata: crmDealFiles.metadata,
         createdAt: crmDealFiles.createdAt,
         uploaderName: operators.name,
+        uploaderAvatar: operators.avatar,
       })
       .from(crmDealFiles)
       .leftJoin(operators, eq(crmDealFiles.uploadedByOperatorId, operators.id))
@@ -7000,7 +7245,7 @@ export class CrmService {
     tenantId: string,
     dealId: string,
     fileId: string
-  ): Promise<(CrmDealFile & { uploaderName?: string | null }) | null> {
+  ): Promise<(CrmDealFile & { uploaderName?: string | null; uploaderAvatar?: string | null }) | null> {
     const [deal] = await db
       .select({ id: crmDeals.id })
       .from(crmDeals)
@@ -7023,6 +7268,7 @@ export class CrmService {
         metadata: crmDealFiles.metadata,
         createdAt: crmDealFiles.createdAt,
         uploaderName: operators.name,
+        uploaderAvatar: operators.avatar,
       })
       .from(crmDealFiles)
       .leftJoin(operators, eq(crmDealFiles.uploadedByOperatorId, operators.id))

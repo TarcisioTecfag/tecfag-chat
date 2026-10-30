@@ -72,7 +72,9 @@ import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
 import { DealEmailTab } from "./DealEmailTab";
 import { CatalogSelect } from "./CatalogSelect";
 import { useRdMarketingJourney } from "@/hooks/useRdMarketingJourney";
-import { RdMarketingJourneyControls } from "./RdMarketingJourneyControls";
+import { RdMarketingJourneyControls, ContactDealsList } from "./RdMarketingJourneyControls";
+import { SaleCelebrationModal, type SaleCelebrationData } from "./SaleCelebrationModal";
+import { getAiPersona } from "@/lib/ai-persona";
 import type { JourneyEvent } from "@/lib/rd-marketing/journey-types";
 import {
   DealFilePreviewModal,
@@ -126,6 +128,7 @@ export function normalizeMultilineMarkdown(rawText: string): string {
     .replace(/<(p|div)(?:\s[^>]*)?>/gi, "")
     .replace(/<li(?:\s[^>]*)?>([\s\S]*?)<\/li>/gi, "- $1\n")
     .replace(/<\/?(ul|ol)(?:\s[^>]*)?>/gi, "\n")
+    .replace(/<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi, "![Imagem anexada]($1)")
     .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
     .replace(/<(strong|b)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi, "**$2**")
     .replace(/<(em|i)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi, "*$2*")
@@ -177,18 +180,51 @@ export function renderInlineMarkdown(text: string, depth = 0): React.ReactNode {
   if (!text) return "";
   if (depth > 4) return text;
 
-  const tokenRegex = /(\[[^\]]+\]\([^)]+\)|\*\*\*.+?\*\*\*|\*\*.+?\*\*|\*[^*]+\*)/g;
+  const tokenRegex = /(!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|\*\*\*.+?\*\*\*|\*\*.+?\*\*|\*[^*]+\*)/g;
   const parts = text.split(tokenRegex);
 
   return parts.map((part, index) => {
     if (!part) return null;
+
+    const imgMatch = part.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (imgMatch) {
+      const [, alt, url] = imgMatch;
+      const cleanUrl = url.trim();
+      const src =
+        cleanUrl.startsWith("http://") ||
+        cleanUrl.startsWith("https://") ||
+        cleanUrl.startsWith("data:") ||
+        cleanUrl.startsWith("blob:") ||
+        cleanUrl.startsWith("/")
+          ? cleanUrl
+          : `https://${cleanUrl}`;
+      return (
+        <a
+          key={index}
+          href={src}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="my-1.5 inline-block max-w-full overflow-hidden rounded-lg border border-border bg-muted/20 hover:border-primary/50 transition-colors"
+        >
+          <img
+            src={src}
+            alt={alt || "Imagem da anotação"}
+            className="max-h-64 max-w-full object-contain rounded-lg block"
+            loading="lazy"
+          />
+        </a>
+      );
+    }
 
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
       const [, label, url] = linkMatch;
       const cleanUrl = url.trim();
       const href =
-        cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://") || cleanUrl.startsWith("mailto:")
+        cleanUrl.startsWith("http://") ||
+        cleanUrl.startsWith("https://") ||
+        cleanUrl.startsWith("mailto:") ||
+        cleanUrl.startsWith("/")
           ? cleanUrl
           : `https://${cleanUrl}`;
       return (
@@ -330,6 +366,14 @@ function serializeRichNoteNode(
   const tag = el.tagName.toUpperCase();
 
   if (tag === "BR") return "\n";
+  if (tag === "IMG") {
+    const src = el.getAttribute("src") || "";
+    const alt = el.getAttribute("alt") || "Imagem anexada";
+    if (src && !src.startsWith("data:") && !src.startsWith("blob:")) {
+      return `\n![${alt}](${src})\n`;
+    }
+    return "";
+  }
 
   const styleWeight = el.style?.fontWeight || "";
   const isBoldTag =
@@ -455,28 +499,32 @@ interface DealDetailModalProps {
   dealId: string | null;
   isOpen: boolean;
   onClose: () => void;
-  onDealUpdated: (updatedDeal: any) => void;
+  onDealUpdated: (updatedDeal?: any) => void;
   onOpenConversation: (conversationId: string) => void;
   pipelineStages: Array<{ id: string; name: string; orderIndex: number }>;
   operatorsMap: Map<string, string>;
+  operators?: Array<{ id: string; name: string; avatar?: string | null }>;
   backLabel?: string;
   preferredContactId?: string;
 }
 
 function getTaskTypeMeta(type?: string | null) {
-  switch (type) {
+  switch ((type || "").toLowerCase()) {
     case "call":
-      return { label: "Ligar", icon: Phone };
+      return { label: "Ligação", icon: Phone };
     case "email":
-      return { label: "Email", icon: Mail };
+      return { label: "E-mail", icon: Mail };
     case "meeting":
       return { label: "Reunião", icon: Users };
     case "lunch":
+    case "launch":
       return { label: "Almoço", icon: Utensils };
     case "visit":
       return { label: "Visita", icon: MapPin };
     case "whatsapp":
       return { label: "WhatsApp", icon: MessageCircle };
+    case "note":
+      return { label: "Anotação", icon: FileText };
     case "task":
     default:
       return { label: "Tarefa", icon: CheckSquare };
@@ -491,6 +539,7 @@ export function DealDetailModal({
   onOpenConversation,
   pipelineStages,
   operatorsMap,
+  operators: propOperators,
   backLabel,
   preferredContactId,
 }: DealDetailModalProps) {
@@ -501,7 +550,23 @@ export function DealDetailModal({
     // Fallback gracioso caso renderizado fora do ChatProvider
   }
   const operatorProfile = chatContext?.operatorProfile;
-  const operators = chatContext?.operators;
+  const operators = React.useMemo(() => {
+    const merged = new Map<string, any>();
+    if (Array.isArray(chatContext?.operators)) {
+      for (const op of chatContext.operators) {
+        if (op?.id) merged.set(op.id, op);
+      }
+    }
+    if (Array.isArray(propOperators)) {
+      for (const op of propOperators) {
+        if (op?.id) {
+          const prev = merged.get(op.id);
+          merged.set(op.id, { ...prev, ...op, avatar: op.avatar || prev?.avatar || null });
+        }
+      }
+    }
+    return Array.from(merged.values());
+  }, [chatContext?.operators, propOperators]);
 
   const initialCachedDeal = getCachedDealDetailSync(dealId)?.deal || null;
   const dealPreview = getDealPreviewSync(dealId);
@@ -509,10 +574,18 @@ export function DealDetailModal({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deal, setDeal] = useState<any>(() => initialCachedDeal);
   const [customFieldDraft, setCustomFieldDraft] = useState<Record<string, unknown>>({});
-  useEffect(() => { setCustomFieldDraft((deal?.customFields || {}) as Record<string, unknown>); }, [deal?.id, deal?.customFields]);
+  const [savingDealCustomFields, setSavingDealCustomFields] = useState(false);
+  const [savedDealCustomFields, setSavedDealCustomFields] = useState(false);
+  const dealCustomFieldsTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setCustomFieldDraft((deal?.customFields || {}) as Record<string, unknown>);
+  }, [deal?.id, deal?.customFields]);
+
   const [activeTab, setActiveTab] = useState<
-    "history" | "tasks" | "conversations" | "evidence" | "products" | "files" | "questionnaires" | "emails"
+    "history" | "tasks" | "conversations" | "evidence" | "deals" | "products" | "files" | "questionnaires" | "emails"
   >("history");
+  const [devFeatureModal, setDevFeatureModal] = useState<string | null>(null);
+  const [celebrationData, setCelebrationData] = useState<SaleCelebrationData | null>(null);
 
   // Drawer de Adicionar/Gerenciar Contato e Empresa
   const [isAddContactDrawerOpen, setIsAddContactDrawerOpen] = useState(false);
@@ -574,6 +647,9 @@ export function DealDetailModal({
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [previewFile, setPreviewFile] = useState<DealFileItem | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [filesCategoryFilter, setFilesCategoryFilter] = useState<
+    "all" | "image" | "spreadsheet" | "pdf" | "document" | "archive" | "other"
+  >("all");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Questionários
@@ -654,11 +730,18 @@ export function DealDetailModal({
   const journeyContacts = (deal?.id === dealId ? deal.contacts || [] : []).map((entry: { contactId: string; isPrimary: boolean; contact: { id: string; name: string } })=>({ id: entry.contactId, name: entry.contact.name, isPrimary: entry.isPrimary }));
   const journeyContactId = journeySelection.dealId === dealId && journeyContacts.some((entry: { id: string })=>entry.id === journeySelection.contactId)
     ? journeySelection.contactId : journeyContacts.find((entry: { id: string }) => entry.id === preferredContactId)?.id || journeyContacts.find((entry: { isPrimary: boolean })=>entry.isPrimary)?.id || journeyContacts[0]?.id || "";
+  const hasSavedRdJourney = Boolean(
+    journeyContactId &&
+      Array.isArray(deal?.savedRdJourneyContactIds) &&
+      deal.savedRdJourneyContactIds.includes(journeyContactId)
+  );
   const rdJourney = useRdMarketingJourney(chatContext?.tenant || null, dealId, journeyContactId || null,
-    isOpen && activeTab === "history" && (historySourceFilter === "marketing" || ["conversion", "opportunity", "automation", "commercial"].includes(historyFilter) || journeyEnabledFor === journeyContext), journeyViewerScope);
+    isOpen && activeTab === "history" && (historySourceFilter === "marketing" || ["conversion", "opportunity", "automation", "commercial"].includes(historyFilter) || journeyEnabledFor === journeyContext || hasSavedRdJourney), journeyViewerScope);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [inlineNoteText, setInlineNoteText] = useState("");
+  const [notePendingFiles, setNotePendingFiles] = useState<File[]>([]);
   const [isSavingNote, setIsSavingNote] = useState(false);
+  const noteFileInputRef = React.useRef<HTMLInputElement>(null);
   useTrainingSurface("deal", (step) => {
     if (loading || !deal) return false;
     const id = step.id;
@@ -773,20 +856,161 @@ export function DealDetailModal({
     syncNoteEditorState();
   };
 
+  const handleAddNoteFiles = (incoming: FileList | File[]) => {
+    const MAX_SIZE = 100 * 1024 * 1024;
+    const added: File[] = [];
+    for (let i = 0; i < incoming.length; i++) {
+      const f = incoming[i];
+      if (!f || f.size === 0) continue;
+      if (f.size > MAX_SIZE) {
+        toast.error(`O arquivo "${f.name}" excede o limite de 100MB.`);
+        continue;
+      }
+      if (!f.name || f.name === "image.png" || f.name === "blob") {
+        const ext = (f.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        added.push(new File([f], `anexo-${stamp}-${i + 1}.${ext}`, { type: f.type || "image/png" }));
+      } else {
+        added.push(f);
+      }
+    }
+    if (added.length > 0) {
+      setNotePendingFiles((prev) => [...prev, ...added]);
+    }
+  };
+
+  const handleRemoveNotePendingFile = (idx: number) => {
+    setNotePendingFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleNotePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const clipboard = e.clipboardData;
+    if (!clipboard) return;
+    const files: File[] = [];
+    if (clipboard.files && clipboard.files.length > 0) {
+      for (let i = 0; i < clipboard.files.length; i++) {
+        const f = clipboard.files[i];
+        if (f && f.size > 0) files.push(f);
+      }
+    } else if (clipboard.items && clipboard.items.length > 0) {
+      for (let i = 0; i < clipboard.items.length; i++) {
+        const item = clipboard.items[i];
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f && f.size > 0) files.push(f);
+        }
+      }
+    }
+
+    if (files.length > 0) {
+      const plainText = clipboard.getData("text/plain") || "";
+      const htmlText = clipboard.getData("text/html") || "";
+      const isRichTableCopy = plainText.trim().length > 0 && htmlText.includes("<table");
+      if (!isRichTableCopy) {
+        e.preventDefault();
+        handleAddNoteFiles(files);
+        return;
+      }
+    }
+    setTimeout(syncNoteEditorState, 10);
+  };
+
   const handleSaveInlineNote = async () => {
-    const finalMarkdown = noteEditorRef.current
-      ? serializeRichNoteToMarkdown(noteEditorRef.current)
-      : inlineNoteText.trim();
-    if (!finalMarkdown.trim() || !deal) return;
+    if (!deal) return;
     setIsSavingNote(true);
     try {
+      // 1. Se houver imagens data: ou blob: coladas diretamente no DOM do editor, converte-as em File para upload real
+      const inlineDataFiles: Array<{ file: File; imgEl: HTMLImageElement }> = [];
+      if (noteEditorRef.current) {
+        const imgs = Array.from(noteEditorRef.current.querySelectorAll("img"));
+        for (let i = 0; i < imgs.length; i++) {
+          const img = imgs[i];
+          const src = img.getAttribute("src") || "";
+          if (src.startsWith("data:") || src.startsWith("blob:")) {
+            try {
+              const resp = await fetch(src);
+              const blob = await resp.blob();
+              if (blob.size > 0) {
+                const ext = (blob.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+                const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+                const f = new File([blob], `imagem-anotacao-${stamp}-${i + 1}.${ext}`, {
+                  type: blob.type || "image/png",
+                });
+                inlineDataFiles.push({ file: f, imgEl: img });
+              }
+            } catch {
+              // Ignora caso não seja possível converter o blob/data URL
+            }
+          }
+        }
+      }
+
+      if (inlineDataFiles.length > 0) {
+        const inlineForm = new FormData();
+        inlineDataFiles.forEach(({ file }) => inlineForm.append("files", file));
+        const uploadRes = await fetch(`/api/crm/deals/${deal.id}/files`, {
+          method: "POST",
+          body: inlineForm,
+        });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          const uploadedList = Array.isArray(uploadData.files) ? uploadData.files : [];
+          inlineDataFiles.forEach(({ imgEl, file }, idx) => {
+            const uploaded = uploadedList[idx];
+            if (uploaded?.url) {
+              imgEl.setAttribute("src", uploaded.url);
+              imgEl.setAttribute("alt", uploaded.fileName || file.name);
+            }
+          });
+        }
+      }
+
+      // 2. Faz upload dos arquivos/fotos anexados na lista de pendentes da anotação
+      const uploadedMarkdownLines: string[] = [];
+      if (notePendingFiles.length > 0) {
+        const formData = new FormData();
+        for (const f of notePendingFiles) {
+          formData.append("files", f);
+        }
+        const uploadRes = await fetch(`/api/crm/deals/${deal.id}/files`, {
+          method: "POST",
+          body: formData,
+        });
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          throw new Error(uploadData.error || "Erro ao enviar arquivos anexados na anotação.");
+        }
+        const uploadedFiles = Array.isArray(uploadData.files) ? uploadData.files : [];
+        for (const uf of uploadedFiles) {
+          const cat = getFileCategory(uf.fileName || "", uf.mimeType || "");
+          if (cat === "image") {
+            uploadedMarkdownLines.push(`![${uf.fileName}](${uf.url})`);
+          } else {
+            const sizeLabel = uf.fileSize ? ` (${formatBytes(uf.fileSize)})` : "";
+            uploadedMarkdownLines.push(`[📎 ${uf.fileName}${sizeLabel}](${uf.downloadUrl || uf.url})`);
+          }
+        }
+      }
+
+      const editorMarkdown = noteEditorRef.current
+        ? serializeRichNoteToMarkdown(noteEditorRef.current)
+        : inlineNoteText.trim();
+      const combinedMarkdown = [editorMarkdown.trim(), ...uploadedMarkdownLines]
+        .filter(Boolean)
+        .join("\n\n");
+
+      if (!combinedMarkdown.trim()) {
+        setIsSavingNote(false);
+        return;
+      }
+
       const res = await fetch(`/api/crm/deals/${deal.id}/activities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "note",
           title: "Anotação",
-          description: finalMarkdown.trim(),
+          description: combinedMarkdown.trim(),
           status: "completed",
           completed: true,
         }),
@@ -796,14 +1020,19 @@ export function DealDetailModal({
         throw new Error("Erro ao salvar anotação.");
       }
 
-      toast.success("Anotação salva no histórico!");
+      toast.success(
+        notePendingFiles.length > 0
+          ? "Anotação e arquivos salvos no histórico e na aba Arquivos!"
+          : "Anotação salva no histórico!"
+      );
       if (noteEditorRef.current) {
         noteEditorRef.current.innerHTML = "";
       }
       setInlineNoteText("");
+      setNotePendingFiles([]);
       setIsNoteLinkPromptOpen(false);
       setIsCreatingNote(false);
-      loadDealDetail();
+      loadDealDetail(true);
     } catch (err: any) {
       console.error("[DealDetailModal] Erro ao salvar anotação inline:", err);
       toast.error(err.message || "Falha ao salvar anotação.");
@@ -819,6 +1048,7 @@ export function DealDetailModal({
       }, 20);
     } else {
       setIsNoteLinkPromptOpen(false);
+      setNotePendingFiles([]);
       setNoteActiveFormats({ bold: false, italic: false, bullet: false, numbered: false });
     }
   }, [isCreatingNote]);
@@ -1399,8 +1629,8 @@ export function DealDetailModal({
   if (!isOpen || !dealId) return null;
 
   // Atualização com concorrência otimista
-  const updateDeal = async (patch: Record<string, any>) => {
-    if (!deal) return;
+  const updateDeal = async (patch: Record<string, any>, options?: { silent?: boolean }): Promise<boolean> => {
+    if (!deal) return false;
     try {
       const res = await fetch(`/api/crm/deals/${deal.id}`, {
         method: "PATCH",
@@ -1414,7 +1644,7 @@ export function DealDetailModal({
       if (res.status === 409) {
         toast.error("Esta negociação foi alterada por outro operador. Os dados foram atualizados.");
         loadDealDetail();
-        return;
+        return false;
       }
 
       if (!res.ok) {
@@ -1426,12 +1656,36 @@ export function DealDetailModal({
       invalidateDealCache(deal.id);
       setDeal((prev: any) => ({ ...prev, ...data.deal }));
       onDealUpdated(data.deal);
-      toast.success("Negociação atualizada com sucesso.");
+      if (!options?.silent) {
+        toast.success("Negociação atualizada com sucesso.");
+      }
       void loadDealDetail(true, true);
+      return true;
     } catch (err: any) {
       console.error("[DealDetailModal] Erro no patch:", err);
       toast.error(err.message || "Falha ao salvar alteração.");
+      return false;
     }
+  };
+
+  const handleDealCustomFieldsChange = (nextDraft: Record<string, any>) => {
+    setCustomFieldDraft(nextDraft);
+    setSavedDealCustomFields(false);
+    if (dealCustomFieldsSaveTimerRef.current) {
+      clearTimeout(dealCustomFieldsSaveTimerRef.current);
+    }
+    dealCustomFieldsSaveTimerRef.current = setTimeout(async () => {
+      if (!deal) return;
+      const diff = changedCustomFieldValues(deal?.customFields || {}, nextDraft);
+      if (Object.keys(diff).length === 0) return;
+      setSavingDealCustomFields(true);
+      const ok = await updateDeal({ customFields: diff }, { silent: true });
+      setSavingDealCustomFields(false);
+      if (ok) {
+        setSavedDealCustomFields(true);
+        setTimeout(() => setSavedDealCustomFields(false), 2000);
+      }
+    }, 500);
   };
 
   // Salvar título
@@ -1462,17 +1716,34 @@ export function DealDetailModal({
   // Mudar etapa
   const handleStageChange = async (newStageId: string) => {
     if (newStageId === deal.stageId) return;
-    await updateDeal({ stageId: newStageId });
+    const targetStage = deal?.pipeline?.stages?.find((s: any) => s.id === newStageId);
+    const ok = await updateDeal({ stageId: newStageId });
+    if (ok && targetStage?.isWinStage && deal.status !== "won") {
+      setCelebrationData({
+        dealTitle: deal.title,
+        value: deal.value,
+        sellerName: (deal.operatorId && operatorsMap.get(deal.operatorId)) || null,
+        accountName: deal.account?.name || null,
+      });
+    }
   };
 
   // Marcar como Ganho
   const handleConfirmWin = async () => {
-    await updateDeal({
+    const ok = await updateDeal({
       status: "won",
       winReason: winReason.trim() || undefined,
       closedAt: new Date().toISOString(),
     });
     setShowWinPrompt(false);
+    if (ok) {
+      setCelebrationData({
+        dealTitle: deal.title,
+        value: deal.value,
+        sellerName: (deal.operatorId && operatorsMap.get(deal.operatorId)) || null,
+        accountName: deal.account?.name || null,
+      });
+    }
   };
 
   // Marcar como Perdido
@@ -1811,6 +2082,33 @@ export function DealDetailModal({
   // Linha do tempo unificada combinando eventos, tarefas, notas, propostas, evidências, arquivos, emails e questionários
   const unifiedTimeline = React.useMemo(() => {
     if (!deal) return [];
+    const aiPersona = getAiPersona(chatContext?.tenant);
+    const resolveAvatar = (
+      authorName?: string | null,
+      operatorId?: string | null,
+      directAvatar?: string | null
+    ): string | null => {
+      if (directAvatar) return directAvatar;
+      const cleanName = (authorName || "").trim().toLowerCase();
+      if (cleanName && cleanName === aiPersona.name.toLowerCase()) {
+        return aiPersona.avatar || null;
+      }
+      const opObj = operators?.find(
+        (op: any) =>
+          (operatorId && op.id === operatorId) ||
+          (op.name && cleanName && op.name.trim().toLowerCase() === cleanName)
+      );
+      if (opObj?.avatar) return opObj.avatar;
+      if (
+        operatorProfile?.avatar &&
+        ((operatorId && operatorProfile.id === operatorId) ||
+          (operatorProfile.name && cleanName && operatorProfile.name.trim().toLowerCase() === cleanName))
+      ) {
+        return operatorProfile.avatar;
+      }
+      return null;
+    };
+
     const items: Array<{
       id: string;
       category: "event" | "activity" | "proposal" | "evidence" | "file" | "email" | "questionnaire" | "conversion" | "opportunity" | "automation" | "commercial";
@@ -1890,15 +2188,21 @@ export function DealDetailModal({
         return;
       }
 
-      const authorName = typeof evt.metadata?.actorName === "string" ? evt.metadata.actorName : evt.operatorId
-        ? operatorsMap.get(evt.operatorId) || "Operador"
-        : "Sistema";
+      const authorName =
+        (typeof evt.metadata?.actorName === "string" && evt.metadata.actorName.trim()) ||
+        evt.operatorName ||
+        (evt.operatorId ? operatorsMap.get(evt.operatorId) : null) ||
+        (evt.metadata?.source === "rd_marketing" || evt.metadata?.marketingOrigin ? "RD Marketing" : null) ||
+        "Sistema";
 
-      const opObj = operators?.find((op: any) =>
-        (evt.operatorId && op.id === evt.operatorId) ||
-        (op.name && authorName && op.name.toLowerCase().trim() === authorName.toLowerCase().trim())
+      const authorAvatar = resolveAvatar(
+        authorName,
+        evt.operatorId,
+        evt.operatorAvatar || evt.metadata?.actorAvatar
       );
-      const authorAvatar = opObj?.avatar || (authorName === operatorProfile?.name ? operatorProfile?.avatar : null);
+
+      const isConvEvent =
+        String(evt.eventType || "").includes("conversation") || Boolean(evt.metadata?.conversationId);
 
       items.push({
         id: `evt-${evt.id}`,
@@ -1910,30 +2214,58 @@ export function DealDetailModal({
         date: new Date(evt.createdAt),
         iconType: "history",
         badgeColor: "bg-muted text-muted-foreground",
-        source: "crm",
+        source: isConvEvent ? "conversas" : "crm",
       });
     });
 
     // 2. Atividades (Notas comerciais e Tarefas)
     (deal.activities || []).forEach((act: any) => {
       const isNote = act.type === "note";
-      // Se for nota, usa diretamente o texto sem duplicar title e description
+      const titleStr = String(act.title || "");
+      const descStr = String(act.description || "");
+      const isAiSdr =
+        act.actorName === aiPersona.name ||
+        titleStr.includes("Triagem SDR") ||
+        descStr.includes("triado automaticamente pel") ||
+        (titleStr === "Responder o contato" && !act.operatorName);
+      const isRdMarketing =
+        act.actorName === "RD Marketing" ||
+        titleStr.includes("RD Marketing") ||
+        descStr.startsWith("Conversão RD Marketing:");
+
+      const authorName =
+        act.actorName ||
+        (isAiSdr ? aiPersona.name : isRdMarketing ? "RD Marketing" : null) ||
+        act.operatorName ||
+        (act.operatorId ? operatorsMap.get(act.operatorId) : null) ||
+        "Sistema";
+
+      const authorAvatar = resolveAvatar(
+        authorName,
+        act.operatorId,
+        act.actorAvatar || act.operatorAvatar
+      );
+
+      const taskMetaParts = [
+        act.description || null,
+        !isNote && act.assignedToOperatorName ? `Responsável: ${act.assignedToOperatorName}` : null,
+        !isNote && act.dueDate ? `Prazo: ${new Date(act.dueDate).toLocaleString("pt-BR")}` : null,
+      ].filter(Boolean);
+
       const fullNoteText = isNote
         ? (act.description || act.title || "")
-        : (act.description || (act.dueDate ? `Prazo: ${new Date(act.dueDate).toLocaleString("pt-BR")}` : null));
-
-      const authorName = act.operatorName || act.assignedToOperatorName || "Operador";
-      const opObj = operators?.find((op: any) =>
-        (act.operatorId && op.id === act.operatorId) ||
-        (act.assignedToOperatorId && op.id === act.assignedToOperatorId) ||
-        (op.name && authorName && op.name.toLowerCase().trim() === authorName.toLowerCase().trim())
-      );
-      const authorAvatar = opObj?.avatar || (authorName === operatorProfile?.name ? operatorProfile?.avatar : null);
+        : taskMetaParts.length > 0
+        ? taskMetaParts.join("\n")
+        : null;
 
       items.push({
         id: `act-${act.id}`,
         category: "activity",
-        title: isNote ? "Anotação" : act.status === "completed" ? `Tarefa Concluída: ${act.title}` : `Tarefa: ${act.title}`,
+        title: isNote
+          ? "Anotação"
+          : act.status === "completed"
+          ? `Tarefa Concluída: ${act.title}`
+          : `Tarefa: ${act.title}`,
         description: fullNoteText,
         author: authorName,
         authorAvatar: authorAvatar || null,
@@ -1947,12 +2279,14 @@ export function DealDetailModal({
 
     // 3. Propostas Comerciais
     (deal.proposals || []).forEach((prop: any) => {
+      const authorName = prop.createdByName || "Comercial";
       items.push({
         id: `prop-${prop.id}`,
         category: "proposal",
         title: `Proposta Comercial ${prop.proposalNumber} (${prop.status})`,
         description: `Valor Total: R$ ${Number(prop.total || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} | Itens: ${Array.isArray(prop.items) ? prop.items.length : 0}`,
-        author: prop.createdByName || "Comercial",
+        author: authorName,
+        authorAvatar: resolveAvatar(authorName, prop.createdOperatorId),
         date: new Date(prop.createdAt),
         iconType: "proposal",
         badgeColor: "bg-muted text-muted-foreground",
@@ -1962,12 +2296,14 @@ export function DealDetailModal({
 
     // 4. Evidências Comerciais
     (deal.evidences || []).forEach((evi: any) => {
+      const authorName = evi.createdByName || evi.message?.senderName || "Chat";
       items.push({
         id: `evi-${evi.id}`,
         category: "evidence",
         title: `Evidência Marcada (${evi.evidenceType || "Mensagem"})`,
         description: evi.message?.content ? `"${evi.message.content.substring(0, 160)}..."` : evi.notes || null,
-        author: evi.createdByName || evi.message?.senderName || "Chat",
+        author: authorName,
+        authorAvatar: resolveAvatar(authorName, evi.createdByOperatorId),
         date: new Date(evi.createdAt),
         iconType: "evidence",
         badgeColor: "bg-muted text-muted-foreground",
@@ -1977,16 +2313,27 @@ export function DealDetailModal({
 
     // 5. Arquivos Anexados
     (deal.files || []).forEach((file: any) => {
+      const authorName =
+        file.uploaderName ||
+        file.uploadedByName ||
+        (file.uploadedByOperatorId ? operatorsMap.get(file.uploadedByOperatorId) : null) ||
+        "Operador";
+      const authorAvatar = resolveAvatar(
+        authorName,
+        file.uploadedByOperatorId,
+        file.uploaderAvatar
+      );
       items.push({
         id: `file-${file.id}`,
         category: "file",
         title: `Arquivo Anexado: ${file.fileName}`,
         description: file.fileSize ? `Tamanho: ${formatBytes(file.fileSize)}` : null,
-        author: file.uploaderName || file.uploadedByName || "Operador",
+        author: authorName,
+        authorAvatar: authorAvatar || null,
         date: new Date(file.createdAt),
         iconType: "file",
         badgeColor: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-        source: "crm",
+        source: file.conversationId ? "conversas" : "crm",
       });
     });
 
@@ -2020,6 +2367,48 @@ export function DealDetailModal({
       });
     });
 
+    // 8. Histórico de Conversas Vinculadas (Filtro "Do: Conversas")
+    (deal.conversations || []).forEach((conv: any) => {
+      const convMessages = Array.isArray(conv.messages) ? conv.messages : [];
+      const transcriptLines = convMessages.map((msg: any) => {
+        const timeStr = msg.timestamp
+          ? new Date(msg.timestamp).toLocaleString("pt-BR", {
+              day: "2-digit",
+              month: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "";
+        const senderLabel =
+          msg.sender === "client" || msg.sender === "customer"
+            ? conv.contactName || "Cliente"
+            : msg.senderName || conv.operatorName || "Atendente";
+        const body = (msg.text || "").trim() || `[${msg.type || "Mídia"}]`;
+        return `${timeStr ? `[${timeStr}] ` : ""}${senderLabel}: ${body}`;
+      });
+
+      const descriptionText =
+        transcriptLines.length > 0
+          ? transcriptLines.join("\n")
+          : conv.lastMessageText
+          ? `Última mensagem: "${conv.lastMessageText}"`
+          : "Conversa vinculada a esta negociação.";
+
+      const convAuthor = conv.operatorName || conv.contactName || "Atendimento Chat";
+      items.push({
+        id: `conv-history-${conv.conversationId || conv.id}`,
+        category: "event",
+        title: `Histórico de Conversa (${(conv.channel || "WhatsApp").toUpperCase()}) — ${conv.contactName || "Contato"}`,
+        description: descriptionText,
+        author: convAuthor,
+        authorAvatar: resolveAvatar(conv.operatorName, conv.operatorId),
+        date: new Date(conv.lastMessageTime || conv.linkedAt || deal.createdAt || Date.now()),
+        iconType: "chat",
+        badgeColor: "bg-primary/10 text-primary border border-primary/20",
+        source: "conversas",
+      });
+    });
+
     (rdJourney.data?.events || []).forEach(event=>items.push({
       id: `rd-${event.key}`, category: event.eventType === "CONVERSION" ? "conversion" : event.eventType === "AUTOMATION" ? "automation" : event.eventType === "SALE" || event.eventType === "OPPORTUNITY_LOST" ? "commercial" : "opportunity",
       title: event.label || (event.eventType === "CONVERSION" ? `Converteu em ${event.identifier || "evento sem identificador"}` : "Marcado como oportunidade"),
@@ -2029,7 +2418,7 @@ export function DealDetailModal({
     // Eventos sem data não recebem uma data inventada; aparecem após os eventos datados.
     items.sort((a, b) => (Number.isFinite(b.date.getTime()) ? b.date.getTime() : -Infinity) - (Number.isFinite(a.date.getTime()) ? a.date.getTime() : -Infinity));
     return items;
-  }, [deal, operatorsMap, pipelineStages, operators, operatorProfile, rdJourney.data]);
+  }, [deal, operatorsMap, pipelineStages, operators, operatorProfile, rdJourney.data, chatContext?.tenant]);
 
   const filteredTimeline = React.useMemo(() => {
     return unifiedTimeline.filter((item) => {
@@ -2321,27 +2710,34 @@ export function DealDetailModal({
 
           {/* Trilha de Etapas do Funil */}
           {!loading && deal && sortedStages.length > 0 && (
-            <div data-tour="deal.stages" className="crm-stage-track mt-3 flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
+            <div data-tour="deal.stages" className="crm-stage-track mt-3 flex items-stretch gap-1 overflow-x-auto pb-1 scrollbar-none">
               {sortedStages.map((stage, idx) => {
                 const isPassed = idx < currentStageIndex;
                 const isCurrent = stage.id === deal.stageId;
+                const isDense = sortedStages.length >= 6;
                 return (
-                  <button
-                    key={stage.id}
-                    onClick={() => handleStageChange(stage.id)}
-                    className={`crm-stage flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      isCurrent
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : isPassed
-                        ? "bg-primary/10 text-primary hover:bg-primary/20"
-                        : "bg-muted text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <span>{stage.name}</span>
-                    {idx < sortedStages.length - 1 && (
-                      <ChevronRight className="h-3 w-3 opacity-40 shrink-0 ml-1" />
-                    )}
-                  </button>
+                  <SystemTooltip key={stage.id} content={stage.name}>
+                    <button
+                      type="button"
+                      onClick={() => handleStageChange(stage.id)}
+                      className={`crm-stage flex flex-1 min-w-0 items-center justify-center gap-1 ${
+                        isDense ? "px-2 py-1.5 text-[11px]" : "px-3 py-2 text-xs"
+                      } font-bold transition-all cursor-pointer ${
+                        isCurrent
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : isPassed
+                          ? "bg-primary/10 text-primary hover:bg-primary/20"
+                          : "bg-muted text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className="line-clamp-2 text-center leading-tight break-words min-w-0">
+                        {stage.name}
+                      </span>
+                      {idx < sortedStages.length - 1 && !isDense && (
+                        <ChevronRight className="h-3 w-3 opacity-40 shrink-0 ml-0.5" />
+                      )}
+                    </button>
+                  </SystemTooltip>
                 );
               })}
             </div>
@@ -2833,172 +3229,201 @@ export function DealDetailModal({
                 )}
               </div>
 
-              {/* 4. Card Exclusivo de Campos Personalizados */}
+              {/* 4. Card Exclusivo de Campos Personalizados (Auto-save) */}
               <div data-tour="deal.custom-fields" className="crm-side-custom-fields order-4 rounded-sm border border-border bg-card p-3.5 space-y-3 scrollbar-none">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                  Campos Personalizados
-                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                    Campos Personalizados
+                  </span>
+                  {savingDealCustomFields ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground">
+                      <Loader2 className="h-2.5 w-2.5 animate-spin text-primary" />
+                      Salvando...
+                    </span>
+                  ) : savedDealCustomFields ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary">
+                      <Check className="h-2.5 w-2.5" />
+                      Salvo
+                    </span>
+                  ) : null}
+                </div>
 
-                <CustomFieldsEditor entity="deal" pipelineId={deal?.pipelineId || deal?.pipeline?.id} values={customFieldDraft} onChange={setCustomFieldDraft} hideTitle />
-
-                {JSON.stringify(customFieldDraft) !== JSON.stringify(deal?.customFields || {}) && (
-                  <button
-                    type="button"
-                    onClick={() => updateDeal({ customFields: changedCustomFieldValues(deal?.customFields || {}, customFieldDraft) })}
-                    className="w-full rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 shadow-xs cursor-pointer transition-opacity"
-                  >
-                    Salvar campos personalizados
-                  </button>
-                )}
+                <CustomFieldsEditor
+                  entity="deal"
+                  pipelineId={deal?.pipelineId || deal?.pipeline?.id}
+                  values={customFieldDraft}
+                  onChange={handleDealCustomFieldsChange}
+                  hideTitle
+                />
               </div>
             </div>
 
             {/* Painel Direito: Próximas Tarefas (Topo) + Abas Compactas + Conteúdo */}
             <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-background">
-              {/* Bloco de Próximas Tarefas no topo da coluna direita */}
-              {!loading && deal && (
-                <div className="p-4 border-b border-border/60 bg-card shrink-0 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-xs font-bold text-foreground">Próximas tarefas</h3>
+              {/* Bloco de Próximas Tarefas no topo da coluna direita (até 3 tarefas) */}
+              {!loading && deal && (() => {
+                const upcomingTasks = (
+                  Array.isArray(deal.nextTasks) && deal.nextTasks.length > 0
+                    ? deal.nextTasks
+                    : deal.nextTask
+                    ? [deal.nextTask]
+                    : []
+                ).slice(0, 3);
+
+                return (
+                  <div className="p-4 border-b border-border/60 bg-card shrink-0 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-foreground">
+                          Próximas tarefas
+                          {upcomingTasks.length > 1 ? ` (${upcomingTasks.length})` : ""}
+                        </h3>
+                      </div>
+                      {upcomingTasks.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setIsCreateTaskModalOpen(true)}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Nova tarefa</span>
+                        </button>
+                      )}
                     </div>
-                    {deal.nextTask && (
-                      <button
-                        type="button"
-                        onClick={() => setIsCreateTaskModalOpen(true)}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>Nova tarefa</span>
-                      </button>
+
+                    {upcomingTasks.length > 0 ? (
+                      <div className="space-y-2">
+                        {upcomingTasks.map((taskItem: any) => {
+                          const taskTypeMeta = getTaskTypeMeta(taskItem.type);
+                          const TaskIcon = taskTypeMeta.icon;
+                          return (
+                            <div
+                              key={taskItem.id}
+                              className="rounded-xl border border-border bg-card p-3 shadow-2xs flex items-center justify-between gap-4 transition-all"
+                            >
+                              {/* Left: Tipo + Assunto + Descrição */}
+                              <div className="flex items-start gap-3 min-w-0 flex-1">
+                                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/80 mt-0.5">
+                                  <TaskIcon className="h-4 w-4" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-extrabold text-foreground shrink-0">
+                                      {taskTypeMeta.label}
+                                    </span>
+                                    <span className="text-xs font-bold text-foreground truncate">
+                                      {taskItem.title}
+                                    </span>
+                                  </div>
+                                  {taskItem.description && (
+                                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1 leading-relaxed">
+                                      {taskItem.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Right: Badge ATRASADA/VENCE HOJE/NO PRAZO + Data/Hora + Ações */}
+                              <div className="flex items-center gap-3 shrink-0">
+                                <div className="text-right">
+                                  <div>
+                                    <span
+                                      className={`inline-block rounded px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                                        taskItem.isOverdue
+                                          ? "bg-primary text-primary-foreground"
+                                          : taskItem.isToday
+                                          ? "bg-primary/15 text-primary border border-primary/25"
+                                          : "bg-muted text-muted-foreground"
+                                      }`}
+                                    >
+                                      {taskItem.isOverdue
+                                        ? "ATRASADA"
+                                        : taskItem.isToday
+                                        ? "VENCE HOJE"
+                                        : taskItem.hasNoDueDate
+                                        ? "SEM PRAZO"
+                                        : "NO PRAZO"}
+                                    </span>
+                                  </div>
+                                  {taskItem.dueDate && (
+                                    <span className="text-[11px] font-medium text-muted-foreground block mt-0.5">
+                                      {new Date(taskItem.dueDate).toLocaleDateString("pt-BR", {
+                                        day: "2-digit",
+                                        month: "2-digit",
+                                        year: "numeric",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <SystemTooltip content="Editar tarefa">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditDealActivity(taskItem)}
+                                      className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                  </SystemTooltip>
+
+                                  <SystemTooltip content="Reagendar prazo da tarefa">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setReschedulingActivityId(taskItem.id);
+                                        setRescheduleDueDate(taskItem.dueDate ? taskItem.dueDate.slice(0, 16) : "");
+                                        setActiveTab("tasks");
+                                        setTasksSubTab("pending");
+                                      }}
+                                      className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
+                                    >
+                                      <Clock className="h-4 w-4" />
+                                    </button>
+                                  </SystemTooltip>
+
+                                  <SystemTooltip content="Concluir tarefa">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCompleteActivity(taskItem.id)}
+                                      className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center transition-colors shadow-xs cursor-pointer"
+                                    >
+                                      <Check className="h-4 w-4 stroke-[2.5]" />
+                                    </button>
+                                  </SystemTooltip>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-4 rounded-xl border border-border/80 bg-card p-3.5 shadow-2xs">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <img
+                            src="/illustrations/empty-tasks-v2.png"
+                            alt="Sem tarefas pendentes"
+                            className="h-14 sm:h-16 w-auto object-contain shrink-0"
+                          />
+                          <span className="text-xs font-medium text-foreground">
+                            Não existem tarefas pendentes para essa Negociação
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsCreateTaskModalOpen(true)}
+                          className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Criar tarefa</span>
+                        </button>
+                      </div>
                     )}
                   </div>
-
-                  {deal.nextTask ? (
-                    <div className="rounded-xl border border-border bg-card p-3.5 shadow-2xs flex items-center justify-between gap-4 transition-all">
-                      {/* Left: Tipo + Assunto + Descrição (Padrão Referência) */}
-                      <div className="flex items-start gap-3 min-w-0 flex-1">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/80 mt-0.5">
-                          {(() => {
-                            const taskTypeMeta = getTaskTypeMeta(deal.nextTask.type);
-                            const TaskIcon = taskTypeMeta.icon;
-                            return <TaskIcon className="h-4 w-4" />;
-                          })()}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-extrabold text-foreground shrink-0">
-                              {getTaskTypeMeta(deal.nextTask.type).label}
-                            </span>
-                            <span className="text-xs font-bold text-foreground truncate">
-                              {deal.nextTask.title}
-                            </span>
-                          </div>
-                          {deal.nextTask.description && (
-                            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
-                              {deal.nextTask.description}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right: Badge ATRASADA/VENCE HOJE/NO PRAZO em Vermelho + Data/Hora + Ações */}
-                      <div className="flex items-center gap-3 shrink-0">
-                        <div className="text-right">
-                          <div>
-                            <span
-                              className={`inline-block rounded px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
-                                deal.nextTask.isOverdue
-                                  ? "bg-primary text-primary-foreground"
-                                  : deal.nextTask.isToday
-                                  ? "bg-primary/15 text-primary border border-primary/25"
-                                  : "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              {deal.nextTask.isOverdue
-                                ? "ATRASADA"
-                                : deal.nextTask.isToday
-                                ? "VENCE HOJE"
-                                : deal.nextTask.hasNoDueDate
-                                ? "SEM PRAZO"
-                                : "NO PRAZO"}
-                            </span>
-                          </div>
-                          {deal.nextTask.dueDate && (
-                            <span className="text-[11px] font-medium text-muted-foreground block mt-0.5">
-                              {new Date(deal.nextTask.dueDate).toLocaleDateString("pt-BR", {
-                                day: "2-digit",
-                                month: "2-digit",
-                                year: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          <SystemTooltip content="Editar tarefa">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditDealActivity(deal.nextTask)}
-                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                          </SystemTooltip>
-
-                          <SystemTooltip content="Reagendar prazo da tarefa">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReschedulingActivityId(deal.nextTask.id);
-                                setRescheduleDueDate(deal.nextTask.dueDate ? deal.nextTask.dueDate.slice(0, 16) : "");
-                                setActiveTab("tasks");
-                                setTasksSubTab("pending");
-                              }}
-                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors cursor-pointer"
-                            >
-                              <Clock className="h-4 w-4" />
-                            </button>
-                          </SystemTooltip>
-
-                          <SystemTooltip content="Concluir tarefa">
-                            <button
-                              type="button"
-                              onClick={() => handleCompleteActivity(deal.nextTask.id)}
-                              className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center transition-colors shadow-xs cursor-pointer"
-                            >
-                              <Check className="h-4 w-4 stroke-[2.5]" />
-                            </button>
-                          </SystemTooltip>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between gap-4 rounded-xl border border-border/80 bg-card p-3.5 shadow-2xs">
-                      <div className="flex items-center gap-4 min-w-0">
-                        <img
-                          src="/illustrations/empty-tasks-v2.png"
-                          alt="Sem tarefas pendentes"
-                          className="h-14 sm:h-16 w-auto object-contain shrink-0"
-                        />
-                        <span className="text-xs font-medium text-foreground">
-                          Não existem tarefas pendentes para essa Negociação
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsCreateTaskModalOpen(true)}
-                        className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>Criar tarefa</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+                );
+              })()}
 
               {/* Barra de Abas Compactas */}
               <div data-tour="deal.task-tabs" className="crm-deal-tabs flex overflow-x-auto scrollbar-none border-b border-border bg-card px-4 shrink-0 gap-1">
@@ -3013,17 +3438,15 @@ export function DealDetailModal({
                 >
                   Histórico
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("emails")}
-                  className={`px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
-                    activeTab === "emails"
-                      ? "border-primary text-primary font-bold"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border font-medium"
-                  }`}
-                >
-                  E-mail
-                </button>
+                <SystemTooltip content="Em desenvolvimento">
+                  <button
+                    type="button"
+                    onClick={() => setDevFeatureModal("E-mail")}
+                    className="px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 border-transparent text-muted-foreground hover:text-foreground hover:border-border font-medium"
+                  >
+                    E-mail
+                  </button>
+                </SystemTooltip>
                 <button
                   type="button"
                   onClick={() => setActiveTab("tasks")}
@@ -3035,17 +3458,15 @@ export function DealDetailModal({
                 >
                   Tarefas & Notas
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("questionnaires")}
-                  className={`px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
-                    activeTab === "questionnaires"
-                      ? "border-primary text-primary font-bold"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border font-medium"
-                  }`}
-                >
-                  Questionários
-                </button>
+                <SystemTooltip content="Em desenvolvimento">
+                  <button
+                    type="button"
+                    onClick={() => setDevFeatureModal("Questionários")}
+                    className="px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 border-transparent text-muted-foreground hover:text-foreground hover:border-border font-medium"
+                  >
+                    Questionários
+                  </button>
+                </SystemTooltip>
                 <button
                   type="button"
                   data-tour="deal.products-items" onClick={() => setActiveTab("products")}
@@ -3090,10 +3511,36 @@ export function DealDetailModal({
                 >
                   Evidências
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("deals")}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
+                    activeTab === "deals"
+                      ? "border-primary text-primary font-bold"
+                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border font-medium"
+                  }`}
+                >
+                  <span>Negociações</span>
+                  {Array.isArray(deal?.contactDeals) && deal.contactDeals.length > 0 && (
+                    <span className="rounded-full bg-primary/10 px-1.5 py-0.2 text-[10px] font-bold text-primary">
+                      {deal.contactDeals.length}
+                    </span>
+                  )}
+                </button>
               </div>
 
               {/* Conteúdo da Aba */}
               <div className="crm-deal-tab-content flex-1 min-h-0 p-5 overflow-y-auto scrollbar-none">
+                {/* ABA NEGOCIAÇÕES VINCULADAS AO CONTATO */}
+                {activeTab === "deals" && (
+                  <div className="space-y-4 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
+                    <ContactDealsList
+                      deals={deal?.contactDeals || []}
+                      currentDealId={deal?.id || dealId || ""}
+                    />
+                  </div>
+                )}
+
                 {/* ABA 1: TAREFAS & NOTAS */}
                 {activeTab === "tasks" && (
                   <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
@@ -3228,7 +3675,7 @@ export function DealDetailModal({
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-bold text-xs text-foreground">{act.title}</span>
                                           <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground uppercase font-semibold">
-                                            {act.type}
+                                            {getTaskTypeMeta(act.type).label}
                                           </span>
 
                                           {/* Status temporal para pendentes */}
@@ -3400,7 +3847,7 @@ export function DealDetailModal({
                                       </div>
                                       <span>
                                         Criado em {new Date(act.createdAt).toLocaleDateString("pt-BR")}
-                                        {act.operatorName ? ` por ${act.operatorName}` : ""}
+                                        {(act.actorName || act.operatorName) ? ` por ${act.actorName || act.operatorName}` : ""}
                                       </span>
                                     </div>
                                   </div>
@@ -4979,9 +5426,9 @@ export function DealDetailModal({
                       )}
                     </div>
 
-                    {/* Lista de Arquivos */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
+                    {/* Lista de Arquivos com Filtro por Categoria */}
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-bold text-foreground block">
                           Documentos e Anexos ({deal?.files?.length || 0})
                         </span>
@@ -4992,100 +5439,192 @@ export function DealDetailModal({
                         )}
                       </div>
 
-                      {deal?.files && deal.files.length > 0 ? (
-                        <div className="space-y-2">
-                          {deal.files.map((file: any) => {
-                            const cat = getFileCategory(file.fileName, file.mimeType);
-                            const badge = getCategoryBadge(cat, file.fileName);
-                            const BadgeIcon = badge.icon;
-                            const downloadUrl = file.downloadUrl || `/api/crm/deals/${deal.id}/files/${file.id}?download=1`;
+                      {deal?.files && deal.files.length > 0 && (() => {
+                        const allFiles: any[] = deal.files || [];
+                        const normalizeGroup = (f: any) => {
+                          const cat = getFileCategory(f.fileName || "", f.mimeType || "");
+                          if (cat === "image") return "image";
+                          if (cat === "spreadsheet") return "spreadsheet";
+                          if (cat === "pdf") return "pdf";
+                          if (cat === "document" || cat === "text") return "document";
+                          if (cat === "archive") return "archive";
+                          return "other";
+                        };
+                        const counts: Record<string, number> = {
+                          all: allFiles.length,
+                          image: 0,
+                          spreadsheet: 0,
+                          pdf: 0,
+                          document: 0,
+                          archive: 0,
+                          other: 0,
+                        };
+                        allFiles.forEach((f) => {
+                          const g = normalizeGroup(f);
+                          counts[g] = (counts[g] || 0) + 1;
+                        });
 
-                            return (
-                              <div
-                                key={file.id}
-                                onClick={() => {
-                                  setPreviewFile(file);
-                                  setIsPreviewOpen(true);
-                                }}
-                                className="flex items-center justify-between rounded-xl border border-border bg-card p-3 hover:border-primary/50 hover:shadow-sm transition-all cursor-pointer group"
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className={`h-10 w-10 rounded-xl border flex items-center justify-center shrink-0 ${badge.color}`}>
-                                    <BadgeIcon className="h-5 w-5" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <p className="text-xs font-bold text-foreground truncate max-w-sm sm:max-w-md group-hover:text-primary transition-colors">
-                                        {file.fileName}
-                                      </p>
-                                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider border ${badge.color}`}>
-                                        {badge.label}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-                                      <span className="font-semibold text-foreground/80">{formatBytes(file.fileSize)}</span>
-                                      <span>•</span>
-                                      <span>
-                                        {new Date(file.createdAt).toLocaleString("pt-BR", {
-                                          dateStyle: "short",
-                                          timeStyle: "short",
-                                        })}
-                                      </span>
-                                      {(file.uploaderName || file.uploadedByName) && (
-                                        <>
-                                          <span>•</span>
-                                          <span>Por: {file.uploaderName || file.uploadedByName}</span>
-                                        </>
-                                      )}
-                                      {file.conversationId && (
-                                        <span className="text-primary font-semibold">(Vindo do Chat)</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
+                        const filterTabs = [
+                          { key: "all", label: "Todos" },
+                          { key: "image", label: "Fotos & Imagens" },
+                          { key: "spreadsheet", label: "Planilhas" },
+                          { key: "pdf", label: "PDFs" },
+                          { key: "document", label: "Word & Docs" },
+                          { key: "archive", label: "RAR & Compactados" },
+                          { key: "other", label: "Outros" },
+                        ];
 
-                                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                  <SystemTooltip content="Visualizar arquivo em tamanho grande">
-                                    <button
-                                      type="button"
-                                      data-tour="deal.file-preview"
+                        const filteredFiles =
+                          filesCategoryFilter === "all"
+                            ? allFiles
+                            : allFiles.filter((f) => normalizeGroup(f) === filesCategoryFilter);
+
+                        return (
+                          <>
+                            <div className="flex items-center gap-1.5 flex-wrap border-b border-border/60 pb-2">
+                              {filterTabs.map((tab) => {
+                                const count = counts[tab.key] || 0;
+                                if (tab.key !== "all" && count === 0 && filesCategoryFilter !== tab.key) {
+                                  return null;
+                                }
+                                const active = filesCategoryFilter === tab.key;
+                                return (
+                                  <button
+                                    key={tab.key}
+                                    type="button"
+                                    onClick={() => setFilesCategoryFilter(tab.key)}
+                                    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
+                                      active
+                                        ? "bg-primary text-primary-foreground shadow-2xs"
+                                        : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                    }`}
+                                  >
+                                    <span>{tab.label}</span>
+                                    <span
+                                      className={`rounded-full px-1.5 py-0.2 text-[9px] ${
+                                        active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-card text-foreground"
+                                      }`}
+                                    >
+                                      {count}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {filteredFiles.length > 0 ? (
+                              <div className="space-y-2">
+                                {filteredFiles.map((file: any) => {
+                                  const cat = getFileCategory(file.fileName, file.mimeType);
+                                  const badge = getCategoryBadge(cat, file.fileName);
+                                  const BadgeIcon = badge.icon;
+                                  const downloadUrl =
+                                    file.downloadUrl || `/api/crm/deals/${deal.id}/files/${file.id}?download=1`;
+
+                                  return (
+                                    <div
+                                      key={file.id}
                                       onClick={() => {
                                         setPreviewFile(file);
                                         setIsPreviewOpen(true);
                                       }}
-                                      className="h-8 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted hover:border-primary/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                      className="flex items-center justify-between rounded-xl border border-border bg-card p-3 hover:border-primary/50 hover:shadow-sm transition-all cursor-pointer group"
                                     >
-                                      <Eye className="h-3.5 w-3.5 text-primary" />
-                                      <span>Visualizar</span>
-                                    </button>
-                                  </SystemTooltip>
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <div
+                                          className={`h-10 w-10 rounded-xl border flex items-center justify-center shrink-0 ${badge.color}`}
+                                        >
+                                          <BadgeIcon className="h-5 w-5" />
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <p className="text-xs font-bold text-foreground truncate max-w-sm sm:max-w-md group-hover:text-primary transition-colors">
+                                              {file.fileName}
+                                            </p>
+                                            <span
+                                              className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider border ${badge.color}`}
+                                            >
+                                              {badge.label}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                                            <span className="font-semibold text-foreground/80">
+                                              {formatBytes(file.fileSize)}
+                                            </span>
+                                            <span>•</span>
+                                            <span>
+                                              {new Date(file.createdAt).toLocaleString("pt-BR", {
+                                                dateStyle: "short",
+                                                timeStyle: "short",
+                                              })}
+                                            </span>
+                                            {(file.uploaderName || file.uploadedByName) && (
+                                              <>
+                                                <span>•</span>
+                                                <span>Por: {file.uploaderName || file.uploadedByName}</span>
+                                              </>
+                                            )}
+                                            {file.conversationId && (
+                                              <span className="text-primary font-semibold">(Vindo do Chat)</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
 
-                                  <SystemTooltip content="Baixar para seu computador">
-                                    <a
-                                      href={downloadUrl}
-                                      download={file.fileName}
-                                      className="h-8 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                      <Download className="h-3.5 w-3.5" />
-                                      <span className="hidden sm:inline">Baixar</span>
-                                    </a>
-                                  </SystemTooltip>
+                                      <div
+                                        className="flex items-center gap-1 shrink-0"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <SystemTooltip content="Visualizar arquivo em tamanho grande">
+                                          <button
+                                            type="button"
+                                            data-tour="deal.file-preview"
+                                            onClick={() => {
+                                              setPreviewFile(file);
+                                              setIsPreviewOpen(true);
+                                            }}
+                                            className="h-8 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted hover:border-primary/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                          >
+                                            <Eye className="h-3.5 w-3.5 text-primary" />
+                                            <span>Visualizar</span>
+                                          </button>
+                                        </SystemTooltip>
 
-                                  <SystemTooltip content="Excluir arquivo permanentemente">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteFile(file.id)}
-                                      className="h-8 w-8 rounded-lg border border-border hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  </SystemTooltip>
-                                </div>
+                                        <SystemTooltip content="Baixar para seu computador">
+                                          <a
+                                            href={downloadUrl}
+                                            download={file.fileName}
+                                            className="h-8 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-1.5 cursor-pointer"
+                                          >
+                                            <Download className="h-3.5 w-3.5" />
+                                            <span className="hidden sm:inline">Baixar</span>
+                                          </a>
+                                        </SystemTooltip>
+
+                                        <SystemTooltip content="Excluir arquivo permanentemente">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteFile(file.id)}
+                                            className="h-8 w-8 rounded-lg border border-border hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        </SystemTooltip>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
+                            ) : (
+                              <p className="text-center py-6 text-xs text-muted-foreground/60 italic">
+                                Nenhum arquivo nesta categoria.
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
+
+                      {(!deal?.files || deal.files.length === 0) && (
                         <div className="flex flex-col items-center justify-center p-8 rounded-xl border border-border/60 bg-muted/10 text-center">
                           <Paperclip className="h-8 w-8 text-muted-foreground/40 mb-2" />
                           <p className="text-xs font-semibold text-muted-foreground">
@@ -5320,12 +5859,13 @@ export function DealDetailModal({
                       </button>
                     </div>
 
-                    {/* Campo Animado para Criar e Salvar Anotação (Conforme Foto 3) */}
+                    {/* Jornada RD Marketing (Negociações vinculadas agora têm aba própria após Evidências) */}
                     {(historySourceFilter === "all" || historySourceFilter === "marketing") && <RdMarketingJourneyControls
                       currentDealId={dealId || ""}
                       contacts={journeyContacts} contactId={journeyContactId}
                       onContact={contactId=>setJourneySelection({ dealId: dealId || "", contactId })}
                       onLoad={()=>{ setJourneyEnabledFor(journeyContext); if (rdJourney.error) void rdJourney.refresh(); }} journey={rdJourney}
+                      hideRelatedDeals={true}
                     />}
                     <AnimatePresence>
                       {isCreatingNote && (
@@ -5334,82 +5874,122 @@ export function DealDetailModal({
                           animate={{ opacity: 1, height: "auto", y: 0 }}
                           exit={{ opacity: 0, height: 0, y: -8 }}
                           transition={{ duration: 0.22, ease: "easeInOut" }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+                              handleAddNoteFiles(e.dataTransfer.files);
+                            }
+                          }}
                           className="overflow-hidden rounded-sm border border-border bg-card p-4 space-y-3 shadow-xs"
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-bold text-foreground">Anotação</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              Cole fotos (Ctrl+V) ou anexe planilhas, PDF, Word, RAR e outros arquivos
+                            </span>
                           </div>
 
-                          {/* Toolbar de Formatação Visual (WYSIWYG) */}
-                          <div className="flex items-center gap-1 border-b border-border/60 pb-2">
-                            <SystemTooltip content="Negrito (Ctrl+B)">
+                          <input
+                            type="file"
+                            multiple
+                            ref={noteFileInputRef}
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                handleAddNoteFiles(e.target.files);
+                                e.target.value = "";
+                              }
+                            }}
+                            className="hidden"
+                          />
+
+                          {/* Toolbar de Formatação Visual (WYSIWYG) + Anexo de Arquivos */}
+                          <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 flex-wrap">
+                            <div className="flex items-center gap-1">
+                              <SystemTooltip content="Negrito (Ctrl+B)">
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => handleFormatNote("bold")}
+                                  className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                    noteActiveFormats.bold
+                                      ? "bg-primary/15 text-primary border border-primary/30"
+                                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <Bold className="h-3.5 w-3.5" />
+                                </button>
+                              </SystemTooltip>
+                              <SystemTooltip content="Itálico (Ctrl+I)">
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => handleFormatNote("italic")}
+                                  className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                    noteActiveFormats.italic
+                                      ? "bg-primary/15 text-primary border border-primary/30"
+                                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <Italic className="h-3.5 w-3.5" />
+                                </button>
+                              </SystemTooltip>
+                              <SystemTooltip content="Lista com marcadores">
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => handleFormatNote("bullet")}
+                                  className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                    noteActiveFormats.bullet
+                                      ? "bg-primary/15 text-primary border border-primary/30"
+                                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <List className="h-3.5 w-3.5" />
+                                </button>
+                              </SystemTooltip>
+                              <SystemTooltip content="Lista numerada">
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => handleFormatNote("numbered")}
+                                  className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                    noteActiveFormats.numbered
+                                      ? "bg-primary/15 text-primary border border-primary/30"
+                                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <ListOrdered className="h-3.5 w-3.5" />
+                                </button>
+                              </SystemTooltip>
+                              <SystemTooltip content="Inserir link">
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => handleFormatNote("link")}
+                                  className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                    isNoteLinkPromptOpen
+                                      ? "bg-primary/15 text-primary border border-primary/30"
+                                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <Link2 className="h-3.5 w-3.5" />
+                                </button>
+                              </SystemTooltip>
+                            </div>
+
+                            <SystemTooltip content="Anexar foto, planilha, PDF, Word, RAR ou qualquer arquivo">
                               <button
                                 type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => handleFormatNote("bold")}
-                                className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                  noteActiveFormats.bold
-                                    ? "bg-primary/15 text-primary border border-primary/30"
-                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                                }`}
+                                onClick={() => noteFileInputRef.current?.click()}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-2.5 py-1 text-[11px] font-semibold text-foreground hover:bg-muted hover:border-primary/40 transition-colors cursor-pointer"
                               >
-                                <Bold className="h-3.5 w-3.5" />
-                              </button>
-                            </SystemTooltip>
-                            <SystemTooltip content="Itálico (Ctrl+I)">
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => handleFormatNote("italic")}
-                                className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                  noteActiveFormats.italic
-                                    ? "bg-primary/15 text-primary border border-primary/30"
-                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                <Italic className="h-3.5 w-3.5" />
-                              </button>
-                            </SystemTooltip>
-                            <SystemTooltip content="Lista com marcadores">
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => handleFormatNote("bullet")}
-                                className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                  noteActiveFormats.bullet
-                                    ? "bg-primary/15 text-primary border border-primary/30"
-                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                <List className="h-3.5 w-3.5" />
-                              </button>
-                            </SystemTooltip>
-                            <SystemTooltip content="Lista numerada">
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => handleFormatNote("numbered")}
-                                className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                  noteActiveFormats.numbered
-                                    ? "bg-primary/15 text-primary border border-primary/30"
-                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                <ListOrdered className="h-3.5 w-3.5" />
-                              </button>
-                            </SystemTooltip>
-                            <SystemTooltip content="Inserir link">
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => handleFormatNote("link")}
-                                className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                  isNoteLinkPromptOpen
-                                    ? "bg-primary/15 text-primary border border-primary/30"
-                                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                <Link2 className="h-3.5 w-3.5" />
+                                <Paperclip className="h-3.5 w-3.5 text-primary" />
+                                <span>Anexar arquivo</span>
                               </button>
                             </SystemTooltip>
                           </div>
@@ -5459,7 +6039,7 @@ export function DealDetailModal({
                           <div className="relative">
                             {!inlineNoteText.trim() && (
                               <div className="pointer-events-none absolute top-0 left-0 text-xs text-muted-foreground/60 select-none">
-                                Digite aqui os detalhes da anotação...
+                                Digite aqui os detalhes da anotação ou pressione Ctrl+V para colar imagens/arquivos...
                               </div>
                             )}
                             <div
@@ -5467,11 +6047,63 @@ export function DealDetailModal({
                               contentEditable
                               suppressContentEditableWarning
                               onInput={syncNoteEditorState}
+                              onPaste={handleNotePaste}
                               onKeyUp={updateNoteToolbarState}
                               onMouseUp={updateNoteToolbarState}
                               className="w-full bg-transparent text-xs text-foreground outline-none min-h-[90px] leading-relaxed break-words [&_b]:font-extrabold [&_strong]:font-extrabold [&_i]:italic [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_a]:text-primary [&_a]:font-semibold [&_a]:underline"
                             />
                           </div>
+
+                          {/* Pré-visualização de fotos e arquivos anexados na anotação */}
+                          {notePendingFiles.length > 0 && (
+                            <div className="rounded-lg border border-border/80 bg-muted/20 p-2.5 space-y-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                                Anexos da Anotação ({notePendingFiles.length}) — serão salvos também na aba Arquivos
+                              </span>
+                              <div className="flex flex-wrap gap-2">
+                                {notePendingFiles.map((file, idx) => {
+                                  const cat = getFileCategory(file.name, file.type);
+                                  const badge = getCategoryBadge(cat, file.name);
+                                  const BadgeIcon = badge.icon;
+                                  const isImage = cat === "image";
+                                  return (
+                                    <div
+                                      key={`${file.name}-${idx}`}
+                                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs shadow-2xs max-w-xs"
+                                    >
+                                      {isImage ? (
+                                        <img
+                                          src={URL.createObjectURL(file)}
+                                          alt={file.name}
+                                          className="h-8 w-8 rounded object-cover border border-border shrink-0"
+                                          onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                                        />
+                                      ) : (
+                                        <div className={`flex h-7 w-7 items-center justify-center rounded border shrink-0 ${badge.color}`}>
+                                          <BadgeIcon className="h-3.5 w-3.5" />
+                                        </div>
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-[11px] font-semibold text-foreground truncate">{file.name}</p>
+                                        <p className="text-[9px] text-muted-foreground">
+                                          {badge.label} • {formatBytes(file.size)}
+                                        </p>
+                                      </div>
+                                      <SystemTooltip content="Remover anexo">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveNotePendingFile(idx)}
+                                          className="p-0.5 text-muted-foreground hover:text-destructive cursor-pointer shrink-0"
+                                        >
+                                          <X className="h-3.5 w-3.5" />
+                                        </button>
+                                      </SystemTooltip>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
 
                           {/* Rodapé: Cancelar e Salvar no histórico */}
                           <div className="flex items-center justify-between pt-2 border-t border-border/40">
@@ -5483,6 +6115,7 @@ export function DealDetailModal({
                                 }
                                 setIsCreatingNote(false);
                                 setIsNoteLinkPromptOpen(false);
+                                setNotePendingFiles([]);
                                 setInlineNoteText("");
                               }}
                               className="text-xs font-semibold text-muted-foreground hover:text-foreground hover:underline cursor-pointer"
@@ -5491,7 +6124,7 @@ export function DealDetailModal({
                             </button>
                             <button
                               type="button"
-                              disabled={isSavingNote || !inlineNoteText.trim()}
+                              disabled={isSavingNote || (!inlineNoteText.trim() && notePendingFiles.length === 0)}
                               onClick={handleSaveInlineNote}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
                             >
@@ -5677,11 +6310,87 @@ export function DealDetailModal({
         accountId={deal?.accountId || deal?.account?.id}
         accountName={deal?.account?.name}
         operators={Array.from(operatorsMap.entries()).map(([id, name]) => ({ id, name }))}
+        currentOperatorId={
+          deal?.operatorId ||
+          (deal as any)?.ownerId ||
+          operatorProfile?.id ||
+          chatContext?.currentOperatorId ||
+          undefined
+        }
         editingTask={editingDealTask}
         onTaskCreated={() => {
           setEditingDealTask(null);
           loadDealDetail(true);
         }}
+      />
+
+      {/* Modal de Funcionalidade Em Desenvolvimento (E-mail / Questionários) */}
+      <AnimatePresence>
+        {devFeatureModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10060] flex items-center justify-center bg-black/55 backdrop-blur-xs p-4"
+            onClick={() => setDevFeatureModal(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-3xl border border-border bg-card shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-5 border-b border-border flex items-center justify-between bg-primary/5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 text-primary border border-primary/25">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-foreground">
+                      Em desenvolvimento
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      Módulo de {devFeatureModal}
+                    </p>
+                  </div>
+                </div>
+                <SystemTooltip content="Fechar">
+                  <button
+                    type="button"
+                    onClick={() => setDevFeatureModal(null)}
+                    className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </SystemTooltip>
+              </div>
+              <div className="p-6 space-y-3 text-center">
+                <p className="text-xs text-foreground font-semibold">
+                  A aba de <strong>{devFeatureModal}</strong> está atualmente <strong>Em desenvolvimento</strong>.
+                </p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Em breve esta funcionalidade estará liberada para uso direto dentro da ficha da negociação.
+                </p>
+              </div>
+              <div className="px-6 py-4 bg-muted/30 border-t border-border flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDevFeatureModal(null)}
+                  className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2 text-xs font-bold shadow-xs transition cursor-pointer"
+                >
+                  Entendi
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Celebração de Venda Realizada */}
+      <SaleCelebrationModal
+        data={celebrationData}
+        onClose={() => setCelebrationData(null)}
       />
 
       {/* Modal Obrigatório de Confirmação de Conclusão de Tarefa */}

@@ -36,7 +36,7 @@ function DealPage() {
   const [pipelines, setPipelines] = useState<
     Array<{ id: string; stages: Array<{ id: string; name: string; orderIndex: number }> }>
   >(() => getCachedPipelinesSync() || []);
-  const [operators, setOperators] = useState<Array<{ id: string; name: string }>>(
+  const [operators, setOperators] = useState<Array<{ id: string; name: string; avatar?: string | null }>>(
     () => (Array.isArray(globalOperators) && globalOperators.length > 0 ? globalOperators : []),
   );
 
@@ -144,6 +144,7 @@ function DealPage() {
         onOpenConversation={openConversation}
         pipelineStages={stages}
         operatorsMap={operatorsMap}
+        operators={operators}
         backLabel={from === "chat" ? "Voltar ao atendimento" : "Voltar ao CRM"}
       />
     </main>

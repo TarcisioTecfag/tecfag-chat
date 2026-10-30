@@ -227,9 +227,10 @@ export function CreateTaskModal({
     setOperatorSearch("");
   }, [isOpen, initialDealId, initialDealTitle, initialAccountId, initialAccountName, currentOperatorId, initialOperators, defaultDate, editingTask]);
 
-  // Se tem initialDealId mas não tem initialAccountName, busca dados da negociação para exibir subtítulo
+  // Se tem initialDealId, busca dados da negociação para exibir subtítulo e alocar o dono do lead como responsável padrão
   useEffect(() => {
-    if (!isOpen || !initialDealId || initialAccountName) return;
+    if (!isOpen || !initialDealId) return;
+    if (initialAccountName && (currentOperatorId || editingTask)) return;
     let isMounted = true;
     fetch(`/api/crm/deals/${initialDealId}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -241,12 +242,16 @@ export function CreateTaskModal({
         if (!selectedDealTitle && data.deal.title) {
           setSelectedDealTitle(data.deal.title);
         }
+        const dealOwnerId = data.deal.operatorId || data.deal.ownerId;
+        if (!editingTask && dealOwnerId && !currentOperatorId) {
+          setSelectedOperatorIds([dealOwnerId]);
+        }
       })
       .catch(() => {});
     return () => {
       isMounted = false;
     };
-  }, [isOpen, initialDealId, initialAccountName]);
+  }, [isOpen, initialDealId, initialAccountName, currentOperatorId, editingTask]);
 
   // Busca de negociações quando destravado
   useEffect(() => {
@@ -281,6 +286,10 @@ export function CreateTaskModal({
     setSelectedDealId(deal.id);
     setSelectedDealTitle(deal.title);
     setSelectedAccountName(deal.account?.name || "");
+    const dealOwnerId = (deal as any).operatorId || (deal as any).ownerId;
+    if (!editingTask && dealOwnerId) {
+      setSelectedOperatorIds([dealOwnerId]);
+    }
     setIsDealOpen(false);
   };
 

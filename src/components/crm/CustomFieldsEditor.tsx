@@ -119,21 +119,25 @@ export function CustomFieldsEditor({
   pipelineId,
   values,
   onChange,
+  onFieldCommit,
   create = false,
   definitions,
   requiredIds = [],
   hideTitle = false,
   columns = 1,
+  showEmptyState = false,
 }: {
   entity: CustomFieldEntity;
   pipelineId?: string | null;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
+  onFieldCommit?: (fieldId: string, value: unknown, nextValues: Record<string, unknown>) => void;
   create?: boolean;
   definitions?: FieldDefinition[];
   requiredIds?: string[];
   hideTitle?: boolean;
   columns?: 1 | 2;
+  showEmptyState?: boolean;
 }) {
   const loaded = useCustomFields(entity, !definitions);
   const fields = useMemo(() => {
@@ -184,8 +188,29 @@ export function CustomFieldsEditor({
     });
   }, [definitions, loaded.fields, entity, create, pipelineId, requiredIds, values]);
 
-  if (!fields.length) return null;
-  const update = (id: string, value: unknown) => onChange({ ...values, [id]: value });
+  if (!definitions && loaded.loading && showEmptyState) {
+    return (
+      <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-[11px] text-muted-foreground">
+        Carregando campos personalizados...
+      </div>
+    );
+  }
+
+  if (!fields.length) {
+    if (!showEmptyState) return null;
+    return (
+      <div className="rounded-lg border border-dashed border-border/70 bg-muted/15 px-3 py-2.5 text-[11px] text-muted-foreground">
+        Nenhum campo personalizado cadastrado para {entity === "contact" ? "contatos" : entity === "company" ? "empresas" : "esta ficha"}.
+      </div>
+    );
+  }
+  const update = (id: string, value: unknown, immediateCommit = false) => {
+    const nextValues = { ...values, [id]: value };
+    onChange(nextValues);
+    if (immediateCommit && onFieldCommit) {
+      onFieldCommit(id, value, nextValues);
+    }
+  };
   const common =
     "h-9 w-full rounded-[8px] border border-slate-300/85 dark:border-slate-700/80 bg-muted/35 dark:bg-slate-900/60 px-3 text-xs font-medium text-foreground placeholder:text-muted-foreground/60 outline-none transition-all hover:border-primary/40 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15";
 

@@ -27,6 +27,7 @@ import {
 } from "../../db/schema";
 import { eq, and, desc, asc, gte, inArray, or, sql } from "drizzle-orm";
 import { getAiPersona } from "../ai-persona";
+import { ensureCatalogOption } from "../crm/catalogs";
 
 export const SDR_DEAL_REUSE_WINDOW_HOURS = 3;
 export const SDR_DEAL_REUSE_WINDOW_MS = SDR_DEAL_REUSE_WINDOW_HOURS * 60 * 60 * 1000;
@@ -109,6 +110,7 @@ async function upsertLeadTransferTaskInTx(
     now,
   } = params;
 
+  const persona = getAiPersona(tenantId);
   const taskTitle = LEAD_TRANSFER_TASK_TITLE;
   const descriptionParts = [
     `Responder o contato ${clientName || "do atendimento"}${contactPhone ? ` (${contactPhone})` : ""} referente ao atendimento transferido.`,
@@ -143,7 +145,7 @@ async function upsertLeadTransferTaskInTx(
       .set({
         conversationId: conversationId || existingPendingTask.conversationId || null,
         description: taskDescription,
-        operatorId: resolvedOperatorId,
+        operatorId: null,
         assignedToOperatorId: resolvedOperatorId,
         dueDate: existingPendingTask.dueDate || now,
         updatedAt: now,
@@ -168,7 +170,7 @@ async function upsertLeadTransferTaskInTx(
     description: taskDescription,
     status: "pending",
     dueDate: now,
-    operatorId: operatorId || null,
+    operatorId: null,
     assignedToOperatorId: operatorId || null,
     completedAt: null,
     createdAt: now,
@@ -180,12 +182,15 @@ async function upsertLeadTransferTaskInTx(
     tenantId,
     dealId,
     eventType: "activity_logged",
-    operatorId: operatorId || null,
+    operatorId: null,
     metadata: {
       activityId: taskId,
       type: "task",
       title: taskTitle,
       conversationId,
+      origin: "auto_sdr",
+      actorName: persona.name,
+      actorType: "ai_sdr",
       assignedToOperatorId: operatorId || null,
       assignedToOperatorName: operatorName || null,
     },
@@ -737,7 +742,8 @@ export async function ensureLocalCrmDealBeforeTransfer(
           title: `Triagem SDR (${persona.name}) — Atendimento Vinculado (< 3h)`,
           description: noteDescription,
           status: "completed",
-          operatorId: resolvedOwnerId,
+          operatorId: null,
+          assignedToOperatorId: resolvedOwnerId,
           completedAt: now,
           createdAt: now,
           updatedAt: now,
@@ -762,12 +768,16 @@ export async function ensureLocalCrmDealBeforeTransfer(
           tenantId,
           dealId,
           eventType: "conversation_linked",
-          operatorId: resolvedOwnerId,
+          operatorId: null,
           metadata: {
             conversationId,
             contactName: clientName,
             contactPhone,
             origin: "auto_sdr",
+            actorName: persona.name,
+            actorType: "ai_sdr",
+            allocatedOperatorId: resolvedOwnerId,
+            allocatedOperatorName: targetOperatorName || null,
             reusedWithin3Hours: true,
             targetFunnel,
             taskId: reusedTaskInfo.taskId,
@@ -865,6 +875,9 @@ export async function ensureLocalCrmDealBeforeTransfer(
         documento: validDoc || undefined,
       };
 
+      const sdrSourceLabel = `WhatsApp SDR (${persona.name})`;
+      await ensureCatalogOption(tenantId, "source", sdrSourceLabel, tx);
+
       // B4. Inserir o novo Deal em crm_deals (100% Local, sem enqueueRdCommercial)
       const [createdDeal] = await tx
         .insert(crmDeals)
@@ -880,7 +893,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
           currency: "BRL",
           expectedCloseDate: null,
           operatorId: targetOperatorId || null,
-          source: `WhatsApp SDR (${persona.name})`,
+          source: sdrSourceLabel,
           campaign: null,
           rating: 0,
           customFields: dealCustomFields,
@@ -921,7 +934,7 @@ export async function ensureLocalCrmDealBeforeTransfer(
         conversationId,
         dealId: newDealId,
         origin: "auto_sdr",
-        createdByOperatorId: targetOperatorId || null,
+        createdByOperatorId: null,
         isActive: true,
         createdAt: now,
       });
@@ -937,7 +950,8 @@ export async function ensureLocalCrmDealBeforeTransfer(
         title: `Relatório de Triagem SDR (${persona.name})`,
         description: noteDescription,
         status: "completed",
-        operatorId: targetOperatorId || null,
+        operatorId: null,
+        assignedToOperatorId: targetOperatorId || null,
         completedAt: now,
         createdAt: now,
         updatedAt: now,
@@ -963,14 +977,19 @@ export async function ensureLocalCrmDealBeforeTransfer(
           tenantId,
           dealId: newDealId,
           eventType: "created",
-          operatorId: targetOperatorId || null,
+          operatorId: null,
           metadata: {
             title: createdDeal.title,
             pipelineId,
             pipelineName,
             stageId,
             stageName,
-            source: `WhatsApp SDR (${persona.name})`,
+            source: sdrSourceLabel,
+            origin: "auto_sdr",
+            actorName: persona.name,
+            actorType: "ai_sdr",
+            allocatedOperatorId: targetOperatorId || null,
+            allocatedOperatorName: targetOperatorName || null,
             targetFunnel,
           },
           createdAt: now,
@@ -980,12 +999,16 @@ export async function ensureLocalCrmDealBeforeTransfer(
           tenantId,
           dealId: newDealId,
           eventType: "conversation_linked",
-          operatorId: targetOperatorId || null,
+          operatorId: null,
           metadata: {
             conversationId,
             contactName: clientName,
             contactPhone,
             origin: "auto_sdr",
+            actorName: persona.name,
+            actorType: "ai_sdr",
+            allocatedOperatorId: targetOperatorId || null,
+            allocatedOperatorName: targetOperatorName || null,
             reusedWithin3Hours: false,
             targetFunnel,
             taskId: createdTaskInfo.taskId,

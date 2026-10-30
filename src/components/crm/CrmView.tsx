@@ -12,6 +12,7 @@ import { CrmQuickCreateDialog, CrmQuickCreateKind } from "./CrmQuickCreateDialog
 import { CrmSearchModal } from "./CrmSearchModal";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { AdvancedFiltersModal, AdvancedFiltersState } from "./AdvancedFiltersModal";
+import { SaleCelebrationModal, type SaleCelebrationData } from "./SaleCelebrationModal";
 import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
@@ -247,6 +248,7 @@ export function CrmView() {
   );
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchAccountId, setSearchAccountId] = useState<string | null>(null);
+  const [celebrationData, setCelebrationData] = useState<SaleCelebrationData | null>(null);
 
   // Salva automaticamente em memória/localStorage o modo (Quadro/Lista) e os últimos filtros usados
   useEffect(() => {
@@ -707,7 +709,18 @@ export function CrmView() {
         invalidateDealCache(dealId);
         setDeals((prev) => prev.map((d) => (d.id === dealId ? { ...d, ...data.deal } : d)));
         fetchStagesSummary();
-        toast.success("Negociação movida com sucesso!");
+        const targetStage = activePipeline?.stages?.find((s: any) => s.id === newStageId);
+        if (terminalData?.status === "won" || data.deal?.status === "won" || targetStage?.isWinStage) {
+          setCelebrationData({
+            dealTitle: data.deal?.title || "Negociação",
+            value: data.deal?.value ?? terminalData?.value ?? null,
+            sellerName:
+              (data.deal?.operatorId && operatorsMap.get(data.deal.operatorId)) || null,
+            accountName: data.deal?.account?.name || null,
+          });
+        } else {
+          toast.success("Negociação movida com sucesso!");
+        }
       } catch (err: any) {
         console.error("[CrmView] Falha ao mover deal:", err);
         toast.error("Falha ao mover negociação.");
@@ -715,7 +728,7 @@ export function CrmView() {
         fetchStagesSummary();
       }
     },
-    [fetchDeals, fetchStagesSummary],
+    [fetchDeals, fetchStagesSummary, activePipeline?.stages, operatorsMap],
   );
 
   const handleDealClick = useCallback(
@@ -1046,7 +1059,7 @@ export function CrmView() {
         accountId={taskModalDeal?.accountId || taskModalDeal?.account?.id}
         accountName={taskModalDeal?.account?.name}
         operators={effectiveOperators}
-        currentOperatorId={currentOperatorId}
+        currentOperatorId={taskModalDeal?.operatorId || currentOperatorId}
         onTaskCreated={() => {
           fetchDeals();
           fetchStagesSummary();
@@ -1078,6 +1091,10 @@ export function CrmView() {
           setSearchAccountId(null);
           navigate({ to: "/crm/deals/$dealId", params: { dealId }, search: { from: "crm" } });
         }}
+      />
+      <SaleCelebrationModal
+        data={celebrationData}
+        onClose={() => setCelebrationData(null)}
       />
     </div>
   );

@@ -581,6 +581,7 @@ export class RodizioEngine {
           .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, dealIdList)));
 
         const { ensureLeadTransferTaskOnDeal } = await import("./sdr-crm-local");
+        const aiPersona = getAiPersona(tenantId);
         for (const dealId of dealIdList) {
           await ensureLeadTransferTaskOnDeal({
             tenantId,
@@ -594,9 +595,11 @@ export class RodizioEngine {
             tenantId,
             dealId,
             eventType: "owner_changed",
-            operatorId: toOperatorId,
+            operatorId: null,
             metadata: {
               source: "rodizio_reassignment",
+              actorName: aiPersona.name,
+              actorType: "ai_sdr",
               toOperatorId,
               toOperatorName,
             },

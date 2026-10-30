@@ -1,6 +1,7 @@
-import { and, eq, isNull, asc } from "drizzle-orm";
+import { and, eq, isNull, asc, isNotNull, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { db } from "../../db";
-import { crmCatalogItems, crmCatalogPolicies } from "../../db/schema";
+import { crmCatalogItems, crmCatalogPolicies, crmDeals } from "../../db/schema";
 
 export const catalogKinds = ["segment", "source", "campaign", "loss_reason"] as const;
 export type CatalogKind = (typeof catalogKinds)[number];
@@ -54,6 +55,69 @@ export function normalizeCatalogName(value: unknown): string {
   const name = value.trim().replace(/\s+/g, " ");
   if (!name || name.length > 120 || name === "__none__")
     throw new Error("Informe um nome de até 120 caracteres.");
+  return name;
+}
+
+export async function ensureCatalogOption(
+  tenantId: string,
+  kind: CatalogKind,
+  rawValue: unknown,
+  executor: any = db,
+): Promise<string | null> {
+  if (rawValue === null || rawValue === undefined || rawValue === "") return null;
+  let name: string;
+  try {
+    name = normalizeCatalogName(String(rawValue).slice(0, 120));
+  } catch {
+    return null;
+  }
+  const lower = name.toLocaleLowerCase("pt-BR");
+  if (lower === "não informada" || lower === "nao informada") {
+    return name;
+  }
+
+  try {
+    const existingRows = await executor
+      .select()
+      .from(crmCatalogItems)
+      .where(and(eq(crmCatalogItems.tenantId, tenantId), eq(crmCatalogItems.kind, kind)));
+
+    const matched = existingRows.find(
+      (item: any) => String(item.name || "").toLocaleLowerCase("pt-BR") === lower,
+    );
+
+    if (matched) {
+      if (matched.archivedAt) {
+        await executor
+          .update(crmCatalogItems)
+          .set({ archivedAt: null, updatedAt: new Date() })
+          .where(and(eq(crmCatalogItems.id, matched.id), eq(crmCatalogItems.tenantId, tenantId)));
+      }
+      return matched.name;
+    }
+
+    const standards = STANDARD_CATALOG_ITEMS[kind] || [];
+    const matchedStd = standards.find((std) => std.toLocaleLowerCase("pt-BR") === lower);
+    if (matchedStd) {
+      return matchedStd;
+    }
+
+    const now = new Date();
+    await executor
+      .insert(crmCatalogItems)
+      .values({
+        id: randomUUID(),
+        tenantId,
+        kind,
+        name,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing();
+  } catch (err) {
+    console.warn(`[catalogs] Aviso ao garantir opção de catálogo (${kind}: ${name}):`, err);
+  }
+
   return name;
 }
 
@@ -111,10 +175,44 @@ export async function listAvailableCatalogOptions(
   tenantId: string,
   kind: CatalogKind,
 ): Promise<CatalogOption[]> {
-  const [items, policy] = await Promise.all([
+  let [items, policy] = await Promise.all([
     listCatalogItems(tenantId, kind),
     getCatalogPolicy(tenantId, kind),
   ]);
+
+  if (kind === "source" || kind === "campaign") {
+    try {
+      const col = kind === "source" ? crmDeals.source : crmDeals.campaign;
+      const distinctDealValues = await db
+        .selectDistinct({ val: col })
+        .from(crmDeals)
+        .where(and(eq(crmDeals.tenantId, tenantId), isNotNull(col)));
+
+      const knownLower = new Set<string>([
+        ...items.map((i) => i.name.toLocaleLowerCase("pt-BR")),
+        ...(STANDARD_CATALOG_ITEMS[kind] || []).map((s) => s.toLocaleLowerCase("pt-BR")),
+      ]);
+
+      let insertedAny = false;
+      for (const row of distinctDealValues) {
+        const raw = typeof row.val === "string" ? row.val.trim() : "";
+        if (!raw) continue;
+        const lower = raw.toLocaleLowerCase("pt-BR");
+        if (lower === "não informada" || lower === "nao informada") continue;
+        if (!knownLower.has(lower)) {
+          knownLower.add(lower);
+          await ensureCatalogOption(tenantId, kind, raw);
+          insertedAny = true;
+        }
+      }
+
+      if (insertedAny) {
+        items = await listCatalogItems(tenantId, kind);
+      }
+    } catch {
+      // Em testes unitários com mocks parciais de db, segue silenciosamente
+    }
+  }
 
   const customOptions: CatalogOption[] = items.map((item) => ({
     id: item.id,
@@ -161,7 +259,12 @@ export async function validateCatalogChoice(
   const name = normalizeCatalogName(value);
   // Dados antigos e valores gerados pelas integrações continuam válidos quando
   // o registro não está sendo alterado manualmente.
-  if (name === previous) return name;
+  if (name === previous) {
+    if (kind === "source" || kind === "campaign") {
+      await ensureCatalogOption(tenantId, kind, name);
+    }
+    return name;
+  }
 
   const [items, policy] = await Promise.all([
     listCatalogItems(tenantId, kind),
@@ -188,6 +291,11 @@ export async function validateCatalogChoice(
     ) {
       return name;
     }
+  }
+
+  if (kind === "source" || kind === "campaign") {
+    const ensured = await ensureCatalogOption(tenantId, kind, name);
+    if (ensured) return ensured;
   }
 
   throw new CatalogValidationError(

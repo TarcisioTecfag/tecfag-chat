@@ -97,7 +97,7 @@ export function CatalogSelect({
         </SystemTooltip>
         <SelectContent>
           <SelectItem value="__none__">{placeholder}</SelectItem>
-          {legacy && <SelectItem value={value}>{value} (fora do catálogo)</SelectItem>}
+          {legacy && <SelectItem value={value}>{value}</SelectItem>}
           {items.map((item) => (
             <SelectItem key={item.id} value={item.name}>
               {item.name}

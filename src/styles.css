@@ -419,15 +419,34 @@ body,
   --line: #29384d;
 }
 
+.crm-stage-track {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+}
+
+@media (min-width: 1024px) {
+  .crm-stage-track {
+    flex-wrap: nowrap;
+  }
+}
+
 .crm-stage-track .crm-stage {
-  min-width: 150px;
+  min-width: 0;
+  flex: 1 1 0%;
+  min-height: 36px;
+  padding-left: 13px;
+  padding-right: 13px;
   background: var(--color-muted);
   color: var(--color-foreground);
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%);
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 0 100%, 7px 50%);
 }
 
 .crm-stage-track .crm-stage:first-child {
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+  padding-left: 9px;
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 0 100%);
 }
 
 .crm-stage-track .crm-stage.bg-primary {
@@ -440,9 +459,11 @@ body,
   color: var(--color-foreground);
 }
 
-
-@media (max-width: 1024px) {
-  .crm-stage-track .crm-stage { flex: none; }
+@media (max-width: 1023px) {
+  .crm-stage-track .crm-stage {
+    flex: 1 1 calc(33.333% - 4px);
+    min-width: 115px;
+  }
   .crm-deal-sidebar { border-right: 0; border-bottom: 1px solid var(--color-border); }
 }
 
