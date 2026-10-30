@@ -2371,10 +2371,10 @@ export function DealDetailModal({
       operatorId?: string | null,
       directAvatar?: string | null
     ): string | null => {
-      if (directAvatar) return directAvatar;
+      if (directAvatar && (directAvatar.startsWith("/") || directAvatar.startsWith("http") || directAvatar.startsWith("data:"))) return directAvatar;
       const cleanName = (authorName || "").trim().toLowerCase();
       if (cleanName && cleanName === aiPersona.name.toLowerCase()) {
-        return aiPersona.avatar || null;
+        return aiPersona.avatarUrl || null;
       }
       const opObj = operators?.find(
         (op: any) =>
@@ -2478,16 +2478,18 @@ export function DealDetailModal({
       }
 
       const authorName =
+        (evt.eventType === "deal_ai_priority_calculated" || evt.metadata?.actorType === "ai_sdr" || evt.metadata?.origin === "auto_sdr" || evt.metadata?.origin === "rodizio_reassignment" || evt.metadata?.actorName === aiPersona.name || (typeof evt.metadata?.actorName === "string" && evt.metadata.actorName.startsWith("IA ")) ? aiPersona.name : null) ||
         (typeof evt.metadata?.actorName === "string" && evt.metadata.actorName.trim()) ||
         evt.operatorName ||
         (evt.operatorId ? operatorsMap.get(evt.operatorId) : null) ||
         (evt.metadata?.source === "rd_marketing" || evt.metadata?.marketingOrigin ? "RD Marketing" : null) ||
         "Sistema";
 
+      const isAiEvent = authorName === aiPersona.name;
       const authorAvatar = resolveAvatar(
         authorName,
-        evt.operatorId,
-        evt.operatorAvatar || evt.metadata?.actorAvatar
+        isAiEvent ? null : evt.operatorId,
+        isAiEvent ? aiPersona.avatarUrl : (evt.operatorAvatar || evt.metadata?.actorAvatar)
       );
 
       const isConvEvent =
@@ -2531,10 +2533,11 @@ export function DealDetailModal({
         (act.operatorId ? operatorsMap.get(act.operatorId) : null) ||
         "Sistema";
 
+      const isAiEvent = authorName === aiPersona.name;
       const authorAvatar = resolveAvatar(
         authorName,
-        act.operatorId,
-        act.actorAvatar || act.operatorAvatar
+        isAiEvent ? null : act.operatorId,
+        isAiEvent ? aiPersona.avatarUrl : (act.actorAvatar || act.operatorAvatar)
       );
 
       const taskMetaParts = [
@@ -2616,6 +2619,7 @@ export function DealDetailModal({
         file.uploadedByName ||
         (file.uploadedByOperatorId ? operatorsMap.get(file.uploadedByOperatorId) : null) ||
         "Operador";
+      const isAiEvent = authorName === aiPersona.name;
       const authorAvatar = resolveAvatar(
         authorName,
         file.uploadedByOperatorId,

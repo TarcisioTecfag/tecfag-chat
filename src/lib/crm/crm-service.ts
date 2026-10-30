@@ -3342,6 +3342,7 @@ export class CrmService {
         }
       }
       const isAiOrigin =
+        ev.eventType === "deal_ai_priority_calculated" ||
         meta.origin === "auto_sdr" ||
         meta.origin === "rodizio_reassignment" ||
         meta.actorType === "ai_sdr" ||
@@ -3358,9 +3359,9 @@ export class CrmService {
 
       if (isAiOrigin) {
         meta.actorName = aiPersona.name;
-        meta.actorAvatar = aiPersona.avatar;
+        meta.actorAvatar = aiPersona.avatarUrl;
         operatorName = aiPersona.name;
-        operatorAvatar = aiPersona.avatar;
+        operatorAvatar = aiPersona.avatarUrl;
       } else if (isRdOrigin) {
         meta.actorName = "RD Marketing";
         operatorName = "RD Marketing";
@@ -5366,7 +5367,7 @@ export class CrmService {
       let actorAvatar: string | null = (r as any).operatorAvatar || null;
       if (isAiSdrActivity) {
         actorName = aiPersona.name;
-        actorAvatar = aiPersona.avatar;
+        actorAvatar = aiPersona.avatarUrl;
       } else if (isRdMarketingActivity) {
         actorName = "RD Marketing";
         actorAvatar = null;
@@ -8355,13 +8356,18 @@ export class CrmService {
       })
       .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
 
-    // Grava auditoria
-    await this.logDealEvent(tenantId, dealId, "deal_ai_priority_calculated", operatorId, {
+    // Grava auditoria com titularidade da IA do tenant (Fagner / Valentina)
+    const aiPersona = getAiPersona(tenantId);
+    await this.logDealEvent(tenantId, dealId, "deal_ai_priority_calculated", null, {
       score: finalScore,
       level: finalLevel,
       reason: finalReason,
       analyzedMessagesCount: allMessages.length,
       analyzedConversationsCount: allConversationIds.length,
+      actorType: "ai_sdr",
+      actorName: aiPersona.name,
+      actorAvatar: aiPersona.avatarUrl,
+      triggeredByOperatorId: operatorId ?? null,
     });
 
     return {
