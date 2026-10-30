@@ -2353,7 +2353,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     const isInternal = msgMode === "internal";
 
     if (!activeChat || !currentOperatorId) return;
-    if (isInternal && noteScope === "current" && (!dealContext.data?.hasCurrentDeal || draftContextVersion.current === undefined)) {
+    if (isInternal && noteScope === "current" && ((!dealContext.data?.hasCurrentDeal && !dealContext.data?.gracePeriodActive) || draftContextVersion.current === undefined)) {
       toast.error("Selecione a negociação do atendimento ou marque a nota como geral.");
       return;
     }
@@ -3904,7 +3904,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
               {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo vs Templates Meta) ── */}
               {activeChat.id !== "valentina" && (
-                <div className={(!dealContext.data?.hasCurrentDeal && dealContext.data) || msgMode === "internal" || trainingStepId === "chat.deal-context" ? "mb-2" : ""}>
+                <div className={(!dealContext.data?.hasCurrentDeal && !dealContext.data?.gracePeriodActive && dealContext.data) || msgMode === "internal" || trainingStepId === "chat.deal-context" ? "mb-2" : ""}>
                   <ConversationDealContext
                     conversationId={activeChat.id}
                     hideWhenSelected={trainingStepId !== "chat.deal-context"}

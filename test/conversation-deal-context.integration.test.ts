@@ -12,7 +12,72 @@ import {
 import { DEFAULT_ADMIN_PERMISSIONS } from "../src/lib/rbac";
 import { readFile } from "node:fs/promises";
 import { getContactDealRows } from "../src/lib/crm/contact-deals-query";
-import { isCurrentDealEligible, sortContactDeals } from "../src/lib/crm/conversation-deal-policy";
+import {
+  isCurrentDealEligible,
+  sortContactDeals,
+  isDealWithinPostCloseGrace,
+  getDealPostCloseGraceExpiresAt,
+  findActiveGraceDeal,
+  DEAL_POST_CLOSE_GRACE_MS,
+} from "../src/lib/crm/conversation-deal-policy";
+
+describe("Política de carência de 24h pós-venda e pós-perda", () => {
+  test("reconhece negociação vendida ou perdida dentro de 24h e expira após 24h", () => {
+    const now = new Date("2026-10-30T15:00:00.000Z").getTime();
+    const wonRecent = {
+      id: "deal-won-recent",
+      title: "Seladora Automática",
+      status: "won",
+      isLinked: true,
+      closedAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+    };
+    const lostRecent = {
+      id: "deal-lost-recent",
+      title: "Envasadora Linear",
+      status: "lost",
+      isLinked: true,
+      closedAt: new Date(now - 23 * 60 * 60 * 1000).toISOString(),
+    };
+    const wonExpired = {
+      id: "deal-won-expired",
+      title: "Datador Antigo",
+      status: "won",
+      isLinked: true,
+      closedAt: new Date(now - DEAL_POST_CLOSE_GRACE_MS - 1000).toISOString(),
+    };
+    const pausedRecent = {
+      id: "deal-paused",
+      title: "Pausada",
+      status: "paused",
+      isLinked: true,
+      closedAt: new Date(now - 1000).toISOString(),
+    };
+    const unlinkedWon = {
+      id: "deal-unlinked",
+      title: "Desvinculada",
+      status: "won",
+      isLinked: false,
+      closedAt: new Date(now - 1000).toISOString(),
+    };
+
+    expect(isDealWithinPostCloseGrace(wonRecent, now)).toBe(true);
+    expect(isDealWithinPostCloseGrace(lostRecent, now)).toBe(true);
+    expect(isDealWithinPostCloseGrace(wonExpired, now)).toBe(false);
+    expect(isDealWithinPostCloseGrace(pausedRecent, now)).toBe(false);
+    expect(isDealWithinPostCloseGrace(unlinkedWon, now)).toBe(false);
+
+    // Prioriza o previousDealId quando está dentro da janela de 24h
+    const chosen = findActiveGraceDeal(
+      [wonRecent, lostRecent, wonExpired],
+      ["deal-lost-recent"],
+      now,
+    );
+    expect(chosen?.id).toBe("deal-lost-recent");
+    expect(getDealPostCloseGraceExpiresAt(chosen, now)).toBe(
+      new Date(new Date(lostRecent.closedAt).getTime() + DEAL_POST_CLOSE_GRACE_MS).toISOString(),
+    );
+  });
+});
 
 // PostgreSQL WASM: esta suíte nunca abre conexões com bancos operacionais.
 describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL isolado", () => {
@@ -1227,5 +1292,94 @@ describe.skipIf(!process.env.PGLITE_TEST_MODULE)("Negociação atual: PostgreSQL
         and(eq(schema.conversations.tenantId, "context-a"), eq(schema.conversations.id, f.id)),
       );
     expect(conversation).toMatchObject({ queueState: "meus", version: 1 });
+  });
+  test("carência de 24h pós-venda ou pós-perda dispensa vínculo de negociação atual e expira após 24h", async () => {
+    for (const closedStatus of ["won", "lost"] as const) {
+      const f = await fixture(2);
+      const initial = await state(f.id);
+      await db.transaction((tx: any) =>
+        selectDealContext(tx, "context-a", f.id, f.deals[0], "op-a", initial.context.version),
+      );
+      const recentClosedAt = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2h atrás (dentro de 24h)
+      await db
+        .update(schema.crmDeals)
+        .set({ status: closedStatus, closedAt: recentClosedAt })
+        .where(
+          and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, f.deals[0])),
+        );
+
+      const statusRes = await dealsApi.GET({
+        params: { conversationId: f.id },
+        request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
+      });
+      const statusJson = await statusRes.json();
+      expect(statusJson).toMatchObject({
+        dealRequired: false,
+        currentDealRequired: false,
+        gracePeriodActive: true,
+        graceDeal: {
+          id: f.deals[0],
+          status: closedStatus,
+        },
+      });
+      expect(typeof statusJson.graceExpiresAt).toBe("string");
+
+      const ctxRes = await contextApi.GET({
+        params: { conversationId: f.id },
+        request: new Request("http://localhost"),
+      });
+      const ctxJson = await ctxRes.json();
+      expect(ctxJson).toMatchObject({
+        hasCurrentDeal: false,
+        selectionRequired: false,
+        gracePeriodActive: true,
+        graceDeal: {
+          id: f.deals[0],
+          status: closedStatus,
+        },
+      });
+
+      // Durante a carência de 24h, notas internas e encerramento funcionam sem selecionar outro card
+      const noteRes = await notes(
+        request(f.id, {
+          conversationId: f.id,
+          content: `Nota em carência (${closedStatus})`,
+          isInternalNote: true,
+          expectedContextVersion: ctxJson.version,
+        }),
+      );
+      expect(noteRes.status).toBe(200);
+
+      // Após expirar 24h (ex: 25h atrás), volta a exigir seleção de negociação atual
+      const expiredClosedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+      await db
+        .update(schema.crmDeals)
+        .set({ closedAt: expiredClosedAt })
+        .where(
+          and(eq(schema.crmDeals.tenantId, "context-a"), eq(schema.crmDeals.id, f.deals[0])),
+        );
+
+      const expiredStatusRes = await dealsApi.GET({
+        params: { conversationId: f.id },
+        request: new Request("http://localhost/api/chats/" + f.id + "/deals?statusOnly=1"),
+      });
+      expect(await expiredStatusRes.json()).toMatchObject({
+        dealRequired: false,
+        currentDealRequired: true,
+        gracePeriodActive: false,
+        graceDeal: null,
+      });
+
+      const expiredCtxRes = await contextApi.GET({
+        params: { conversationId: f.id },
+        request: new Request("http://localhost"),
+      });
+      expect(await expiredCtxRes.json()).toMatchObject({
+        hasCurrentDeal: false,
+        selectionRequired: true,
+        gracePeriodActive: false,
+        graceDeal: null,
+      });
+    }
   });
 });

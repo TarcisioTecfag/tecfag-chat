@@ -16,9 +16,20 @@ import {
   assertDealContextVersion,
   DealContextError,
   resolveDealSelection,
+  findActiveGraceDeal,
+  getDealPostCloseGraceExpiresAt,
+  isDealWithinPostCloseGrace,
+  DEAL_POST_CLOSE_GRACE_MS,
 } from "./conversation-deal-policy";
 
-export { DealContextError, assertDealContextVersion } from "./conversation-deal-policy";
+export {
+  DealContextError,
+  assertDealContextVersion,
+  findActiveGraceDeal,
+  getDealPostCloseGraceExpiresAt,
+  isDealWithinPostCloseGrace,
+  DEAL_POST_CLOSE_GRACE_MS,
+} from "./conversation-deal-policy";
 
 async function ensureCurrentDealLink(
   tx: DealTransaction,
@@ -84,7 +95,7 @@ export async function getDealContext(
     .for("update")
     .limit(1);
   const deals = (await getContactDealRows(tx, tenantId, conversation.contactId)).map(
-    ({ id, title, status, pipelineId, operatorId, rdDealId, isLinked }) => ({
+    ({ id, title, status, pipelineId, operatorId, rdDealId, isLinked, closedAt }) => ({
       id,
       title,
       status,
@@ -92,6 +103,7 @@ export async function getDealContext(
       operatorId,
       rdDealId,
       isLinked,
+      closedAt,
     }),
   );
   // Conversas encerradas só conservam a sugestão histórica, nunca o destino ativo.

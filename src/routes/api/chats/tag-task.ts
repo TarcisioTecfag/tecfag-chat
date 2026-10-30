@@ -8,6 +8,7 @@ import {
   getDealContext,
   assertDealContextVersion,
   DealContextError,
+  findActiveGraceDeal,
 } from "../../../lib/crm/conversation-deal-context";
 
 export const Route = createFileRoute("/api/chats/tag-task")({
@@ -55,7 +56,12 @@ export const Route = createFileRoute("/api/chats/tag-task")({
             )
               throw new DealContextError("O responsável pelo atendimento mudou.", "FORBIDDEN", 403);
             assertDealContextVersion(state.context, body.expectedContextVersion);
-            const deal = state.deals.find((d) => d.id === state.context.currentDealId);
+            const deal =
+              state.deals.find((d) => d.id === state.context.currentDealId) ||
+              findActiveGraceDeal(state.deals, [
+                state.context.currentDealId,
+                state.context.previousDealId,
+              ]);
             if (!deal)
               throw new DealContextError(
                 "Selecione a negociação deste atendimento antes de criar a tarefa.",

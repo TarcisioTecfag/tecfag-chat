@@ -97,10 +97,10 @@ export function ConversationDealContext({
   const selectId = useId();
 
   if (variant === "sidebar-discreet") {
-    if (error || !data || !data.hasCurrentDeal) return null;
+    if (error || !data || (!data.hasCurrentDeal && !data.gracePeriodActive)) return null;
   }
 
-  if (hideWhenSelected && (!data || data.hasCurrentDeal)) {
+  if (hideWhenSelected && (!data || data.hasCurrentDeal || data.gracePeriodActive)) {
     return null;
   }
 
@@ -118,7 +118,7 @@ export function ConversationDealContext({
 
   const eligibleDeals = data.deals.filter(isCurrentDealEligible);
   const historicalDeals = data.deals.filter((deal) => !isCurrentDealEligible(deal));
-  const needsSelection = !data.hasCurrentDeal && data.editable;
+  const needsSelection = !data.hasCurrentDeal && !data.gracePeriodActive && data.editable;
   const isSidebarDiscreet = variant === "sidebar-discreet";
 
   const handleSelectDeal = async (dealId: string) => {
@@ -158,7 +158,9 @@ export function ConversationDealContext({
     ? data.currentDeal.title
     : data.hasCurrentDeal
       ? "Negociação selecionada (acesso restrito)"
-      : "Selecione uma negociação em andamento";
+      : data.gracePeriodActive && data.graceDeal
+        ? `${data.graceDeal.title} (${data.graceDeal.status === "won" ? "Vendido" : "Perdido"} • Carência 24h)`
+        : "Selecione uma negociação em andamento";
 
   return (
     <div
@@ -210,9 +212,11 @@ export function ConversationDealContext({
             <p className="text-[11px] text-muted-foreground leading-snug">
               {data.hasCurrentDeal
                 ? "Notas e ações serão registradas neste card. Transferências mantêm esta seleção."
-                : data.previousDeal
-                  ? `Última negociação: ${data.previousDeal.title}. Confira o assunto antes de continuar.`
-                  : "Escolha pelo menu suspenso ou clique no botão \"Escolher essa\" em um dos cards abaixo."}
+                : data.gracePeriodActive && data.graceDeal
+                  ? `Carência de 24h ativa (${data.graceDeal.status === "won" ? "venda concluída" : "negociação perdida"}): você pode conversar sem vincular outra negociação.`
+                  : data.previousDeal
+                    ? `Última negociação: ${data.previousDeal.title}. Confira o assunto antes de continuar.`
+                    : "Escolha pelo menu suspenso ou clique no botão \"Escolher essa\" em um dos cards abaixo."}
             </p>
           )}
         </div>
@@ -255,7 +259,7 @@ export function ConversationDealContext({
                     )}
                     <span
                       className={`truncate ${
-                        !data.currentDeal && !data.hasCurrentDeal
+                        !data.currentDeal && !data.hasCurrentDeal && !data.gracePeriodActive
                           ? "text-muted-foreground font-medium"
                           : "text-foreground font-bold"
                       }`}
@@ -396,7 +400,9 @@ export function ConversationDealTransferContext({
   const selectedDeal = eligibleDeals.find((d) => d.id === selected);
   const defaultLabel = data.hasCurrentDeal
     ? `Manter: ${data.currentDeal?.title || "negociação atual"}`
-    : "Escolha a negociação do atendimento";
+    : data.gracePeriodActive && data.graceDeal
+      ? `Carência 24h: ${data.graceDeal.title} (${data.graceDeal.status === "won" ? "Vendido" : "Perdido"})`
+      : "Escolha a negociação do atendimento";
 
   return (
     <div className="block space-y-1.5 text-xs">

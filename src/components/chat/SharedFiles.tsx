@@ -551,7 +551,7 @@ export function SharedFiles() {
     e.preventDefault();
     if (!taskSubject.trim()) return;
 
-    if (!taskDealContext.data?.hasCurrentDeal) {
+    if (!taskDealContext.data?.hasCurrentDeal && !taskDealContext.data?.gracePeriodActive) {
       toast.error("Selecione a negociação deste atendimento antes de criar a tarefa.");
       return;
     }

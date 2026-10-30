@@ -4,15 +4,30 @@ export type ConversationDealContext = {
   previousDeal: { id: string; title: string } | null;
   hasCurrentDeal: boolean;
   selectionRequired: boolean;
+  gracePeriodActive?: boolean;
+  graceDeal?: {
+    id: string;
+    title: string;
+    status: string;
+    closedAt?: string | Date | null;
+  } | null;
+  graceExpiresAt?: string | null;
   editable: boolean;
   contactId: string;
-  deals: Array<{ id: string; title: string; status: string; isLinked: boolean }>;
+  deals: Array<{
+    id: string;
+    title: string;
+    status: string;
+    isLinked: boolean;
+    closedAt?: string | Date | null;
+  }>;
 };
 
 export type ConversationDealRequirementState = {
   id: string;
   pending: boolean;
   currentRequired: boolean;
+  gracePeriodActive?: boolean;
   error: string;
 };
 
@@ -71,7 +86,7 @@ export async function fetchDealContext(
         previous && previous.version > data.version ? previous : data
       ) as ConversationDealContext;
       cache.set(k, resolved);
-      if (resolved.hasCurrentDeal) {
+      if (resolved.hasCurrentDeal || resolved.gracePeriodActive) {
         markConversationDealSatisfied(conversationId);
       }
       return resolved;
@@ -101,10 +116,12 @@ export async function fetchDealRequirement(
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Não foi possível verificar a negociação.");
+      const inGrace = data.gracePeriodActive === true;
       const nextState: ConversationDealRequirementState = {
         id: conversationId,
-        pending: data.dealRequired !== false || data.currentDealRequired === true,
-        currentRequired: data.currentDealRequired === true,
+        pending: inGrace ? false : data.dealRequired !== false || data.currentDealRequired === true,
+        currentRequired: inGrace ? false : data.currentDealRequired === true,
+        gracePeriodActive: inGrace,
         error: "",
       };
       requirementCache.set(conversationId, nextState);

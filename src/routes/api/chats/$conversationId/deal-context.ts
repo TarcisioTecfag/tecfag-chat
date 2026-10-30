@@ -13,6 +13,8 @@ import {
   getDealContext,
   selectDealContext,
   DealContextError,
+  findActiveGraceDeal,
+  getDealPostCloseGraceExpiresAt,
 } from "../../../../lib/crm/conversation-deal-context";
 
 const failure = (error: unknown) =>
@@ -42,13 +44,28 @@ export const Route = createFileRoute("/api/chats/$conversationId/deal-context")(
           const editable =
             state.conversation.queueState === "meus" &&
             state.conversation.operatorId === session.operator.id;
+          const currentDeal = visible.find((d) => d.id === state.context.currentDealId) || null;
+          const graceDeal = !currentDeal
+            ? findActiveGraceDeal(visible, [state.context.currentDealId, state.context.previousDealId])
+            : null;
+          const gracePeriodActive = Boolean(graceDeal);
           return Response.json(
             {
               version: state.context.version,
-              currentDeal: visible.find((d) => d.id === state.context.currentDealId) || null,
+              currentDeal,
               previousDeal: visible.find((d) => d.id === state.context.previousDealId) || null,
               hasCurrentDeal: Boolean(state.context.currentDealId),
-              selectionRequired: !state.context.currentDealId,
+              selectionRequired: !state.context.currentDealId && !gracePeriodActive,
+              gracePeriodActive,
+              graceDeal: graceDeal
+                ? {
+                    id: graceDeal.id,
+                    title: graceDeal.title,
+                    status: graceDeal.status,
+                    closedAt: graceDeal.closedAt ?? null,
+                  }
+                : null,
+              graceExpiresAt: getDealPostCloseGraceExpiresAt(graceDeal),
               editable,
               deals: visible,
               contactId: state.conversation.contactId,

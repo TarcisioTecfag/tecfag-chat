@@ -8,7 +8,7 @@ import { getAiPersona } from "../../lib/ai-persona";
 import { readReactions } from "../../lib/whatsapp/meta-reactions";
 import { conversationReadCondition, requireConversationWriteAccess } from "../../lib/access-control/conversation-access";
 import { conversationReadRules } from "../../lib/access-control/conversation-policy";
-import { getDealContext, recordConversationAction, assertDealContextVersion, DealContextError } from "../../lib/crm/conversation-deal-context";
+import { getDealContext, recordConversationAction, assertDealContextVersion, DealContextError, findActiveGraceDeal } from "../../lib/crm/conversation-deal-context";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -185,12 +185,13 @@ export const Route = createFileRoute("/api/chats")({
               if (existing) { msgId = existing.id; return true; }
             }
             const state = isInternalNote ? await getDealContext(tx, session.tenantId, conversationId, session.operator.id) : null;
+            const graceDeal = state && !state.context.currentDealId ? findActiveGraceDeal(state.deals, [state.context.currentDealId, state.context.previousDealId]) : null;
             const generalNote = body.noteScope === "general";
             if (state && senderType !== "system") {
               assertDealContextVersion(state.context, body.expectedContextVersion);
-              if (!state.context.currentDealId && !generalNote) throw new DealContextError("Selecione a negociação deste atendimento ou permita salvar a nota com vínculo pendente.", "DEAL_CONTEXT_REQUIRED");
+              if (!state.context.currentDealId && !graceDeal && !generalNote) throw new DealContextError("Selecione a negociação deste atendimento ou permita salvar a nota com vínculo pendente.", "DEAL_CONTEXT_REQUIRED");
             }
-            const selectedDealId = state?.context.currentDealId || null;
+            const selectedDealId = state?.context.currentDealId || graceDeal?.id || null;
             selectedRdDealId = state?.deals.find(d => d.id === selectedDealId)?.rdDealId || null;
             await tx.insert(messages).values({
               id: msgId,

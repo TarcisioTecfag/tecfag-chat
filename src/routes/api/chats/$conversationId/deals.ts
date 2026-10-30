@@ -8,7 +8,11 @@ import { listCustomFields } from "../../../../lib/crm/custom-fields";
 import { db } from "../../../../db";
 import { conversations, contacts, crmAccounts } from "../../../../db/schema";
 import { eq, and } from "drizzle-orm";
-import { getDealContext } from "../../../../lib/crm/conversation-deal-context";
+import {
+  getDealContext,
+  findActiveGraceDeal,
+  getDealPostCloseGraceExpiresAt,
+} from "../../../../lib/crm/conversation-deal-context";
 import { canReadCrmDeal } from "../../../../lib/access-control/crm-record-access";
 
 const corsHeaders = {
@@ -55,12 +59,27 @@ export const Route = createFileRoute("/api/chats/$conversationId/deals")({
           if (new URL(request.url).searchParams.get("statusOnly") === "1") {
             if (session.operator.role !== "admin" && !session.permissions?.views?.chat && !session.permissions?.crm?.canViewCrm) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
             const state = await db.transaction(tx => getDealContext(tx, tenantId, conversationId, session.operator.id));
-            const eligibleCount = state.deals.filter(deal => deal.status === "open" && deal.isLinked && canReadCrmDeal(session, deal)).length;
+            const readableDeals = state.deals.filter(deal => canReadCrmDeal(session, deal));
+            const eligibleCount = readableDeals.filter(deal => deal.status === "open" && deal.isLinked).length;
             const hasLinkedInState = state.deals.some(deal => deal.isLinked);
+            const graceDeal = !state.context.currentDealId
+              ? findActiveGraceDeal(readableDeals, [state.context.currentDealId, state.context.previousDealId])
+              : null;
+            const gracePeriodActive = Boolean(graceDeal);
             return Response.json({
-              dealRequired: hasLinkedInState ? false : !await conversationHasDeal(db, tenantId, conversationId, conv.contactId),
-              currentDealRequired: !state.context.currentDealId && eligibleCount > 0 && conv.queueState === "meus" && conv.operatorId === session.operator.id,
+              dealRequired: (hasLinkedInState || gracePeriodActive) ? false : !await conversationHasDeal(db, tenantId, conversationId, conv.contactId),
+              currentDealRequired: !gracePeriodActive && !state.context.currentDealId && eligibleCount > 0 && conv.queueState === "meus" && conv.operatorId === session.operator.id,
               eligibleCount,
+              gracePeriodActive,
+              graceDeal: graceDeal
+                ? {
+                    id: graceDeal.id,
+                    title: graceDeal.title,
+                    status: graceDeal.status,
+                    closedAt: graceDeal.closedAt ?? null,
+                  }
+                : null,
+              graceExpiresAt: getDealPostCloseGraceExpiresAt(graceDeal),
             }, { headers: { "Cache-Control": "no-store" } });
           }
           const permError = requireCrmPermission(session, "canViewCrm");
