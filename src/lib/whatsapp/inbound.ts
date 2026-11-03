@@ -599,7 +599,7 @@ export class InboundProcessor {
       }
       const aiPersona = getAiPersona(tenantId);
       const lastTextPreview = text || (media ? `[Mídia: ${media.fileName || media.mimeType}]` : "");
-      const normalizedContactPhone = (cleanPhone || contact.phone || "").replace(/\D/g, "");
+      const normalizedContactPhone = normalizeCanonicalPhone(cleanPhone || contact.phone || "");
       let createdConversation = false;
       let reopened = false;
 
@@ -844,7 +844,22 @@ export class InboundProcessor {
           .onConflictDoNothing();
       }
 
-      // 5. Inserção da Mensagem Recebida (messages)
+      // 5. Inserção da Mensagem Recebida (messages) — garante monotonicidade contra truncamento de segundos da Meta
+      const [latestConvMsg] = await db
+        .select({ sentAt: messages.sentAt })
+        .from(messages)
+        .where(and(eq(messages.tenantId, tenantId), eq(messages.conversationId, activeConv.id)))
+        .orderBy(desc(messages.sentAt))
+        .limit(1);
+      const latestConvMsgMs = Math.max(
+        latestConvMsg?.sentAt ? new Date(latestConvMsg.sentAt).getTime() : 0,
+        activeConv.lastMessageTime ? new Date(activeConv.lastMessageTime).getTime() : 0,
+      );
+      const rawTimestampMs = timestamp.getTime();
+      const effectiveTimestamp =
+        latestConvMsgMs > 0 && rawTimestampMs <= latestConvMsgMs && latestConvMsgMs - rawTimestampMs <= 120_000
+          ? new Date(latestConvMsgMs + 1)
+          : timestamp;
       const messageId =
         "msg_in_" +
         crypto
@@ -915,7 +930,7 @@ export class InboundProcessor {
         provider,
         externalId: externalEventId || null,
         status: "accepted",
-        sentAt: timestamp,
+        sentAt: effectiveTimestamp,
         updatedAt: timestamp,
       });
 

@@ -465,6 +465,41 @@ function composeValentinaMessagesWithTodayWelcome(
   return [...olderMessages, welcomeMsg, ...todayMessages];
 }
 
+function getMaxMessageTimestampMs(messages: Message[] | undefined): number {
+  if (!messages || messages.length === 0) return 0;
+  let maxMs = 0;
+  for (const m of messages) {
+    if (!m?.sentAtISO) continue;
+    const ms = new Date(m.sentAtISO).getTime();
+    if (!Number.isNaN(ms) && ms > maxMs) maxMs = ms;
+  }
+  return maxMs;
+}
+
+function buildMonotonicMessageTime(
+  existingMessages: Message[] | undefined,
+  preferredIso?: string | null,
+): { sentAtISO: string; time: string; date: string } {
+  const maxExistingMs = getMaxMessageTimestampMs(existingMessages);
+  const preferredMs = preferredIso ? new Date(preferredIso).getTime() : NaN;
+  const baseMs = !Number.isNaN(preferredMs) ? preferredMs : Date.now();
+  const effectiveMs = !Number.isNaN(preferredMs)
+    ? Math.max(preferredMs, maxExistingMs > 0 && maxExistingMs - preferredMs <= 120_000 ? maxExistingMs + 1 : preferredMs)
+    : Math.max(baseMs, maxExistingMs + 1);
+  const d = new Date(effectiveMs);
+  return {
+    sentAtISO: d.toISOString(),
+    time: d.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Sao_Paulo",
+    }),
+    date: d.toLocaleDateString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+    }),
+  };
+}
+
 function mergeRecentMessages(current: Message[], incoming: Message[]): Message[] {
   if (!incoming.length) return current;
   const merged = new Map(current.map((message) => [message.id, message]));
@@ -473,7 +508,7 @@ function mergeRecentMessages(current: Message[], incoming: Message[]): Message[]
   }
   return Array.from(merged.values()).sort((a, b) => {
     if (!a.sentAtISO || !b.sentAtISO) return 0;
-    return a.sentAtISO.localeCompare(b.sentAtISO);
+    return a.sentAtISO.localeCompare(b.sentAtISO) || a.id.localeCompare(b.id);
   });
 }
 
@@ -3082,7 +3117,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ? `pending-${clientMessageId}` : null;
     if (optimisticMessageId) {
       const pendingTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-      const nowIso = new Date().toISOString();
+      const optTime = buildMonotonicMessageTime(currentChat.messages);
+      const nowIso = optTime.sentAtISO;
       setConversations((previous) =>
         previous.map((chat) =>
           chat.id === targetChatId
@@ -3114,6 +3150,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let sentTextMessageId: string | undefined;
     let sentTextStatus: string | undefined;
     let sentRenderedText: string | undefined;
+    let sentTextSentAtISO: string | undefined;
+    const sentAttachmentSentAtISOs: string[] = [];
     const sentAttachmentMessageIds: string[] = [];
     const sentAttachmentStatuses: string[] = [];
     const sentAttachmentMediaContents: string[] = [];
@@ -3174,6 +3212,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           sentTextMessageId = sendResult.messageId;
           sentTextStatus = sendResult.status;
           sentRenderedText = typeof sendResult.renderedText === "string" ? sendResult.renderedText : undefined;
+          sentTextSentAtISO = typeof sendResult.sentAtISO === "string" ? sendResult.sentAtISO : undefined;
           partAlreadySent = true;
         }
 
@@ -3203,6 +3242,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               sentAttachmentMessageIds.push(mediaResult.messageId || "");
               sentAttachmentStatuses.push(mediaResult.status || "");
               sentAttachmentMediaContents.push(mediaResult.mediaContent || "");
+              sentAttachmentSentAtISOs.push(mediaResult.sentAtISO || "");
               partAlreadySent = true;
             } catch (err) {
               console.error("Falha ao enviar anexo:", err);
@@ -3272,6 +3312,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         const savedMessage = await response.json().catch(() => ({}));
         sentTextMessageId = savedMessage.id;
+        sentTextSentAtISO = typeof savedMessage.sentAtISO === "string" ? savedMessage.sentAtISO : undefined;
       } catch (err) {
         console.error("Falha ao salvar mensagem local no banco:", err);
         toast.error("Falha ao salvar mensagem local no banco.");
@@ -3280,6 +3321,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+    const latestCurrentChat = conversationsRef.current.find((c) => c.id === targetChatId) || currentChat;
+    const baseExistingMsgs = (latestCurrentChat?.messages || []).filter((m) => m.id !== optimisticMessageId);
+    const resolvedTextStamp = buildMonotonicMessageTime(baseExistingMsgs, sentTextSentAtISO);
 
     // Mensagem de texto (só adiciona se tiver conteúdo)
     const messagesToAdd: Message[] = [];
@@ -3294,7 +3339,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         author: isInternalNote ? operatorProfile.name : "Você",
         text: metaTemplate ? sentRenderedText || `[Template Meta: ${metaTemplate.name}]` : text,
         time: now,
-        sentAtISO: new Date().toISOString(),
+        sentAtISO: resolvedTextStamp.sentAtISO,
+        date: resolvedTextStamp.date,
         side: "out",
         isInternalNote,
         quotedMessageId: quotedMessage?.id || null,
@@ -3322,6 +3368,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : `[LOCAL_MEDIA:${mediaType}:${URL.createObjectURL(file)}:${fileName}]`;
 
         const attachQuote = !text.trim() && !metaTemplate && i === 0;
+        const attStamp = buildMonotonicMessageTime([...baseExistingMsgs, ...messagesToAdd], sentAttachmentSentAtISOs[i]);
 
         messagesToAdd.push({
           id: sentAttachmentMessageIds[i] || `msg-media-${Date.now()}-${i}`,
@@ -3329,7 +3376,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           author: "Você",
           text: mediaText,
           time: now,
-          sentAtISO: new Date().toISOString(),
+          sentAtISO: attStamp.sentAtISO,
+          date: attStamp.date,
           side: "out",
           isInternalNote: false,
           quotedMessageId: attachQuote ? quotedMessage?.id || null : null,
@@ -3354,6 +3402,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 id: sentTextMessageId || m.id,
                 clientMessageId,
                 status: sentTextStatus || "sent",
+                sentAtISO: resolvedTextStamp.sentAtISO,
+                time: resolvedTextStamp.time,
+        date: resolvedTextStamp.date,
                 provider: sentProvider,
               };
             }
@@ -4497,9 +4548,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   const updatedList =
                     matchIdx !== -1
                       ? c.messages.map((m, i) =>
-                          i === matchIdx ? { ...m, ...incomingMsg, id: incomingMsg.id } : m,
+                          i === matchIdx ? { ...m, ...incomingMsg, ...buildMonotonicMessageTime(c.messages.filter((_, idx) => idx !== matchIdx), sentAtIso), id: incomingMsg.id } : m,
                         )
-                      : [...c.messages, incomingMsg];
+                      : [...c.messages, { ...incomingMsg, ...buildMonotonicMessageTime(c.messages, sentAtIso) }];
 
                   return {
                   ...c,

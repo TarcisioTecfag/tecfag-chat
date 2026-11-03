@@ -63,7 +63,7 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
             .select()
             .from(messages)
             .where(and(...conditions))
-            .orderBy(desc(messages.sentAt))
+            .orderBy(desc(messages.sentAt), desc(messages.id))
             .limit(limit + 1); // Pede 1 a mais para saber se tem mais páginas
 
           const hasMore = rawRows.length > limit;

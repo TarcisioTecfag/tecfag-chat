@@ -1379,7 +1379,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const byId = new Map(current.messages.map((message) => [message.id, message]));
             for (const message of data.messages as Message[]) byId.set(message.id, message);
             const messages = Array.from(byId.values()).sort((a, b) =>
-              (a.sentAtISO || "").localeCompare(b.sentAtISO || ""));
+              (a.sentAtISO || "").localeCompare(b.sentAtISO || "") || a.id.localeCompare(b.id));
             return { chatId, messages, nextCursor: current.nextCursor || data.nextCursor };
           });
         })
@@ -1404,12 +1404,12 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     }
     for (const message of activeChat.messages) {
       const prev = map.get(message.id);
-      map.set(message.id, { ...prev, ...message, conversationId: activeChat.id, reactions: message.reactions ?? prev?.reactions });
+      map.set(message.id, { ...prev, ...message, sentAtISO: prev?.sentAtISO || message.sentAtISO, time: prev?.time || message.time, date: prev?.date || message.date, conversationId: activeChat.id, reactions: message.reactions ?? prev?.reactions });
     }
     return Array.from(map.values()).sort((a, b) => {
       if (!a.sentAtISO) return 1;
       if (!b.sentAtISO) return -1;
-      return a.sentAtISO.localeCompare(b.sentAtISO);
+      return a.sentAtISO.localeCompare(b.sentAtISO) || a.id.localeCompare(b.id);
     });
   }, [activeChat?.id, activeChat?.messages, history, unifiedHistory.messages]);
 

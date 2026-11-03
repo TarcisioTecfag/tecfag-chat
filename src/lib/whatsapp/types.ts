@@ -33,6 +33,7 @@ export interface UniversalOutboundResult {
   status: DeliveryStatus;
   error?: string;
   code?: string;
+  sentAtISO?: string;
 }
 
 export interface UniversalInboundMedia {

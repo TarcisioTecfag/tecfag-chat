@@ -22,6 +22,7 @@ export function storedResult(msg: typeof messages.$inferSelect): UniversalOutbou
       : msg.status) as UniversalOutboundResult["status"],
     externalId: msg.externalId || undefined,
     error: msg.errorMessage || undefined,
+    sentAtISO: msg.sentAt ? new Date(msg.sentAt).toISOString() : new Date().toISOString(),
   };
 }
 

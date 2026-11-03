@@ -256,7 +256,7 @@ export const Route = createFileRoute("/api/chats")({
             })();
           }
 
-          return new Response(JSON.stringify({ success: true, id: msgId }), {
+          return new Response(JSON.stringify({ success: true, id: msgId, sentAtISO: now.toISOString() }), {
             status: 200,
             headers: corsHeaders,
           });

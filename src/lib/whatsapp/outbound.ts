@@ -2,7 +2,7 @@ import { dispatchStored, storedResult } from "./dispatch";
 import { outboundEnvelope } from "./envelope";
 import { db } from "../../db";
 import { messages, conversations, channelConfigs } from "../../db/schema";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, desc } from "drizzle-orm";
 import { UniversalOutboundMessage, UniversalOutboundResult, WhatsAppProviderType } from "./types";
 
 import { getMetaServiceWindow } from "./meta-policy";
@@ -40,7 +40,14 @@ export class OutboundQueue {
     }
 
     const messageId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const now = new Date();
+    const [latestMsg] = await db
+      .select({ sentAt: messages.sentAt })
+      .from(messages)
+      .where(and(eq(messages.tenantId, tenantId), eq(messages.conversationId, conversationId)))
+      .orderBy(desc(messages.sentAt))
+      .limit(1);
+    const latestSentAtMs = latestMsg?.sentAt ? new Date(latestMsg.sentAt).getTime() : 0;
+    const now = new Date(Math.max(Date.now(), latestSentAtMs + 1));
 
     function isIdempotencyConflict(err: any): boolean {
       const code = err?.code || err?.cause?.code;
@@ -98,6 +105,7 @@ export class OutboundQueue {
         success: true,
         messageId,
         status: "accepted",
+        sentAtISO: now.toISOString(),
       };
     }
 
@@ -209,7 +217,7 @@ export class OutboundQueue {
     }
 
     return (
-      (await dispatchStored(tenantId, messageId)) || {
+      (await dispatchStored(tenantId, messageId)) || { sentAtISO: now.toISOString(),
         success: true,
         messageId,
         status: "pending",
