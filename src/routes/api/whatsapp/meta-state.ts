@@ -6,7 +6,12 @@ import { channelConfigs, conversations } from "../../../db/schema";
 import { requireSession } from "../../../lib/auth-session";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { getMetaServiceWindow } from "../../../lib/whatsapp/meta-policy";
-import { listMetaTemplateGroups } from "../../../lib/whatsapp/meta-templates";
+import {
+  filterMetaTemplatesForContext,
+  getMetaTemplatesRestrictByStage,
+  listMetaTemplateGroups,
+  resolveConversationActiveDealStage,
+} from "../../../lib/whatsapp/meta-templates";
 import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 
 export const Route = createFileRoute("/api/whatsapp/meta-state")({
@@ -41,15 +46,36 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
           return Response.json({ activeProvider: "meta", window });
         }
         try {
-          const [templates, groups] = await Promise.all([
+          const preferredDealId = url.searchParams.get("dealId");
+          const [allTemplates, groups, restrictByStage, dealStage] = await Promise.all([
             metaAdapter.listApprovedTemplates(tenantId),
             listMetaTemplateGroups(tenantId),
+            getMetaTemplatesRestrictByStage(tenantId),
+            resolveConversationActiveDealStage(tenantId, conversationId, preferredDealId),
           ]);
+          const templates = filterMetaTemplatesForContext(allTemplates, groups, restrictByStage, dealStage);
+          const visibleGroupNames = new Set<string>();
+          for (const g of groups) {
+            if (!restrictByStage) {
+              visibleGroupNames.add(g.name);
+            }
+          }
+          for (const t of templates) {
+            for (const gName of t.customGroups || []) {
+              visibleGroupNames.add(gName);
+            }
+          }
           return Response.json({
             activeProvider: "meta",
             window,
             templates,
-            customGroups: groups.map((g) => g.name),
+            customGroups: Array.from(visibleGroupNames),
+            stageFilterMeta: {
+              restricted: restrictByStage,
+              totalCount: allTemplates.length,
+              filteredCount: templates.length,
+              ...dealStage,
+            },
           });
         } catch (error: any) {
           return Response.json({ error: error.message || "Falha ao consultar templates da Meta" }, { status: 502 });

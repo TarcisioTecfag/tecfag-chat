@@ -84,7 +84,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId")({
 
           const { dealId } = params as { dealId: string };
           const body = await request.json();
-          const transitionDenied = await requireCrmTransitionAccess(session, body);
+          const transitionDenied = await requireCrmTransitionAccess(session, body, { dealId });
           if (transitionDenied) return transitionDenied;
 
           // Validações de permissões específicas

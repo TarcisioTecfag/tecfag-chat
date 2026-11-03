@@ -5,25 +5,206 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export const BRAZIL_DDDS = new Set(
+  "11 12 13 14 15 16 17 18 19 21 22 24 27 28 31 32 33 34 35 37 38 41 42 43 44 45 46 47 48 49 51 53 54 55 61 62 63 64 65 66 67 68 69 71 73 74 75 77 79 81 82 83 84 85 86 87 88 89 91 92 93 94 95 96 97 98 99".split(
+    " ",
+  ),
+);
+
+export interface PhoneCountryOption {
+  code: string;
+  ddi: string;
+  flag: string;
+  name: string;
+  placeholder: string;
+  maxNationalDigits: number;
+}
+
+export const PHONE_COUNTRIES: PhoneCountryOption[] = [
+  { code: "BR", ddi: "55", flag: "🇧🇷", name: "Brasil", placeholder: "(14) 99999-9999", maxNationalDigits: 11 },
+  { code: "US", ddi: "1", flag: "🇺🇸", name: "EUA / Canadá", placeholder: "(305) 555-0123", maxNationalDigits: 10 },
+  { code: "PY", ddi: "595", flag: "🇵🇾", name: "Paraguai", placeholder: "981 123 456", maxNationalDigits: 10 },
+  { code: "AR", ddi: "54", flag: "🇦🇷", name: "Argentina", placeholder: "9 11 1234-5678", maxNationalDigits: 11 },
+  { code: "UY", ddi: "598", flag: "🇺🇾", name: "Uruguai", placeholder: "99 123 456", maxNationalDigits: 9 },
+  { code: "CL", ddi: "56", flag: "🇨🇱", name: "Chile", placeholder: "9 1234 5678", maxNationalDigits: 9 },
+  { code: "CO", ddi: "57", flag: "🇨🇴", name: "Colômbia", placeholder: "300 123 4567", maxNationalDigits: 10 },
+  { code: "PE", ddi: "51", flag: "🇵🇪", name: "Peru", placeholder: "912 345 678", maxNationalDigits: 9 },
+  { code: "BO", ddi: "591", flag: "🇧🇴", name: "Bolívia", placeholder: "7123 4567", maxNationalDigits: 8 },
+  { code: "MX", ddi: "52", flag: "🇲🇽", name: "México", placeholder: "55 1234 5678", maxNationalDigits: 10 },
+  { code: "PT", ddi: "351", flag: "🇵🇹", name: "Portugal", placeholder: "912 345 678", maxNationalDigits: 9 },
+  { code: "ES", ddi: "34", flag: "🇪🇸", name: "Espanha", placeholder: "612 345 678", maxNationalDigits: 9 },
+  { code: "CN", ddi: "86", flag: "🇨🇳", name: "China", placeholder: "138 0013 8000", maxNationalDigits: 11 },
+  { code: "INTL", ddi: "", flag: "🌐", name: "Outro país (+DDI)", placeholder: "+44 7911 123456", maxNationalDigits: 15 },
+];
+
+/**
+ * Verifica se uma sequência de 10 ou 11 dígitos corresponde a um número nacional brasileiro válido
+ * (DDD válido + 8 dígitos de fixo/móvel legado ou 9 dígitos iniciando por 9).
+ */
+export function isValidBrazilNationalPhone(digits: string): boolean {
+  if (digits.length !== 10 && digits.length !== 11) return false;
+  if (!BRAZIL_DDDS.has(digits.slice(0, 2))) return false;
+  return digits.length === 10 ? /^[2-9]\d{7}$/.test(digits.slice(2)) : /^9\d{8}$/.test(digits.slice(2));
+}
+
+/**
+ * Verifica se uma sequência de 11 dígitos é um número NANP válido (EUA/Canadá: DDI 1 + Area Code N[0-8]X + 7 dígitos).
+ * Como nenhum Area Code da América do Norte possui '9' como segundo dígito (N9X são reservados) e todo celular
+ * brasileiro de 11 dígitos possui obrigatoriamente '9' como 3º dígito (DDD + 9...), os conjuntos são 100% disjuntos.
+ */
+export function isNanpPhoneNumber(digits: string): boolean {
+  return /^1[2-9][0-8]\d{8}$/.test(digits);
+}
+
+/**
+ * Detecta números NANP (EUA/Canadá) de 11 dígitos que receberam prefixo '55' por engano (13 dígitos iniciando com 551).
+ * No Brasil, nenhum celular válido de 13 dígitos começa com '551' seguido de dígito != 9 na 5ª posição.
+ */
+export function isCorruptedNanpWith55(digits: string): boolean {
+  return digits.length === 13 && digits.startsWith("551") && isNanpPhoneNumber(digits.slice(2));
+}
+
+/**
+ * Detecta o país e os dígitos nacionais a partir de um telefone bruto ou canônico.
+ */
+export function detectPhoneCountry(rawPhone: string | null | undefined): {
+  country: PhoneCountryOption;
+  nationalDigits: string;
+} {
+  const brCountry = PHONE_COUNTRIES[0];
+  if (!rawPhone || !rawPhone.trim()) {
+    return { country: brCountry, nationalDigits: "" };
+  }
+
+  const trimmed = rawPhone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+
+  if (isCorruptedNanpWith55(digits)) {
+    const usCountry = PHONE_COUNTRIES.find((c) => c.code === "US")!;
+    return { country: usCountry, nationalDigits: digits.slice(3) };
+  }
+
+  if (trimmed.startsWith("+")) {
+    const sortedWithDdi = [...PHONE_COUNTRIES]
+      .filter((c) => c.ddi.length > 0)
+      .sort((a, b) => b.ddi.length - a.ddi.length);
+
+    for (const option of sortedWithDdi) {
+      if (digits.startsWith(option.ddi)) {
+        return {
+          country: option,
+          nationalDigits: digits.slice(option.ddi.length, option.ddi.length + option.maxNationalDigits),
+        };
+      }
+    }
+
+    const intlCountry = PHONE_COUNTRIES.find((c) => c.code === "INTL")!;
+    return { country: intlCountry, nationalDigits: digits.slice(0, 15) };
+  }
+
+  if (isNanpPhoneNumber(digits)) {
+    const usCountry = PHONE_COUNTRIES.find((c) => c.code === "US")!;
+    return { country: usCountry, nationalDigits: digits.slice(1, 11) };
+  }
+
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13) && isValidBrazilNationalPhone(digits.slice(2))) {
+    return { country: brCountry, nationalDigits: digits.slice(2, 13) };
+  }
+
+  if (digits.length <= 11 && (digits.length < 10 || isValidBrazilNationalPhone(digits) || BRAZIL_DDDS.has(digits.slice(0, 2)))) {
+    return { country: brCountry, nationalDigits: digits.slice(0, 11) };
+  }
+
+  const nonBrSorted = [...PHONE_COUNTRIES]
+    .filter((c) => c.ddi.length > 0 && c.code !== "BR")
+    .sort((a, b) => b.ddi.length - a.ddi.length);
+
+  for (const option of nonBrSorted) {
+    if (digits.startsWith(option.ddi) && digits.length >= option.ddi.length + 7) {
+      return {
+        country: option,
+        nationalDigits: digits.slice(option.ddi.length, option.ddi.length + option.maxNationalDigits),
+      };
+    }
+  }
+
+  return { country: brCountry, nationalDigits: digits.slice(0, 11) };
+}
+
+/**
+ * Formata dígitos nacionais de acordo com o país selecionado.
+ */
+export function formatNationalPhoneByCountry(nationalDigits: string, countryCode: string): string {
+  const digits = nationalDigits.replace(/\D/g, "");
+  if (!digits) return "";
+
+  if (countryCode === "BR") {
+    const d = digits.slice(0, 11);
+    if (d.length <= 2) return `(${d}`;
+    if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+    if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  }
+
+  if (countryCode === "US") {
+    const d = digits.slice(0, 10);
+    if (d.length <= 3) return `(${d}`;
+    if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6, 10)}`;
+  }
+
+  if (countryCode === "PY") {
+    const d = digits.slice(0, 10);
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return `${d.slice(0, 3)} ${d.slice(3)}`;
+    return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+  }
+
+  if (countryCode === "AR") {
+    const d = digits.slice(0, 11);
+    if (d.length <= 2) return d;
+    if (d.length <= 6) return `${d.slice(0, 2)} ${d.slice(2)}`;
+    return `${d.slice(0, 2)} ${d.slice(2, 6)}-${d.slice(6)}`;
+  }
+
+  const option = PHONE_COUNTRIES.find((c) => c.code === countryCode);
+  const maxLen = option?.maxNationalDigits ?? 15;
+  const d = digits.slice(0, maxLen);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)} ${d.slice(3)}`;
+  if (d.length <= 10) return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+  return `${d.slice(0, 3)} ${d.slice(3, 7)} ${d.slice(7)}`;
+}
+
 /**
  * Normaliza um número de telefone para o formato canônico E.164 (apenas dígitos).
- * Se for um número brasileiro (10 ou 11 dígitos: DDD + número), adiciona o DDI 55.
- * Se já começar com 55 e tiver 12 ou 13 dígitos, preserva.
+ * - Preserva números internacionais (+1 EUA/Canadá, +595 Paraguai, +54 Argentina, etc.).
+ * - Auto-cura números NANP de 13 dígitos que receberam 55 por engano (551... -> 1...).
+ * - Se for um número brasileiro válido (10 ou 11 dígitos: DDD + número), adiciona o DDI 55.
  */
 export function normalizeCanonicalPhone(phone: string | null | undefined): string {
   if (!phone) return "";
-  const digits = phone.replace(/\D/g, "");
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, "");
   if (!digits) return "";
 
-  if (phone.trim().startsWith("+") && !digits.startsWith("55")) return digits;
+  if (isCorruptedNanpWith55(digits)) {
+    return digits.slice(2);
+  }
+
+  if (trimmed.startsWith("+") && !digits.startsWith("55")) return digits;
+
+  if (isNanpPhoneNumber(digits)) {
+    return digits;
+  }
 
   // Se já tem 12 ou 13 dígitos e começa com 55, é Brasil canônico
   if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
     return digits;
   }
 
-  // Se tem 10 dígitos (DDD + 8 dígitos) ou 11 dígitos (DDD + 9 dígitos), adiciona DDI 55
-  if (digits.length === 10 || digits.length === 11) {
+  // Se tem 10 dígitos (DDD + 8 dígitos) ou 11 dígitos (DDD + 9 dígitos) brasileiros válidos, adiciona DDI 55
+  if (isValidBrazilNationalPhone(digits)) {
     return `55${digits}`;
   }
 
@@ -31,19 +212,33 @@ export function normalizeCanonicalPhone(phone: string | null | undefined): strin
 }
 
 /**
- * Gera variantes de busca para números de telefone (com/sem DDI 55 e com/sem o 9º dígito).
- * Cobre cenários em que o WhatsApp envia 55 + DDD + 9 + 8 dígitos mas a base tem outra variante.
+ * Gera variantes de busca para números de telefone (com/sem DDI 55 e com/sem o 9º dígito para Brasil,
+ * ou variantes E.164 + auto-cura para números internacionais).
  */
 export function buildPhoneSearchTerms(rawPhone: string | null | undefined): string[] {
   if (!rawPhone) return [];
-  const clean = rawPhone.replace(/\D/g, "");
+  const trimmed = rawPhone.trim();
+  const clean = trimmed.replace(/\D/g, "");
   if (!clean) return [];
+
+  // Tratamento para número NANP corrompido com 55 (ex: 5513055551234) ou NANP legítimo (13055551234)
+  if (isCorruptedNanpWith55(clean)) {
+    const healed = clean.slice(2);
+    return [healed, clean, healed.slice(1)];
+  }
+
+  if (trimmed.startsWith("+") && !clean.startsWith("55")) {
+    return [clean];
+  }
+
+  if (isNanpPhoneNumber(clean)) {
+    return [clean, `55${clean}`];
+  }
 
   // Normaliza para sem DDI
   const withoutDDI = clean.startsWith("55") && clean.length >= 12 ? clean.slice(2) : clean;
   // Só interpreta DDD em números brasileiros completos. DDD 55 também recebe DDI 55.
   if (withoutDDI.length !== 10 && withoutDDI.length !== 11) return [clean];
-  if (rawPhone.trim().startsWith("+") && !clean.startsWith("55")) return [clean];
   if (phoneRegistrationError(rawPhone)) return [clean];
   const withDDI = `55${withoutDDI}`;
 
@@ -70,8 +265,13 @@ export function buildPhoneSearchTerms(rawPhone: string | null | undefined): stri
 
 /** Número local serve apenas para sugestões; nunca para vincular automaticamente. */
 export function localPhoneSearchTerms(rawPhone: string): string[] {
-  const digits = rawPhone.replace(/\D/g, "");
+  const trimmed = rawPhone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (trimmed.startsWith("+") && !digits.startsWith("55")) return [];
+  if (isNanpPhoneNumber(digits) || isCorruptedNanpWith55(digits)) return [];
+
   const national = digits.startsWith("55") && [12, 13].includes(digits.length) ? digits.slice(2) : digits;
+  if ([10, 11].includes(national.length) && !BRAZIL_DDDS.has(national.slice(0, 2))) return [];
   const local = [10, 11].includes(national.length) ? national.slice(2) : national;
   if (![8, 9].includes(local.length)) return [];
   const terms = new Set([local]);
@@ -80,25 +280,60 @@ export function localPhoneSearchTerms(rawPhone: string): string[] {
   return [...terms];
 }
 
-const BRAZIL_DDDS = new Set("11 12 13 14 15 16 17 18 19 21 22 24 27 28 31 32 33 34 35 37 38 41 42 43 44 45 46 47 48 49 51 53 54 55 61 62 63 64 65 66 67 68 69 71 73 74 75 77 79 81 82 83 84 85 86 87 88 89 91 92 93 94 95 96 97 98 99".split(" "));
-
 export function phoneRegistrationError(rawPhone: string | null | undefined): string | null {
   if (!rawPhone?.trim()) return null;
-  const digits = rawPhone.replace(/\D/g, "");
-  if (rawPhone.trim().startsWith("+") && !digits.startsWith("55")) {
-    return /^[1-9]\d{9,14}$/.test(digits) ? null : "Informe o telefone internacional completo com código do país e da região.";
+  const trimmed = rawPhone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+
+  if (isNanpPhoneNumber(digits) || isCorruptedNanpWith55(digits)) {
+    return null;
   }
+
+  if (trimmed.startsWith("+") && !digits.startsWith("55")) {
+    if (digits.startsWith("1")) {
+      return /^1[2-9]\d{9}$/.test(digits)
+        ? null
+        : "Informe o telefone dos EUA/Canadá com código de área (10 dígitos após +1).";
+    }
+    return /^[1-9]\d{8,14}$/.test(digits)
+      ? null
+      : "Informe o telefone internacional completo com código do país e da região.";
+  }
+
   const national = digits.startsWith("55") && [12, 13].includes(digits.length) ? digits.slice(2) : digits;
   if (![10, 11].includes(national.length) || !BRAZIL_DDDS.has(national.slice(0, 2))) {
     return "Informe o telefone com DDD. O número sem DDD serve apenas para buscar possíveis contatos existentes.";
   }
-  if (!/^[2-9]\d{7}$/.test(national.slice(2)) && !/^9\d{8}$/.test(national.slice(2))) return "Telefone inválido. Confira o DDD e o número.";
+  if (!/^[2-9]\d{7}$/.test(national.slice(2)) && !/^9\d{8}$/.test(national.slice(2)))
+    return "Telefone inválido. Confira o DDD e o número.";
   return null;
 }
 
 export function maskPhone(val: string): string {
   if (!val) return "";
-  let digits = val.replace(/\D/g, "");
+  const trimmed = val.trim();
+  let digits = trimmed.replace(/\D/g, "");
+  if (!digits) return trimmed.startsWith("+") ? "+" : "";
+
+  if (isCorruptedNanpWith55(digits)) {
+    const usDigits = digits.slice(3);
+    return `+1 ${formatNationalPhoneByCountry(usDigits, "US")}`.trim();
+  }
+
+  if (trimmed.startsWith("+") && !digits.startsWith("55")) {
+    const detected = detectPhoneCountry(trimmed);
+    if (detected.country.ddi) {
+      const formattedNational = formatNationalPhoneByCountry(detected.nationalDigits, detected.country.code);
+      return formattedNational ? `+${detected.country.ddi} ${formattedNational}` : `+${detected.country.ddi}`;
+    }
+    return `+${digits.slice(0, 15)}`;
+  }
+
+  if (isNanpPhoneNumber(digits)) {
+    const usDigits = digits.slice(1);
+    return `+1 ${formatNationalPhoneByCountry(usDigits, "US")}`.trim();
+  }
+
   if (digits.startsWith("55") && digits.length > 11) {
     digits = digits.slice(2);
   }
@@ -113,10 +348,10 @@ export function maskPhone(val: string): string {
 
 export function formatPhoneNumber(phone: string | null | undefined): string {
   if (!phone) return "Não informado";
-  
+
   // Trata JIDs e strings com formatos mistos
   const clean = phone.replace(/[^\d-]/g, "");
-  
+
   // Se for "status" (do WhatsApp Status Broadcast)
   if (phone.toLowerCase().includes("status")) {
     return "Status WhatsApp";
@@ -126,18 +361,33 @@ export function formatPhoneNumber(phone: string | null | undefined): string {
   if (phone.includes("-") || phone.startsWith("1203")) {
     const parts = phone.split("-");
     const mainId = parts[0];
-    
+
     // Se for grupo criado por um número de telefone brasileiro
-    if (mainId.startsWith("55") && (mainId.length === 12 || mainId.length === 13)) {
+    if (mainId.startsWith("55") && (mainId.length === 12 || mainId.length === 13) && !isCorruptedNanpWith55(mainId)) {
       return `Grupo (Criador: ${formatPhoneNumber(mainId)})`;
     }
     return `Grupo (ID: ${phone.slice(0, 8)}...)`;
   }
-  
+
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return phone;
+
+  // Auto-cura visual para números dos EUA que receberam 55 por engano (5513055551234 -> +1 (305) 555-1234)
+  if (isCorruptedNanpWith55(digits)) {
+    const usNational = digits.slice(3);
+    return `+1 (${usNational.slice(0, 3)}) ${usNational.slice(3, 6)}-${usNational.slice(6, 10)}`;
+  }
+
+  // Número dos EUA/Canadá (+1 NANP de 11 dígitos)
+  if (isNanpPhoneNumber(digits) || (phone.trim().startsWith("+1") && digits.length === 11 && digits.startsWith("1"))) {
+    const usNational = digits.slice(1);
+    return `+1 (${usNational.slice(0, 3)}) ${usNational.slice(3, 6)}-${usNational.slice(6, 10)}`;
+  }
+
   // Se for um número de telefone brasileiro com código do país (55...)
-  if (clean.startsWith("55") && (clean.length === 12 || clean.length === 13)) {
-    const ddd = clean.slice(2, 4);
-    const number = clean.slice(4);
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    const ddd = digits.slice(2, 4);
+    const number = digits.slice(4);
     if (number.length === 9) {
       return `+55 (${ddd}) ${number.slice(0, 5)}-${number.slice(5)}`;
     } else if (number.length === 8) {
@@ -146,18 +396,35 @@ export function formatPhoneNumber(phone: string | null | undefined): string {
   }
 
   // Se for um número brasileiro sem o DDI 55 (10 ou 11 dígitos)
-  if (clean.length === 10 || clean.length === 11) {
-    const ddd = clean.slice(0, 2);
-    const number = clean.slice(2);
+  if (!phone.trim().startsWith("+") && (digits.length === 10 || digits.length === 11) && isValidBrazilNationalPhone(digits)) {
+    const ddd = digits.slice(0, 2);
+    const number = digits.slice(2);
     if (number.length === 9) {
       return `+55 (${ddd}) ${number.slice(0, 5)}-${number.slice(5)}`;
     } else if (number.length === 8) {
       return `+55 (${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`;
     }
   }
-  
+
+  // Outros países conhecidos na lista PHONE_COUNTRIES
+  const detected = detectPhoneCountry(phone.startsWith("+") ? phone : `+${digits}`);
+  if (detected.country.ddi && detected.country.code !== "BR" && detected.nationalDigits) {
+    return `+${detected.country.ddi} ${formatNationalPhoneByCountry(detected.nationalDigits, detected.country.code)}`;
+  }
+
+  // Fallback para 10 ou 11 dígitos sem '+' que não bateram em outro país
+  if (!phone.trim().startsWith("+") && (digits.length === 10 || digits.length === 11)) {
+    const ddd = digits.slice(0, 2);
+    const number = digits.slice(2);
+    if (number.length === 9) {
+      return `+55 (${ddd}) ${number.slice(0, 5)}-${number.slice(5)}`;
+    } else if (number.length === 8) {
+      return `+55 (${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`;
+    }
+  }
+
   // Se for qualquer outro número de telefone
-  return `+${clean}`;
+  return `+${digits}`;
 }
 
 
@@ -293,5 +560,3 @@ export function matchesQuickResponseSearch(
     normContent.includes(cleanQ)
   );
 }
-
-

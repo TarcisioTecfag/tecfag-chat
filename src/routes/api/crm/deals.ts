@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
-import { getAllowedPipelineIds, isPipelineAllowed, requireCrmPermission } from "../../../lib/rbac";
+import {
+  getAllowedPipelineIds,
+  getAllowedStageIdsByPipelineMap,
+  isPipelineAllowed,
+  isStageVisibleToSession,
+  requireCrmPermission,
+} from "../../../lib/rbac";
 import { crmService, handleCrmError, parseExtraDealFilters } from "../../../lib/crm/crm-service";
 
 const corsHeaders = {
@@ -45,6 +51,16 @@ export const Route = createFileRoute("/api/crm/deals")({
           }
 
           const stageId = url.searchParams.get("stageId") || undefined;
+          if (pipelineId && stageId && !isStageVisibleToSession(session, pipelineId, stageId)) {
+            return new Response(
+              JSON.stringify({
+                error: "Permissão insuficiente: seu grupo não possui visibilidade sobre esta etapa.",
+                code: "FORBIDDEN",
+              }),
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+          const allowedStageIdsByPipeline = getAllowedStageIdsByPipelineMap(session);
           const stageIdsParam = url.searchParams.get("stageIds");
           const stageIds = stageIdsParam ? stageIdsParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
           const status = (url.searchParams.get("status") as any) || undefined;
@@ -94,6 +110,7 @@ export const Route = createFileRoute("/api/crm/deals")({
             ...parseExtraDealFilters(url.searchParams),
             pipelineId,
             allowedPipelineIds: allowedPipelineIds ?? undefined,
+            ...(allowedStageIdsByPipeline ? { allowedStageIdsByPipeline } : {}),
             stageId,
             stageIds,
             status,

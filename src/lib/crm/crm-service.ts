@@ -67,7 +67,7 @@ import {
   type CustomFieldValues,
   type StageContext,
 } from "./custom-fields";
-import { ensureCatalogOption, validateCatalogChoice } from "./catalogs";
+import { CatalogValidationError, ensureCatalogOption, getCatalogPolicy, validateCatalogChoice } from "./catalogs";
 import { validateAccountDocument } from "./account-validation";
 import { syncAccountDealContacts, lockContactDeals, linkContactToDeal, DealRequiredError, assertDealsCanBeRemoved } from "./deal-associations";
 import { enqueueRdCommercial } from "../rd-marketing/commercial-outbox";
@@ -244,6 +244,7 @@ export function handleCrmError(err: any, corsHeaders: Record<string, string> = {
 export interface CrmDealFilters {
   pipelineId?: string;
   allowedPipelineIds?: string[];
+  allowedStageIdsByPipeline?: Record<string, string[]>;
   stageId?: string;
   stageIds?: string[];
   status?: "open" | "won" | "lost" | "paused" | "not_paused" | "all";
@@ -414,6 +415,30 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
       conditions.push(eq(crmDeals.pipelineId, cleanAllowed[0]));
     } else {
       conditions.push(inArray(crmDeals.pipelineId, cleanAllowed));
+    }
+  }
+
+  if (
+    filters.allowedStageIdsByPipeline &&
+    typeof filters.allowedStageIdsByPipeline === "object" &&
+    !Array.isArray(filters.allowedStageIdsByPipeline)
+  ) {
+    for (const [pipeId, rawStageList] of Object.entries(filters.allowedStageIdsByPipeline)) {
+      const cleanPipeId = String(pipeId).trim();
+      if (!cleanPipeId || !Array.isArray(rawStageList)) continue;
+      const cleanStages = rawStageList.map((s: any) => String(s).trim()).filter(Boolean);
+      if (cleanStages.length === 0) {
+        conditions.push(ne(crmDeals.pipelineId, cleanPipeId));
+      } else {
+        conditions.push(
+          or(
+            ne(crmDeals.pipelineId, cleanPipeId),
+            cleanStages.length === 1
+              ? eq(crmDeals.stageId, cleanStages[0])
+              : inArray(crmDeals.stageId, cleanStages)
+          )!
+        );
+      }
     }
   }
 
@@ -1043,7 +1068,10 @@ export class CrmService {
     formattedTotalValue: string;
   }> {
     const pipeline = await this.getPipelineById(tenantId, pipelineId);
-    const stages = pipeline.stages;
+    const allowedStageIds = filters.allowedStageIdsByPipeline?.[pipelineId];
+    const stages = Array.isArray(allowedStageIds)
+      ? pipeline.stages.filter((s) => allowedStageIds.includes(s.id))
+      : pipeline.stages;
 
     const conditions = buildDealFilterConditions(tenantId, {
       ...filters,
@@ -4261,7 +4289,29 @@ export class CrmService {
           }
         }
       }
-      if (updates.lossReason !== undefined) setPayload.lossReason = updates.lossReason;
+      if (updates.lossReason !== undefined) {
+        if (updates.lossReason && updates.lossReason !== current.lossReason) {
+          try {
+            const policy = await getCatalogPolicy(tenantId, "loss_reason");
+            if (policy.restrictByStage) {
+              const contextStageId = current.stageId || updates.stageId || null;
+              const contextPipelineId = updates.pipelineId || current.pipelineId || null;
+              await validateCatalogChoice(
+                tenantId,
+                "loss_reason",
+                updates.lossReason,
+                current.lossReason,
+                { pipelineId: contextPipelineId, stageId: contextStageId },
+              );
+            }
+          } catch (err) {
+            if (err instanceof CatalogValidationError) {
+              throw new CrmValidationError(err.message, "INVALID_LOSS_REASON");
+            }
+          }
+        }
+        setPayload.lossReason = updates.lossReason;
+      }
       if (updates.pausedReason !== undefined) setPayload.pausedReason = updates.pausedReason;
 
       // Troca de Funil (Pipeline)

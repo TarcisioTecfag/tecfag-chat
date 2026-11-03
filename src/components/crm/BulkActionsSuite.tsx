@@ -1278,6 +1278,12 @@ export function BulkActionsSuite({
                 kind="loss_reason"
                 value={lossReasonText}
                 onChange={setLossReasonText}
+                pipelineId={currentPipelineId}
+                stageId={(() => {
+                  const selectedDeals = deals.filter((d) => selectedIds.has(d.id));
+                  const stageSet = new Set(selectedDeals.map((d) => d.stageId).filter(Boolean));
+                  return stageSet.size === 1 ? Array.from(stageSet)[0] : null;
+                })()}
                 placeholder="Selecione um motivo cadastrado"
               />
               <Input

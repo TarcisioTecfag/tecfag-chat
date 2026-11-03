@@ -657,21 +657,36 @@ export function CrmView() {
       dealId: string,
       newStageId: string,
       currentVersion: number,
-      terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null },
+      terminalData?: {
+        status?: "won" | "lost";
+        lossReason?: string;
+        value?: string | number | null;
+        operatorId?: string | null;
+        hiddenTarget?: boolean;
+      },
     ) => {
+      const isHiddenTarget = Boolean(
+        terminalData?.hiddenTarget ||
+          (activePipeline?.stages && !activePipeline.stages.some((s: any) => s.id === newStageId)),
+      );
+
       // Atualização otimista imediata na UI
       setDeals((prev) =>
-        prev.map((d) =>
-          d.id === dealId
-            ? {
-                ...d,
-                stageId: newStageId,
-                version: d.version + 1,
-                status: terminalData?.status || d.status,
-                value: terminalData?.value !== undefined ? terminalData.value : d.value,
-              }
-            : d,
-        ),
+        isHiddenTarget
+          ? prev.filter((d) => d.id !== dealId)
+          : prev.map((d) =>
+              d.id === dealId
+                ? {
+                    ...d,
+                    stageId: newStageId,
+                    version: d.version + 1,
+                    status: terminalData?.status || d.status,
+                    value: terminalData?.value !== undefined ? terminalData.value : d.value,
+                    operatorId:
+                      terminalData?.operatorId !== undefined ? terminalData.operatorId : d.operatorId,
+                  }
+                : d,
+            ),
       );
 
       try {
@@ -684,6 +699,7 @@ export function CrmView() {
           if (terminalData.status) payload.status = terminalData.status;
           if (terminalData.lossReason) payload.lossReason = terminalData.lossReason;
           if (terminalData.value !== undefined) payload.value = terminalData.value;
+          if (terminalData.operatorId) payload.operatorId = terminalData.operatorId;
         }
 
         const res = await fetch(`/api/crm/deals/${dealId}`, {
@@ -702,11 +718,18 @@ export function CrmView() {
         }
 
         if (!res.ok) {
-          throw new Error("Erro ao atualizar etapa.");
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Erro ao atualizar etapa.");
         }
 
         const data = await res.json();
         invalidateDealCache(dealId);
+        if (isHiddenTarget) {
+          setDeals((prev) => prev.filter((d) => d.id !== dealId));
+          fetchStagesSummary();
+          toast.success("Negociação transferida com sucesso!");
+          return;
+        }
         setDeals((prev) => prev.map((d) => (d.id === dealId ? { ...d, ...data.deal } : d)));
         fetchStagesSummary();
         const targetStage = activePipeline?.stages?.find((s: any) => s.id === newStageId);
@@ -723,7 +746,7 @@ export function CrmView() {
         }
       } catch (err: any) {
         console.error("[CrmView] Falha ao mover deal:", err);
-        toast.error("Falha ao mover negociação.");
+        toast.error(err?.message || "Falha ao mover negociação.");
         fetchDeals();
         fetchStagesSummary();
       }
@@ -959,6 +982,7 @@ export function CrmView() {
               stageSettings={stageSettings}
               stagesSummaryMap={stagesSummaryMap}
               operatorsMap={operatorsMap}
+              currentOperatorId={currentOperatorId}
               onDealClick={handleDealClick}
               onMoveDeal={handleMoveDeal}
               onNewDealAtStage={handleNewDealAtStage}

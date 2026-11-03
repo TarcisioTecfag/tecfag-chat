@@ -49,6 +49,8 @@ interface MetaTemplateSelectModalProps {
   onSend: (template: ApprovedMetaTemplate, parameters: string[]) => Promise<boolean>;
   loading?: boolean;
   inline?: boolean;
+  stageFilterActive?: boolean;
+  activeDealLabel?: string | null;
 }
 
 export function MetaTemplateSelectModal({
@@ -61,6 +63,8 @@ export function MetaTemplateSelectModal({
   onSend,
   loading = false,
   inline = true,
+  stageFilterActive = false,
+  activeDealLabel = null,
 }: MetaTemplateSelectModalProps) {
   const [search, setSearch] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<string>("ALL");
@@ -190,6 +194,11 @@ export function MetaTemplateSelectModal({
               {!selectedTemplate && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
                   {filteredTemplates.length} opções
+                </span>
+              )}
+              {!selectedTemplate && stageFilterActive && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0 truncate max-w-[220px]">
+                  Etapa do card{activeDealLabel ? ` • ${activeDealLabel}` : ""}
                 </span>
               )}
             </div>

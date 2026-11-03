@@ -44,6 +44,7 @@ import {
   UploadCloud,
   FileUp,
   Eye,
+  EyeOff,
   Pencil,
   CheckSquare,
   Utensils,
@@ -111,11 +112,14 @@ import {
 import {
   fetchDealDetailWithCache,
   fetchPipelinesCached,
+  fetchTransferPipelinesCached,
   getCachedDealDetailSync,
   getCachedPipelinesSync,
+  getCachedTransferPipelinesSync,
   getDealPreviewSync,
   invalidateDealCache,
 } from "@/lib/crm/deal-prefetch";
+import { HiddenStageTransferDialog } from "./HiddenStageTransferDialog";
 
 export function normalizeMultilineMarkdown(rawText: string): string {
   if (!rawText) return "";
@@ -1325,14 +1329,25 @@ export function DealDetailModal({
     }
   }, [isCreatingNote]);
 
-  // Lista de funis para troca rápida pelo cabeçalho
-  const [availablePipelines, setAvailablePipelines] = useState<Array<{ id: string; name: string; stages?: any[] }>>(
-    () => getCachedPipelinesSync() || [],
-  );
+  // Lista de funis para troca rápida pelo cabeçalho (inclui funis de destino sem visualização quando permitido)
+  const [availablePipelines, setAvailablePipelines] = useState<
+    Array<{ id: string; name: string; isVisible?: boolean; stages?: any[]; allStages?: any[] }>
+  >(() => getCachedTransferPipelinesSync() || getCachedPipelinesSync() || []);
+
+  // Estado para modal de transferência para etapa/funil sem visibilidade
+  const [pendingHiddenTransfer, setPendingHiddenTransfer] = useState<{
+    stageId?: string;
+    stageName: string;
+    pipelineId?: string;
+    pipelineName?: string;
+    requiresReassignment: boolean;
+    currentOperatorId: string | null;
+  } | null>(null);
+  const [savingHiddenTransfer, setSavingHiddenTransfer] = useState(false);
 
   const loadPipelines = async () => {
     try {
-      const pipelines = await fetchPipelinesCached();
+      const pipelines = await fetchTransferPipelinesCached();
       setAvailablePipelines(pipelines);
     } catch (err: any) {
       console.warn("[DealDetailModal] Falha ao carregar funis:", err);
@@ -1341,6 +1356,26 @@ export function DealDetailModal({
 
   const handleSwitchPipeline = async (targetPipelineId: string) => {
     if (!deal || targetPipelineId === deal.pipelineId) return;
+    const targetPipe = availablePipelines.find((p) => p.id === targetPipelineId);
+    const allTargetStages = targetPipe?.allStages || targetPipe?.stages || [];
+    const firstStage = [...allTargetStages].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))[0];
+    const isHiddenTarget = Boolean(
+      targetPipe?.isVisible === false || (firstStage && firstStage.isVisible === false),
+    );
+    if (isHiddenTarget) {
+      const myOpId = operatorProfile?.id || chatContext?.currentOperatorId || null;
+      const dealOwnerId = deal.operatorId || deal.ownerId || null;
+      const requiresReassignment = Boolean(!dealOwnerId || (myOpId && dealOwnerId === myOpId));
+      setPendingHiddenTransfer({
+        pipelineId: targetPipelineId,
+        pipelineName: targetPipe?.name || "Funil de destino",
+        stageId: firstStage?.id,
+        stageName: firstStage?.name || targetPipe?.name || "Etapa inicial",
+        requiresReassignment,
+        currentOperatorId: myOpId || dealOwnerId,
+      });
+      return;
+    }
     try {
       await updateDeal({ pipelineId: targetPipelineId });
       toast.success("Funil alterado com sucesso!");
@@ -1999,7 +2034,22 @@ export function DealDetailModal({
   // Mudar etapa
   const handleStageChange = async (newStageId: string) => {
     if (newStageId === deal.stageId) return;
-    const targetStage = deal?.pipeline?.stages?.find((s: any) => s.id === newStageId);
+    const allPipeStages = deal?.pipeline?.allStages || deal?.pipeline?.stages || [];
+    const targetStage = allPipeStages.find((s: any) => s.id === newStageId);
+    if (targetStage && targetStage.isVisible === false) {
+      const myOpId = operatorProfile?.id || chatContext?.currentOperatorId || null;
+      const dealOwnerId = deal.operatorId || deal.ownerId || null;
+      const requiresReassignment = Boolean(!dealOwnerId || (myOpId && dealOwnerId === myOpId));
+      setPendingHiddenTransfer({
+        stageId: newStageId,
+        stageName: targetStage.name || "Etapa de destino",
+        pipelineId: deal.pipelineId || deal.pipeline?.id,
+        pipelineName: deal.pipeline?.name,
+        requiresReassignment,
+        currentOperatorId: myOpId || dealOwnerId,
+      });
+      return;
+    }
     const ok = await updateDeal({ stageId: newStageId });
     if (ok && targetStage?.isWinStage && deal.status !== "won") {
       setCelebrationData({
@@ -2008,6 +2058,39 @@ export function DealDetailModal({
         sellerName: (deal.operatorId && operatorsMap.get(deal.operatorId)) || null,
         accountName: deal.account?.name || null,
       });
+    }
+  };
+
+  const handleConfirmHiddenTransfer = async ({ newOperatorId }: { newOperatorId?: string }) => {
+    if (!deal || !pendingHiddenTransfer) return;
+    setSavingHiddenTransfer(true);
+    try {
+      const payload: Record<string, any> = {
+        expectedVersion: deal.version,
+      };
+      if (pendingHiddenTransfer.pipelineId) payload.pipelineId = pendingHiddenTransfer.pipelineId;
+      if (pendingHiddenTransfer.stageId) payload.stageId = pendingHiddenTransfer.stageId;
+      if (newOperatorId) payload.operatorId = newOperatorId;
+
+      const res = await fetch(`/api/crm/deals/${deal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Não foi possível transferir a negociação.");
+      }
+
+      invalidateDealCache(deal.id);
+      setPendingHiddenTransfer(null);
+      toast.success("Negociação transferida com sucesso!");
+      onDealUpdated(data.deal);
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || "Falha ao transferir negociação.");
+    } finally {
+      setSavingHiddenTransfer(false);
     }
   };
 
@@ -2344,14 +2427,20 @@ export function DealDetailModal({
     }
   };
 
-  // Trilha de etapas do funil real do negócio (sem fixar funil padrão)
-  const effectiveStages = (deal?.pipeline?.stages && deal.pipeline.stages.length > 0)
-    ? deal.pipeline.stages.map((s: any) => ({
-        id: s.id,
-        name: s.name,
-        orderIndex: s.orderIndex ?? 0,
-      }))
-    : pipelineStages;
+  // Trilha de etapas do funil real do negócio (inclui etapas ocultas enviáveis quando configuradas)
+  const rawStagesForTrack =
+    deal?.pipeline?.allStages && deal.pipeline.allStages.length > 0
+      ? deal.pipeline.allStages
+      : deal?.pipeline?.stages && deal.pipeline.stages.length > 0
+      ? deal.pipeline.stages
+      : pipelineStages;
+  const effectiveStages: Array<{ id: string; name: string; orderIndex: number; isVisible?: boolean }> =
+    rawStagesForTrack.map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      orderIndex: s.orderIndex ?? 0,
+      isVisible: s.isVisible !== false,
+    }));
   const sortedStages = [...effectiveStages].sort((a, b) => a.orderIndex - b.orderIndex);
   const currentStageIndex = sortedStages.findIndex((s) => s.id === deal?.stageId);
 
@@ -2761,16 +2850,22 @@ export function DealDetailModal({
                       </div>
                       {availablePipelines.map((p) => {
                         const isCurrent = p.id === (deal.pipelineId || deal.pipeline?.id);
+                        const isHiddenPipe = p.isVisible === false;
                         return (
                           <DropdownMenuItem
                             key={p.id}
                             onClick={() => handleSwitchPipeline(p.id)}
                             className="flex items-center justify-between text-xs font-medium cursor-pointer"
                           >
-                            <span className={isCurrent ? "font-bold text-primary" : "text-foreground"}>
-                              {p.name}
+                            <span className="flex items-center gap-1.5 min-w-0 truncate">
+                              <span className={isCurrent ? "font-bold text-primary truncate" : "text-foreground truncate"}>
+                                {p.name}
+                              </span>
+                              {isHiddenPipe && (
+                                <EyeOff className="h-3 w-3 text-amber-500 shrink-0" />
+                              )}
                             </span>
-                            {isCurrent && <Check className="h-3.5 w-3.5 text-primary" />}
+                            {isCurrent && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
                           </DropdownMenuItem>
                         );
                       })}
@@ -2940,7 +3035,15 @@ export function DealDetailModal({
                 Confirmar Perda da Negociação
               </span>
               <div className="flex gap-2">
-                <CatalogSelect kind="loss_reason" value={lossReason} onChange={setLossReason} className="h-8 flex-1 rounded-lg border-red-500/40 bg-card text-xs" placeholder="Selecione o motivo" />
+                <CatalogSelect
+                  kind="loss_reason"
+                  value={lossReason}
+                  onChange={setLossReason}
+                  pipelineId={deal?.pipelineId || deal?.pipeline?.id}
+                  stageId={deal?.stageId}
+                  className="h-8 flex-1 rounded-lg border-red-500/40 bg-card text-xs"
+                  placeholder="Selecione o motivo"
+                />
                 <button
                   onClick={handleConfirmLoss}
                   className="h-8 px-4 rounded-lg bg-red-600 text-xs font-bold text-white hover:bg-red-700 cursor-pointer"
@@ -2993,9 +3096,17 @@ export function DealDetailModal({
               {sortedStages.map((stage, idx) => {
                 const isPassed = idx < currentStageIndex;
                 const isCurrent = stage.id === deal.stageId;
+                const isHiddenStage = stage.isVisible === false;
                 const isDense = sortedStages.length >= 6;
                 return (
-                  <SystemTooltip key={stage.id} content={stage.name}>
+                  <SystemTooltip
+                    key={stage.id}
+                    content={
+                      isHiddenStage
+                        ? `${stage.name} (Etapa sem visualização — ao mover para cá, você precisará confirmar a transferência)`
+                        : stage.name
+                    }
+                  >
                     <button
                       type="button"
                       onClick={() => handleStageChange(stage.id)}
@@ -3004,11 +3115,14 @@ export function DealDetailModal({
                       } font-bold transition-all cursor-pointer ${
                         isCurrent
                           ? "bg-primary text-primary-foreground shadow-sm"
+                          : isHiddenStage
+                          ? "border border-dashed border-amber-500/40 bg-amber-500/5 text-muted-foreground hover:bg-amber-500/10 hover:text-foreground"
                           : isPassed
                           ? "bg-primary/10 text-primary hover:bg-primary/20"
                           : "bg-muted text-muted-foreground hover:text-foreground"
                       }`}
                     >
+                      {isHiddenStage && <EyeOff className="h-3 w-3 text-amber-500 shrink-0" />}
                       <span className="line-clamp-2 text-center leading-tight break-words min-w-0">
                         {stage.name}
                       </span>
@@ -6876,6 +6990,28 @@ export function DealDetailModal({
             await loadDealDetail(true);
             onDealUpdated();
           }}
+        />
+      )}
+
+      {/* Modal de confirmação de envio para etapa/funil sem visibilidade */}
+      {pendingHiddenTransfer && deal && (
+        <HiddenStageTransferDialog
+          isOpen={true}
+          dealTitle={deal.title || "Negociação"}
+          targetStageName={pendingHiddenTransfer.stageName}
+          targetPipelineName={pendingHiddenTransfer.pipelineName}
+          requiresReassignment={pendingHiddenTransfer.requiresReassignment}
+          currentOperatorId={pendingHiddenTransfer.currentOperatorId}
+          operators={
+            operators.length > 0
+              ? operators
+              : Array.from(operatorsMap.entries()).map(([id, name]) => ({ id, name }))
+          }
+          loading={savingHiddenTransfer}
+          onCancel={() => {
+            if (!savingHiddenTransfer) setPendingHiddenTransfer(null);
+          }}
+          onConfirm={handleConfirmHiddenTransfer}
         />
       )}
     </div>

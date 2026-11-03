@@ -5,10 +5,12 @@ import {
   createMetaTemplate,
   deleteMetaTemplate,
   deleteMetaTemplateGroup,
+  getMetaTemplatesRestrictByStage,
   listMetaTemplateGroups,
   saveMetaTemplateGroupWithLinks,
   setMetaTemplateBindings,
   setMetaTemplateCustomGroups,
+  setMetaTemplatesRestrictByStage,
   syncMetaTemplates,
   updateMetaTemplate,
 } from "../../../lib/whatsapp/meta-templates";
@@ -31,9 +33,12 @@ export const Route = createFileRoute("/api/whatsapp/meta-templates")({
         const auth = await authorize(request);
         if ("response" in auth) return auth.response;
         try {
-          const templates = await syncMetaTemplates(auth.session.tenantId);
-          const groups = await listMetaTemplateGroups(auth.session.tenantId);
-          return Response.json({ templates, groups });
+          const [templates, groups, restrictByStage] = await Promise.all([
+            syncMetaTemplates(auth.session.tenantId),
+            listMetaTemplateGroups(auth.session.tenantId),
+            getMetaTemplatesRestrictByStage(auth.session.tenantId),
+          ]);
+          return Response.json({ templates, groups, restrictByStage });
         } catch (error) { return failure(error); }
       },
       POST: async ({ request }) => {
@@ -41,11 +46,21 @@ export const Route = createFileRoute("/api/whatsapp/meta-templates")({
         if ("response" in auth) return auth.response;
         try {
           const body = await request.json();
+          if (body?.action === "set_restrict_by_stage") {
+            const restrictByStage = await setMetaTemplatesRestrictByStage(
+              auth.session.tenantId,
+              Boolean(body.restrictByStage),
+            );
+            return Response.json({ restrictByStage });
+          }
           if (body?.action === "save_group") {
             const result = await saveMetaTemplateGroupWithLinks(auth.session.tenantId, {
               groupId: typeof body.groupId === "string" ? body.groupId : undefined,
               name: String(body.name || ""),
               templateIds: Array.isArray(body.templateIds) ? body.templateIds : undefined,
+              allPipelines: typeof body.allPipelines === "boolean" ? body.allPipelines : undefined,
+              pipelineIds: Array.isArray(body.pipelineIds) ? body.pipelineIds : undefined,
+              stageIds: Array.isArray(body.stageIds) ? body.stageIds : undefined,
             });
             return Response.json(result);
           }
@@ -93,6 +108,11 @@ export const Route = createFileRoute("/api/whatsapp/meta-templates")({
               body.metaTemplateId,
               body.bindings,
               body.customGroups,
+              {
+                allPipelines: typeof body.allPipelines === "boolean" ? body.allPipelines : undefined,
+                pipelineIds: Array.isArray(body.pipelineIds) ? body.pipelineIds : undefined,
+                stageIds: Array.isArray(body.stageIds) ? body.stageIds : undefined,
+              },
             ),
           );
         } catch (error) { return failure(error); }

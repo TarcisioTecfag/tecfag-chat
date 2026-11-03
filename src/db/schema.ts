@@ -30,6 +30,7 @@ export const channelConfigs = pgTable("channel_configs", {
   metaVerifyToken: text("meta_verify_token"),
   metaAppSecret: text("meta_app_secret"), // Segredo da aplicação Meta para validar assinatura HMAC SHA-256 do webhook
   metaWebhookLastSeenAt: timestamp("meta_webhook_last_seen_at"),
+  metaTemplatesRestrictByStage: boolean("meta_templates_restrict_by_stage").default(false).notNull(),
 
   // Configurações exclusivas do Baileys (Valem Chat)
   baileysSessionStatus: text("baileys_session_status").default("disconnected"), // 'disconnected' | 'qr_ready' | 'connected'
@@ -555,6 +556,9 @@ export const metaMessageTemplates = pgTable("meta_message_templates", {
   components: jsonb("components").$type<unknown[]>().notNull(),
   bindings: jsonb("bindings").$type<Record<string, "customer_name" | "operator_name" | "manual">>().default({}).notNull(),
   customGroups: jsonb("custom_groups").$type<string[]>().default([]).notNull(),
+  allPipelines: boolean("all_pipelines").default(true).notNull(),
+  pipelineIds: jsonb("pipeline_ids").$type<string[]>().default([]).notNull(),
+  stageIds: jsonb("stage_ids").$type<string[]>().default([]).notNull(),
   rejectedReason: text("rejected_reason"),
   lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
 }, (table) => [uniqueIndex("meta_message_templates_tenant_meta_id_unique").on(table.tenantId, table.metaTemplateId)]);
@@ -564,6 +568,9 @@ export const metaTemplateGroups = pgTable("meta_template_groups", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
+  allPipelines: boolean("all_pipelines").default(true).notNull(),
+  pipelineIds: jsonb("pipeline_ids").$type<string[]>().default([]).notNull(),
+  stageIds: jsonb("stage_ids").$type<string[]>().default([]).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("idx_meta_template_groups_tenant").on(table.tenantId),
@@ -1351,6 +1358,9 @@ export const crmCatalogItems = pgTable("crm_catalog_items", {
   kind: text("kind").notNull(), // segment | source | campaign | loss_reason
   name: text("name").notNull(),
   description: text("description"),
+  allPipelines: boolean("all_pipelines").default(true).notNull(),
+  pipelineIds: jsonb("pipeline_ids").$type<string[]>().default([]).notNull(),
+  stageIds: jsonb("stage_ids").$type<string[]>().default([]).notNull(),
   archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -1364,6 +1374,8 @@ export const crmCatalogPolicies = pgTable("crm_catalog_policies", {
   allowUserCreate: boolean("allow_user_create").default(false).notNull(),
   includeStandard: boolean("include_standard").default(true).notNull(),
   disabledStandardItems: jsonb("disabled_standard_items").$type<string[]>().default([]).notNull(),
+  restrictByStage: boolean("restrict_by_stage").default(false).notNull(),
+  standardItemScopes: jsonb("standard_item_scopes").$type<Record<string, { allPipelines: boolean; pipelineIds: string[]; stageIds: string[] }>>().default({}).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   tenantKindUnique: uniqueIndex("idx_crm_catalog_policies_tenant_kind").on(table.tenantId, table.kind),

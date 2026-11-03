@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Filter, Globe, Layers, Lock, CheckCircle2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { Filter, Globe, Layers, Lock, CheckCircle2, Eye, EyeOff, ArrowRightLeft } from "lucide-react";
 import type { CrmPermissions } from "@/lib/rbac";
 
 type BooleanCrmPermissionKey = {
@@ -79,6 +81,57 @@ export function CrmGroupPermissions({
   const allowedPipelineIds = Array.isArray(permissions.allowedPipelineIds)
     ? permissions.allowedPipelineIds
     : [];
+  const stageRestrictionEnabled = Boolean(permissions.stageRestrictionEnabled);
+  const allowedStageIdsByPipeline: Record<string, string[]> =
+    permissions.allowedStageIdsByPipeline &&
+    typeof permissions.allowedStageIdsByPipeline === "object" &&
+    !Array.isArray(permissions.allowedStageIdsByPipeline)
+      ? permissions.allowedStageIdsByPipeline
+      : {};
+  const canSendToHidden = Boolean(permissions.canSendToHiddenStagesOrPipelines);
+
+  const handleToggleStageRestrictionMaster = (enabled: boolean) => {
+    applyPatch({
+      stageRestrictionEnabled: enabled,
+      ...(enabled && permissions.canSendToHiddenStagesOrPipelines === undefined
+        ? { canSendToHiddenStagesOrPipelines: true }
+        : {}),
+    });
+  };
+
+  const handleTogglePipelineStageMode = (pipeline: PipelineItem, restrictStages: boolean) => {
+    const nextMap = { ...allowedStageIdsByPipeline };
+    if (!restrictStages) {
+      delete nextMap[pipeline.id];
+    } else {
+      const allStageIds = (pipeline.stages || []).map((s) => s.id);
+      nextMap[pipeline.id] = allStageIds;
+    }
+    applyPatch({
+      stageRestrictionEnabled: true,
+      allowedStageIdsByPipeline: nextMap,
+    });
+  };
+
+  const handleToggleVisibleStage = (pipeline: PipelineItem, stageId: string) => {
+    const allStageIds = (pipeline.stages || []).map((s) => s.id);
+    const currentList = Object.hasOwn(allowedStageIdsByPipeline, pipeline.id)
+      ? allowedStageIdsByPipeline[pipeline.id]
+      : allStageIds;
+    const set = new Set(currentList);
+    if (set.has(stageId)) {
+      set.delete(stageId);
+    } else {
+      set.add(stageId);
+    }
+    applyPatch({
+      stageRestrictionEnabled: true,
+      allowedStageIdsByPipeline: {
+        ...allowedStageIdsByPipeline,
+        [pipeline.id]: Array.from(set),
+      },
+    });
+  };
 
   const handleScopeChange = (newScope: "all" | "selected") => {
     if (newScope === "all") {
@@ -285,14 +338,15 @@ export function CrmGroupPermissions({
                           </label>
 
                           {!isOnlySelected ? (
-                            <button
-                              type="button"
-                              onClick={() => handleSelectOnlyPipeline(pipeline.id)}
-                              title="Restringir grupo para usar apenas este funil"
-                              className="text-[10px] font-bold px-2 py-1 rounded-md border border-border bg-muted/60 hover:bg-primary hover:text-primary-foreground hover:border-primary transition shrink-0 cursor-pointer"
-                            >
-                              Apenas este
-                            </button>
+                            <SystemTooltip content="Restringir grupo para usar apenas este funil">
+                              <button
+                                type="button"
+                                onClick={() => handleSelectOnlyPipeline(pipeline.id)}
+                                className="text-[10px] font-bold px-2 py-1 rounded-md border border-border bg-muted/60 hover:bg-primary hover:text-primary-foreground hover:border-primary transition shrink-0 cursor-pointer"
+                              >
+                                Apenas este
+                              </button>
+                            </SystemTooltip>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 px-2 py-1 rounded-md shrink-0">
                               <CheckCircle2 className="h-3 w-3" />
@@ -312,6 +366,134 @@ export function CrmGroupPermissions({
                 )}
               </div>
             )}
+
+            {/* Visibilidade de Etapas por Funil + Transferência para Etapas/Funis Ocultos */}
+            <div className="pt-3 border-t border-border/60 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-[11px] font-extrabold text-foreground flex items-center gap-1.5">
+                    <Eye className="h-3.5 w-3.5 text-primary" />
+                    Restringir Etapas Visíveis por Funil
+                  </span>
+                  <span className="text-[10px] text-muted-foreground block">
+                    Permite escolher quais etapas de cada funil este grupo enxerga no Kanban (podendo ser ligado/desligado sem perder a seleção).
+                  </span>
+                </div>
+                <Switch
+                  checked={stageRestrictionEnabled}
+                  onCheckedChange={handleToggleStageRestrictionMaster}
+                />
+              </div>
+
+              {stageRestrictionEnabled && (
+                <div className="space-y-2.5 pt-1">
+                  {(pipelineScope === "all"
+                    ? pipelines
+                    : pipelines.filter((p) => allowedPipelineIds.includes(p.id))
+                  ).map((pipeline) => {
+                    const stages = pipeline.stages || [];
+                    const isStageRestricted = Object.hasOwn(allowedStageIdsByPipeline, pipeline.id);
+                    const visibleStageIds = isStageRestricted
+                      ? allowedStageIdsByPipeline[pipeline.id] || []
+                      : stages.map((s) => s.id);
+
+                    return (
+                      <div
+                        key={`stage-vis-${pipeline.id}`}
+                        className="rounded-xl border border-border bg-card p-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: pipeline.color || "#0284c7" }}
+                            />
+                            <span className="text-xs font-bold text-foreground">
+                              {pipeline.name}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              ({visibleStageIds.length}/{stages.length} etapas visíveis)
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePipelineStageMode(pipeline, false)}
+                              className={`text-[10px] font-bold px-2 py-1 rounded-md border transition cursor-pointer ${
+                                !isStageRestricted
+                                  ? "bg-primary text-primary-foreground border-primary"
+                                  : "bg-muted/50 text-muted-foreground border-border hover:text-foreground"
+                              }`}
+                            >
+                              Todas as etapas
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePipelineStageMode(pipeline, true)}
+                              className={`text-[10px] font-bold px-2 py-1 rounded-md border transition cursor-pointer ${
+                                isStageRestricted
+                                  ? "bg-primary text-primary-foreground border-primary"
+                                  : "bg-muted/50 text-muted-foreground border-border hover:text-foreground"
+                              }`}
+                            >
+                              Escolher etapas
+                            </button>
+                          </div>
+                        </div>
+
+                        {isStageRestricted && stages.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {stages.map((stage) => {
+                              const checked = visibleStageIds.includes(stage.id);
+                              return (
+                                <button
+                                  key={stage.id}
+                                  type="button"
+                                  onClick={() => handleToggleVisibleStage(pipeline, stage.id)}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer ${
+                                    checked
+                                      ? "border-primary/50 bg-primary/10 text-primary"
+                                      : "border-border bg-muted/40 text-muted-foreground opacity-70 hover:opacity-100"
+                                  }`}
+                                >
+                                  {checked ? (
+                                    <Eye className="h-3 w-3 shrink-0" />
+                                  ) : (
+                                    <EyeOff className="h-3 w-3 shrink-0" />
+                                  )}
+                                  <span>{stage.name}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {(stageRestrictionEnabled || pipelineScope === "selected") && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/5 p-3">
+                  <div className="min-w-0">
+                    <span className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
+                      <ArrowRightLeft className="h-3.5 w-3.5 text-primary shrink-0" />
+                      Permitir enviar negociações para etapas ou funis ocultos
+                    </span>
+                    <span className="text-[10px] text-muted-foreground block leading-relaxed">
+                      O operador poderá transferir um card para uma etapa ou funil que ele não enxerga. O sistema exibirá um aviso de confirmação e exigirá a escolha de outro responsável caso ele seja o dono atual.
+                    </span>
+                  </div>
+                  <Switch
+                    checked={canSendToHidden}
+                    onCheckedChange={(val) =>
+                      applyPatch({ canSendToHiddenStagesOrPipelines: val === true })
+                    }
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
 

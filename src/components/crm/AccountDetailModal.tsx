@@ -23,6 +23,8 @@ import { CustomFieldsEditor, changedCustomFieldValues } from "./CustomFieldsEdit
 import { CatalogSelect } from "./CatalogSelect";
 import { DealStatusBadge } from "./deal-status-config";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { PhoneCountryInput } from "@/components/ui/phone-country-input";
+import { maskPhone, normalizeCanonicalPhone } from "@/lib/utils";
 import type { CrmAccountDetailDTO } from "../../lib/crm/crm-types";
 import {
   formatAccountDocumentInput,
@@ -65,18 +67,6 @@ function maskCnpj(val: string): string {
     .replace(/(\d{3})(\d)/, "$1.$2")
     .replace(/(\d{3})(\d)/, "$1/$2")
     .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
-}
-
-function maskPhone(val: string): string {
-  const digits = val.replace(/\D/g, "").slice(0, 11);
-  if (digits.length <= 10) {
-    return digits
-      .replace(/(\d{2})(\d)/, "($1) $2")
-      .replace(/(\d{4})(\d)/, "$1-$2");
-  }
-  return digits
-    .replace(/(\d{2})(\d)/, "($1) $2")
-    .replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 const UNIFORM_INPUT_CLASS =
@@ -253,7 +243,7 @@ export function AccountDetailModal({
           segment: type === "company" ? segment || null : null,
           type,
           document: document.replace(/\D/g, ""),
-          phone: phone ? phone.replace(/\D/g, "") : null,
+          phone: phone ? normalizeCanonicalPhone(phone) : null,
           email: email.trim() || null,
           website: website.trim() || null,
           notes: notes.trim() || null,
@@ -642,16 +632,13 @@ export function AccountDetailModal({
                         <label className={UNIFORM_LABEL_CLASS}>
                           Telefone Principal
                         </label>
-                        <div className="relative flex items-center">
-                          <Phone className="w-3.5 h-3.5 text-muted-foreground absolute left-3 pointer-events-none" />
-                          <input
-                            type="text"
-                            value={phone}
-                            onChange={(e) => setPhone(maskPhone(e.target.value))}
-                            placeholder="(00) 00000-0000"
-                            className={`${UNIFORM_INPUT_CLASS} pl-8`}
-                          />
-                        </div>
+                        <PhoneCountryInput
+                          size="sm"
+                          value={phone}
+                          onChange={(val) => setPhone(val)}
+                          buttonClassName="h-9 bg-muted/35 dark:bg-slate-900/60 border-slate-300/85 dark:border-slate-700/80"
+                          inputClassName="h-9 bg-muted/35 dark:bg-slate-900/60 border-slate-300/85 dark:border-slate-700/80 text-xs font-medium"
+                        />
                       </div>
 
                       <div>

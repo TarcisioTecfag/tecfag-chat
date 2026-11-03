@@ -57,6 +57,8 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { PhoneCountryInput } from "@/components/ui/phone-country-input";
+import { maskPhone, normalizeCanonicalPhone } from "@/lib/utils";
 
 interface StageOption {
   id: string;
@@ -106,18 +108,6 @@ function maskCnpj(val: string): string {
     .replace(/(\d{3})(\d)/, "$1.$2")
     .replace(/(\d{3})(\d)/, "$1/$2")
     .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
-}
-
-function maskPhone(val: string): string {
-  const digits = val.replace(/\D/g, "").slice(0, 11);
-  if (digits.length <= 10) {
-    return digits
-      .replace(/(\d{2})(\d)/, "($1) $2")
-      .replace(/(\d{4})(\d)/, "$1-$2");
-  }
-  return digits
-    .replace(/(\d{2})(\d)/, "($1) $2")
-    .replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 export function CreateDealDialog({
@@ -445,7 +435,7 @@ export function CreateDealDialog({
           tradeName: accountTradeName.trim() || undefined,
           segment: accountType === "company" ? accountSegment || undefined : undefined,
           document: cleanDoc || undefined,
-          phone: accountPhone.replace(/\D/g, "") || undefined,
+          phone: normalizeCanonicalPhone(accountPhone) || undefined,
           email: accountEmail.trim() || undefined,
           address:
             accountType === "company"
@@ -845,16 +835,13 @@ export function CreateDealDialog({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-[11px] font-semibold text-foreground mb-1">Telefone / WhatsApp</label>
-                    <div className="relative">
-                      <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                      <input
-                        type="text"
-                        placeholder="(00) 00000-0000"
-                        value={accountPhone}
-                        onChange={(e) => setAccountPhone(maskPhone(e.target.value))}
-                        className="h-8 w-full rounded-lg border border-border bg-card pl-7 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                    </div>
+                    <PhoneCountryInput
+                      size="sm"
+                      value={accountPhone}
+                      onChange={(val) => setAccountPhone(val)}
+                      buttonClassName="h-8 bg-card border-border"
+                      inputClassName="h-8 bg-card text-xs border-border"
+                    />
                   </div>
                   <div>
                     <label className="block text-[11px] font-semibold text-foreground mb-1">E-mail</label>

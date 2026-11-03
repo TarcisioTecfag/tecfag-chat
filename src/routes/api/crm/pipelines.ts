@@ -1,6 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../lib/auth-session";
-import { getAllowedPipelineIds, requireCrmPermission } from "../../../lib/rbac";
+import {
+  canSendDealToTarget,
+  getAllowedPipelineIds,
+  getVisibleStageIdsForPipeline,
+  requireCrmPermission,
+} from "../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../lib/crm/crm-service";
 import { handleConditionalResponse } from "../../../lib/http-cache";
 
@@ -43,14 +48,51 @@ export const Route = createFileRoute("/api/crm/pipelines")({
           }
 
           const allPipelines = await crmService.getPipelines(tenantId);
-          const allowedPipelineIds =
-            forPermissions && canManageGroupsOrPipelines ? null : getAllowedPipelineIds(session);
-          const pipelines =
+          const bypassRestrictions = forPermissions && canManageGroupsOrPipelines;
+          const allowedPipelineIds = bypassRestrictions ? null : getAllowedPipelineIds(session);
+          const visiblePipelines =
             allowedPipelineIds === null
               ? allPipelines
               : allPipelines.filter((p) => allowedPipelineIds.includes(p.id));
 
-          return handleConditionalResponse(request, { pipelines }, { headers: corsHeaders });
+          const pipelines = bypassRestrictions
+            ? visiblePipelines
+            : visiblePipelines.map((p) => {
+                const visibleStageIds = getVisibleStageIdsForPipeline(session, p.id);
+                if (visibleStageIds === null) {
+                  return p;
+                }
+                const allStagesWithVisibility = (p.stages || []).map((s: any) => ({
+                  ...s,
+                  isVisible: visibleStageIds.includes(s.id),
+                }));
+                const filteredStages = (p.stages || []).filter((s: any) => visibleStageIds.includes(s.id));
+                return {
+                  ...p,
+                  stages: filteredStages,
+                  allStages: allStagesWithVisibility,
+                  hasHiddenStages: filteredStages.length < (p.stages || []).length,
+                };
+              });
+
+          const transferPipelines =
+            !bypassRestrictions && session.permissions?.crm?.canSendToHiddenStagesOrPipelines === true
+              ? allPipelines
+                  .filter((p) => !visiblePipelines.some((vp) => vp.id === p.id) && canSendDealToTarget(session, p.id))
+                  .map((p) => ({
+                    ...p,
+                    isVisible: false,
+                    allStages: (p.stages || []).map((s: any) => ({ ...s, isVisible: false })),
+                  }))
+              : undefined;
+
+          return handleConditionalResponse(
+            request,
+            transferPipelines && transferPipelines.length > 0
+              ? { pipelines, transferPipelines }
+              : { pipelines },
+            { headers: corsHeaders }
+          );
         } catch (err: any) {
           console.error("[CRM Pipelines API] Erro no GET:", err);
           return handleCrmError(err, corsHeaders);

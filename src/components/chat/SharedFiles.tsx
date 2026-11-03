@@ -25,6 +25,7 @@ import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
 import { CustomerJourneyModal } from "./CustomerJourneyModal";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskCPF, maskCNPJ } from "@/lib/utils";
+import { PhoneCountryInput } from "@/components/ui/phone-country-input";
 import { formatSystemAnnotation } from "@/lib/triage/format-system-annotation";
 import { motion } from "framer-motion";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -993,11 +994,12 @@ export function SharedFiles() {
               <div className="space-y-2.5">
                 <div className="space-y-0.5">
                   <label className="text-[9px] font-bold text-muted-foreground">Telefone</label>
-                  <input
-                    type="text"
+                  <PhoneCountryInput
+                    size="sm"
                     value={editForm.phone}
-                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                    className="h-8 w-full rounded-lg bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                    onChange={(phone) => setEditForm({ ...editForm, phone })}
+                    buttonClassName="h-8 bg-card border-border"
+                    inputClassName="h-8 bg-card px-2 text-xs border-border"
                   />
                 </div>
                 <div className="space-y-0.5">

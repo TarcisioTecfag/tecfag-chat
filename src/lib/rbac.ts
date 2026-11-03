@@ -147,6 +147,14 @@ export interface CrmPermissions {
   pipelineScope?: "all" | "selected";
   /** Lista de IDs de funis liberados quando pipelineScope === 'selected' */
   allowedPipelineIds?: string[];
+  /** Ativa ou desativa a restrição de etapas visíveis por funil sem apagar as seleções salvas */
+  stageRestrictionEnabled?: boolean;
+  /** Mapa de pipelineId -> stageIds visíveis quando stageRestrictionEnabled === true (chave ausente = todas as etapas visíveis) */
+  allowedStageIdsByPipeline?: Record<string, string[]>;
+  /** Permite enviar/transferir negociações para etapas ocultas ou funis não visíveis */
+  canSendToHiddenStagesOrPipelines?: boolean;
+  /** Lista opcional de funis ocultos para os quais é permitido transferir quando canSendToHiddenStagesOrPipelines === true */
+  transferTargetPipelineIds?: string[];
   canViewCrm: boolean;
   canViewAllDeals: boolean;
   canCreateDeals: boolean;
@@ -213,6 +221,10 @@ export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
   crm: {
     pipelineScope: "all",
     allowedPipelineIds: undefined,
+    stageRestrictionEnabled: false,
+    allowedStageIdsByPipeline: undefined,
+    canSendToHiddenStagesOrPipelines: false,
+    transferTargetPipelineIds: undefined,
     canViewCrm: true,
     canViewAllDeals: true,
     canCreateDeals: true,
@@ -794,7 +806,9 @@ export const DEFAULT_DENY_PERMISSIONS: GroupPermissions = Object.fromEntries(
         ? "wallet_only"
         : key === "pipelineScope"
           ? "all"
-          : key === "allowedPipelineIds"
+          : key === "allowedPipelineIds" ||
+              key === "allowedStageIdsByPipeline" ||
+              key === "transferTargetPipelineIds"
             ? undefined
             : false,
     ])),
@@ -831,10 +845,45 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
 
   const normalizedPipelineScope: "all" | "selected" =
     existingPerms.crm?.pipelineScope === "selected" ? "selected" : "all";
-  const normalizedAllowedPipelineIds = Array.isArray(existingPerms.crm?.allowedPipelineIds)
+  const normalizedAllowedPipelineIds: string[] | undefined = Array.isArray(existingPerms.crm?.allowedPipelineIds)
     ? Array.from(
-        new Set(
+        new Set<string>(
           existingPerms.crm.allowedPipelineIds
+            .filter((id: unknown): id is string => typeof id === "string")
+            .map((id: string) => id.trim())
+            .filter(Boolean)
+        )
+      )
+    : undefined;
+
+  const normalizedStageRestrictionEnabled = Boolean(existingPerms.crm?.stageRestrictionEnabled);
+  let normalizedAllowedStageIdsByPipeline: Record<string, string[]> | undefined = undefined;
+  if (
+    existingPerms.crm?.allowedStageIdsByPipeline &&
+    typeof existingPerms.crm.allowedStageIdsByPipeline === "object" &&
+    !Array.isArray(existingPerms.crm.allowedStageIdsByPipeline)
+  ) {
+    const map: Record<string, string[]> = {};
+    for (const [pipeId, stageList] of Object.entries(existingPerms.crm.allowedStageIdsByPipeline)) {
+      const cleanPipeId = typeof pipeId === "string" ? pipeId.trim() : "";
+      if (!cleanPipeId || !Array.isArray(stageList)) continue;
+      map[cleanPipeId] = Array.from(
+        new Set<string>(
+          stageList
+            .filter((s: unknown): s is string => typeof s === "string")
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+        )
+      );
+    }
+    normalizedAllowedStageIdsByPipeline = map;
+  }
+
+  const normalizedCanSendToHidden = Boolean(existingPerms.crm?.canSendToHiddenStagesOrPipelines);
+  const normalizedTransferTargetPipelineIds: string[] | undefined = Array.isArray(existingPerms.crm?.transferTargetPipelineIds)
+    ? Array.from(
+        new Set<string>(
+          existingPerms.crm.transferTargetPipelineIds
             .filter((id: unknown): id is string => typeof id === "string")
             .map((id: string) => id.trim())
             .filter(Boolean)
@@ -880,6 +929,10 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
     crm: {
       pipelineScope: normalizedPipelineScope,
       allowedPipelineIds: normalizedAllowedPipelineIds,
+      stageRestrictionEnabled: normalizedStageRestrictionEnabled,
+      allowedStageIdsByPipeline: normalizedAllowedStageIdsByPipeline,
+      canSendToHiddenStagesOrPipelines: normalizedCanSendToHidden,
+      transferTargetPipelineIds: normalizedTransferTargetPipelineIds,
       canViewCrm: existingPerms.crm?.canViewCrm ?? (isLegacyAdmin || Boolean(baseFallback.crm.canViewCrm)),
       canViewAllDeals: existingPerms.crm?.canViewAllDeals ?? (isLegacyAdmin || baseFallback.crm.canViewAllDeals),
       canCreateDeals: existingPerms.crm?.canCreateDeals ?? (isLegacyAdmin || baseFallback.crm.canCreateDeals),
@@ -995,6 +1048,130 @@ export function isPipelineAllowed(
   if (allowed === null) return true;
   if (!pipelineId) return false;
   return allowed.includes(pipelineId.trim());
+}
+
+/**
+ * Retorna os IDs das etapas visíveis de um funil para a sessão atual quando `stageRestrictionEnabled === true`
+ * e o funil possui configuração explícita em `allowedStageIdsByPipeline`.
+ * Retorna `null` quando todas as etapas do funil são visíveis.
+ * Retorna `[]` quando o funil não é visível ou quando nenhuma etapa foi liberada para visualização.
+ */
+export function getVisibleStageIdsForPipeline(
+  session: {
+    permissions?: { crm?: Partial<CrmPermissions> } | null;
+    operator?: { role?: string } | null;
+  } | null | undefined,
+  pipelineId: string | null | undefined
+): string[] | null {
+  if (!pipelineId) return [];
+  const cleanPipelineId = pipelineId.trim();
+  if (!isPipelineAllowed(session, cleanPipelineId)) {
+    return [];
+  }
+  const crm = session?.permissions?.crm;
+  if (crm?.stageRestrictionEnabled !== true) {
+    return null;
+  }
+  const map = crm.allowedStageIdsByPipeline;
+  if (!map || typeof map !== "object" || !Object.hasOwn(map, cleanPipelineId)) {
+    return null;
+  }
+  const raw = map[cleanPipelineId];
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  return Array.from(
+    new Set(
+      raw
+        .filter((id): id is string => typeof id === "string")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+/**
+ * Retorna o mapa completo de restrições de etapas visíveis por funil quando `stageRestrictionEnabled === true`.
+ * Retorna `null` quando não há restrição por etapa ativa na sessão.
+ */
+export function getAllowedStageIdsByPipelineMap(
+  session: {
+    permissions?: { crm?: Partial<CrmPermissions> } | null;
+    operator?: { role?: string } | null;
+  } | null | undefined
+): Record<string, string[]> | null {
+  const crm = session?.permissions?.crm;
+  if (crm?.stageRestrictionEnabled !== true) return null;
+  const map = crm.allowedStageIdsByPipeline;
+  if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+  const result: Record<string, string[]> = {};
+  for (const [pipeId, list] of Object.entries(map)) {
+    const cleanPipeId = pipeId.trim();
+    if (!cleanPipeId || !Array.isArray(list)) continue;
+    result[cleanPipeId] = Array.from(
+      new Set(
+        list
+          .filter((id): id is string => typeof id === "string")
+          .map((id) => id.trim())
+          .filter(Boolean)
+      )
+    );
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+/**
+ * Verifica se o operador na sessão atual tem visibilidade sobre uma etapa específica (`stageId`) de um funil (`pipelineId`).
+ */
+export function isStageVisibleToSession(
+  session: {
+    permissions?: { crm?: Partial<CrmPermissions> } | null;
+    operator?: { role?: string } | null;
+  } | null | undefined,
+  pipelineId: string | null | undefined,
+  stageId: string | null | undefined
+): boolean {
+  if (!pipelineId) return false;
+  if (!isPipelineAllowed(session, pipelineId)) return false;
+  if (!stageId) return true;
+  const visibleStageIds = getVisibleStageIdsForPipeline(session, pipelineId);
+  if (visibleStageIds === null) return true;
+  return visibleStageIds.includes(stageId.trim());
+}
+
+/**
+ * Verifica se o operador na sessão atual pode enviar/transferir um card para o funil/etapa de destino,
+ * mesmo quando não possui visibilidade sobre a etapa ou funil de destino.
+ */
+export function canSendDealToTarget(
+  session: {
+    permissions?: { crm?: Partial<CrmPermissions> } | null;
+    operator?: { role?: string } | null;
+  } | null | undefined,
+  targetPipelineId: string | null | undefined,
+  targetStageId?: string | null
+): boolean {
+  if (!targetPipelineId) return false;
+  const cleanPipelineId = targetPipelineId.trim();
+  const crm = session?.permissions?.crm;
+  if (session?.operator?.role !== "admin" && !crm?.canMoveStages) {
+    return false;
+  }
+  const pipelineVisible = isPipelineAllowed(session, cleanPipelineId);
+  if (pipelineVisible) {
+    const stageVisible = !targetStageId || isStageVisibleToSession(session, cleanPipelineId, targetStageId);
+    if (stageVisible) return true;
+    // Etapa oculta dentro de um funil visível: permitido quando canSendToHiddenStagesOrPipelines !== false (ou stageRestrictionEnabled ativo)
+    return crm?.canSendToHiddenStagesOrPipelines !== false || crm?.stageRestrictionEnabled === true;
+  }
+  // Funil oculto (fora de allowedPipelineIds): permitido somente quando canSendToHiddenStagesOrPipelines === true
+  if (crm?.canSendToHiddenStagesOrPipelines !== true) {
+    return false;
+  }
+  if (Array.isArray(crm.transferTargetPipelineIds) && crm.transferTargetPipelineIds.length > 0) {
+    return crm.transferTargetPipelineIds.includes(cleanPipelineId);
+  }
+  return true;
 }
 
 /**

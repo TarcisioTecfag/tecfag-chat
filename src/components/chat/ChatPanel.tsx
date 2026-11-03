@@ -1064,6 +1064,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const currentMetaChatIdRef = useRef<string | null>(null);
   const [metaTemplates, setMetaTemplates] = useState<ApprovedMetaTemplate[]>([]);
   const [metaTemplateCustomGroups, setMetaTemplateCustomGroups] = useState<string[]>([]);
+  const [metaTemplatesStageFiltered, setMetaTemplatesStageFiltered] = useState(false);
   const [showMetaTemplateModal, setShowMetaTemplateModal] = useState(false);
   const [show24hInfoModal, setShow24hInfoModal] = useState(false);
   const [metaTemplatesLoading, setMetaTemplatesLoading] = useState(false);
@@ -1137,16 +1138,51 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [isMetaWhatsappChat, activeChat?.id, lastInboundClientMsgId]);
 
-  const loadMetaTemplates = async () => {
+  const ensureActiveDealBeforeOutbound = (): boolean => {
+    if (!activeChat || activeChat.id === "valentina") return true;
+    if (dealRequirement.pending) {
+      toast.error(
+        dealRequirement.currentRequired
+          ? "Escolha a negociação atual deste atendimento antes de enviar mensagens ou templates."
+          : "Vincule ou crie uma negociação no CRM antes de enviar mensagens ou templates.",
+      );
+      return false;
+    }
+    if (
+      dealContext.data &&
+      !dealContext.data.hasCurrentDeal &&
+      !dealContext.data.gracePeriodActive
+    ) {
+      toast.error(
+        dealContext.data.selectionRequired || dealContext.data.deals.length > 0
+          ? "Selecione qual negociação está em andamento neste atendimento antes de enviar mensagens ou templates."
+          : "Vincule ou crie uma negociação no CRM antes de enviar mensagens ou templates.",
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const loadMetaTemplates = async (overrideDealId?: string | null) => {
     if (!activeChat || !isMetaWhatsappChat) return;
     const chatId = activeChat.id;
+    const activeDealId =
+      overrideDealId !== undefined
+        ? overrideDealId
+        : (dealContext.data?.currentDeal?.id ?? null);
     setMetaTemplatesLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(chatId)}&templates=1`, { credentials: "include" });
+      const qs = new URLSearchParams({
+        conversationId: chatId,
+        templates: "1",
+      });
+      if (activeDealId) qs.set("dealId", activeDealId);
+      const response = await fetch(`${BACKEND_URL}/api/whatsapp/meta-state?${qs.toString()}`, { credentials: "include" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Falha ao carregar templates da Meta");
       setMetaTemplates((data.templates || []).filter((item: { supported: boolean }) => item.supported));
       setMetaTemplateCustomGroups(Array.isArray(data.customGroups) ? data.customGroups : []);
+      setMetaTemplatesStageFiltered(data.stageFilterActive === true);
       if (data.window) {
         metaWindowCacheRef.current.set(chatId, data.window);
       }
@@ -1158,7 +1194,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     }
   };
 
+  useEffect(() => {
+    if (showMetaTemplateModal && isMetaWhatsappChat && activeChat?.id) {
+      void loadMetaTemplates(dealContext.data?.currentDeal?.id ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealContext.data?.currentDeal?.id]);
+
   const handleSendMetaTemplate = async (template: ApprovedMetaTemplate, parameters: string[]) => {
+    if (!ensureActiveDealBeforeOutbound()) return false;
     const sent = await sendMessage("", false, undefined, null, {
       name: template.name,
       language: template.language,
@@ -2353,6 +2397,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     const isInternal = msgMode === "internal";
 
     if (!activeChat || !currentOperatorId) return;
+    if (!isInternal && !ensureActiveDealBeforeOutbound()) {
+      return;
+    }
     if (isInternal && noteScope === "current" && ((!dealContext.data?.hasCurrentDeal && !dealContext.data?.gracePeriodActive) || draftContextVersion.current === undefined)) {
       toast.error("Selecione a negociação do atendimento ou marque a nota como geral.");
       return;
@@ -3800,6 +3847,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             !metaWindow.open ? (
             /* ── BLOQUEIO: fora da janela de 24 horas da Meta ── */
             <div className="mx-auto max-w-2xl space-y-2.5">
+              {activeChat.id !== "valentina" && (
+                <ConversationDealContext
+                  conversationId={activeChat.id}
+                  hideWhenSelected={false}
+                  onSelected={(version) => {
+                    draftContextVersion.current = version;
+                  }}
+                />
+              )}
+
               <MetaTemplateSelectModal
                 isOpen={showMetaTemplateModal}
                 onClose={() => setShowMetaTemplateModal(false)}
@@ -3810,6 +3867,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 onSend={handleSendMetaTemplate}
                 loading={metaTemplatesLoading}
                 inline={true}
+                stageFilterActive={metaTemplatesStageFiltered}
+                activeDealLabel={dealContext.data?.currentDeal?.title || null}
               />
 
               <div className="rounded-xl border border-border/80 border-l-[6px] border-l-primary bg-card p-3.5 md:p-5 shadow-xs">
@@ -3830,6 +3889,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       <button
                         type="button"
                         onClick={() => {
+                          if (!showMetaTemplateModal && !ensureActiveDealBeforeOutbound()) {
+                            return;
+                          }
                           const next = !showMetaTemplateModal;
                           setShowMetaTemplateModal(next);
                           if (next) void loadMetaTemplates();
@@ -3889,6 +3951,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             setShowMetaTemplateModal(false);
                             return;
                           }
+                          if (!ensureActiveDealBeforeOutbound()) return;
                           setIsCatalogOpen(false);
                           setShowValentinaModal(false);
                           setShowMetaTemplateModal(true);
@@ -4002,6 +4065,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   <button
                     type="button"
                     onClick={() => {
+                      if (!showMetaTemplateModal && !ensureActiveDealBeforeOutbound()) {
+                        return;
+                      }
                       const next = !showMetaTemplateModal;
                       setIsCatalogOpen(false);
                       setShowValentinaModal(false);
@@ -4046,6 +4112,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                   onSend={handleSendMetaTemplate}
                   loading={metaTemplatesLoading}
                   inline={true}
+                  stageFilterActive={metaTemplatesStageFiltered}
+                  activeDealLabel={dealContext.data?.currentDeal?.title || null}
                 />
               )}
 

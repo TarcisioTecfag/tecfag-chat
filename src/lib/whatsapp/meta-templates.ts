@@ -1,24 +1,86 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { client, db } from "../../db";
-import { channelConfigs, metaMessageTemplates, metaTemplateGroups } from "../../db/schema";
+import {
+  channelConfigs,
+  conversationDealContexts,
+  conversations,
+  crmConversationDeals,
+  crmDeals,
+  crmPipelines,
+  crmStages,
+  metaMessageTemplates,
+  metaTemplateGroups,
+} from "../../db/schema";
 import { bodyVariableIndexes, stripTemplateAccents, type TemplateBinding, type TemplateBindings } from "./meta-template-common";
 
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
+
+export interface MetaTemplateScope {
+  allPipelines: boolean;
+  pipelineIds: string[];
+  stageIds: string[];
+}
+
+export function normalizeMetaTemplateScope(raw: any): MetaTemplateScope {
+  const pipelineIds: string[] = Array.isArray(raw?.pipelineIds)
+    ? Array.from(
+        new Set<string>(
+          raw.pipelineIds
+            .filter((id: unknown): id is string => typeof id === "string")
+            .map((id: string) => id.trim())
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  const stageIds: string[] = Array.isArray(raw?.stageIds)
+    ? Array.from(
+        new Set<string>(
+          raw.stageIds
+            .filter((id: unknown): id is string => typeof id === "string")
+            .map((id: string) => id.trim())
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  const allPipelines =
+    typeof raw?.allPipelines === "boolean"
+      ? raw.allPipelines
+      : pipelineIds.length === 0 && stageIds.length === 0;
+  return {
+    allPipelines: allPipelines && pipelineIds.length === 0 && stageIds.length === 0 ? true : allPipelines,
+    pipelineIds,
+    stageIds,
+  };
+}
 
 let schemaEnsured = false;
 export async function ensureMetaTemplateGroupsSchema(): Promise<void> {
   if (schemaEnsured) return;
   try {
     await client.unsafe(`
+      ALTER TABLE channel_configs
+        ADD COLUMN IF NOT EXISTS meta_templates_restrict_by_stage boolean NOT NULL DEFAULT false;
+
       ALTER TABLE meta_message_templates
-        ADD COLUMN IF NOT EXISTS custom_groups jsonb NOT NULL DEFAULT '[]'::jsonb;
+        ADD COLUMN IF NOT EXISTS custom_groups jsonb NOT NULL DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS all_pipelines boolean NOT NULL DEFAULT true,
+        ADD COLUMN IF NOT EXISTS pipeline_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS stage_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
 
       CREATE TABLE IF NOT EXISTS meta_template_groups (
         id text PRIMARY KEY,
         tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
         name text NOT NULL,
+        all_pipelines boolean NOT NULL DEFAULT true,
+        pipeline_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+        stage_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
         created_at timestamp NOT NULL DEFAULT now()
       );
+
+      ALTER TABLE meta_template_groups
+        ADD COLUMN IF NOT EXISTS all_pipelines boolean NOT NULL DEFAULT true,
+        ADD COLUMN IF NOT EXISTS pipeline_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS stage_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
 
       CREATE INDEX IF NOT EXISTS idx_meta_template_groups_tenant
         ON meta_template_groups(tenant_id);
@@ -62,6 +124,9 @@ export function normalizeCustomGroups(value: unknown): string[] {
 export interface MetaTemplateGroupItem {
   id: string;
   name: string;
+  allPipelines?: boolean;
+  pipelineIds?: string[];
+  stageIds?: string[];
   createdAt: Date;
 }
 
@@ -432,6 +497,7 @@ export async function setMetaTemplateBindings(
   metaTemplateId: string,
   value: unknown,
   customGroupsInput?: unknown,
+  scopeInput?: { allPipelines?: boolean; pipelineIds?: string[]; stageIds?: string[] },
 ) {
   await ensureMetaTemplateGroupsSchema();
   const [existing] = await db.select().from(metaMessageTemplates).where(and(
@@ -460,6 +526,22 @@ export async function setMetaTemplateBindings(
     updateFields.customGroups = normalizedGroups;
   }
 
+  if (
+    scopeInput &&
+    (scopeInput.allPipelines !== undefined ||
+      scopeInput.pipelineIds !== undefined ||
+      scopeInput.stageIds !== undefined)
+  ) {
+    const nextScope = normalizeMetaTemplateScope({
+      allPipelines: scopeInput.allPipelines ?? existing.allPipelines,
+      pipelineIds: scopeInput.pipelineIds ?? existing.pipelineIds,
+      stageIds: scopeInput.stageIds ?? existing.stageIds,
+    });
+    updateFields.allPipelines = nextScope.allPipelines;
+    updateFields.pipelineIds = nextScope.pipelineIds;
+    updateFields.stageIds = nextScope.stageIds;
+  }
+
   if (Object.keys(updateFields).length > 0) {
     await db.update(metaMessageTemplates).set(updateFields).where(and(
       eq(metaMessageTemplates.tenantId, tenantId), eq(metaMessageTemplates.metaTemplateId, metaTemplateId)
@@ -482,6 +564,9 @@ export async function saveMetaTemplateGroupWithLinks(
     groupId?: string;
     name: string;
     templateIds?: string[];
+    allPipelines?: boolean;
+    pipelineIds?: string[];
+    stageIds?: string[];
   },
 ) {
   await ensureMetaTemplateGroupsSchema();
@@ -506,12 +591,30 @@ export async function saveMetaTemplateGroupWithLinks(
   }
 
   const previousName = targetGroup?.name;
+  const hasScopePatch =
+    payload.allPipelines !== undefined ||
+    payload.pipelineIds !== undefined ||
+    payload.stageIds !== undefined;
+  const resolvedScope = normalizeMetaTemplateScope({
+    allPipelines: payload.allPipelines ?? targetGroup?.allPipelines,
+    pipelineIds: payload.pipelineIds ?? targetGroup?.pipelineIds,
+    stageIds: payload.stageIds ?? targetGroup?.stageIds,
+  });
 
   if (targetGroup) {
-    if (targetGroup.name !== cleanName) {
+    if (targetGroup.name !== cleanName || hasScopePatch) {
       await db
         .update(metaTemplateGroups)
-        .set({ name: cleanName })
+        .set({
+          name: cleanName,
+          ...(hasScopePatch
+            ? {
+                allPipelines: resolvedScope.allPipelines,
+                pipelineIds: resolvedScope.pipelineIds,
+                stageIds: resolvedScope.stageIds,
+              }
+            : {}),
+        })
         .where(and(eq(metaTemplateGroups.id, targetGroup.id), eq(metaTemplateGroups.tenantId, tenantId)));
     }
   } else {
@@ -520,9 +623,20 @@ export async function saveMetaTemplateGroupWithLinks(
       id,
       tenantId,
       name: cleanName,
+      allPipelines: resolvedScope.allPipelines,
+      pipelineIds: resolvedScope.pipelineIds,
+      stageIds: resolvedScope.stageIds,
       createdAt: new Date(),
     });
-    targetGroup = { id, tenantId, name: cleanName, createdAt: new Date() };
+    targetGroup = {
+      id,
+      tenantId,
+      name: cleanName,
+      allPipelines: resolvedScope.allPipelines,
+      pipelineIds: resolvedScope.pipelineIds,
+      stageIds: resolvedScope.stageIds,
+      createdAt: new Date(),
+    };
   }
 
   // Atualiza os vínculos nos templates do tenant (renomeação e/ou seleção de templates)
@@ -643,7 +757,18 @@ export async function getMetaTemplateBindings(tenantId: string, metaTemplateId: 
 
 export async function getMetaTemplateLocalMetadataMap(
   tenantId: string,
-): Promise<Map<string, { bindings: TemplateBindings; customGroups: string[] }>> {
+): Promise<
+  Map<
+    string,
+    {
+      bindings: TemplateBindings;
+      customGroups: string[];
+      allPipelines: boolean;
+      pipelineIds: string[];
+      stageIds: string[];
+    }
+  >
+> {
   await ensureMetaTemplateGroupsSchema();
   const rows = await db
     .select({
@@ -652,19 +777,260 @@ export async function getMetaTemplateLocalMetadataMap(
       language: metaMessageTemplates.language,
       bindings: metaMessageTemplates.bindings,
       customGroups: metaMessageTemplates.customGroups,
+      allPipelines: metaMessageTemplates.allPipelines,
+      pipelineIds: metaMessageTemplates.pipelineIds,
+      stageIds: metaMessageTemplates.stageIds,
     })
     .from(metaMessageTemplates)
     .where(eq(metaMessageTemplates.tenantId, tenantId));
 
-  const map = new Map<string, { bindings: TemplateBindings; customGroups: string[] }>();
+  const map = new Map<
+    string,
+    {
+      bindings: TemplateBindings;
+      customGroups: string[];
+      allPipelines: boolean;
+      pipelineIds: string[];
+      stageIds: string[];
+    }
+  >();
   for (const row of rows) {
+    const scope = normalizeMetaTemplateScope(row);
     const entry = {
       bindings: row.bindings || {},
       customGroups: normalizeCustomGroups(row.customGroups),
+      allPipelines: scope.allPipelines,
+      pipelineIds: scope.pipelineIds,
+      stageIds: scope.stageIds,
     };
     map.set(String(row.metaTemplateId), entry);
     map.set(`${row.name}:${row.language}`, entry);
   }
   return map;
+}
+
+export async function getMetaTemplatesRestrictByStage(tenantId: string): Promise<boolean> {
+  await ensureMetaTemplateGroupsSchema();
+  try {
+    const [config] = await db
+      .select({ restrict: channelConfigs.metaTemplatesRestrictByStage })
+      .from(channelConfigs)
+      .where(eq(channelConfigs.tenantId, tenantId))
+      .limit(1);
+    return Boolean(config?.restrict);
+  } catch {
+    return false;
+  }
+}
+
+export async function setMetaTemplatesRestrictByStage(
+  tenantId: string,
+  restrictByStage: boolean,
+): Promise<boolean> {
+  await ensureMetaTemplateGroupsSchema();
+  await db
+    .update(channelConfigs)
+    .set({ metaTemplatesRestrictByStage: Boolean(restrictByStage), updatedAt: new Date() })
+    .where(eq(channelConfigs.tenantId, tenantId));
+  return Boolean(restrictByStage);
+}
+
+/**
+ * Resolve o card ativo da conversa (ou o dealId informado pelo mini-chat do CRM)
+ * e retorna seu funil e etapa atuais para governança de templates.
+ */
+export async function resolveConversationActiveDealStage(
+  tenantId: string,
+  conversationId: string,
+  preferredDealId?: string | null,
+): Promise<{
+  hasActiveDeal: boolean;
+  dealId: string | null;
+  dealTitle: string | null;
+  pipelineId: string | null;
+  pipelineName: string | null;
+  stageId: string | null;
+  stageName: string | null;
+}> {
+  const empty = {
+    hasActiveDeal: false,
+    dealId: null,
+    dealTitle: null,
+    pipelineId: null,
+    pipelineName: null,
+    stageId: null,
+    stageName: null,
+  };
+
+  try {
+    let targetDealId = preferredDealId?.trim() || null;
+
+    if (!targetDealId) {
+      const [ctx] = await db
+        .select({
+          currentDealId: conversationDealContexts.currentDealId,
+          previousDealId: conversationDealContexts.previousDealId,
+        })
+        .from(conversationDealContexts)
+        .where(
+          and(
+            eq(conversationDealContexts.tenantId, tenantId),
+            eq(conversationDealContexts.conversationId, conversationId),
+          ),
+        )
+        .limit(1);
+      targetDealId = ctx?.currentDealId || null;
+    }
+
+    if (!targetDealId) {
+      const linkedDeals = await db
+        .select({
+          id: crmDeals.id,
+          status: crmDeals.status,
+          updatedAt: crmDeals.updatedAt,
+        })
+        .from(crmConversationDeals)
+        .innerJoin(
+          crmDeals,
+          and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, crmConversationDeals.dealId)),
+        )
+        .where(
+          and(
+            eq(crmConversationDeals.tenantId, tenantId),
+            eq(crmConversationDeals.conversationId, conversationId),
+            eq(crmConversationDeals.isActive, true),
+          ),
+        )
+        .orderBy(desc(crmDeals.updatedAt));
+
+      const openDeals = linkedDeals.filter((d) => d.status === "open");
+      if (openDeals.length === 1) {
+        targetDealId = openDeals[0].id;
+      } else if (openDeals.length === 0 && linkedDeals.length === 1) {
+        targetDealId = linkedDeals[0].id;
+      }
+    }
+
+    if (!targetDealId) return empty;
+
+    const [dealRow] = await db
+      .select({
+        id: crmDeals.id,
+        title: crmDeals.title,
+        pipelineId: crmDeals.pipelineId,
+        stageId: crmDeals.stageId,
+        pipelineName: crmPipelines.name,
+        stageName: crmStages.name,
+      })
+      .from(crmDeals)
+      .leftJoin(
+        crmPipelines,
+        and(eq(crmPipelines.tenantId, tenantId), eq(crmPipelines.id, crmDeals.pipelineId)),
+      )
+      .leftJoin(
+        crmStages,
+        and(eq(crmStages.tenantId, tenantId), eq(crmStages.id, crmDeals.stageId)),
+      )
+      .where(and(eq(crmDeals.tenantId, tenantId), eq(crmDeals.id, targetDealId)))
+      .limit(1);
+
+    if (!dealRow) return empty;
+    return {
+      hasActiveDeal: true,
+      dealId: dealRow.id,
+      dealTitle: dealRow.title,
+      pipelineId: dealRow.pipelineId,
+      pipelineName: dealRow.pipelineName || null,
+      stageId: dealRow.stageId,
+      stageName: dealRow.stageName || null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * Filtra a lista de templates aprovados da Meta com base no vínculo por Etapa / Funil
+ * (considerando tanto o escopo individual do template quanto o escopo de seus grupos).
+ * Hierarquia estrita + fallback:
+ * 1. Templates/Grupos vinculados à Etapa atual (`stageId`)
+ * 2. Fallback: Templates/Grupos vinculados ao Funil atual (`pipelineId`) sem restrição de outra etapa
+ * 3. Fallback: Templates/Grupos globais (`allPipelines: true`)
+ */
+export function filterMetaTemplatesForContext<
+  T extends {
+    customGroups?: string[];
+    allPipelines?: boolean;
+    pipelineIds?: string[];
+    stageIds?: string[];
+  },
+>(
+  templates: T[],
+  groups: MetaTemplateGroupItem[],
+  restrictByStage: boolean,
+  context?: { pipelineId?: string | null; stageId?: string | null },
+): T[] {
+  if (!restrictByStage) return templates;
+  const cleanStageId = context?.stageId?.trim() || "";
+  const cleanPipelineId = context?.pipelineId?.trim() || "";
+  if (!cleanStageId && !cleanPipelineId) return templates;
+
+  const groupScopeByNameLower = new Map<string, MetaTemplateScope>();
+  for (const g of groups) {
+    groupScopeByNameLower.set(g.name.toLowerCase(), normalizeMetaTemplateScope(g));
+  }
+
+  const enriched = templates.map((tpl) => {
+    const tplScope = normalizeMetaTemplateScope(tpl);
+    const tplGroups = normalizeCustomGroups(tpl.customGroups);
+    const stageSet = new Set<string>(tplScope.stageIds);
+    const pipeSet = new Set<string>(tplScope.pipelineIds);
+    let hasScopedRule = tplScope.allPipelines === false;
+
+    for (const gName of tplGroups) {
+      const gScope = groupScopeByNameLower.get(gName.toLowerCase());
+      if (gScope && gScope.allPipelines === false) {
+        hasScopedRule = true;
+        for (const sId of gScope.stageIds) stageSet.add(sId);
+        for (const pId of gScope.pipelineIds) pipeSet.add(pId);
+      }
+    }
+
+    return {
+      tpl,
+      isScoped: hasScopedRule,
+      effectiveStageIds: Array.from(stageSet),
+      effectivePipelineIds: Array.from(pipeSet),
+    };
+  });
+
+  // 1. Vínculo estrito por etapa
+  if (cleanStageId) {
+    const stageMatches = enriched
+      .filter((item) => item.isScoped && item.effectiveStageIds.includes(cleanStageId))
+      .map((item) => item.tpl);
+    if (stageMatches.length > 0) {
+      return stageMatches;
+    }
+  }
+
+  // 2. Fallback por funil
+  if (cleanPipelineId) {
+    const pipelineMatches = enriched
+      .filter(
+        (item) =>
+          item.isScoped &&
+          item.effectivePipelineIds.includes(cleanPipelineId) &&
+          item.effectiveStageIds.length === 0,
+      )
+      .map((item) => item.tpl);
+    if (pipelineMatches.length > 0) {
+      return pipelineMatches;
+    }
+  }
+
+  // 3. Fallback global
+  const globalMatches = enriched.filter((item) => !item.isScoped).map((item) => item.tpl);
+  return globalMatches.length > 0 ? globalMatches : templates;
 }
 

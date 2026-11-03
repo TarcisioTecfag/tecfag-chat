@@ -26,7 +26,13 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import {
+  FunnelStageScopeSelector,
+  type FunnelStageScopeValue,
+  type PipelineWithStages,
+} from "@/components/crm/FunnelStageScopeSelector";
 import {
   MessageSquare,
   Sparkles,
@@ -71,12 +77,18 @@ type MetaTemplate = {
   }>;
   bindings: TemplateBindings;
   customGroups?: string[];
+  allPipelines?: boolean;
+  pipelineIds?: string[];
+  stageIds?: string[];
   rejectedReason: string | null;
 };
 
 type MetaTemplateGroup = {
   id: string;
   name: string;
+  allPipelines?: boolean;
+  pipelineIds?: string[];
+  stageIds?: string[];
   createdAt?: string;
 };
 
@@ -175,8 +187,18 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [groupNameInput, setGroupNameInput] = useState("");
   const [groupTemplateIds, setGroupTemplateIds] = useState<string[]>([]);
+  const [groupScope, setGroupScope] = useState<FunnelStageScopeValue>({
+    allPipelines: true,
+    pipelineIds: [],
+    stageIds: [],
+  });
   const [groupTemplateSearch, setGroupTemplateSearch] = useState("");
   const [savingGroup, setSavingGroup] = useState(false);
+
+  // Governança de Funil / Etapa para Templates Meta
+  const [restrictByStage, setRestrictByStage] = useState(false);
+  const [savingRestrict, setSavingRestrict] = useState(false);
+  const [pipelines, setPipelines] = useState<PipelineWithStages[]>([]);
 
   // Modal Rápido para Vincular Grupos em um Template Específico
   const [linkingTemplate, setLinkingTemplate] = useState<MetaTemplate | null>(null);
@@ -189,10 +211,19 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
     setLoading(true);
     setError("");
     try {
-      const data = await api("/api/whatsapp/meta-templates");
+      const [data, pipeRes] = await Promise.all([
+        api("/api/whatsapp/meta-templates"),
+        fetch(`${BASE}/api/crm/pipelines`, { credentials: "include" })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      ]);
       setTemplates((data.templates || []).filter((item: MetaTemplate) => item.status !== "DELETED"));
       if (Array.isArray(data.groups)) {
         setGroups(data.groups);
+      }
+      setRestrictByStage(data.restrictByStage === true);
+      if (Array.isArray(pipeRes?.pipelines)) {
+        setPipelines(pipeRes.pipelines);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Falha ao carregar templates.");
@@ -200,6 +231,64 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
       setLoading(false);
     }
   }, [tenant]);
+
+  const handleToggleRestrictByStage = async (nextVal: boolean) => {
+    setSavingRestrict(true);
+    const prevVal = restrictByStage;
+    setRestrictByStage(nextVal);
+    try {
+      const data = await api("/api/whatsapp/meta-templates", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "set_restrict_by_stage",
+          restrictByStage: nextVal,
+        }),
+      });
+      setRestrictByStage(data.restrictByStage === true);
+      toast.success(
+        nextVal
+          ? "Restrição de templates por Funil/Etapa ativada."
+          : "Restrição desativada. Todos os templates aprovados ficam disponíveis.",
+      );
+    } catch (cause) {
+      setRestrictByStage(prevVal);
+      toast.error(cause instanceof Error ? cause.message : "Falha ao salvar configuração.");
+    } finally {
+      setSavingRestrict(false);
+    }
+  };
+
+  const handleSaveTemplateScope = async (
+    item: MetaTemplate,
+    nextScope: FunnelStageScopeValue,
+  ) => {
+    try {
+      await api("/api/whatsapp/meta-templates", {
+        method: "PATCH",
+        body: JSON.stringify({
+          metaTemplateId: item.metaTemplateId,
+          allPipelines: nextScope.allPipelines,
+          pipelineIds: nextScope.pipelineIds,
+          stageIds: nextScope.stageIds,
+        }),
+      });
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.metaTemplateId === item.metaTemplateId
+            ? {
+                ...t,
+                allPipelines: nextScope.allPipelines,
+                pipelineIds: nextScope.pipelineIds,
+                stageIds: nextScope.stageIds,
+              }
+            : t,
+        ),
+      );
+      toast.success(`Vínculo de funil/etapa do template "${item.name}" atualizado!`);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Falha ao atualizar escopo do template.");
+    }
+  };
 
   useEffect(() => {
     void refresh();
@@ -240,6 +329,7 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
     setEditingGroupId(null);
     setGroupNameInput("");
     setGroupTemplateIds([]);
+    setGroupScope({ allPipelines: true, pipelineIds: [], stageIds: [] });
     setGroupTemplateSearch("");
     setGroupModalOpen(true);
   };
@@ -249,6 +339,11 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
     const existingGroup = groups.find((g) => g.name.toLowerCase() === groupName.toLowerCase());
     setEditingGroupId(existingGroup?.id || null);
     setGroupNameInput(existingGroup?.name || groupName);
+    setGroupScope({
+      allPipelines: existingGroup?.allPipelines !== false,
+      pipelineIds: existingGroup?.pipelineIds || [],
+      stageIds: existingGroup?.stageIds || [],
+    });
     const linkedIds = templates
       .filter((t) =>
         normalizeTemplateCustomGroups(t.customGroups).some(
@@ -276,6 +371,9 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
           groupId: editingGroupId || undefined,
           name: cleanName,
           templateIds: groupTemplateIds,
+          allPipelines: groupScope.allPipelines,
+          pipelineIds: groupScope.pipelineIds,
+          stageIds: groupScope.stageIds,
         }),
       });
       if (Array.isArray(data.templates)) {
@@ -614,6 +712,31 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
         </div>
       </div>
 
+      {/* Governança: Restringir envio de templates por Funil / Etapa do Card */}
+      <div className="rounded-2xl border border-primary/25 bg-primary/5 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-xs font-bold text-foreground">
+              Restringir envio de Templates Meta por Funil ou Etapa da Negociação
+            </span>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Quando ativado, o chat exibirá e permitirá enviar apenas os templates (ou grupos de templates) vinculados à etapa atual do card. Caso a etapa não possua templates exclusivos, usa o vínculo do funil ou os templates globais como fallback.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[11px] font-semibold text-muted-foreground">
+            {restrictByStage ? "Ativo" : "Desativado"}
+          </span>
+          <Switch
+            checked={restrictByStage}
+            disabled={savingRestrict}
+            onCheckedChange={(checked) => void handleToggleRestrictByStage(checked)}
+          />
+        </div>
+      </div>
+
       {/* Barra de Busca + Pílulas de Categorias Oficiais e Grupos Personalizados */}
       {templates.length > 0 && (
         <div className="rounded-2xl border border-border bg-card p-3.5 space-y-3 shadow-2xs">
@@ -824,16 +947,16 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                     </span>
                   )}
                   {itemGroups.map((groupName) => (
-                    <button
-                      key={groupName}
-                      type="button"
-                      onClick={() => openQuickLinkTemplate(item)}
-                      className="inline-flex items-center gap-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 px-2 py-0.5 text-[10px] font-bold transition-colors cursor-pointer"
-                      title="Clique para alterar os grupos deste template"
-                    >
-                      <Folder className="h-2.5 w-2.5" />
-                      <span>{groupName}</span>
-                    </button>
+                    <SystemTooltip key={groupName} content="Clique para alterar os grupos deste template">
+                      <button
+                        type="button"
+                        onClick={() => openQuickLinkTemplate(item)}
+                        className="inline-flex items-center gap-1 rounded-md bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 px-2 py-0.5 text-[10px] font-bold transition-colors cursor-pointer"
+                      >
+                        <Folder className="h-2.5 w-2.5" />
+                        <span>{groupName}</span>
+                      </button>
+                    </SystemTooltip>
                   ))}
                   {itemGroups.length === 0 && (
                     <button
@@ -844,6 +967,19 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                       <Plus className="h-2.5 w-2.5" />
                       <span>Grupo</span>
                     </button>
+                  )}
+                  {pipelines.length > 0 && (
+                    <FunnelStageScopeSelector
+                      pipelines={pipelines}
+                      value={{
+                        allPipelines: item.allPipelines !== false,
+                        pipelineIds: item.pipelineIds || [],
+                        stageIds: item.stageIds || [],
+                      }}
+                      onChange={(nextScope) => void handleSaveTemplateScope(item, nextScope)}
+                      compact
+                      triggerClassName="text-[10px] py-0.5 px-2"
+                    />
                   )}
                 </div>
 
@@ -1188,12 +1324,26 @@ export function MetaTemplatesManager({ tenant }: { tenant: string | null }) {
                   <Label className="text-xs font-bold text-foreground">
                     {editingGroupId ? "Editar Nome do Grupo" : "Nome do Novo Grupo Personalizado"}
                   </Label>
-                  <Input
-                    value={groupNameInput}
-                    onChange={(e) => setGroupNameInput(e.target.value)}
-                    placeholder="Ex: Assistência Técnica, Pós-Venda, Comercial, Cobrança..."
-                    className="h-10 text-xs rounded-xl bg-background border-border"
-                  />
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <Input
+                      value={groupNameInput}
+                      onChange={(e) => setGroupNameInput(e.target.value)}
+                      placeholder="Ex: Assistência Técnica, Pós-Venda, Comercial, Cobrança..."
+                      className="h-10 text-xs rounded-xl bg-background border-border flex-1"
+                    />
+                    {pipelines.length > 0 && (
+                      <div className="shrink-0">
+                        <FunnelStageScopeSelector
+                          pipelines={pipelines}
+                          value={groupScope}
+                          onChange={setGroupScope}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Vincular o grupo a funis/etapas libera automaticamente todos os templates deste grupo nas etapas escolhidas.
+                  </p>
                 </div>
 
                 {/* Checklist de Templates para Vincular ao Grupo */}

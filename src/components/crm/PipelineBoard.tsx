@@ -12,6 +12,7 @@ import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import { PipelineColumn, PipelineStageData, PipelineStageSummary } from "./PipelineColumn";
 import { DealCard, DealCardData, hideSharedCardTooltip } from "./DealCard";
 import { StageTerminalConfirmDialog } from "./StageTerminalConfirmDialog";
+import { HiddenStageTransferDialog } from "./HiddenStageTransferDialog";
 
 interface PipelineBoardProps {
   pipeline: {
@@ -19,17 +20,25 @@ interface PipelineBoardProps {
     name: string;
     coolingDays?: number;
     stages: PipelineStageData[];
+    allStages?: Array<PipelineStageData & { isVisible?: boolean }>;
   };
   deals: DealCardData[];
   stageSettings?: Record<string, { coolingEnabled: boolean; coolingDays: number }>;
   stagesSummaryMap?: Map<string, PipelineStageSummary>;
   operatorsMap: Map<string, string>;
+  currentOperatorId?: string | null;
   onDealClick: (deal: DealCardData) => void;
   onMoveDeal: (
     dealId: string,
     newStageId: string,
     currentVersion: number,
-    terminalData?: { status: "won" | "lost"; lossReason?: string; value?: string | number | null }
+    terminalData?: {
+      status?: "won" | "lost";
+      lossReason?: string;
+      value?: string | number | null;
+      operatorId?: string | null;
+      hiddenTarget?: boolean;
+    }
   ) => void;
   onNewDealAtStage?: (stageId: string) => void;
   onCreateTaskClick?: (deal: DealCardData) => void;
@@ -109,6 +118,7 @@ export const PipelineBoard = React.memo(function PipelineBoard({
   stageSettings,
   stagesSummaryMap,
   operatorsMap,
+  currentOperatorId,
   onDealClick,
   onMoveDeal,
   onNewDealAtStage,
@@ -122,11 +132,20 @@ export const PipelineBoard = React.memo(function PipelineBoard({
     [pipeline.stages]
   );
 
-  // Mapeamento simplificado para select de troca de etapas (Memoizado)
-  const allStages = useMemo(
-    () => sortedStages.map((s) => ({ id: s.id, name: s.name })),
-    [sortedStages]
-  );
+  // Mapeamento simplificado para select de troca de etapas (inclui etapas ocultas enviáveis quando configuradas)
+  const allStages = useMemo(() => {
+    const source =
+      pipeline.allStages && pipeline.allStages.length > 0
+        ? [...pipeline.allStages].sort((a, b) => a.orderIndex - b.orderIndex)
+        : sortedStages;
+    return source.map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      isWinStage: s.isWinStage,
+      isLossStage: s.isLossStage,
+      isVisible: s.isVisible !== false,
+    }));
+  }, [pipeline.allStages, sortedStages]);
 
   // Ref principal do container rolável do Kanban
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -148,6 +167,9 @@ export const PipelineBoard = React.memo(function PipelineBoard({
   const pipelineCoolingDaysRef = useRef(pipeline.coolingDays);
   pipelineCoolingDaysRef.current = pipeline.coolingDays;
 
+  const currentOperatorIdRef = useRef(currentOperatorId);
+  currentOperatorIdRef.current = currentOperatorId;
+
   // Estado para diálogo de confirmação em etapa terminal (Ganho/Perda)
   const [terminalConfirm, setTerminalConfirm] = useState<{
     dealId: string;
@@ -157,6 +179,17 @@ export const PipelineBoard = React.memo(function PipelineBoard({
     dealTitle: string;
     currentValue?: string | number | null;
     type: "win" | "loss";
+  } | null>(null);
+
+  // Estado para transferência cega (etapa sem visibilidade)
+  const [hiddenTransferConfirm, setHiddenTransferConfirm] = useState<{
+    dealId: string;
+    version: number;
+    targetStageId: string;
+    targetStageName: string;
+    dealTitle: string;
+    currentOperatorId: string | null;
+    requiresReassignment: boolean;
   } | null>(null);
 
   const prepareBoardSurface = (step: { id: string }) => {
@@ -219,18 +252,36 @@ export const PipelineBoard = React.memo(function PipelineBoard({
     return stableMap;
   }, [sortedStages, deals]);
 
-  // Intercepta movimentação para verificar etapa terminal (Estável: não depende de `deals` por valor)
+  // Intercepta movimentação para verificar etapa oculta ou etapa terminal (Estável: não depende de `deals` por valor)
   const handleInterceptMove = useCallback(
     (dealId: string, newStageId: string, version: number) => {
-      const targetStage = sortedStagesRef.current.find((s) => s.id === newStageId);
+      const targetStage =
+        allStagesRef.current.find((s) => s.id === newStageId) ||
+        sortedStagesRef.current.find((s) => s.id === newStageId);
       const deal = dealsRef.current.find((d) => d.id === dealId);
 
-      if (targetStage?.isWinStage) {
-        setTerminalConfirm({
+      if (targetStage && (targetStage as any).isVisible === false) {
+        const dealOwnerId = deal?.operatorId || deal?.ownerId || null;
+        const myOpId = currentOperatorIdRef.current || null;
+        const requiresReassignment = Boolean(!dealOwnerId || (myOpId && dealOwnerId === myOpId));
+        setHiddenTransferConfirm({
           dealId,
           version,
           targetStageId: newStageId,
           targetStageName: targetStage.name,
+          dealTitle: deal?.title || "Negociação",
+          currentOperatorId: myOpId || dealOwnerId,
+          requiresReassignment,
+        });
+        return;
+      }
+
+      if ((targetStage as any)?.isWinStage) {
+        setTerminalConfirm({
+          dealId,
+          version,
+          targetStageId: newStageId,
+          targetStageName: targetStage?.name || "Etapa",
           dealTitle: deal?.title || "Negociação",
           currentValue: deal?.value,
           type: "win",
@@ -238,12 +289,12 @@ export const PipelineBoard = React.memo(function PipelineBoard({
         return;
       }
 
-      if (targetStage?.isLossStage) {
+      if ((targetStage as any)?.isLossStage) {
         setTerminalConfirm({
           dealId,
           version,
           targetStageId: newStageId,
-          targetStageName: targetStage.name,
+          targetStageName: targetStage?.name || "Etapa",
           dealTitle: deal?.title || "Negociação",
           currentValue: deal?.value,
           type: "loss",
@@ -923,6 +974,8 @@ export const PipelineBoard = React.memo(function PipelineBoard({
           isOpen={true}
           type={terminalConfirm.type}
           stageName={terminalConfirm.targetStageName}
+          pipelineId={pipeline.id}
+          stageId={terminalConfirm.targetStageId}
           dealTitle={terminalConfirm.dealTitle}
           currentValue={terminalConfirm.currentValue}
           onConfirm={(data) => {
@@ -935,6 +988,29 @@ export const PipelineBoard = React.memo(function PipelineBoard({
             setTerminalConfirm(null);
           }}
           onCancel={() => setTerminalConfirm(null)}
+        />
+      )}
+
+      {/* Confirmação de transferência para etapa sem visibilidade */}
+      {hiddenTransferConfirm && (
+        <HiddenStageTransferDialog
+          isOpen={true}
+          dealTitle={hiddenTransferConfirm.dealTitle}
+          targetStageName={hiddenTransferConfirm.targetStageName}
+          targetPipelineName={pipeline.name}
+          requiresReassignment={hiddenTransferConfirm.requiresReassignment}
+          currentOperatorId={hiddenTransferConfirm.currentOperatorId}
+          operators={Array.from(operatorsMap.entries()).map(([id, name]) => ({ id, name }))}
+          onCancel={() => setHiddenTransferConfirm(null)}
+          onConfirm={({ newOperatorId }) => {
+            onMoveDeal(
+              hiddenTransferConfirm.dealId,
+              hiddenTransferConfirm.targetStageId,
+              hiddenTransferConfirm.version,
+              { operatorId: newOperatorId, hiddenTarget: true }
+            );
+            setHiddenTransferConfirm(null);
+          }}
         />
       )}
     </div>

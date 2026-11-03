@@ -13,6 +13,7 @@ import {
   Pencil,
   ListTodo,
   ArrowRight,
+  EyeOff,
   Check,
   X,
   Loader2,
@@ -193,7 +194,7 @@ export interface DealCardProps {
   onQuickMove?: (dealId: string, newStageId: string, currentVersion: number) => void;
   onTaskCompleted?: (dealId: string, activityId: string) => void;
   onCreateTaskClick?: (deal: DealCardData) => void;
-  allStages?: Array<{ id: string; name: string }>;
+  allStages?: Array<{ id: string; name: string; isVisible?: boolean }>;
   isDragging?: boolean;
   isOverlay?: boolean;
   onStartDrag?: (e: React.PointerEvent<HTMLDivElement>, deal: DealCardData) => void;
@@ -580,10 +581,15 @@ export const DealCard = React.memo(function DealCard({
                             setShowQuickMenu(false);
                             onQuickMove(deal.id, s.id, deal.version);
                           }}
-                          className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[10px] hover:bg-accent truncate cursor-pointer transition-colors"
+                          className="flex w-full items-center justify-between gap-1.5 rounded-lg px-2 py-1 text-left text-[10px] hover:bg-accent truncate cursor-pointer transition-colors"
                         >
-                          <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="truncate">{s.name}</span>
+                          <span className="flex items-center gap-1.5 min-w-0 truncate">
+                            <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                            <span className="truncate">{s.name}</span>
+                          </span>
+                          {s.isVisible === false && (
+                            <EyeOff className="h-3 w-3 text-amber-500 shrink-0" />
+                          )}
                         </button>
                       ))}
                   </div>

@@ -82,6 +82,7 @@ import {
   normalizeTemplateCustomGroups,
 } from "@/lib/whatsapp/meta-template-common";
 import { toast } from "sonner";
+import { fetchDealRequirement } from "@/lib/crm/conversation-deal-client";
 import { getConversationSortTimestamp, type Conversation, type Message } from "@/lib/mockData";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
@@ -1260,7 +1261,30 @@ export function CrmChatWidget() {
   const [metaTemplatesLoading, setMetaTemplatesLoading] = useState(false);
   const [showMetaTemplateModal, setShowMetaTemplateModal] = useState(false);
 
+  const ensureMiniChatDealReady = async (convId: string): Promise<boolean> => {
+    if (!convId || convId === "valentina" || convId === "__resolving__") return true;
+    try {
+      const reqState = await fetchDealRequirement(convId);
+      if (reqState.pending) {
+        toast.error(
+          reqState.currentRequired
+            ? "Selecione a negociação atual deste atendimento antes de enviar mensagens ou templates."
+            : "Vincule ou crie uma negociação no CRM antes de enviar mensagens ou templates.",
+        );
+        setOpen(false);
+        setActiveView("chat");
+        if (location.pathname !== "/") navigate({ to: "/" });
+        return false;
+      }
+    } catch {}
+    return true;
+  };
+
   const loadMetaTemplates = async (convId: string) => {
+    if (!(await ensureMiniChatDealReady(convId))) {
+      setShowMetaTemplateModal(false);
+      return;
+    }
     setMetaTemplatesLoading(true);
     try {
       const res = await fetch(
@@ -1288,6 +1312,9 @@ export function CrmChatWidget() {
     parameters: string[],
   ): Promise<boolean> => {
     try {
+      if (selected && !(await ensureMiniChatDealReady(selected.id))) {
+        return false;
+      }
       if (
         selected &&
         selected.id !== "valentina" &&
@@ -2238,6 +2265,9 @@ export function CrmChatWidget() {
     ) {
       return;
     }
+    if (!(await ensureMiniChatDealReady(selected.id))) {
+      return;
+    }
     setSending(true);
     setDraft("");
     if (textareaRef.current) {
@@ -2275,6 +2305,9 @@ export function CrmChatWidget() {
       selected.id === "__resolving__" ||
       selected.id !== selectedChatId
     ) {
+      return;
+    }
+    if (!(await ensureMiniChatDealReady(selected.id))) {
       return;
     }
     setSending(true);

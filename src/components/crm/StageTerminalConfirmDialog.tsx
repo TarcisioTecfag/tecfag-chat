@@ -6,6 +6,8 @@ interface StageTerminalConfirmDialogProps {
   isOpen: boolean;
   type: "win" | "loss";
   stageName: string;
+  pipelineId?: string | null;
+  stageId?: string | null;
   dealTitle: string;
   currentValue?: string | number | null;
   onConfirm: (data: { status: "won" | "lost"; lossReason?: string; value?: string | number | null }) => void;
@@ -16,6 +18,8 @@ export function StageTerminalConfirmDialog({
   isOpen,
   type,
   stageName,
+  pipelineId,
+  stageId,
   dealTitle,
   currentValue,
   onConfirm,
@@ -106,6 +110,8 @@ export function StageTerminalConfirmDialog({
                 kind="loss_reason"
                 value={lossReason}
                 onChange={setLossReason}
+                pipelineId={pipelineId}
+                stageId={stageId}
                 placeholder="Selecione um motivo cadastrado"
                 className="w-full rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />

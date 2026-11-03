@@ -34,7 +34,7 @@ interface PipelineColumnProps {
   coolingDays?: number;
   coolingEnabled?: boolean;
   operatorsMap: Map<string, string>;
-  allStages: Array<{ id: string; name: string }>;
+  allStages: Array<{ id: string; name: string; isVisible?: boolean }>;
   onDealClick: (deal: DealCardData) => void;
   onDropDeal: (dealId: string, newStageId: string, version: number) => void;
   onNewDealAtStage?: (stageId: string) => void;

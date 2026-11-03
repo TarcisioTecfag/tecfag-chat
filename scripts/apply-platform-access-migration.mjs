@@ -229,6 +229,20 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0055_funnel_stage_governance",
+    url: new URL(
+      "../src/db/migrations/0055_funnel_stage_governance.sql",
+      import.meta.url,
+    ),
+  },
+  {
+    name: "0054_international_phone_identity",
+    url: new URL(
+      "../src/db/migrations/0054_international_phone_identity.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

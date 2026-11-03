@@ -135,10 +135,50 @@ export async function listCatalogItems(tenantId: string, kind: CatalogKind) {
     .orderBy(asc(crmCatalogItems.name));
 }
 
+export type CatalogItemScope = {
+  allPipelines: boolean;
+  pipelineIds: string[];
+  stageIds: string[];
+};
+
+export function normalizeCatalogItemScope(raw: any): CatalogItemScope {
+  const pipelineIds: string[] = Array.isArray(raw?.pipelineIds)
+    ? Array.from(
+        new Set<string>(
+          raw.pipelineIds
+            .filter((id: unknown): id is string => typeof id === "string")
+            .map((id: string) => id.trim())
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  const stageIds: string[] = Array.isArray(raw?.stageIds)
+    ? Array.from(
+        new Set<string>(
+          raw.stageIds
+            .filter((id: unknown): id is string => typeof id === "string")
+            .map((id: string) => id.trim())
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  const allPipelines =
+    typeof raw?.allPipelines === "boolean"
+      ? raw.allPipelines
+      : pipelineIds.length === 0 && stageIds.length === 0;
+  return {
+    allPipelines: allPipelines && pipelineIds.length === 0 && stageIds.length === 0 ? true : allPipelines,
+    pipelineIds,
+    stageIds,
+  };
+}
+
 export type CatalogPolicy = {
   allowUserCreate: boolean;
   includeStandard: boolean;
   disabledStandardItems: string[];
+  restrictByStage: boolean;
+  standardItemScopes: Record<string, CatalogItemScope>;
 };
 
 export async function getCatalogPolicy(tenantId: string, kind: CatalogKind): Promise<CatalogPolicy> {
@@ -148,12 +188,24 @@ export async function getCatalogPolicy(tenantId: string, kind: CatalogKind): Pro
       .from(crmCatalogPolicies)
       .where(and(eq(crmCatalogPolicies.tenantId, tenantId), eq(crmCatalogPolicies.kind, kind)))
       .limit(1);
+    const rawScopes =
+      policy?.standardItemScopes && typeof policy.standardItemScopes === "object" && !Array.isArray(policy.standardItemScopes)
+        ? (policy.standardItemScopes as Record<string, any>)
+        : {};
+    const standardItemScopes: Record<string, CatalogItemScope> = {};
+    for (const [key, val] of Object.entries(rawScopes)) {
+      if (key.trim()) {
+        standardItemScopes[key.trim()] = normalizeCatalogItemScope(val);
+      }
+    }
     return {
       allowUserCreate: kind === "loss_reason" ? false : (policy?.allowUserCreate ?? false),
       includeStandard: policy?.includeStandard ?? true,
       disabledStandardItems: Array.isArray(policy?.disabledStandardItems)
         ? (policy.disabledStandardItems as string[])
         : [],
+      restrictByStage: Boolean(policy?.restrictByStage),
+      standardItemScopes,
     };
   } catch (err) {
     console.warn("[catalogs] Fallback em getCatalogPolicy:", err);
@@ -161,6 +213,8 @@ export async function getCatalogPolicy(tenantId: string, kind: CatalogKind): Pro
       allowUserCreate: false,
       includeStandard: true,
       disabledStandardItems: [],
+      restrictByStage: false,
+      standardItemScopes: {},
     };
   }
 }
@@ -169,11 +223,54 @@ export type CatalogOption = {
   id: string;
   name: string;
   isStandard?: boolean;
+  allPipelines?: boolean;
+  pipelineIds?: string[];
+  stageIds?: string[];
 };
+
+export function filterCatalogOptionsByContext(
+  options: CatalogOption[],
+  restrictByStage: boolean,
+  context?: { pipelineId?: string | null; stageId?: string | null },
+): CatalogOption[] {
+  if (!restrictByStage) return options;
+  const cleanStageId = context?.stageId?.trim() || "";
+  const cleanPipelineId = context?.pipelineId?.trim() || "";
+  if (!cleanStageId && !cleanPipelineId) return options;
+
+  // 1. Vínculo estrito por etapa: se houver itens vinculados a esta etapa específica, exibe apenas eles
+  if (cleanStageId) {
+    const stageMatches = options.filter(
+      (opt) => opt.allPipelines === false && Array.isArray(opt.stageIds) && opt.stageIds.includes(cleanStageId),
+    );
+    if (stageMatches.length > 0) {
+      return stageMatches;
+    }
+  }
+
+  // 2. Fallback por funil: se a etapa não tiver itens exclusivos, usa os itens vinculados ao funil inteiro
+  if (cleanPipelineId) {
+    const pipelineMatches = options.filter(
+      (opt) =>
+        opt.allPipelines === false &&
+        Array.isArray(opt.pipelineIds) &&
+        opt.pipelineIds.includes(cleanPipelineId) &&
+        (!Array.isArray(opt.stageIds) || opt.stageIds.length === 0),
+    );
+    if (pipelineMatches.length > 0) {
+      return pipelineMatches;
+    }
+  }
+
+  // 3. Fallback global: itens liberados para todos os funis
+  const globalMatches = options.filter((opt) => opt.allPipelines !== false);
+  return globalMatches.length > 0 ? globalMatches : options;
+}
 
 export async function listAvailableCatalogOptions(
   tenantId: string,
   kind: CatalogKind,
+  context?: { pipelineId?: string | null; stageId?: string | null },
 ): Promise<CatalogOption[]> {
   let [items, policy] = await Promise.all([
     listCatalogItems(tenantId, kind),
@@ -214,14 +311,23 @@ export async function listAvailableCatalogOptions(
     }
   }
 
-  const customOptions: CatalogOption[] = items.map((item) => ({
-    id: item.id,
-    name: item.name,
-    isStandard: false,
-  }));
+  const customOptions: CatalogOption[] = items.map((item) => {
+    const scope = normalizeCatalogItemScope(item);
+    return {
+      id: item.id,
+      name: item.name,
+      isStandard: false,
+      allPipelines: scope.allPipelines,
+      pipelineIds: scope.pipelineIds,
+      stageIds: scope.stageIds,
+    };
+  });
 
   if (!policy.includeStandard) {
-    return customOptions;
+    const sortedCustom = customOptions.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    return kind === "loss_reason"
+      ? filterCatalogOptionsByContext(sortedCustom, policy.restrictByStage, context)
+      : sortedCustom;
   }
 
   const disabledSet = new Set(
@@ -238,15 +344,25 @@ export async function listAvailableCatalogOptions(
         !disabledSet.has(name.toLocaleLowerCase("pt-BR")) &&
         !customNamesSet.has(name.toLocaleLowerCase("pt-BR")),
     )
-    .map((name, index) => ({
-      id: `std-${kind}-${index}`,
-      name,
-      isStandard: true,
-    }));
+    .map((name, index) => {
+      const stdScope = normalizeCatalogItemScope(policy.standardItemScopes?.[name]);
+      return {
+        id: `std-${kind}-${index}`,
+        name,
+        isStandard: true,
+        allPipelines: stdScope.allPipelines,
+        pipelineIds: stdScope.pipelineIds,
+        stageIds: stdScope.stageIds,
+      };
+    });
 
-  return [...customOptions, ...standardOptions].sort((a, b) =>
+  const allSorted = [...customOptions, ...standardOptions].sort((a, b) =>
     a.name.localeCompare(b.name, "pt-BR"),
   );
+
+  return kind === "loss_reason"
+    ? filterCatalogOptionsByContext(allSorted, policy.restrictByStage, context)
+    : allSorted;
 }
 
 export async function validateCatalogChoice(
@@ -254,6 +370,7 @@ export async function validateCatalogChoice(
   kind: CatalogKind,
   value: unknown,
   previous?: string | null,
+  context?: { pipelineId?: string | null; stageId?: string | null },
 ): Promise<string | null> {
   if (value === null || value === "") return null;
   const name = normalizeCatalogName(value);
@@ -264,6 +381,17 @@ export async function validateCatalogChoice(
       await ensureCatalogOption(tenantId, kind, name);
     }
     return name;
+  }
+
+  if (kind === "loss_reason" && (context?.pipelineId || context?.stageId)) {
+    const allowedOptions = await listAvailableCatalogOptions(tenantId, kind, context);
+    const matched = allowedOptions.find(
+      (opt) => opt.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"),
+    );
+    if (matched) return matched.name;
+    throw new CatalogValidationError(
+      "O motivo de perda selecionado não está habilitado para a etapa ou funil atual desta negociação.",
+    );
   }
 
   const [items, policy] = await Promise.all([

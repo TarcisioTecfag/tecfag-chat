@@ -8,6 +8,7 @@ import { getMetaServiceWindow } from "../meta-policy";
 import { convertAudioToOggOpus, metaAudioNeedsConversion, META_AUDIO_OUTPUT_MIME } from "../audio-convert";
 import { getMetaTemplateBindings, getMetaTemplateLocalMetadataMap } from "../meta-templates";
 import { isSupportedMetaTemplate, type TemplateBindings } from "../meta-template-common";
+import { normalizeCanonicalPhone } from "../../utils";
 
 const META_GRAPH_VERSION = "v21.0";
 const META_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
@@ -95,6 +96,9 @@ export class MetaAdapter implements WhatsAppAdapter {
       supported: boolean;
       bindings: TemplateBindings;
       customGroups: string[];
+      allPipelines?: boolean;
+      pipelineIds?: string[];
+      stageIds?: string[];
       components: unknown[];
     }>
   > {
@@ -112,6 +116,9 @@ export class MetaAdapter implements WhatsAppAdapter {
       supported: boolean;
       bindings: TemplateBindings;
       customGroups: string[];
+      allPipelines?: boolean;
+      pipelineIds?: string[];
+      stageIds?: string[];
       components: unknown[];
     }> = [];
     let url: string | null = `${META_BASE_URL}/${encodeURIComponent(businessAccountId)}/message_templates?fields=id,name,language,status,category,components&limit=100`;
@@ -139,6 +146,9 @@ export class MetaAdapter implements WhatsAppAdapter {
             components,
             bindings: localMeta?.bindings || (item.id ? await getMetaTemplateBindings(tenantId, String(item.id)) : {}),
             customGroups: localMeta?.customGroups || [],
+            allPipelines: localMeta?.allPipelines ?? true,
+            pipelineIds: localMeta?.pipelineIds ?? [],
+            stageIds: localMeta?.stageIds ?? [],
           });
         }
       }
@@ -216,10 +226,7 @@ export class MetaAdapter implements WhatsAppAdapter {
       }
 
       // O BSUID tem prioridade: um telefone antigo pode deixar de ser um destino válido.
-      let cleanTo = message.recipientPhone.replace(/\D/g, "");
-      if (cleanTo.length === 10 || cleanTo.length === 11) {
-        cleanTo = `55${cleanTo}`;
-      }
+      const cleanTo = normalizeCanonicalPhone(message.recipientPhone);
       const userId = message.recipientUserId?.trim();
       if (!userId && !cleanTo) {
         return { externalId: "", status: "failed", error: "Contato sem BSUID ou telefone para envio" };

@@ -66,6 +66,16 @@ interface StageDraft {
   isWinStage: boolean;
   isLossStage: boolean;
   requiredFields: string[];
+  lossReasonNames: string[];
+}
+
+interface CatalogLossReasonItem {
+  id: string;
+  name: string;
+  isActive?: boolean;
+  allPipelines?: boolean;
+  pipelineIds?: string[];
+  stageIds?: string[];
 }
 
 interface PipelineDraft {
@@ -108,16 +118,23 @@ export function PipelineSettingsModal({
   const [addingStageTo, setAddingStageTo] = useState<string | null>(null);
   const [newStageName, setNewStageName] = useState("");
   const [selectedStages, setSelectedStages] = useState<string[]>([]);
+  const [lossReasonItems, setLossReasonItems] = useState<CatalogLossReasonItem[]>([]);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [pipelineData, settingsData] = await Promise.all([
+      const [pipelineData, settingsData, lossCatalogData] = await Promise.all([
         requestJson("/api/crm/pipelines"),
         requestJson("/api/crm/stage-settings").catch(() => ({ settings: [] })),
+        requestJson("/api/crm/catalogs?kind=loss_reason").catch(() => ({ items: [] })),
       ]);
       const nextPipelines: PipelineItem[] = pipelineData.pipelines || [];
       setPipelines(nextPipelines);
+      setLossReasonItems(
+        Array.isArray(lossCatalogData.items)
+          ? lossCatalogData.items.filter((item: CatalogLossReasonItem) => item.isActive !== false)
+          : [],
+      );
       const visibleStageIds = new Set(
         nextPipelines.flatMap((pipeline) => pipeline.stages.map((stage) => stage.id)),
       );
@@ -156,6 +173,9 @@ export function PipelineSettingsModal({
 
   const openStage = (pipeline: PipelineItem, stage: StageItem) => {
     const settings = settingsByStage[stage.id];
+    const linkedLossReasons = lossReasonItems
+      .filter((item) => Array.isArray(item.stageIds) && item.stageIds.includes(stage.id))
+      .map((item) => item.name);
     setStageDraft({
       id: stage.id,
       pipelineId: pipeline.id,
@@ -168,6 +188,7 @@ export function PipelineSettingsModal({
       isWinStage: stage.isWinStage,
       isLossStage: stage.isLossStage,
       requiredFields: stage.requiredFields || [],
+      lossReasonNames: linkedLossReasons,
     });
   };
 
@@ -224,6 +245,16 @@ export function PipelineSettingsModal({
           isWinStage: draft.isWinStage,
           isLossStage: draft.isLossStage,
           requiredFields: draft.requiredFields,
+        }),
+      );
+      await requestJson(
+        "/api/crm/catalogs",
+        jsonRequest("PATCH", {
+          action: "set_stage_items",
+          kind: "loss_reason",
+          pipelineId: draft.pipelineId,
+          stageId: draft.id,
+          selectedNames: draft.lossReasonNames,
         }),
       );
     }, "Etapa atualizada.");
@@ -941,6 +972,52 @@ export function PipelineSettingsModal({
                     />{" "}
                     Etapa de perda
                   </label>
+                </div>
+                <div className="space-y-2.5 rounded-xl border border-border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold">Motivos de perda exclusivos desta etapa</p>
+                    {stageDraft.lossReasonNames.length > 0 && (
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                        {stageDraft.lossReasonNames.length} selecionado(s)
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] font-normal text-muted-foreground">
+                    Quando a restrição por etapa estiver ativa em Motivos de Perda, os negócios nesta etapa exibirão apenas os motivos marcados abaixo (ou os do funil/globais se nenhum for marcado).
+                  </p>
+                  {lossReasonItems.length === 0 ? (
+                    <p className="text-[11px] font-normal text-muted-foreground">
+                      Nenhum motivo de perda cadastrado.
+                    </p>
+                  ) : (
+                    <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1 pt-1">
+                      {lossReasonItems.map((reason) => {
+                        const checked = stageDraft.lossReasonNames.includes(reason.name);
+                        return (
+                          <label
+                            key={reason.id}
+                            className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs font-normal hover:bg-muted/40 cursor-pointer"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(nextChecked) =>
+                                setStageDraft(
+                                  (current) =>
+                                    current && {
+                                      ...current,
+                                      lossReasonNames: nextChecked
+                                        ? Array.from(new Set([...current.lossReasonNames, reason.name]))
+                                        : current.lossReasonNames.filter((n) => n !== reason.name),
+                                    },
+                                )
+                              }
+                            />
+                            <span className="truncate">{reason.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
               <SheetFooter className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">

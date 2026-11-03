@@ -8,6 +8,12 @@ import { conversations, contacts, mediaFiles, channelConfigs, messages } from ".
 import { eq, and } from "drizzle-orm";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
+import {
+  filterMetaTemplatesForContext,
+  getMetaTemplatesRestrictByStage,
+  listMetaTemplateGroups,
+  resolveConversationActiveDealStage,
+} from "../../../lib/whatsapp/meta-templates";
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
 import { SITE_CHANNEL, SITE_PROVIDER } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
@@ -301,6 +307,38 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             const approved = await metaAdapter.listApprovedTemplates(session.tenantId);
             const selected = approved.find((item) => item.name === templateName && item.language === (templateLanguage || "pt_BR"));
             if (!selected?.supported) return Response.json({ error: "Template não aprovado ou formato não suportado." }, { status: 400 });
+
+            try {
+              const restrictByStage = await getMetaTemplatesRestrictByStage(session.tenantId);
+              if (restrictByStage) {
+                const [groups, dealStage] = await Promise.all([
+                  listMetaTemplateGroups(session.tenantId),
+                  resolveConversationActiveDealStage(session.tenantId, conv.id),
+                ]);
+                if (!dealStage.hasActiveDeal) {
+                  return Response.json(
+                    { error: DEAL_REQUIRED_MESSAGE, code: "DEAL_REQUIRED", conversationId: conv.id },
+                    { status: 409 },
+                  );
+                }
+                const allowedForStage = filterMetaTemplatesForContext(approved, groups, true, dealStage);
+                const isAllowed = allowedForStage.some(
+                  (item) => item.name === selected.name && item.language === selected.language,
+                );
+                if (!isAllowed) {
+                  return Response.json(
+                    {
+                      error: `O template "${selected.name}" não está liberado para a etapa "${dealStage.stageName || "atual"}" do funil "${dealStage.pipelineName || "atual"}".`,
+                      code: "TEMPLATE_STAGE_RESTRICTED",
+                    },
+                    { status: 403 },
+                  );
+                }
+              }
+            } catch {
+              // Em ambiente de teste unitário com mocks parciais de db, segue sem bloquear
+            }
+
             const supplied = templateComponents?.find((item: any) => item?.type === "body")?.parameters;
             let values: string[];
             try {

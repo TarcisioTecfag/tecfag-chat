@@ -1,7 +1,17 @@
 import { describe, it, expect } from "bun:test";
-import { normalizeCanonicalPhone, buildPhoneSearchTerms, formatPhoneNumber, maskPhone, localPhoneSearchTerms, phoneRegistrationError } from "../src/lib/utils";
+import {
+  normalizeCanonicalPhone,
+  buildPhoneSearchTerms,
+  formatPhoneNumber,
+  maskPhone,
+  localPhoneSearchTerms,
+  phoneRegistrationError,
+  isNanpPhoneNumber,
+  isCorruptedNanpWith55,
+  detectPhoneCountry,
+} from "../src/lib/utils";
 
-describe("Normalização Canônica de Telefones e Variantes E.164 (DDI 55)", () => {
+describe("Normalização Canônica de Telefones e Variantes E.164 (DDI 55 e Internacional)", () => {
   it("normaliza números brasileiros de 11 dígitos (DDD + 9 dígitos) para E.164 com DDI 55", () => {
     expect(normalizeCanonicalPhone("14998364338")).toBe("5514998364338");
     expect(normalizeCanonicalPhone("(14) 99836-4338")).toBe("5514998364338");
@@ -63,5 +73,30 @@ describe("Normalização Canônica de Telefones e Variantes E.164 (DDI 55)", () 
     expect(localPhoneSearchTerms("998364338")).toContain("98364338");
     expect(localPhoneSearchTerms("98364338")).toContain("998364338");
     expect(localPhoneSearchTerms("(11) 99836-4338")).toEqual(localPhoneSearchTerms("(14) 99836-4338"));
+  });
+
+  it("preserva números dos EUA/Canadá (+1 NANP) e auto-cura números corrompidos com 551", () => {
+    // Miami (+1 305) e Fort Lauderdale (+1 954, cujo início '19' coincidiria com DDD de Campinas se não houvesse proteção)
+    expect(isNanpPhoneNumber("13055551234")).toBe(true);
+    expect(isNanpPhoneNumber("19545551234")).toBe(true);
+    expect(isNanpPhoneNumber("14998364338")).toBe(false); // Celular BR jamais é confundido com NANP
+
+    expect(normalizeCanonicalPhone("13055551234")).toBe("13055551234");
+    expect(normalizeCanonicalPhone("19545551234")).toBe("19545551234");
+    expect(normalizeCanonicalPhone("+1 (305) 555-1234")).toBe("13055551234");
+
+    // Auto-cura de número americano salvo anteriormente com prefixo 55 indevido
+    expect(isCorruptedNanpWith55("5513055551234")).toBe(true);
+    expect(normalizeCanonicalPhone("5513055551234")).toBe("13055551234");
+
+    // Termos de busca encontram tanto o canônico 1... quanto o legado 551... sem adulterar 9º dígito
+    expect(buildPhoneSearchTerms("13055551234")).toEqual(["13055551234", "5513055551234"]);
+    expect(phoneRegistrationError("13055551234")).toBeNull();
+    expect(phoneRegistrationError("+1 (305) 555-1234")).toBeNull();
+
+    // Formatação visual correta para EUA e outros países
+    expect(formatPhoneNumber("13055551234")).toBe("+1 (305) 555-1234");
+    expect(formatPhoneNumber("5513055551234")).toBe("+1 (305) 555-1234");
+    expect(detectPhoneCountry("+595 981 123 456").country.code).toBe("PY");
   });
 });

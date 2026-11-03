@@ -37,7 +37,7 @@ import { SlaEngine } from "../sla-engine";
 import { SdrEngine } from "../valentina/sdr-engine";
 import { SdrDebouncer } from "../valentina/sdr-debouncer";
 import { restartIndustrialCycle } from "../triage/industrial-cycle-restart";
-import { urlToBase64, buildPhoneSearchTerms } from "../utils";
+import { urlToBase64, buildPhoneSearchTerms, normalizeCanonicalPhone } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { shouldIgnoreJid, ignoreReason } from "./jid-validator";
 import { getAiPersona, isSdrTenant } from "../ai-persona";
@@ -359,14 +359,10 @@ export class SessionManager {
         }
         jidsToSubscribe.push(jid);
       } else {
-        let digits = jid.replace(/\D/g, "");
+        const digits = normalizeCanonicalPhone(jid);
         if (!digits) {
           console.warn(`[Baileys Presence] Número vazio ignorado para tenant ${tenantId}`);
           return;
-        }
-        // Se o número não tem o código do país '55' (tem 10 ou 11 dígitos, ex: 14981123456)
-        if (digits.length === 10 || digits.length === 11) {
-          digits = `55${digits}`;
         }
 
         jidsToSubscribe.push(`${digits}@s.whatsapp.net`);
@@ -1287,13 +1283,14 @@ export class SessionManager {
       const profilePicUrl = contact?.avatar || "";
       console.log(`[Baileys Inbound] tenant=${tenantId} jidType=${jid.endsWith("@lid") ? "lid" : "phone"} pnResolved=${resolvedPhoneJid !== jid} contactId=${contactId} existing=${!!contact}`);
 
+      const canonicalPhone = normalizeCanonicalPhone(phone) || phone;
       if (!contact) {
         // Criar contato se não existir (inicialmente sem foto para velocidade máxima)
         await db.insert(contacts).values({
           id: contactId,
           tenantId,
           name,
-          phone: resolvedPhoneJid.endsWith("@s.whatsapp.net") ? phone : null,
+          phone: resolvedPhoneJid.endsWith("@s.whatsapp.net") ? canonicalPhone : null,
           whatsappJid: this.connectionId ? null : jid, // Scoped identities for personal transports
           mainChannel: "whatsapp",
           avatar: null,
@@ -1306,10 +1303,10 @@ export class SessionManager {
           updates.whatsappJid = jid;
         }
 
-        // Se o telefone salvo era o LID (que não foi resolvido) e agora conseguimos resolver o número real
+        // Se o telefone salvo era o LID (que não foi resolvido) ou estava corrompido e agora conseguimos resolver o número real
         const isResolved = !resolvedPhoneJid.endsWith("@lid");
-        if (contact.phone !== phone && isResolved) {
-          updates.phone = phone;
+        if (contact.phone !== canonicalPhone && isResolved) {
+          updates.phone = canonicalPhone;
         }
 
         if (Object.keys(updates).length > 0) {
@@ -1326,15 +1323,11 @@ export class SessionManager {
         const sock = this.sessions.get(tenantId);
         if (sock) {
           // Monta lista de JIDs a tentar em ordem de preferência
-          const cleanPhone = phone.replace(/\D/g, "");
+          const cleanPhone = normalizeCanonicalPhone(phone);
           const jidsToTry: string[] = [
             jid,                                          // JID real (pode ser @lid ou @s.whatsapp.net)
-            `${cleanPhone}@s.whatsapp.net`,               // phone direto
+            `${cleanPhone}@s.whatsapp.net`,               // phone canônico
           ];
-          // Se o phone não começa com 55, tenta com DDI
-          if (!cleanPhone.startsWith("55") && cleanPhone.length <= 11) {
-            jidsToTry.push(`55${cleanPhone}@s.whatsapp.net`);
-          }
           // Se começa com 55 (Brasil), tenta a variação com ou sem o 9º dígito
           if (cleanPhone.startsWith("55")) {
             const ddd = cleanPhone.slice(2, 4);
@@ -1884,7 +1877,7 @@ const JID_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
  * Utiliza cache em memória (TTL 24h) para evitar chamadas desnecessarias ao WA.
  */
 export async function resolveRealJid(sock: any, phone: string, fallbackJid?: string): Promise<string> {
-  const cleanPhone = phone.replace(/\D/g, "");
+  const cleanPhone = normalizeCanonicalPhone(phone);
   if (!cleanPhone) return fallbackJid || `${phone}@s.whatsapp.net`;
 
   // Verificar cache antes de qualquer chamada de rede
@@ -1901,14 +1894,18 @@ export async function resolveRealJid(sock: any, phone: string, fallbackJid?: str
   // Se já tiver um fallbackJid, tenta extrair o número
   if (fallbackJid) {
     const fallbackNum = fallbackJid.split("@")[0];
-    if (fallbackNum) numbersToTry.push(fallbackNum);
+    if (fallbackNum) {
+      const canonicalFallback = normalizeCanonicalPhone(fallbackNum);
+      if (canonicalFallback) numbersToTry.push(canonicalFallback);
+      numbersToTry.push(fallbackNum);
+    }
   }
 
-  // Adiciona o telefone limpo
+  // Adiciona o telefone canônico (DDI 55 para Brasil ou DDI original para EUA/internacional)
   numbersToTry.push(cleanPhone);
 
   // Tratamento específico para números do Brasil (DDI 55)
-  if (cleanPhone.startsWith("55")) {
+  if (cleanPhone.startsWith("55") && (cleanPhone.length === 12 || cleanPhone.length === 13)) {
     const ddd = cleanPhone.slice(2, 4);
     const rest = cleanPhone.slice(4);
 
@@ -1920,25 +1917,6 @@ export async function resolveRealJid(sock: any, phone: string, fallbackJid?: str
       // É formato de 8 dígitos. Tenta também o de 9 dígitos.
       const nineDigit = `55${ddd}9${rest}`;
       numbersToTry.push(nineDigit);
-    }
-  } else {
-    // Se não tem DDI 55, mas parece brasileiro (10 ou 11 dígitos)
-    if (cleanPhone.length === 11 && cleanPhone.startsWith("9")) {
-      const withDdi = `55${cleanPhone}`;
-      numbersToTry.push(withDdi);
-      const ddd = cleanPhone.slice(0, 2);
-      const rest = cleanPhone.slice(2);
-      const eightDigit = `55${ddd}${rest.slice(1)}`;
-      numbersToTry.push(eightDigit);
-    } else if (cleanPhone.length === 10) {
-      const withDdi = `55${cleanPhone}`;
-      numbersToTry.push(withDdi);
-      const ddd = cleanPhone.slice(0, 2);
-      const rest = cleanPhone.slice(2);
-      const nineDigit = `55${ddd}9${rest}`;
-      numbersToTry.push(nineDigit);
-    } else if (cleanPhone.length === 11) {
-      numbersToTry.push(`55${cleanPhone}`);
     }
   }
 
@@ -1963,9 +1941,9 @@ export async function resolveRealJid(sock: any, phone: string, fallbackJid?: str
     }
   }
 
-  // Se nada funcionou, retorna o fallback ou constrói o JID padrão
+  // Se nada funcionou, retorna o fallback ou constrói o JID canônico (sem forçar 55 em números internacionais)
   if (fallbackJid) return fallbackJid;
-  return cleanPhone.startsWith("55") ? `${cleanPhone}@s.whatsapp.net` : `55${cleanPhone}@s.whatsapp.net`;
+  return `${cleanPhone}@s.whatsapp.net`;
 }
 
 // Registrar desligamento gracioso para containers (Railway SIGTERM / SIGINT)

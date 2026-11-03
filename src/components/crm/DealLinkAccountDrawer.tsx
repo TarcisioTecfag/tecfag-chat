@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/utils";
+import { PhoneCountryInput } from "@/components/ui/phone-country-input";
 import { CatalogSelect } from "./CatalogSelect";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { SystemTooltip } from "@/components/ui/tooltip";
@@ -634,11 +635,12 @@ export function DealLinkAccountDrawer({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold text-foreground">Telefone</Label>
-                  <Input
-                    type="text"
+                  <PhoneCountryInput
+                    size="sm"
                     value={editPhone}
-                    onChange={(e) => setEditPhone(maskPhone(e.target.value))}
-                    className="h-8 text-xs rounded-sm border-border bg-card"
+                    onChange={(val) => setEditPhone(val)}
+                    buttonClassName="h-8 bg-card border-border"
+                    inputClassName="h-8 text-xs bg-card border-border"
                   />
                 </div>
                 <div className="space-y-1">
@@ -1105,12 +1107,12 @@ export function DealLinkAccountDrawer({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold text-foreground">Telefone / WhatsApp</Label>
-                  <Input
-                    type="text"
-                    placeholder="(14) 99999-8888"
+                  <PhoneCountryInput
+                    size="sm"
                     value={createPhone}
-                    onChange={(e) => setCreatePhone(maskPhone(e.target.value))}
-                    className="h-8 text-xs rounded-sm border-border bg-card"
+                    onChange={(val) => setCreatePhone(val)}
+                    buttonClassName="h-8 bg-card border-border"
+                    inputClassName="h-8 text-xs bg-card border-border"
                   />
                 </div>
                 <div className="space-y-1">

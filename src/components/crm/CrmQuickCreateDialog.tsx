@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Building2, Loader2, MapPin, RefreshCw, Search, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { maskPhone } from "@/lib/utils";
+import { PhoneCountryInput } from "@/components/ui/phone-country-input";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { CatalogSelect } from "./CatalogSelect";
 import {
@@ -556,12 +557,13 @@ export function CrmQuickCreateDialog({
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="crm-quick-phone">Telefone</Label>
-                  <Input
+                  <PhoneCountryInput
                     id="crm-quick-phone"
                     disabled={kind === "contact" && !!existingContact}
                     value={phone}
-                    placeholder="(14) 99999-8888"
-                    onChange={(event) => setPhone(maskPhone(event.target.value))}
+                    onChange={(val) => setPhone(val)}
+                    buttonClassName="h-9 bg-background border-input"
+                    inputClassName="h-9 bg-background text-sm border-input"
                   />
                 </div>
                 <div className="space-y-1.5">

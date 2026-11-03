@@ -25,6 +25,7 @@ const inFlightDealFetches = new Map<string, Promise<any>>();
 
 // Cache em memória de funis e etapas
 let cachedPipelines: CacheEntry<any[]> | null = null;
+let cachedTransferPipelines: CacheEntry<any[]> | null = null;
 let inFlightPipelinesFetch: Promise<any[]> | null = null;
 let dealRouteChunkPreloaded = false;
 
@@ -191,6 +192,13 @@ export function getCachedPipelinesSync(): any[] | null {
   return null;
 }
 
+export function getCachedTransferPipelinesSync(): any[] | null {
+  if (cachedTransferPipelines && Date.now() - cachedTransferPipelines.timestamp < PIPELINES_CACHE_TTL_MS) {
+    return cachedTransferPipelines.data;
+  }
+  return getCachedPipelinesSync();
+}
+
 /**
  * Pré-carrega a lista de funis da empresa.
  */
@@ -209,8 +217,13 @@ export async function fetchPipelinesCached(): Promise<any[]> {
       if (!res.ok) throw new Error("Falha ao carregar funis");
       const data = await res.json();
       const pipelines = data.pipelines || [];
+      const transferPipelines = data.transferPipelines || pipelines;
       cachedPipelines = {
         data: pipelines,
+        timestamp: Date.now(),
+      };
+      cachedTransferPipelines = {
+        data: transferPipelines,
         timestamp: Date.now(),
       };
       return pipelines;
@@ -222,10 +235,20 @@ export async function fetchPipelinesCached(): Promise<any[]> {
   return inFlightPipelinesFetch;
 }
 
+export async function fetchTransferPipelinesCached(): Promise<any[]> {
+  const now = Date.now();
+  if (cachedTransferPipelines && now - cachedTransferPipelines.timestamp < PIPELINES_CACHE_TTL_MS) {
+    return cachedTransferPipelines.data;
+  }
+  await fetchPipelinesCached();
+  return cachedTransferPipelines?.data || cachedPipelines?.data || [];
+}
+
 /**
  * Invalida o cache de funis se forem editados pelo usuário.
  */
 export function invalidatePipelinesCache(): void {
   cachedPipelines = null;
+  cachedTransferPipelines = null;
   inFlightPipelinesFetch = null;
 }

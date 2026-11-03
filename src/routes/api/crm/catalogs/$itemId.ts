@@ -3,7 +3,11 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../../../../db";
 import { crmAccounts, crmCatalogItems, crmDeals } from "../../../../db/schema";
 import { requireSession } from "../../../../lib/auth-session";
-import { listCatalogItems, normalizeCatalogName } from "../../../../lib/crm/catalogs";
+import {
+  listCatalogItems,
+  normalizeCatalogItemScope,
+  normalizeCatalogName,
+} from "../../../../lib/crm/catalogs";
 import { recordCrmAction } from "../../../../lib/crm/action-history";
 
 export const Route = createFileRoute("/api/crm/catalogs/$itemId")({
@@ -32,13 +36,24 @@ export const Route = createFileRoute("/api/crm/catalogs/$itemId")({
             .limit(1);
           if (!current) return Response.json({ error: "Item não encontrado." }, { status: 404 });
           const body = await request.json();
-          const name = normalizeCatalogName(body.name);
+          const name = body.name !== undefined ? normalizeCatalogName(body.name) : current.name;
           const description =
             current.kind === "campaign" && typeof body.description === "string"
               ? body.description.trim()
               : null;
           if (description && description.length > 500)
             throw new Error("A descrição deve ter até 500 caracteres.");
+          const hasScopePatch =
+            body.allPipelines !== undefined ||
+            body.pipelineIds !== undefined ||
+            body.stageIds !== undefined;
+          const nextScope = hasScopePatch
+            ? normalizeCatalogItemScope({
+                allPipelines: body.allPipelines ?? current.allPipelines,
+                pipelineIds: body.pipelineIds ?? current.pipelineIds,
+                stageIds: body.stageIds ?? current.stageIds,
+              })
+            : null;
           const siblings = await listCatalogItems(
             session.tenantId,
             current.kind as "segment" | "source" | "campaign" | "loss_reason",
@@ -57,6 +72,13 @@ export const Route = createFileRoute("/api/crm/catalogs/$itemId")({
               .set({
                 name,
                 ...(description !== null ? { description: description || null } : {}),
+                ...(nextScope
+                  ? {
+                      allPipelines: nextScope.allPipelines,
+                      pipelineIds: nextScope.pipelineIds,
+                      stageIds: nextScope.stageIds,
+                    }
+                  : {}),
                 updatedAt: new Date(),
               })
               .where(

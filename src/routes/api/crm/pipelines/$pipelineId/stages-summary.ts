@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
-import { isPipelineAllowed, requireCrmPermission } from "../../../../../lib/rbac";
+import {
+  getAllowedStageIdsByPipelineMap,
+  isPipelineAllowed,
+  requireCrmPermission,
+} from "../../../../../lib/rbac";
 import { crmService, handleCrmError, parseExtraDealFilters } from "../../../../../lib/crm/crm-service";
 
 const corsHeaders = {
@@ -81,8 +85,11 @@ export const Route = createFileRoute("/api/crm/pipelines/$pipelineId/stages-summ
             }
           }
 
+          const allowedStageIdsByPipeline = getAllowedStageIdsByPipelineMap(session);
+
           const summary = await crmService.getPipelineStagesSummary(tenantId, pipelineId, {
             ...parseExtraDealFilters(url.searchParams),
+            ...(allowedStageIdsByPipeline ? { allowedStageIdsByPipeline } : {}),
             status: status || undefined,
             operatorId,
             operatorIds,

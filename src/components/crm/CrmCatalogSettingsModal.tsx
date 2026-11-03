@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { STANDARD_CATALOG_ITEMS, type CatalogKind } from "@/lib/crm/catalogs";
 import { Switch } from "@/components/ui/switch";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { FunnelStageScopeSelector, type FunnelStageScopeValue } from "./FunnelStageScopeSelector";
 
 export type CatalogScope = "sources_campaigns" | "loss_reasons" | "segments" | "all";
 
@@ -12,6 +13,9 @@ type Item = {
   id: string;
   name: string;
   description: string | null;
+  allPipelines?: boolean;
+  pipelineIds?: string[];
+  stageIds?: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -96,12 +100,19 @@ export function CrmCatalogSettingsModal({
   const [allowUserCreate, setAllowUserCreate] = useState(false);
   const [includeStandard, setIncludeStandard] = useState(true);
   const [disabledStandardItems, setDisabledStandardItems] = useState<string[]>([]);
+  const [restrictByStage, setRestrictByStage] = useState(false);
+  const [standardItemScopes, setStandardItemScopes] = useState<Record<string, FunnelStageScopeValue>>({});
   const [updatingStandard, setUpdatingStandard] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState<Item | "new" | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [draftScope, setDraftScope] = useState<FunnelStageScopeValue>({
+    allPipelines: true,
+    pipelineIds: [],
+    stageIds: [],
+  });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -127,6 +138,8 @@ export function CrmCatalogSettingsModal({
       setAllowUserCreate(data.allowUserCreate ?? false);
       setIncludeStandard(data.includeStandard ?? true);
       setDisabledStandardItems(data.disabledStandardItems || []);
+      setRestrictByStage(Boolean(data.restrictByStage));
+      setStandardItemScopes(data.standardItemScopes || {});
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao carregar catálogo.");
     } finally {
@@ -146,6 +159,15 @@ export function CrmCatalogSettingsModal({
     setDraft(item);
     setName(item === "new" ? "" : item.name);
     setDescription(item === "new" ? "" : item.description || "");
+    setDraftScope(
+      item === "new"
+        ? { allPipelines: true, pipelineIds: [], stageIds: [] }
+        : {
+            allPipelines: item.allPipelines !== false,
+            pipelineIds: Array.isArray(item.pipelineIds) ? item.pipelineIds : [],
+            stageIds: Array.isArray(item.stageIds) ? item.stageIds : [],
+          },
+    );
   };
 
   const save = async () => {
@@ -157,7 +179,18 @@ export function CrmCatalogSettingsModal({
         {
           method: draft === "new" ? "POST" : "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind, name: name.trim(), description: description.trim() }),
+          body: JSON.stringify({
+            kind,
+            name: name.trim(),
+            description: description.trim(),
+            ...(kind === "loss_reason"
+              ? {
+                  allPipelines: draftScope.allPipelines,
+                  pipelineIds: draftScope.pipelineIds,
+                  stageIds: draftScope.stageIds,
+                }
+              : {}),
+          }),
         },
       );
       const data = await response.json();
@@ -169,6 +202,94 @@ export function CrmCatalogSettingsModal({
       toast.error(error instanceof Error ? error.message : "Não foi possível salvar.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleRestrictByStage = async (nextValue: boolean) => {
+    if (!isAdmin) return;
+    const prev = restrictByStage;
+    setRestrictByStage(nextValue);
+    try {
+      const response = await fetch("/api/crm/catalogs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, restrictByStage: nextValue }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Não foi possível alterar a restrição por etapa.");
+      }
+      toast.success(
+        nextValue
+          ? "Restrição de motivos de perda por funil/etapa ativada."
+          : "Restrição por funil/etapa desativada (todos os motivos ativos voltam a aparecer).",
+      );
+    } catch (error) {
+      setRestrictByStage(prev);
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar configuração.");
+    }
+  };
+
+  const updateCustomItemScope = async (item: Item, nextScope: FunnelStageScopeValue) => {
+    if (!isAdmin) return;
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === item.id
+          ? {
+              ...it,
+              allPipelines: nextScope.allPipelines,
+              pipelineIds: nextScope.pipelineIds,
+              stageIds: nextScope.stageIds,
+            }
+          : it,
+      ),
+    );
+    try {
+      const response = await fetch(`/api/crm/catalogs/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: item.name,
+          allPipelines: nextScope.allPipelines,
+          pipelineIds: nextScope.pipelineIds,
+          stageIds: nextScope.stageIds,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Erro ao atualizar escopo do motivo.");
+      }
+      toast.success(`Vínculo de "${item.name}" atualizado.`);
+    } catch (error) {
+      await load();
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar vínculo.");
+    }
+  };
+
+  const updateStandardItemScope = async (stdName: string, nextScope: FunnelStageScopeValue) => {
+    if (!isAdmin) return;
+    const nextMap = {
+      ...standardItemScopes,
+      [stdName]: nextScope,
+    };
+    setStandardItemScopes(nextMap);
+    try {
+      const response = await fetch("/api/crm/catalogs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          standardItemScopes: nextMap,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Erro ao atualizar escopo do motivo padrão.");
+      }
+      toast.success(`Vínculo de "${stdName}" atualizado.`);
+    } catch (error) {
+      await load();
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar vínculo.");
     }
   };
 
@@ -490,6 +611,23 @@ export function CrmCatalogSettingsModal({
                   </div>
                 )}
 
+                {kind === "loss_reason" && isAdmin && (
+                  <div className="mb-4 rounded-xl border border-primary/25 bg-primary/5 p-4 shadow-soft flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold text-foreground">
+                        Restringir motivos de perda por Funil e Etapa
+                      </span>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Quando ativado, o operador só poderá escolher os motivos vinculados à etapa atual do card (ou ao funil/global como fallback caso a etapa não tenha motivos exclusivos). Você pode ligar ou desligar esta regra a qualquer momento sem perder os vínculos configurados.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={restrictByStage}
+                      onCheckedChange={(val) => void toggleRestrictByStage(val === true)}
+                    />
+                  </div>
+                )}
+
                 {/* TABELA DE ITENS NO PADRÃO VISUAL */}
                 {loading ? (
                   <p className="py-8 text-xs text-muted-foreground">Carregando itens...</p>
@@ -508,6 +646,7 @@ export function CrmCatalogSettingsModal({
                             {currentTab.itemLabel.toLowerCase()}
                           </th>
                           {kind === "campaign" && <th className="p-3">Descrição</th>}
+                          {kind === "loss_reason" && <th className="p-3">Funil / Etapa</th>}
                           <th className="p-3">Preferências</th>
                           <th className="p-3">Criado em</th>
                           <th className="p-3">Atualizado em</th>
@@ -529,6 +668,21 @@ export function CrmCatalogSettingsModal({
                             {kind === "campaign" && (
                               <td className="p-3 text-muted-foreground max-w-xs truncate">
                                 {item.description || "—"}
+                              </td>
+                            )}
+                            {kind === "loss_reason" && (
+                              <td className="p-3">
+                                <FunnelStageScopeSelector
+                                  compact
+                                  disabled={!isAdmin}
+                                  align="start"
+                                  value={{
+                                    allPipelines: item.allPipelines !== false,
+                                    pipelineIds: item.pipelineIds || [],
+                                    stageIds: item.stageIds || [],
+                                  }}
+                                  onChange={(nextScope) => void updateCustomItemScope(item, nextScope)}
+                                />
                               </td>
                             )}
                             <td className="p-3">
@@ -670,7 +824,21 @@ export function CrmCatalogSettingsModal({
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap justify-end">
+                          {kind === "loss_reason" && (
+                            <FunnelStageScopeSelector
+                              compact
+                              disabled={!isAdmin || !isActive}
+                              value={
+                                standardItemScopes[name] || {
+                                  allPipelines: true,
+                                  pipelineIds: [],
+                                  stageIds: [],
+                                }
+                              }
+                              onChange={(nextScope) => void updateStandardItemScope(name, nextScope)}
+                            />
+                          )}
                           {isActive ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -797,6 +965,24 @@ export function CrmCatalogSettingsModal({
                         className="w-full rounded-lg border border-border bg-background p-3 font-normal text-xs text-foreground focus:outline-none focus:border-primary transition resize-none"
                       />
                     </label>
+                  )}
+
+                  {kind === "loss_reason" && (
+                    <div className="space-y-1.5">
+                      <span className="block font-semibold text-foreground">
+                        Disponibilidade por Funil e Etapa
+                      </span>
+                      <p className="text-[11px] text-muted-foreground">
+                        Defina se este motivo vale globalmente ou apenas em funis/etapas específicos.
+                      </p>
+                      <div className="pt-1">
+                        <FunnelStageScopeSelector
+                          align="start"
+                          value={draftScope}
+                          onChange={setDraftScope}
+                        />
+                      </div>
+                    </div>
                   )}
                 </div>
 

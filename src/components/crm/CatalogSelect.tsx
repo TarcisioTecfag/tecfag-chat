@@ -19,6 +19,8 @@ export function CatalogSelect({
   className,
   placeholder = "Selecionar",
   hideCreate = true,
+  pipelineId,
+  stageId,
 }: {
   kind: CatalogKind;
   value?: string | null;
@@ -26,6 +28,8 @@ export function CatalogSelect({
   className?: string;
   placeholder?: string;
   hideCreate?: boolean;
+  pipelineId?: string | null;
+  stageId?: string | null;
 }) {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [allowCreate, setAllowCreate] = useState(false);
@@ -35,7 +39,10 @@ export function CatalogSelect({
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/crm/catalogs?kind=${kind}`)
+    const params = new URLSearchParams({ kind });
+    if (pipelineId) params.set("pipelineId", pipelineId);
+    if (stageId) params.set("stageId", stageId);
+    fetch(`/api/crm/catalogs?${params.toString()}`)
       .then(async (response) => {
         if (!response.ok) throw new Error("Não foi possível carregar o catálogo.");
         return response.json();
@@ -52,7 +59,7 @@ export function CatalogSelect({
     return () => {
       active = false;
     };
-  }, [kind]);
+  }, [kind, pipelineId, stageId]);
 
   const add = async () => {
     if (!newName.trim()) return;

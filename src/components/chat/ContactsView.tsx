@@ -20,6 +20,7 @@ import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
 import { CustomerJourneyModal } from "./CustomerJourneyModal";
 import { formatPhoneNumber, formatCPF, formatCNPJ, maskPhone } from "@/lib/utils";
+import { PhoneCountryInput } from "@/components/ui/phone-country-input";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -1767,13 +1768,12 @@ export function ContactsView() {
 
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
-                <input
-                  type="text"
-                  placeholder="Ex: (81) 99876-5432"
+                <PhoneCountryInput
                   disabled={!!existingContact}
                   value={addForm.phone}
-                  onChange={(e) => setAddForm({ ...addForm, phone: maskPhone(e.target.value) })}
-                  className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent disabled:opacity-60"
+                  onChange={(phone) => setAddForm({ ...addForm, phone })}
+                  buttonClassName="h-10 rounded-l-xl bg-muted border-border"
+                  inputClassName="h-10 rounded-r-xl bg-muted px-3.5 text-xs text-foreground border-border disabled:opacity-60"
                 />
               </div>
 
@@ -2002,11 +2002,11 @@ export function ContactsView() {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
-                  <input
-                    type="text"
+                  <PhoneCountryInput
                     value={editForm.phone}
-                    onChange={(e) => setEditForm({ ...editForm, phone: maskPhone(e.target.value) })}
-                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                    onChange={(phone) => setEditForm({ ...editForm, phone })}
+                    buttonClassName="h-10 rounded-l-xl bg-muted border-border"
+                    inputClassName="h-10 rounded-r-xl bg-muted px-3.5 text-xs text-foreground border-border"
                   />
                 </div>
 
@@ -2146,12 +2146,12 @@ export function ContactsView() {
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
                         <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
-                        <input
-                          type="text"
-                          placeholder="(00) 0000-0000"
+                        <PhoneCountryInput
+                          size="sm"
                           value={companyForm.phone}
-                          onChange={(e) => setCompanyForm((prev) => ({ ...prev, phone: maskPhone(e.target.value) }))}
-                          className="h-9 w-full rounded-xl bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                          onChange={(phone) => setCompanyForm((prev) => ({ ...prev, phone }))}
+                          buttonClassName="h-9 rounded-l-xl bg-card border-border"
+                          inputClassName="h-9 rounded-r-xl bg-card px-3 text-xs text-foreground border-border"
                         />
                       </div>
                       <div className="space-y-1">
@@ -2411,12 +2411,11 @@ export function ContactsView() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
-                  <input
-                    type="text"
-                    placeholder="(00) 00000-0000"
+                  <PhoneCountryInput
                     value={standaloneCompanyForm.phone}
-                    onChange={(e) => setStandaloneCompanyForm((prev) => ({ ...prev, phone: maskPhone(e.target.value) }))}
-                    className="h-10 w-full rounded-xl bg-muted px-3.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                    onChange={(phone) => setStandaloneCompanyForm((prev) => ({ ...prev, phone }))}
+                    buttonClassName="h-10 rounded-l-xl bg-muted border-border"
+                    inputClassName="h-10 rounded-r-xl bg-muted px-3.5 text-xs text-foreground border-border"
                   />
                 </div>
                 <div className="space-y-1">
