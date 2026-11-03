@@ -1147,6 +1147,8 @@ export class SessionManager {
     }
 
     // Se for mídia, tentar fazer o download físico
+    let downloadedAudioBuffer: Buffer | null = null;
+    let downloadedAudioMime = "audio/ogg";
     if (isMedia) {
       try {
         console.log(`Baixando mídia para a mensagem ${messageId}...`);
@@ -1189,6 +1191,8 @@ export class SessionManager {
             } else if (rawMsg.message.audioMessage) {
               mime = rawMsg.message.audioMessage.mimetype || "audio/ogg";
               text = `[MEDIA:audio]${messageId}` + (rawCaption ? `\n${rawCaption}` : "");
+              downloadedAudioBuffer = buffer;
+              downloadedAudioMime = mime;
             } else if (rawMsg.message.documentMessage) {
               mime = rawMsg.message.documentMessage.mimetype || "application/octet-stream";
               fileName = rawMsg.message.documentMessage.fileName || rawMsg.message.documentMessage.title || "documento";
@@ -1623,6 +1627,24 @@ export class SessionManager {
           sentAt: eventTime,
         })
         .onConflictDoNothing();
+
+      // ── Transcrição automática de áudios (Baileys — cliente ou dispositivo vinculado) ──
+      if (!rawMsg.__historical && downloadedAudioBuffer) {
+        const audioBuf = downloadedAudioBuffer;
+        const audioMime = downloadedAudioMime;
+        void import("../call-transcriber")
+          .then(({ transcribeAndPersistMessageAudio }) =>
+            transcribeAndPersistMessageAudio({
+              tenantId,
+              messageId,
+              conversationId: convId,
+              audioBuffer: audioBuf,
+              mimeType: audioMime,
+              fileName: `${messageId}.ogg`,
+            }),
+          )
+          .catch((err) => console.warn("[Baileys] Falha ao transcrever áudio automaticamente:", err));
+      }
 
       // ── SLA Engine & Web Push Notification ─────────
       try {

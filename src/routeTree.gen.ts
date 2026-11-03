@@ -124,6 +124,7 @@ import { Route as ApiCommercialCalendarRouteImport } from './routes/api/commerci
 import { Route as ApiCommercialBiRouteImport } from './routes/api/commercial/bi'
 import { Route as ApiCommercialAnalysisRouteImport } from './routes/api/commercial/analysis'
 import { Route as ApiChatsUpdateQueueRouteImport } from './routes/api/chats/update-queue'
+import { Route as ApiChatsTranscribeAudioRouteImport } from './routes/api/chats/transcribe-audio'
 import { Route as ApiChatsTagTaskRouteImport } from './routes/api/chats/tag-task'
 import { Route as ApiChatsResolveRouteImport } from './routes/api/chats/resolve'
 import { Route as ApiChatsReconcileMessageRouteImport } from './routes/api/chats/reconcile-message'
@@ -780,6 +781,11 @@ const ApiChatsUpdateQueueRoute = ApiChatsUpdateQueueRouteImport.update({
   path: '/update-queue',
   getParentRoute: () => ApiChatsRoute,
 } as any)
+const ApiChatsTranscribeAudioRoute = ApiChatsTranscribeAudioRouteImport.update({
+  id: '/transcribe-audio',
+  path: '/transcribe-audio',
+  getParentRoute: () => ApiChatsRoute,
+} as any)
 const ApiChatsTagTaskRoute = ApiChatsTagTaskRouteImport.update({
   id: '/tag-task',
   path: '/tag-task',
@@ -1201,6 +1207,7 @@ export interface FileRoutesByFullPath {
   '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
+  '/api/chats/transcribe-audio': typeof ApiChatsTranscribeAudioRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/commercial/analysis': typeof ApiCommercialAnalysisRoute
   '/api/commercial/bi': typeof ApiCommercialBiRoute
@@ -1384,6 +1391,7 @@ export interface FileRoutesByTo {
   '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
+  '/api/chats/transcribe-audio': typeof ApiChatsTranscribeAudioRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/commercial/analysis': typeof ApiCommercialAnalysisRoute
   '/api/commercial/bi': typeof ApiCommercialBiRoute
@@ -1568,6 +1576,7 @@ export interface FileRoutesById {
   '/api/chats/reconcile-message': typeof ApiChatsReconcileMessageRoute
   '/api/chats/resolve': typeof ApiChatsResolveRoute
   '/api/chats/tag-task': typeof ApiChatsTagTaskRoute
+  '/api/chats/transcribe-audio': typeof ApiChatsTranscribeAudioRoute
   '/api/chats/update-queue': typeof ApiChatsUpdateQueueRoute
   '/api/commercial/analysis': typeof ApiCommercialAnalysisRoute
   '/api/commercial/bi': typeof ApiCommercialBiRoute
@@ -1753,6 +1762,7 @@ export interface FileRouteTypes {
     | '/api/chats/reconcile-message'
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
+    | '/api/chats/transcribe-audio'
     | '/api/chats/update-queue'
     | '/api/commercial/analysis'
     | '/api/commercial/bi'
@@ -1936,6 +1946,7 @@ export interface FileRouteTypes {
     | '/api/chats/reconcile-message'
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
+    | '/api/chats/transcribe-audio'
     | '/api/chats/update-queue'
     | '/api/commercial/analysis'
     | '/api/commercial/bi'
@@ -2119,6 +2130,7 @@ export interface FileRouteTypes {
     | '/api/chats/reconcile-message'
     | '/api/chats/resolve'
     | '/api/chats/tag-task'
+    | '/api/chats/transcribe-audio'
     | '/api/chats/update-queue'
     | '/api/commercial/analysis'
     | '/api/commercial/bi'
@@ -3188,6 +3200,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatsUpdateQueueRouteImport
       parentRoute: typeof ApiChatsRoute
     }
+    '/api/chats/transcribe-audio': {
+      id: '/api/chats/transcribe-audio'
+      path: '/transcribe-audio'
+      fullPath: '/api/chats/transcribe-audio'
+      preLoaderRoute: typeof ApiChatsTranscribeAudioRouteImport
+      parentRoute: typeof ApiChatsRoute
+    }
     '/api/chats/tag-task': {
       id: '/api/chats/tag-task'
       path: '/tag-task'
@@ -3657,6 +3676,7 @@ interface ApiChatsRouteChildren {
   ApiChatsReconcileMessageRoute: typeof ApiChatsReconcileMessageRoute
   ApiChatsResolveRoute: typeof ApiChatsResolveRoute
   ApiChatsTagTaskRoute: typeof ApiChatsTagTaskRoute
+  ApiChatsTranscribeAudioRoute: typeof ApiChatsTranscribeAudioRoute
   ApiChatsUpdateQueueRoute: typeof ApiChatsUpdateQueueRoute
   ApiChatsChatIdMessagesRoute: typeof ApiChatsChatIdMessagesRoute
   ApiChatsConversationIdDealContextRoute: typeof ApiChatsConversationIdDealContextRoute
@@ -3668,6 +3688,7 @@ const ApiChatsRouteChildren: ApiChatsRouteChildren = {
   ApiChatsReconcileMessageRoute: ApiChatsReconcileMessageRoute,
   ApiChatsResolveRoute: ApiChatsResolveRoute,
   ApiChatsTagTaskRoute: ApiChatsTagTaskRoute,
+  ApiChatsTranscribeAudioRoute: ApiChatsTranscribeAudioRoute,
   ApiChatsUpdateQueueRoute: ApiChatsUpdateQueueRoute,
   ApiChatsChatIdMessagesRoute: ApiChatsChatIdMessagesRoute,
   ApiChatsConversationIdDealContextRoute:

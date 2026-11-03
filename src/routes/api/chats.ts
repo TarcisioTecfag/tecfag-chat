@@ -400,6 +400,7 @@ export const Route = createFileRoute("/api/chats")({
             idempotencyKey: messages.idempotencyKey,
             provider: messages.provider,
             errorMessage: messages.errorMessage,
+            mediaInterpretation: messages.mediaInterpretation,
             sentAt: messages.sentAt,
           };
           const recentPerConversation = requestedConversationId || includeRecent ? 30 : 1;
@@ -557,6 +558,7 @@ export const Route = createFileRoute("/api/chats")({
                 clientMessageId: m.idempotencyKey,
                 provider: m.provider,
                 errorMessage: m.status === "failed" ? m.errorMessage : null,
+                mediaInterpretation: m.mediaInterpretation || null,
               })),
             };
           });

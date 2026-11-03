@@ -300,10 +300,10 @@ export class MetaAdapter implements WhatsAppAdapter {
             sendType = "sticker";
           }
 
-          // A Cloud API só aceita AAC, M4A/MP4, MP3, AMR e OGG/Opus. Áudio gravado pelo navegador (WebM)
-          // e outros formatos são convertidos para OGG/Opus, que o WhatsApp exibe como mensagem de voz.
+          // Para garantir reprodução nativa como mensagem de voz (PTT) no WhatsApp (Android, iOS e Web),
+          // todo áudio deve estar em OGG/Opus mono 48kHz e ser enviado com voice: true.
           let uploadFileName = fileName;
-          if (sendType === "audio" && mediaBuffer && metaAudioNeedsConversion(mimeType)) {
+          if (sendType === "audio" && mediaBuffer && metaAudioNeedsConversion(mimeType, mediaBuffer)) {
             try {
               mediaBuffer = await convertAudioToOggOpus(mediaBuffer);
               mimeType = META_AUDIO_OUTPUT_MIME;
@@ -320,7 +320,12 @@ export class MetaAdapter implements WhatsAppAdapter {
 
           if (mediaBuffer) {
             const metaMediaId = await this.uploadMediaToMeta(phoneNumberId, accessToken, mediaBuffer, uploadFileName, mimeType);
-            mediaPayload = { id: metaMediaId };
+            const isOggVoice =
+              sendType === "audio" &&
+              (mimeType.toLowerCase().includes("ogg") ||
+                uploadFileName.toLowerCase().endsWith(".ogg") ||
+                uploadFileName.toLowerCase().endsWith(".opus"));
+            mediaPayload = isOggVoice ? { id: metaMediaId, voice: true } : { id: metaMediaId };
           } else {
             mediaPayload = { link: message.mediaUrl };
           }
@@ -350,39 +355,60 @@ export class MetaAdapter implements WhatsAppAdapter {
             body: message.text,
           },
         };
-
-        // Contexto de resposta a mensagem anterior (quoted) se fornecido
-        if (message.quotedMessageId) {
-          const [quoted] = await db.select({ externalId: messages.externalId }).from(messages).where(and(
-            eq(messages.id, message.quotedMessageId),
-            eq(messages.tenantId, tenantId),
-            eq(messages.conversationId, message.conversationId)
-          ));
-          if (quoted?.externalId) {
-            const inboundPrefix = `meta:${tenantId}:`;
-            bodyPayload.context = { message_id: quoted.externalId.startsWith(inboundPrefix)
-              ? quoted.externalId.slice(inboundPrefix.length) : quoted.externalId };
-          }
-        }
       } else {
         return { externalId: "", status: "failed", error: "Mensagem sem texto, mídia ou template" };
       }
 
+      // Contexto de resposta a mensagem anterior (quoted) se fornecido (suportado para texto e mídia)
+      if (!message.templateName && message.quotedMessageId) {
+        const [quoted] = await db.select({ externalId: messages.externalId }).from(messages).where(and(
+          eq(messages.id, message.quotedMessageId),
+          eq(messages.tenantId, tenantId),
+          eq(messages.conversationId, message.conversationId)
+        ));
+        if (quoted?.externalId) {
+          const inboundPrefix = `meta:${tenantId}:`;
+          bodyPayload.context = { message_id: quoted.externalId.startsWith(inboundPrefix)
+            ? quoted.externalId.slice(inboundPrefix.length) : quoted.externalId };
+        }
+      }
+
+      const messagesEndpoint = `${userId ? META_BSUID_BASE_URL : META_BASE_URL}/${phoneNumberId}/messages`;
       requestStarted = true;
-      const response = await fetch(
-        `${userId ? META_BSUID_BASE_URL : META_BASE_URL}/${phoneNumberId}/messages`,
-        {
+      let response = await fetch(messagesEndpoint, {
+        method: "POST",
+        signal: AbortSignal.timeout(30000),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(bodyPayload),
+      });
+
+      let data = await response.json();
+
+      // Fallback defensivo: caso a API rejeite especificamente o parâmetro `voice`, reenvia sem `voice`
+      if (
+        !response.ok &&
+        bodyPayload.type === "audio" &&
+        bodyPayload.audio?.voice &&
+        /voice/i.test(data?.error?.message || "")
+      ) {
+        const fallbackPayload = {
+          ...bodyPayload,
+          audio: { id: bodyPayload.audio.id },
+        };
+        response = await fetch(messagesEndpoint, {
           method: "POST",
           signal: AbortSignal.timeout(30000),
           headers: {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(bodyPayload),
-        },
-      );
-
-      const data = await response.json();
+          body: JSON.stringify(fallbackPayload),
+        });
+        data = await response.json();
+      }
 
       if (!response.ok) {
         const metaError = data?.error;

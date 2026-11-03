@@ -187,6 +187,7 @@ export class AuditService {
           senderType: messages.senderType,
           senderName: messages.senderName,
           content: messages.content,
+          mediaInterpretation: messages.mediaInterpretation,
           sentAt: messages.sentAt,
           isInternalNote: messages.isInternalNote,
         })
@@ -250,7 +251,13 @@ export class AuditService {
             hour: "2-digit",
             minute: "2-digit",
           });
-          return `[${time}] ${role} (${m.senderName}): ${m.content}`;
+          const rawContent = m.content || "";
+          const formattedContent = m.mediaInterpretation
+            ? rawContent.startsWith("[MEDIA:audio]") || rawContent.startsWith("[LOCAL_MEDIA:audio:")
+              ? `[Áudio transcrito: "${m.mediaInterpretation}"]`
+              : `${rawContent} [Transcrição/Interpretação de mídia: "${m.mediaInterpretation}"]`
+            : rawContent;
+          return `[${time}] ${role} (${m.senderName}): ${formattedContent}`;
         })
         .join("\n");
 

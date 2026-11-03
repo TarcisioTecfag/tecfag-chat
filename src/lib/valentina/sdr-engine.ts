@@ -426,13 +426,18 @@ export class SdrEngine {
           if (m.senderType === "bot" && /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(m.content)) {
             hasPreviousEmoji = true;
           }
-          const sender = m.senderType === "client" ? "Cliente" : `${aiPersona.name} (SDR)`;
+          const sender =
+            m.senderType === "client"
+              ? "Cliente"
+              : m.senderType === "bot"
+                ? `${aiPersona.name} (SDR)`
+                : `Operador (${m.senderName || "Equipe"})`;
           
           let contentText = m.content || "";
           if (typeof contentText === "string" && contentText.startsWith("[MEDIA:audio]")) {
-            hasPreviousAudio = true; // SDR já enviou áudio nessa conversa
+            if (m.senderType === "bot") hasPreviousAudio = true; // SDR já enviou áudio nessa conversa
             contentText = m.mediaInterpretation
-              ? `🎤 [ÁUDIO DE VOZ ENVIADO PELO SDR (${aiPersona.name.toUpperCase()})]: "${m.mediaInterpretation}"`
+              ? `🎤 [ÁUDIO DE VOZ (${sender.toUpperCase()})]: "${m.mediaInterpretation}"`
               : "🎤 [ÁUDIO DE VOZ]";
           }
 
@@ -2268,6 +2273,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           senderType: "bot",
           senderName: botSenderName,
           content: `[MEDIA:audio]${botMessageId}`,
+          mediaInterpretation: cleanText,
           sentAt: new Date(),
           queue: currentConv?.queueState || "automacao",
           operatorId: currentConv?.operatorId || null,

@@ -158,6 +158,27 @@ export class InboundProcessor {
           incomingMessageTime: inbound.timestamp,
         }).catch(() => {});
 
+        // ── Transcrição automática de áudios recebidos do cliente (Meta / Universal) ──
+        if (inbound.media?.mediaType === "audio" && inbound.media?.dataBuffer) {
+          const audioMsgId = result.messageId;
+          const audioConvId = conv.id;
+          const audioBuf = inbound.media.dataBuffer;
+          const audioMime = inbound.media.mimeType;
+          const audioName = inbound.media.fileName;
+          void import("../call-transcriber")
+            .then(({ transcribeAndPersistMessageAudio }) =>
+              transcribeAndPersistMessageAudio({
+                tenantId,
+                messageId: audioMsgId,
+                conversationId: audioConvId,
+                audioBuffer: audioBuf,
+                mimeType: audioMime,
+                fileName: audioName,
+              }),
+            )
+            .catch((err) => console.warn("[Inbound] Falha ao transcrever áudio recebido:", err));
+        }
+
         // ── Acionamento do SDR (Fagner / Valentina) para mensagens da Meta Cloud API ──
         if (inbound.provider === "meta" && isSdrTenant(tenantId) && conv) {
           void this.handleMetaSdrIntegration(inbound, conv, result.messageId, Boolean((result as any).reopened)).catch(

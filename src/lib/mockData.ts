@@ -73,6 +73,7 @@ export type Message = {
   /** Provedor do envio. Checks só são exibidos para "meta", que tem confirmação real de entrega/leitura. */
   provider?: string | null;
   errorMessage?: string | null;
+  mediaInterpretation?: string | null;
   isWarning?: boolean;
   warningType?: "delay" | "new_lead" | "overload";
   warningMetadata?: {

@@ -72,8 +72,8 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               else if (mime.startsWith("video/")) mediaType = "video";
               else mediaType = "document";
 
-              // Converte áudios para OGG/Opus padrão WhatsApp (evita erro de reprodução no app do cliente)
-              if (mediaType === "audio" && (metaAudioNeedsConversion(mime) || ext === "webm" || mime.includes("webm"))) {
+              // Converte áudios sempre para OGG/Opus mono 48kHz VoIP padrão WhatsApp (evita erro de reprodução no app do cliente)
+              if (mediaType === "audio" && typeof convertAudioToOggOpus === "function") {
                 try {
                   const converted = await convertAudioToOggOpus(buffer);
                   buffer = converted as any;
@@ -372,6 +372,30 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             senderName: session.operator.name,
             isInternalNote: !!isInternalNote,
           });
+
+          // Transcrição automática em background para áudios enviados pelo operador
+          if (result.success && result.messageId && mediaType === "audio" && pendingFile?.buffer) {
+            const audioMsgId = result.messageId;
+            const audioConvId = conversationId;
+            const audioTenantId = session.tenantId;
+            const audioBuf = pendingFile.buffer;
+            const audioMime = pendingFile.mime;
+            const audioName = pendingFile.name;
+            void import("../../../lib/call-transcriber")
+              .then(({ transcribeAndPersistMessageAudio }) =>
+                transcribeAndPersistMessageAudio({
+                  tenantId: audioTenantId,
+                  messageId: audioMsgId,
+                  conversationId: audioConvId,
+                  audioBuffer: audioBuf,
+                  mimeType: audioMime,
+                  fileName: audioName,
+                }),
+              )
+              .catch((err) =>
+                console.warn("[WhatsApp Send] Falha ao iniciar transcrição automática do áudio:", err),
+              );
+          }
 
           const persistedMediaContent =
             pendingFile && mediaType

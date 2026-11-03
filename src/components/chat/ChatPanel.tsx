@@ -120,11 +120,72 @@ export function getAudioLabel(authorName?: string, isMe?: boolean, clientName?: 
 }
 
 // ── Player de áudio customizado ────────────────────────────────────────────
-function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; isMe?: boolean }) {
+function AudioBubble({
+  src,
+  fileName,
+  isMe,
+  transcription,
+  messageId,
+  mediaId,
+}: {
+  src: string;
+  fileName: string;
+  isMe?: boolean;
+  transcription?: string | null;
+  messageId?: string;
+  mediaId?: string;
+}) {
   const audioRef = React.useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = React.useState(false);
   const [current, setCurrent] = React.useState(0);
   const [duration, setDuration] = React.useState(0);
+  const [openTranscript, setOpenTranscript] = React.useState(false);
+  const [localTranscript, setLocalTranscript] = React.useState<string | null>(transcription || null);
+  const [loadingTranscript, setLoadingTranscript] = React.useState(false);
+
+  React.useEffect(() => {
+    if (transcription) {
+      setLocalTranscript(transcription);
+      setLoadingTranscript(false);
+    }
+  }, [transcription]);
+
+  const handleToggleTranscript = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextOpen = !openTranscript;
+    setOpenTranscript(nextOpen);
+
+    if (!nextOpen || localTranscript || loadingTranscript) return;
+
+    const validMessageId =
+      messageId && !messageId.startsWith("msg-") && !messageId.startsWith("temp-")
+        ? messageId
+        : undefined;
+    if (!validMessageId && !mediaId) return;
+
+    setLoadingTranscript(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/chats/transcribe-audio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          messageId: validMessageId,
+          mediaId: mediaId || undefined,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.mediaInterpretation) {
+          setLocalTranscript(data.mediaInterpretation);
+        }
+      }
+    } catch (err) {
+      console.warn("[AudioBubble] Falha ao buscar transcrição:", err);
+    } finally {
+      setLoadingTranscript(false);
+    }
+  };
 
   const toggle = () => {
     const a = audioRef.current;
@@ -200,8 +261,8 @@ function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; i
 
   // Estilos invertidos: operador (isMe) usa container bg-primary com botão branco; cliente usa bg-card com botão bg-primary
   const containerClasses = isMe
-    ? "flex items-center gap-3 rounded-2xl bg-primary text-primary-foreground border border-primary/20 shadow-md px-4 py-3 w-[280px] sm:w-[320px] max-w-full"
-    : "flex items-center gap-3 rounded-2xl bg-card border border-border/80 shadow-soft px-4 py-3 w-[280px] sm:w-[320px] max-w-full";
+    ? "flex flex-col rounded-2xl bg-primary text-primary-foreground border border-primary/20 shadow-md px-4 py-3 w-[280px] sm:w-[320px] max-w-full"
+    : "flex flex-col rounded-2xl bg-card border border-border/80 shadow-soft px-4 py-3 w-[280px] sm:w-[320px] max-w-full";
 
   const buttonClasses = isMe
     ? "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-primary shadow-sm hover:bg-white/90 active:scale-95 transition cursor-pointer"
@@ -223,6 +284,12 @@ function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; i
     ? "flex justify-between text-[10px] text-white/80 font-medium tracking-tight"
     : "flex justify-between text-[10px] text-muted-foreground font-medium tracking-tight";
 
+  const isPendingLocal = Boolean(
+    !localTranscript &&
+      ((messageId && (messageId.startsWith("msg-") || messageId.startsWith("temp-"))) ||
+        (!messageId && !mediaId)),
+  );
+
   return (
     <div data-tour="message.audio" className={containerClasses}>
       <audio
@@ -235,55 +302,96 @@ function AudioBubble({ src, fileName, isMe }: { src: string; fileName: string; i
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleEnded}
       />
-      {/* Play / Pause */}
-      <button
-        type="button"
-        onClick={toggle}
-        className={buttonClasses}
-        aria-label={playing ? "Pausar áudio" : "Tocar áudio"}
-      >
-        {playing ? (
-          <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
-            <rect x="6" y="4" width="4" height="16" rx="1" />
-            <rect x="14" y="4" width="4" height="16" rx="1" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        )}
-      </button>
+      <div className="flex items-center gap-3 w-full">
+        {/* Play / Pause */}
+        <button
+          type="button"
+          onClick={toggle}
+          className={buttonClasses}
+          aria-label={playing ? "Pausar áudio" : "Tocar áudio"}
+        >
+          {playing ? (
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+              <rect x="6" y="4" width="4" height="16" rx="1" />
+              <rect x="14" y="4" width="4" height="16" rx="1" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          )}
+        </button>
 
-      <div className="flex flex-1 flex-col gap-1.5 min-w-0">
-        {/* Nome do arquivo padronizado */}
-        <p className={titleClasses}>{fileName}</p>
+        <div className="flex flex-1 flex-col gap-1.5 min-w-0">
+          {/* Nome do arquivo padronizado + seta extremamente discreta para transcrição */}
+          <div className="flex items-center justify-between gap-1.5">
+            <p className={titleClasses}>{fileName}</p>
+            <SystemTooltip content={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}>
+              <button
+                type="button"
+                onClick={handleToggleTranscript}
+                aria-label={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}
+                className={
+                  isMe
+                    ? "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-white/55 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                    : "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/55 hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
+                }
+              >
+                <ChevronDown
+                  className={`h-3 w-3 transition-transform duration-200 ${openTranscript ? "rotate-180" : ""}`}
+                />
+              </button>
+            </SystemTooltip>
+          </div>
 
-        {/* Barra de progresso */}
-        <div className={trackClasses}>
-          <div className={barClasses} style={{ width: `${pct}%` }} />
-          <input
-            type="range"
-            min={0}
-            max={duration > 0 && isFinite(duration) ? duration : 1}
-            step={0.05}
-            value={current}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setCurrent(v);
-              if (audioRef.current && isFinite(v)) {
-                audioRef.current.currentTime = v;
-              }
-            }}
-            className="absolute inset-0 w-full opacity-0 cursor-pointer h-full"
-          />
-        </div>
+          {/* Barra de progresso */}
+          <div className={trackClasses}>
+            <div className={barClasses} style={{ width: `${pct}%` }} />
+            <input
+              type="range"
+              min={0}
+              max={duration > 0 && isFinite(duration) ? duration : 1}
+              step={0.05}
+              value={current}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setCurrent(v);
+                if (audioRef.current && isFinite(v)) {
+                  audioRef.current.currentTime = v;
+                }
+              }}
+              className="absolute inset-0 w-full opacity-0 cursor-pointer h-full"
+            />
+          </div>
 
-        {/* Tempo */}
-        <div className={timeClasses}>
-          <span>{fmt(current)}</span>
-          <span>{fmt(duration)}</span>
+          {/* Tempo */}
+          <div className={timeClasses}>
+            <span>{fmt(current)}</span>
+            <span>{fmt(duration)}</span>
+          </div>
         </div>
       </div>
+
+      {openTranscript && (
+        <div
+          className={
+            isMe
+              ? "mt-2 pt-2 border-t border-white/15 text-[11px] leading-relaxed text-white/90 select-text"
+              : "mt-2 pt-2 border-t border-border/60 text-[11px] leading-relaxed text-foreground/85 select-text"
+          }
+        >
+          {loadingTranscript || isPendingLocal ? (
+            <span className="inline-flex items-center gap-1.5 opacity-75 italic">
+              <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+              Transcrevendo áudio...
+            </span>
+          ) : localTranscript ? (
+            <p className="whitespace-pre-wrap break-words">{localTranscript}</p>
+          ) : (
+            <span className="opacity-70 italic">Transcrição indisponível para este áudio.</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -436,6 +544,8 @@ export function renderMessageContent(
   onSaveSticker?: (messageId: string, url: string) => void,
   authorName?: string,
   clientName?: string,
+  mediaInterpretation?: string | null,
+  messageRowId?: string,
 ) {
   // Separar a tag de mídia da legenda (se enviada com a mídia)
   const normalizedMediaInput = text.replace(/\[SEND_IMAGE:([^\]]+)\]/gi, (_m, rawUrl: string) => {
@@ -535,7 +645,15 @@ export function renderMessageContent(
 
     if (type === "audio") {
       const audioTitle = getAudioLabel(authorName, isMe, clientName);
-      return wrapMediaWithCaption(<AudioBubble src={blobUrl} fileName={audioTitle} isMe={isMe} />);
+      return wrapMediaWithCaption(
+        <AudioBubble
+          src={blobUrl}
+          fileName={audioTitle}
+          isMe={isMe}
+          transcription={mediaInterpretation}
+          messageId={messageRowId}
+        />,
+      );
     }
 
     if (type === "sticker") {
@@ -615,7 +733,16 @@ export function renderMessageContent(
 
       if (type === "audio") {
         const audioTitle = getAudioLabel(authorName, isMe, clientName);
-        return wrapMediaWithCaption(<AudioBubble src={mediaUrl} fileName={audioTitle} isMe={isMe} />);
+        return wrapMediaWithCaption(
+          <AudioBubble
+            src={mediaUrl}
+            fileName={audioTitle}
+            isMe={isMe}
+            transcription={mediaInterpretation}
+            messageId={messageRowId}
+            mediaId={messageId}
+          />,
+        );
       }
 
       if (type === "document") {
@@ -2325,9 +2452,14 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
               ? "mp4"
               : "webm";
           const mimeType = task.audioBlob.type || "audio/webm";
-          const audioFile = new Blob([task.audioBlob], { type: mimeType }) as any;
-          audioFile.name = `audio-${Date.now()}.${ext}`;
-          audioFile.lastModified = Date.now();
+          const fileName = `audio-${Date.now()}.${ext}`;
+          const audioFile =
+            typeof File !== "undefined"
+              ? new File([task.audioBlob], fileName, { type: mimeType, lastModified: Date.now() })
+              : Object.assign(new Blob([task.audioBlob], { type: mimeType }), {
+                  name: fileName,
+                  lastModified: Date.now(),
+                });
           const extras = task.attachments?.length
             ? [...task.attachments, audioFile as File]
             : [audioFile as File];

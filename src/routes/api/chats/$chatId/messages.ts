@@ -83,6 +83,7 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
             status: r.status,
             provider: r.provider,
             errorMessage: r.errorMessage,
+            mediaInterpretation: r.mediaInterpretation || null,
             quotedMessageId: r.quotedMessageId,
             quotedMessageSender: r.quotedMessageSender,
             quotedMessageContent: r.quotedMessageContent,

@@ -157,7 +157,7 @@ export class BaileysAdapter implements WhatsAppAdapter {
               let audioMime = mimeType;
               if (
                 audioBuffer &&
-                (metaAudioNeedsConversion(audioMime) || audioMime.includes("webm"))
+                (metaAudioNeedsConversion(audioMime, audioBuffer) || audioMime.includes("webm"))
               ) {
                 try {
                   audioBuffer = await convertAudioToOggOpus(audioBuffer);

@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { internalMessages, messages, conversations, contacts } from "../../db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { vertexAi } from "../vertex-ai";
 import crypto from "crypto";
 
@@ -94,7 +94,7 @@ class SentimentAnalyzer {
     const historyMsgs = await db
       .select()
       .from(messages)
-      .where(eq(messages.conversationId, conversationId))
+      .where(and(eq(messages.tenantId, tenantId), eq(messages.conversationId, conversationId)))
       .orderBy(desc(messages.sentAt))
       .limit(5);
 
@@ -103,8 +103,17 @@ class SentimentAnalyzer {
     // Montar histórico (ordenado cronologicamente)
     const chatHistory = historyMsgs
       .reverse()
-      .map(m => `[${m.senderType === 'client' ? 'Cliente' : 'Agente'}]: ${m.content}`)
-      .join('\n');
+      .map((m) => {
+        const raw = m.content || "";
+        const text =
+          m.mediaInterpretation && (raw.startsWith("[MEDIA:") || raw.startsWith("[LOCAL_MEDIA:") || !raw)
+            ? `[Áudio transcrito: "${m.mediaInterpretation}"]`
+            : m.mediaInterpretation
+              ? `${raw} [Transcrição: "${m.mediaInterpretation}"]`
+              : raw;
+        return `[${m.senderType === "client" ? "Cliente" : "Agente"}]: ${text}`;
+      })
+      .join("\n");
 
     const prompt = `Analise o sentimento desta conversa de atendimento ao cliente.\n\nHistórico:\n${chatHistory}\n\nRetorne EXCLUSIVAMENTE um objeto JSON estruturado: { "sentiment": "positive" | "neutral" | "negative" | "frustrated", "confidence": number (0 a 1), "reason": "string" }`;
 

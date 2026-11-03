@@ -4512,6 +4512,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             quotedMessageId: message.quotedMessageId || null,
             quotedMessageSender: message.quotedMessageSender || null,
             quotedMessageContent: message.quotedMessageContent || null,
+            mediaInterpretation: message.mediaInterpretation || null,
           };
 
             if (exists) {
@@ -4548,7 +4549,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   const updatedList =
                     matchIdx !== -1
                       ? c.messages.map((m, i) =>
-                          i === matchIdx ? { ...m, ...incomingMsg, ...buildMonotonicMessageTime(c.messages.filter((_, idx) => idx !== matchIdx), sentAtIso), id: incomingMsg.id } : m,
+                          i === matchIdx
+                            ? {
+                                ...m,
+                                ...incomingMsg,
+                                mediaInterpretation: incomingMsg.mediaInterpretation || m.mediaInterpretation || null,
+                                ...buildMonotonicMessageTime(c.messages.filter((_, idx) => idx !== matchIdx), sentAtIso),
+                                id: incomingMsg.id,
+                              }
+                            : m,
                         )
                       : [...c.messages, { ...incomingMsg, ...buildMonotonicMessageTime(c.messages, sentAtIso) }];
 
@@ -4648,6 +4657,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     ...c,
                     messages: c.messages.map((m) =>
                       m.id === messageId ? { ...m, status, errorMessage: error || null } : m,
+                    ),
+                  },
+            ),
+          );
+        } else if (data.type === "message_transcription" && data.messageId && data.mediaInterpretation) {
+          const { conversationId, messageId, mediaInterpretation } = data;
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id !== conversationId && !c.messages.some((m) => m.id === messageId)
+                ? c
+                : {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === messageId ? { ...m, mediaInterpretation } : m,
                     ),
                   },
             ),

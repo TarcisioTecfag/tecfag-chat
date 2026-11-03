@@ -340,11 +340,70 @@ function CustomerAvatar({
   );
 }
 
-function MiniAudioBubble({ src, isMe }: { src: string; isMe: boolean }) {
+function MiniAudioBubble({
+  src,
+  isMe,
+  transcription,
+  messageId,
+  mediaId,
+}: {
+  src: string;
+  isMe: boolean;
+  transcription?: string | null;
+  messageId?: string;
+  mediaId?: string;
+}) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [openTranscript, setOpenTranscript] = useState(false);
+  const [localTranscript, setLocalTranscript] = useState<string | null>(transcription || null);
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+
+  useEffect(() => {
+    if (transcription) {
+      setLocalTranscript(transcription);
+      setLoadingTranscript(false);
+    }
+  }, [transcription]);
+
+  const handleToggleTranscript = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextOpen = !openTranscript;
+    setOpenTranscript(nextOpen);
+
+    if (!nextOpen || localTranscript || loadingTranscript) return;
+
+    const validMessageId =
+      messageId && !messageId.startsWith("msg-") && !messageId.startsWith("temp-")
+        ? messageId
+        : undefined;
+    if (!validMessageId && !mediaId) return;
+
+    setLoadingTranscript(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/chats/transcribe-audio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          messageId: validMessageId,
+          mediaId: mediaId || undefined,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.mediaInterpretation) {
+          setLocalTranscript(data.mediaInterpretation);
+        }
+      }
+    } catch (err) {
+      console.warn("[MiniAudioBubble] Falha ao buscar transcrição:", err);
+    } finally {
+      setLoadingTranscript(false);
+    }
+  };
 
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -360,17 +419,22 @@ function MiniAudioBubble({ src, isMe }: { src: string; isMe: boolean }) {
   };
 
   const fmt = (s: number) => {
-    if (!isFinite(s) || isNaN(s)) return "0:00";
+    if (!isFinite(s) || isNaN(s) || s < 0) return "0:00";
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const pct = duration > 0 ? (current / duration) * 100 : 0;
+  const pct = duration > 0 && isFinite(duration) ? Math.min(100, Math.max(0, (current / duration) * 100)) : 0;
+  const isPendingLocal = Boolean(
+    !localTranscript &&
+      ((messageId && (messageId.startsWith("msg-") || messageId.startsWith("temp-"))) ||
+        (!messageId && !mediaId)),
+  );
 
   return (
     <div
-      className={`flex items-center gap-2 rounded-xl px-2.5 py-2 min-w-[200px] max-w-[240px] select-none ${
+      className={`flex flex-col rounded-xl px-2.5 py-2 min-w-[200px] max-w-[240px] select-none ${
         isMe
           ? "bg-white/10 text-primary-foreground border border-white/15"
           : "bg-muted/70 text-foreground border border-border"
@@ -381,38 +445,77 @@ function MiniAudioBubble({ src, isMe }: { src: string; isMe: boolean }) {
         src={src}
         preload="metadata"
         onTimeUpdate={() => setCurrent(audioRef.current?.currentTime || 0)}
-        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onLoadedMetadata={() => {
+          const a = audioRef.current;
+          if (!a) return;
+          if (isFinite(a.duration) && a.duration > 0) setDuration(a.duration);
+        }}
         onEnded={() => {
           setPlaying(false);
           setCurrent(0);
         }}
       />
-      <button
-        type="button"
-        onClick={toggle}
-        aria-label={playing ? "Pausar áudio" : "Tocar áudio"}
-        className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-transform active:scale-95 ${
-          isMe
-            ? "bg-white text-primary hover:bg-white/90"
-            : "bg-primary text-primary-foreground hover:bg-primary/90"
-        }`}
-      >
-        {playing ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current ml-0.5" />}
-      </button>
-      <div className="flex flex-1 flex-col gap-1 min-w-0">
-        <div className="relative h-1 w-full rounded-full bg-black/15 overflow-hidden">
-          <div
-            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-100 ${
-              isMe ? "bg-white" : "bg-primary"
-            }`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div className="flex items-center justify-between text-[9px] opacity-75 font-mono">
-          <span>{fmt(current)}</span>
-          <span>{duration > 0 ? fmt(duration) : <Mic className="h-2.5 w-2.5" />}</span>
+      <div className="flex items-center gap-2 w-full">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={playing ? "Pausar áudio" : "Tocar áudio"}
+          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-transform active:scale-95 cursor-pointer ${
+            isMe
+              ? "bg-white text-primary hover:bg-white/90"
+              : "bg-primary text-primary-foreground hover:bg-primary/90"
+          }`}
+        >
+          {playing ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current ml-0.5" />}
+        </button>
+        <div className="flex flex-1 flex-col gap-1 min-w-0">
+          <div className="relative h-1 w-full rounded-full bg-black/15 overflow-hidden">
+            <div
+              className={`absolute inset-y-0 left-0 rounded-full transition-all duration-100 ${
+                isMe ? "bg-white" : "bg-primary"
+              }`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[9px] opacity-75 font-mono">
+            <span>{fmt(current)}</span>
+            <div className="flex items-center gap-1">
+              <span>{duration > 0 && isFinite(duration) ? fmt(duration) : <Mic className="h-2.5 w-2.5" />}</span>
+              <SystemTooltip content={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}>
+                <button
+                  type="button"
+                  onClick={handleToggleTranscript}
+                  aria-label={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}
+                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded opacity-65 hover:opacity-100 transition cursor-pointer"
+                >
+                  <ChevronDown
+                    className={`h-2.5 w-2.5 transition-transform duration-200 ${openTranscript ? "rotate-180" : ""}`}
+                  />
+                </button>
+              </SystemTooltip>
+            </div>
+          </div>
         </div>
       </div>
+
+      {openTranscript && (
+        <div
+          className={`mt-1.5 pt-1.5 border-t text-[10.5px] leading-relaxed select-text ${
+            isMe ? "border-white/15 text-primary-foreground/90" : "border-border/60 text-foreground/85"
+          }`}
+        >
+          {loadingTranscript || isPendingLocal ? (
+            <span className="inline-flex items-center gap-1 opacity-75 italic">
+              <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />
+              Transcrevendo áudio...
+            </span>
+          ) : localTranscript ? (
+            <p className="whitespace-pre-wrap break-words">{localTranscript}</p>
+          ) : (
+            <span className="opacity-70 italic">Transcrição indisponível.</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -421,10 +524,14 @@ function MiniMediaRenderer({
   text,
   isMe,
   onImageClick,
+  transcription,
+  messageRowId,
 }: {
   text?: string | null;
   isMe: boolean;
   onImageClick?: (url: string) => void;
+  transcription?: string | null;
+  messageRowId?: string;
 }) {
   const safeInput = typeof text === "string" ? text : "";
   const normalizedText = safeInput.replace(/\[SEND_IMAGE:([^\]]+)\]/gi, (_m, rawUrl: string) => {
@@ -470,7 +577,12 @@ function MiniMediaRenderer({
     if (type === "audio") {
       return (
         <div className="space-y-1">
-          <MiniAudioBubble src={blobUrl} isMe={isMe} />
+          <MiniAudioBubble
+            src={blobUrl}
+            isMe={isMe}
+            transcription={transcription}
+            messageId={messageRowId}
+          />
           {captionText && <p className="text-xs leading-relaxed">{renderTextWithLinks(captionText, isMe)}</p>}
         </div>
       );
@@ -529,7 +641,13 @@ function MiniMediaRenderer({
       if (type === "audio") {
         return (
           <div className="space-y-1">
-            <MiniAudioBubble src={mediaUrl} isMe={isMe} />
+            <MiniAudioBubble
+              src={mediaUrl}
+              isMe={isMe}
+              transcription={transcription}
+              messageId={messageRowId}
+              mediaId={messageId}
+            />
             {captionText && <p className="text-xs leading-relaxed">{renderTextWithLinks(captionText, isMe)}</p>}
           </div>
         );
@@ -2797,6 +2915,8 @@ export function CrmChatWidget() {
                                       text={message.text}
                                       isMe={true}
                                       onImageClick={(url) => setPreviewImage(url)}
+                                      transcription={message.mediaInterpretation}
+                                      messageRowId={message.id}
                                     />
                                     <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-primary-foreground/75 font-medium select-none">
                                       <span>{message.time}</span>
@@ -2938,6 +3058,8 @@ export function CrmChatWidget() {
                                     }
                                     isMe={false}
                                     onImageClick={(url) => setPreviewImage(url)}
+                                    transcription={message.mediaInterpretation}
+                                    messageRowId={message.id}
                                   />
 
                                   {/* Card interativo: Atraso de Resposta (SLA) */}

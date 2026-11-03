@@ -9,19 +9,29 @@ import crypto from "node:crypto";
  * Formatos de áudio aceitos pela WhatsApp Cloud API (mime base, sem parâmetros).
  * Qualquer outro (ex.: audio/webm gravado pelo navegador, audio/wav) precisa ser convertido.
  */
-const META_SUPPORTED_AUDIO = new Set([
-  "audio/aac",
-  "audio/mp4",
-  "audio/mpeg",
-  "audio/amr",
-  "audio/ogg",
-]);
-
 export const META_AUDIO_OUTPUT_MIME = "audio/ogg; codecs=opus";
 
-export function metaAudioNeedsConversion(mimeType: string): boolean {
-  const base = (mimeType || "").split(";")[0].trim().toLowerCase();
-  return !META_SUPPORTED_AUDIO.has(base);
+/**
+ * Verifica se o buffer já é um container OGG válido contendo stream Opus ("OggS" + "OpusHead").
+ */
+export function isOggOpusBuffer(buf?: Buffer | null): boolean {
+  if (!buf || buf.length < 36) return false;
+  if (buf.subarray(0, 4).toString("ascii") !== "OggS") return false;
+  return buf.subarray(0, Math.min(buf.length, 256)).includes(Buffer.from("OpusHead", "ascii"));
+}
+
+/**
+ * Para que o áudio seja reproduzido nativamente no WhatsApp (Android, iOS e WhatsApp Web)
+ * como mensagem de voz (PTT / voice: true), ele deve estar em OGG/Opus mono.
+ * Mesmo gravações brutas de navegadores em audio/mp4 ou audio/ogg sem finalização de header
+ * precisam passar pelo ffmpeg para gerar tabelas de seek e páginas OGG compatíveis.
+ */
+export function metaAudioNeedsConversion(mimeType: string, buf?: Buffer | null): boolean {
+  const normalized = (mimeType || "").trim().toLowerCase();
+  const isExplicitOggOpus = normalized.startsWith("audio/ogg") && normalized.includes("opus");
+  if (!isExplicitOggOpus) return true;
+  if (buf && !isOggOpusBuffer(buf)) return true;
+  return false;
 }
 
 /**
@@ -81,10 +91,17 @@ export async function convertAudioToOggOpus(input: Buffer): Promise<Buffer> {
     "-hide_banner", "-loglevel", "error", "-y",
     "-i", inPath,
     "-vn",
+    "-map_metadata", "-1",
     "-c:a", "libopus",
     "-b:a", "32k",
+    "-vbr", "on",
+    "-compression_level", "10",
+    "-application", "voip",
+    "-frame_duration", "20",
+    "-page_duration", "20000",
     "-ar", "48000",
     "-ac", "1",
+    "-avoid_negative_ts", "make_zero",
     "-f", "ogg",
     outPath,
   ];

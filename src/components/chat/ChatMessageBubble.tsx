@@ -1024,6 +1024,8 @@ function ChatMessageBubbleComponent({
                   onSaveSticker,
                   m.author,
                   activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
                 )}
               </div>
             ) : isAudioOrDoc ? (
@@ -1044,6 +1046,8 @@ function ChatMessageBubbleComponent({
                   undefined,
                   m.author,
                   activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
                 )}
               </div>
             ) : isMedia && !hasCaption && !displayQuotedContent ? (
@@ -1055,6 +1059,8 @@ function ChatMessageBubbleComponent({
                   undefined,
                   m.author,
                   activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
                 )}
               </div>
             ) : isEmojiOnly(safeText) && !displayQuotedContent ? (
@@ -1086,6 +1092,8 @@ function ChatMessageBubbleComponent({
                   undefined,
                   m.author,
                   activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
                 )}
               </div>
             )}
@@ -1229,6 +1237,8 @@ function ChatMessageBubbleComponent({
                   onSaveSticker,
                   m.author,
                   activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
                 )}
               </div>
             ) : isAudioOrDoc && !m.isWarning ? (
@@ -1249,6 +1259,8 @@ function ChatMessageBubbleComponent({
                   undefined,
                   m.author,
                   activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
                 )}
               </div>
             ) : isMedia && !hasCaption && !displayQuotedContent && !m.isWarning ? (
@@ -1260,6 +1272,8 @@ function ChatMessageBubbleComponent({
                   undefined,
                   m.author,
                   activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
                 )}
               </div>
             ) : isEmojiOnly(safeText) && !displayQuotedContent && !m.isWarning ? (
@@ -1354,6 +1368,8 @@ function ChatMessageBubbleComponent({
                   undefined,
                   m.author,
                   activeChat.name,
+                  m.mediaInterpretation,
+                  m.id,
                 )}
 
                 {/* Card interativo: Atraso de Resposta */}
@@ -1965,6 +1981,7 @@ export const ChatMessageBubble = memo(
   (prev, next) => {
     // Retorna true se as props forem equivalentes (PULA O RENDER)
     if (prev.m !== next.m) return false;
+    if (prev.m.mediaInterpretation !== next.m.mediaInterpretation) return false;
     if (prev.isExpanded !== next.isExpanded) return false;
     if (prev.isMatch !== next.isMatch) return false;
     if (prev.isFirst !== next.isFirst || prev.isLast !== next.isLast) return false;

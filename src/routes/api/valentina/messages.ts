@@ -2158,7 +2158,14 @@ async function getOperatorContext(
                       })
                     : "";
                   const who = m.senderType === "client" ? "Cliente" : m.senderType === "bot" ? "IA Triagem" : "Você";
-                  const txt = (m.content || m.mediaInterpretation || "[Mídia]").slice(0, 260);
+                  const rawTxt = String(m.content || "");
+                  const formattedTxt =
+                    m.mediaInterpretation && (rawTxt.startsWith("[MEDIA:") || rawTxt.startsWith("[LOCAL_MEDIA:") || !rawTxt)
+                      ? `[Áudio/Mídia transcrita: "${m.mediaInterpretation}"]`
+                      : m.mediaInterpretation
+                        ? `${rawTxt} [Transcrição: "${m.mediaInterpretation}"]`
+                        : rawTxt || "[Mídia]";
+                  const txt = formattedTxt.slice(0, 320);
                   return `    [${hora}] ${who}: ${txt}`;
                 })
                 .join("\n");
