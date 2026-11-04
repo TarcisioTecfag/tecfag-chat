@@ -159,17 +159,43 @@ export function matchesMetaTemplateFilter(
 
 /**
  * Detecta se o erro retornado pela Meta Cloud API (ou webhook statuses) corresponde
- * ao bloqueio experimental de Marketing (Erro 130472: "User's number is part of an experiment").
+ * ao limite global de frequência de Marketing por usuário
+ * (Erro 131049: "This message was not delivered to maintain healthy ecosystem engagement").
+ */
+export function isMetaEcosystemEngagementError(
+  error?: string | null,
+  code?: number | string | null,
+): boolean {
+  if (code !== undefined && code !== null && String(code).trim() === "131049") {
+    return true;
+  }
+  if (!error) return false;
+  return /healthy ecosystem engagement|131049|limite.*frequ[eê]ncia.*marketing/i.test(
+    String(error),
+  );
+}
+
+/**
+ * Detecta se o erro retornado pela Meta Cloud API (ou webhook statuses) corresponde
+ * a uma restrição da categoria Marketing no número do destinatário:
+ * - Erro 130472: "User's number is part of an experiment"
+ * - Erro 131049: "This message was not delivered to maintain healthy ecosystem engagement"
  */
 export function isMetaExperimentError(
   error?: string | null,
   code?: number | string | null,
 ): boolean {
-  if (code !== undefined && code !== null && String(code).trim() === "130472") {
-    return true;
+  if (code !== undefined && code !== null) {
+    const normalizedCode = String(code).trim();
+    if (normalizedCode === "130472" || normalizedCode === "131049") {
+      return true;
+    }
   }
   if (!error) return false;
-  return /part of an experiment|130472|grupo de experimento da meta/i.test(String(error));
+  return (
+    /part of an experiment|130472|grupo de experimento da meta/i.test(String(error)) ||
+    isMetaEcosystemEngagementError(error, code)
+  );
 }
 
 /**
@@ -284,6 +310,9 @@ export function formatMetaErrorMessagePt(
   phone?: string | null,
 ): string | null {
   if (!error) return null;
+  if (isMetaEcosystemEngagementError(error)) {
+    return "Limite de frequência de Marketing da Meta (Erro 131049): este contato já atingiu o limite temporário de mensagens de Marketing no WhatsApp. Envie um template de Utilidade.";
+  }
   if (isMetaExperimentError(error)) {
     return "Número em grupo de teste da Meta (Erro 130472): templates de Marketing estão bloqueados para este contato fora da janela de 24h. Envie um template de Utilidade.";
   }

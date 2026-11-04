@@ -2102,6 +2102,63 @@ export function CrmChatWidget() {
     };
   }, [open, activeProvider, selected?.id, selected?.channel, lastInboundMessage?.id]);
 
+  // Pré-carrega silenciosamente os templates aprovados da Meta quando houver falha 130472 / 131049 na conversa
+  useEffect(() => {
+    if (
+      !open ||
+      activeProvider !== "meta" ||
+      selected?.channel !== "whatsapp" ||
+      !selected?.id ||
+      selected.id === "valentina" ||
+      selected.id === "__resolving__" ||
+      metaTemplates.length > 0 ||
+      metaTemplatesLoading
+    ) {
+      return;
+    }
+    const hasMarketingRestriction = threadMessages.some((msg) => {
+      const ov = messageStatusOverrides[msg.id];
+      const st = ov?.status || msg.status;
+      const err = ov?.error ?? msg.errorMessage;
+      return st === "failed" && isMetaExperimentError(err);
+    });
+    if (!hasMarketingRestriction) return;
+
+    let cancelled = false;
+    setMetaTemplatesLoading(true);
+    fetch(
+      `${BACKEND_URL}/api/whatsapp/meta-state?conversationId=${encodeURIComponent(selected.id)}&templates=1`,
+      { credentials: "include" },
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setMetaTemplates(
+          (data.templates || []).filter((item: { supported: boolean }) => item.supported),
+        );
+        setMetaTemplateCustomGroups(
+          Array.isArray(data.customGroups) ? data.customGroups : [],
+        );
+        if (data.window) setMetaWindowOpen(data.window.open === true);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setMetaTemplatesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    activeProvider,
+    selected?.id,
+    selected?.channel,
+    threadMessages,
+    messageStatusOverrides,
+    metaTemplates.length,
+    metaTemplatesLoading,
+  ]);
+
   // Scroll automático ao final da conversa (sempre começa da mensagem/imagem mais recente, de baixo para cima)
   const threadScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const prevThreadChatIdRef = useRef<string | null>(null);
@@ -3039,6 +3096,7 @@ export function CrmChatWidget() {
                                       ) : effectiveStatus === "failed" &&
                                         isMetaExperimentError(effectiveError) ? (
                                         <MetaExperimentFallbackCard
+                                          error={effectiveError}
                                           failedMessageText={message.text}
                                           customerName={selected.name}
                                           operatorName={

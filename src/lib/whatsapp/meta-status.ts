@@ -67,9 +67,11 @@ export async function applyMetaStatus(tenantId: string, statusObj: MetaStatus, p
       nextStatus === "failed"
         ? firstErr?.code === 130472 || /part of an experiment/i.test(rawErrMsg)
           ? "User's number is part of an experiment (130472)"
-          : firstErr?.code === 131026 || /message undeliverable/i.test(rawErrMsg)
-            ? "Message undeliverable (131026)"
-            : rawErrMsg || "Falha informada pela Meta"
+          : firstErr?.code === 131049 || /healthy ecosystem engagement/i.test(rawErrMsg)
+            ? "This message was not delivered to maintain healthy ecosystem engagement (131049)"
+            : firstErr?.code === 131026 || /message undeliverable/i.test(rawErrMsg)
+              ? "Message undeliverable (131026)"
+              : rawErrMsg || "Falha informada pela Meta"
         : null;
 
     const updated = await db.update(messages).set({

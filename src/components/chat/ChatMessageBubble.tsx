@@ -1156,6 +1156,7 @@ function ChatMessageBubbleComponent({
                 />
               ) : effectiveStatus === "failed" && isMetaExperimentError(effectiveError) ? (
                 <MetaExperimentFallbackCard
+                  error={effectiveError}
                   failedMessageText={safeText}
                   customerName={activeChat.name}
                   operatorName={operatorName || m.author || "Atendente"}

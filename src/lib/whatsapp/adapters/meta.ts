@@ -419,6 +419,8 @@ export class MetaAdapter implements WhatsAppAdapter {
           errorMessage = "Conversa fora da janela de 24h da Meta. É necessário utilizar um Template aprovado para reabrir o diálogo.";
         } else if (metaError?.code === 130472 || /part of an experiment/i.test(errorMessage)) {
           errorMessage = "User's number is part of an experiment (130472)";
+        } else if (metaError?.code === 131049 || /healthy ecosystem engagement/i.test(errorMessage)) {
+          errorMessage = "This message was not delivered to maintain healthy ecosystem engagement (131049)";
         } else if (metaError?.code === 131026 || /message undeliverable/i.test(errorMessage)) {
           errorMessage = "Message undeliverable (131026)";
         }

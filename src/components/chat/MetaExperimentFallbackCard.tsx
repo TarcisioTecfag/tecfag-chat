@@ -23,11 +23,13 @@ import {
   buildExperimentFallbackCandidates,
   formatMetaErrorMessagePt,
   formatTemplateFirstName,
+  isMetaEcosystemEngagementError,
   type TemplateBindings,
 } from "@/lib/whatsapp/meta-template-common";
 import type { ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
 
 export interface MetaExperimentFallbackCardProps {
+  error?: string | null;
   failedMessageText: string;
   customerName: string;
   operatorName: string;
@@ -41,6 +43,7 @@ export interface MetaExperimentFallbackCardProps {
 }
 
 export function MetaExperimentFallbackCard({
+  error,
   failedMessageText,
   customerName,
   operatorName,
@@ -56,6 +59,12 @@ export function MetaExperimentFallbackCard({
   const [sending, setSending] = useState(false);
   const [sentSuccess, setSentSuccess] = useState(false);
   const [expandedWhenResolved, setExpandedWhenResolved] = useState(false);
+
+  const isEcosystemLimit = useMemo(
+    () => isMetaEcosystemEngagementError(error),
+    [error],
+  );
+  const metaCodeBadge = isEcosystemLimit ? "Meta #131049" : "Meta #130472";
 
   const candidates = useMemo(
     () =>
@@ -79,7 +88,7 @@ export function MetaExperimentFallbackCard({
         onClick={(e) => e.stopPropagation()}
         className="mt-1.5 flex justify-end w-full"
       >
-        <SystemTooltip content="Clique para ver detalhes sobre a restrição experimental da Meta neste envio">
+        <SystemTooltip content="Clique para ver detalhes sobre a restrição de Marketing da Meta neste envio">
           <button
             type="button"
             onClick={() => setExpandedWhenResolved(true)}
@@ -88,8 +97,10 @@ export function MetaExperimentFallbackCard({
             <Info className="h-3 w-3 text-primary shrink-0" />
             <span>
               {sentSuccess
-                ? "Bloqueio Meta #130472 • Template alternativo enviado"
-                : "Bloqueio experimental de Marketing da Meta (#130472)"}
+                ? `Bloqueio ${metaCodeBadge} • Template alternativo enviado`
+                : isEcosystemLimit
+                  ? "Limite de frequência de Marketing da Meta (#131049)"
+                  : "Bloqueio experimental de Marketing da Meta (#130472)"}
             </span>
             <ChevronDown className="h-3 w-3 opacity-60 shrink-0" />
           </button>
@@ -129,16 +140,30 @@ export function MetaExperimentFallbackCard({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-bold text-foreground">
-                Restrição automática da Meta neste número
+                {isEcosystemLimit
+                  ? "Limite de frequência de Marketing neste número"
+                  : "Restrição automática da Meta neste número"}
               </span>
               <span className="rounded-md border border-border/80 bg-muted/70 px-1.5 py-0.5 text-[9.5px] font-semibold text-muted-foreground">
-                Meta #130472
+                {metaCodeBadge}
               </span>
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              O WhatsApp incluiu o número deste cliente em um grupo de teste da Meta (~1% dos
-              usuários) que bloqueia templates de <strong className="font-semibold text-foreground">Marketing</strong>{" "}
-              fora da janela de 24h. Reenviar o mesmo template não funcionará.
+              {isEcosystemLimit ? (
+                <>
+                  A Meta bloqueou este envio porque o WhatsApp deste cliente já atingiu o limite
+                  temporário de mensagens da categoria{" "}
+                  <strong className="font-semibold text-foreground">Marketing</strong> recebidas de
+                  empresas. Reenviar o mesmo template não funcionará agora.
+                </>
+              ) : (
+                <>
+                  O WhatsApp incluiu o número deste cliente em um grupo de teste da Meta (~1% dos
+                  usuários) que bloqueia templates de{" "}
+                  <strong className="font-semibold text-foreground">Marketing</strong> fora da
+                  janela de 24h. Reenviar o mesmo template não funcionará.
+                </>
+              )}
             </p>
           </div>
         </div>
