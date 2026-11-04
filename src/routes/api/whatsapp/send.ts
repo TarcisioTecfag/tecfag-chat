@@ -15,6 +15,11 @@ import {
   resolveConversationActiveDealStage,
 } from "../../../lib/whatsapp/meta-templates";
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../../../lib/whatsapp/audio-convert";
+import {
+  convertAndCompressVideoToMp4,
+  metaVideoNeedsConversion,
+  META_VIDEO_OUTPUT_MIME,
+} from "../../../lib/whatsapp/video-convert";
 import { SITE_CHANNEL, SITE_PROVIDER } from "../../../lib/livechat/site-channel-policy";
 import { sendSiteOperatorText } from "../../../lib/livechat/site-delivery";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
@@ -69,7 +74,7 @@ export const Route = createFileRoute("/api/whatsapp/send")({
               const ext = fileName.split(".").pop()?.toLowerCase() || "";
               if (mime.startsWith("image/")) mediaType = "image";
               else if (mime.startsWith("audio/") || ["mp3","ogg","webm","m4a","aac","oga","opus","wav"].includes(ext)) mediaType = "audio";
-              else if (mime.startsWith("video/")) mediaType = "video";
+              else if (mime.startsWith("video/") || ["mp4","mov","webm","mkv","avi","m4v","3gp","mpeg","mpg"].includes(ext)) mediaType = "video";
               else mediaType = "document";
 
               // Converte áudios sempre para OGG/Opus mono 48kHz VoIP padrão WhatsApp (evita erro de reprodução no app do cliente)
@@ -82,6 +87,22 @@ export const Route = createFileRoute("/api/whatsapp/send")({
                   console.log(`[WhatsApp Send] Áudio convertido com sucesso para OGG/Opus (${buffer.length} bytes)`);
                 } catch (convErr) {
                   console.warn("[WhatsApp Send] Conversão para OGG/Opus falhou, mantendo buffer original:", convErr);
+                }
+              }
+
+              // Comprime e padroniza vídeos acima de 15 MB ou fora do padrão MP4 H.264/AAC aceito pela Meta Cloud API (< 16 MB)
+              if (mediaType === "video" && metaVideoNeedsConversion(mime, buffer)) {
+                try {
+                  const originalSize = buffer.length;
+                  const converted = await convertAndCompressVideoToMp4(buffer);
+                  buffer = converted as any;
+                  mime = META_VIDEO_OUTPUT_MIME;
+                  fileName = `${fileName.replace(/\.[^./\\]+$/, "") || "video"}.mp4`;
+                  console.log(
+                    `[WhatsApp Send] Vídeo comprimido/normalizado com sucesso para MP4 H.264 (${(originalSize / (1024 * 1024)).toFixed(2)} MB -> ${(buffer.length / (1024 * 1024)).toFixed(2)} MB)`,
+                  );
+                } catch (convErr) {
+                  console.warn("[WhatsApp Send] Compressão/conversão de vídeo falhou, mantendo buffer original:", convErr);
                 }
               }
 

@@ -11,6 +11,11 @@ import { eq, and } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { convertAudioToOggOpus, metaAudioNeedsConversion } from "../audio-convert";
+import {
+  convertAndCompressVideoToMp4,
+  metaVideoNeedsConversion,
+  META_VIDEO_OUTPUT_MIME,
+} from "../video-convert";
 import { resolveConversationConnection } from "../connections";
 import { connectionPeerJid } from "../connection-contacts";
 import { baileysEventId, baileysStanzaId } from "../connection-policy";
@@ -180,7 +185,24 @@ export class BaileysAdapter implements WhatsAppAdapter {
                 options,
               );
             } else if (message.mediaType === "video") {
-              sentMsg = await sock.sendMessage(jid, { video: mediaSource, caption }, options);
+              let videoBuffer = mediaBuffer;
+              let videoMime = mimeType;
+              if (videoBuffer && metaVideoNeedsConversion(videoMime, videoBuffer)) {
+                try {
+                  videoBuffer = await convertAndCompressVideoToMp4(videoBuffer);
+                  videoMime = META_VIDEO_OUTPUT_MIME;
+                  console.log(
+                    `[BaileysAdapter] Vídeo comprimido/padronizado com sucesso para MP4 H.264 (${videoBuffer.length} bytes)`,
+                  );
+                } catch (convErr) {
+                  console.warn("[BaileysAdapter] Falha ao comprimir/converter vídeo para MP4:", convErr);
+                }
+              }
+              sentMsg = await sock.sendMessage(
+                jid,
+                { video: videoBuffer || mediaSource, mimetype: videoMime.startsWith("video/") ? videoMime : META_VIDEO_OUTPUT_MIME, caption },
+                options,
+              );
             } else {
               sentMsg = await sock.sendMessage(
                 jid,

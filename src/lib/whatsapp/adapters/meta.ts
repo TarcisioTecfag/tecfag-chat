@@ -6,6 +6,11 @@ import fs from "fs";
 import path from "path";
 import { getMetaServiceWindow } from "../meta-policy";
 import { convertAudioToOggOpus, metaAudioNeedsConversion, META_AUDIO_OUTPUT_MIME } from "../audio-convert";
+import {
+  convertAndCompressVideoToMp4,
+  metaVideoNeedsConversion,
+  META_VIDEO_OUTPUT_MIME,
+} from "../video-convert";
 import { getMetaTemplateBindings, getMetaTemplateLocalMetadataMap } from "../meta-templates";
 import { isSupportedMetaTemplate, type TemplateBindings } from "../meta-template-common";
 import { normalizeCanonicalPhone } from "../../utils";
@@ -166,9 +171,24 @@ export class MetaAdapter implements WhatsAppAdapter {
     mimeType: string,
   ): Promise<string> {
     const cleanMime = (mimeType || "application/octet-stream").split(";")[0].trim().toLowerCase();
+    const rawExt = (fileName.split(".").pop() || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+    const fallbackExt = cleanMime.startsWith("video/")
+      ? "mp4"
+      : cleanMime.includes("ogg")
+        ? "ogg"
+        : cleanMime.startsWith("image/png")
+          ? "png"
+          : cleanMime.startsWith("image/webp")
+            ? "webp"
+            : cleanMime.startsWith("image/")
+              ? "jpg"
+              : cleanMime.includes("pdf")
+                ? "pdf"
+                : "bin";
+    const safeUploadName = `media-${Date.now()}.${rawExt || fallbackExt}`;
     const formData = new FormData();
     const blob = new Blob([new Uint8Array(buffer)], { type: cleanMime });
-    formData.append("file", blob, fileName);
+    formData.append("file", blob, safeUploadName);
     formData.append("type", cleanMime);
     formData.append("messaging_product", "whatsapp");
 
@@ -178,12 +198,22 @@ export class MetaAdapter implements WhatsAppAdapter {
         Authorization: `Bearer ${accessToken}`,
       },
       body: formData,
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!uploadRes.ok) {
       const errJson = await uploadRes.json().catch(() => ({}));
-      throw new Error(`Falha no upload de mídia para Meta API: ${errJson?.error?.message || uploadRes.statusText}`);
+      const metaDetails = errJson?.error?.error_data?.details || errJson?.error?.error_user_msg;
+      const baseMsg = errJson?.error?.message || uploadRes.statusText;
+      console.error("[MetaAdapter.uploadMediaToMeta] Erro da Meta:", {
+        status: uploadRes.status,
+        cleanMime,
+        bytes: buffer.length,
+        error: errJson?.error || errJson,
+      });
+      throw new Error(
+        `Falha no upload de mídia para Meta API: ${baseMsg}${metaDetails ? ` (${metaDetails})` : ""}`,
+      );
     }
 
     const uploadData = await uploadRes.json();
@@ -266,26 +296,32 @@ export class MetaAdapter implements WhatsAppAdapter {
           let mediaBuffer: Buffer | null = null;
           let mimeType = "application/octet-stream";
           const fileName = message.fileName || `arquivo-${Date.now()}`;
+          let resolvedMediaId: string | null = null;
 
           try {
             const urlMatch = message.mediaUrl.match(/messageId=([^&]+)/);
             const messageId = urlMatch
-              ? urlMatch[1]
+              ? decodeURIComponent(urlMatch[1])
               : message.mediaUrl.startsWith("media-")
                 ? message.mediaUrl
                 : null;
             if (messageId) {
+              resolvedMediaId = messageId;
               const [record] = await db.select().from(mediaFiles).where(and(eq(mediaFiles.id, messageId), eq(mediaFiles.tenantId, tenantId)));
               if (!record) throw new Error("Mídia não pertence ao tenant da mensagem");
+              if (record.mimeType) mimeType = record.mimeType;
               const localPath = path.join(process.cwd(), "media", messageId);
               const mimePath = path.join(process.cwd(), "media", `${messageId}.mime`);
               if (fs.existsSync(localPath)) {
                 mediaBuffer = fs.readFileSync(localPath);
-                if (fs.existsSync(mimePath)) mimeType = fs.readFileSync(mimePath, "utf-8").trim();
+                if (fs.existsSync(mimePath)) {
+                  const diskMime = fs.readFileSync(mimePath, "utf-8").trim();
+                  if (diskMime) mimeType = diskMime;
+                }
               } else {
                 if (record?.base64Data) {
                   mediaBuffer = Buffer.from(record.base64Data, "base64");
-                  mimeType = record.mimeType;
+                  mimeType = record.mimeType || mimeType;
                 }
               }
             }
@@ -318,8 +354,67 @@ export class MetaAdapter implements WhatsAppAdapter {
             }
           }
 
+          // Compressão e padronização automática de vídeos para MP4 H.264/AAC (< 15 MB) aceito pela Meta Cloud API
+          let videoAlreadyTranscoded = false;
+          const transcodeAndPersistVideo = async () => {
+            if (!mediaBuffer) return;
+            const originalBytes = mediaBuffer.length;
+            mediaBuffer = await convertAndCompressVideoToMp4(mediaBuffer);
+            mimeType = META_VIDEO_OUTPUT_MIME;
+            uploadFileName = `${fileName.replace(/\.[^./\\]+$/, "") || "video"}.mp4`;
+            videoAlreadyTranscoded = true;
+            console.log(
+              `[MetaAdapter] Vídeo comprimido/padronizado para MP4 H.264 (tenant: ${tenantId}): ${(originalBytes / (1024 * 1024)).toFixed(2)} MB -> ${(mediaBuffer.length / (1024 * 1024)).toFixed(2)} MB`,
+            );
+            if (resolvedMediaId) {
+              try {
+                await db
+                  .update(mediaFiles)
+                  .set({
+                    mimeType: META_VIDEO_OUTPUT_MIME,
+                    fileSize: mediaBuffer.length,
+                    base64Data: mediaBuffer.toString("base64"),
+                  })
+                  .where(and(eq(mediaFiles.id, resolvedMediaId), eq(mediaFiles.tenantId, tenantId)));
+                const mediaDir = path.join(process.cwd(), "media");
+                if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+                await fs.promises.writeFile(path.join(mediaDir, resolvedMediaId), mediaBuffer);
+                await fs.promises.writeFile(path.join(mediaDir, `${resolvedMediaId}.mime`), META_VIDEO_OUTPUT_MIME);
+              } catch (persistErr) {
+                console.warn("[MetaAdapter] Não foi possível atualizar cache do vídeo comprimido:", persistErr);
+              }
+            }
+          };
+
+          if (sendType === "video" && mediaBuffer && metaVideoNeedsConversion(mimeType, mediaBuffer)) {
+            try {
+              await transcodeAndPersistVideo();
+            } catch (convErr: any) {
+              console.error(`[MetaAdapter] Falha ao comprimir/converter vídeo para MP4 (tenant: ${tenantId}):`, convErr);
+              return {
+                externalId: "",
+                status: "failed",
+                error: "Não foi possível comprimir ou converter o vídeo para o limite da Meta (16 MB MP4 H.264).",
+              };
+            }
+          }
+
           if (mediaBuffer) {
-            const metaMediaId = await this.uploadMediaToMeta(phoneNumberId, accessToken, mediaBuffer, uploadFileName, mimeType);
+            let metaMediaId: string;
+            try {
+              metaMediaId = await this.uploadMediaToMeta(phoneNumberId, accessToken, mediaBuffer, uploadFileName, mimeType);
+            } catch (uploadErr: any) {
+              // Fallback automático: se um vídeo aparentemente válido (< 15 MB) for rejeitado pela Meta (ex.: (#100) Invalid parameter por codec/perfil interno), recodifica via FFmpeg e reenvia
+              if (sendType === "video" && !videoAlreadyTranscoded) {
+                console.warn(
+                  `[MetaAdapter] Upload de vídeo rejeitado pela Meta (${uploadErr?.message}); aplicando compressão/recodificação automática via FFmpeg e tentando novamente...`,
+                );
+                await transcodeAndPersistVideo();
+                metaMediaId = await this.uploadMediaToMeta(phoneNumberId, accessToken, mediaBuffer, uploadFileName, mimeType);
+              } else {
+                throw uploadErr;
+              }
+            }
             const isOggVoice =
               sendType === "audio" &&
               (mimeType.toLowerCase().includes("ogg") ||
