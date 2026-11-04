@@ -27,6 +27,7 @@ import { OperatorsRankingTab } from "./OperatorsRankingTab";
 import { SiteVisitorsTab } from "./SiteVisitorsTab";
 import { WhatsappLogo } from "./ChatList";
 import { usePermissions } from "@/hooks/usePermissions";
+import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -1723,7 +1724,7 @@ function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolea
       mediaEl = (
         <div className="flex items-center gap-2 py-1">
           <Volume2 className="h-4 w-4 shrink-0" />
-          <audio controls src={mediaUrl} className="h-7 w-44" />
+          <AudioWithSpeed src={mediaUrl} audioClassName="h-7 w-40" />
         </div>
       );
     } else if (mediaType === "document") {

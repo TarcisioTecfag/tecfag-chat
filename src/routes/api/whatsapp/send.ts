@@ -7,7 +7,7 @@ import { db } from "../../../db";
 import { conversations, contacts, mediaFiles, channelConfigs, messages } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
-import { resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
+import { isMetaExperimentError, resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
 import {
   filterMetaTemplatesForContext,
   getMetaTemplatesRestrictByStage,
@@ -326,13 +326,30 @@ export const Route = createFileRoute("/api/whatsapp/send")({
                   (item) => item.name === selected.name && item.language === selected.language,
                 );
                 if (!isAllowed) {
-                  return Response.json(
-                    {
-                      error: `O template "${selected.name}" não está liberado para a etapa "${dealStage.stageName || "atual"}" do funil "${dealStage.pipelineName || "atual"}".`,
-                      code: "TEMPLATE_STAGE_RESTRICTED",
-                    },
-                    { status: 403 },
+                  const failedRows = await db
+                    .select({ errorMessage: messages.errorMessage })
+                    .from(messages)
+                    .where(
+                      and(
+                        eq(messages.tenantId, session.tenantId),
+                        eq(messages.conversationId, conv.id),
+                        eq(messages.direction, "outbound"),
+                        eq(messages.status, "failed"),
+                      ),
+                    )
+                    .limit(15);
+                  const hasExperimentFailure = failedRows.some((row) =>
+                    isMetaExperimentError(row.errorMessage),
                   );
+                  if (!hasExperimentFailure) {
+                    return Response.json(
+                      {
+                        error: `O template "${selected.name}" não está liberado para a etapa "${dealStage.stageName || "atual"}" do funil "${dealStage.pipelineName || "atual"}".`,
+                        code: "TEMPLATE_STAGE_RESTRICTED",
+                      },
+                      { status: 403 },
+                    );
+                  }
                 }
               }
             } catch {

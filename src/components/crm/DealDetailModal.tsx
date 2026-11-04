@@ -63,6 +63,7 @@ import { toast } from "sonner";
 import { DealAddContactDrawer, formatContactRoleLabel } from "./DealAddContactDrawer";
 import { DealLinkAccountDrawer } from "./DealLinkAccountDrawer";
 import { DealStatusBadge } from "./deal-status-config";
+import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
 import { useChat } from "@/hooks/useChatState";
 import { AccountDetailModal } from "./AccountDetailModal";
 import { CreateTaskModal, type EditingTaskData } from "./CreateTaskModal";
@@ -385,7 +386,7 @@ export function renderCrmMediaOrTextContent(
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
               Áudio do Atendimento
             </span>
-            <audio controls preload="metadata" src={mediaUrl} className="h-8 w-full" />
+            <AudioWithSpeed src={mediaUrl} className="w-full" audioClassName="h-8 flex-1 min-w-0" />
           </div>
         )}
         {type === "video" && (

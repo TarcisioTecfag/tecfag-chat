@@ -19,6 +19,7 @@ import {
   Eye,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
 
 export interface DealFileItem {
   id: string;
@@ -458,7 +459,7 @@ export function DealFilePreviewModal({
                   Reprodução de Áudio • {formatBytes(file.fileSize)}
                 </p>
               </div>
-              <audio src={fileUrl} controls className="w-full mt-2" />
+              <AudioWithSpeed src={fileUrl} className="w-full mt-2" audioClassName="h-9 flex-1 min-w-0" />
             </div>
           )}
 

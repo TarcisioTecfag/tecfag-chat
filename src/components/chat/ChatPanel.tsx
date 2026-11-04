@@ -19,6 +19,10 @@ import { WhatsappLogo, InstagramLogo, MessengerLogo } from "./ChatList";
 import { EmojiPicker } from "./EmojiPicker";
 import { QuickResponsesPopover } from "./QuickResponsesPopover";
 import { MetaTemplateSelectModal, Meta24hInfoModal, type ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
+import {
+  isMetaExperimentError,
+  isMetaUndeliverableError,
+} from "@/lib/whatsapp/meta-template-common";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Smile,
@@ -90,6 +94,11 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { setRememberedTabForView } from "@/lib/app-routes";
 import { resolveTemplateVariables } from "@/lib/utils";
+import {
+  useAudioPlaybackRate,
+  formatAudioPlaybackRate,
+  applyAudioPlaybackRate,
+} from "@/lib/audio-playback-rate";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -142,6 +151,7 @@ function AudioBubble({
   const [openTranscript, setOpenTranscript] = React.useState(false);
   const [localTranscript, setLocalTranscript] = React.useState<string | null>(transcription || null);
   const [loadingTranscript, setLoadingTranscript] = React.useState(false);
+  const { playbackRate, cyclePlaybackRate, syncAudioElement } = useAudioPlaybackRate(audioRef, src);
 
   React.useEffect(() => {
     if (transcription) {
@@ -187,13 +197,15 @@ function AudioBubble({
     }
   };
 
-  const toggle = () => {
+  const toggle = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     const a = audioRef.current;
     if (!a) return;
     if (playing) {
       a.pause();
       setPlaying(false);
     } else {
+      syncAudioElement();
       a.play().catch((err) => console.warn("[AudioBubble] Play error:", err));
       setPlaying(true);
     }
@@ -210,6 +222,7 @@ function AudioBubble({
   const updateDuration = React.useCallback(() => {
     const a = audioRef.current;
     if (!a) return;
+    applyAudioPlaybackRate(a, playbackRate);
     if (isFinite(a.duration) && a.duration > 0) {
       setDuration(a.duration);
     } else if (a.duration === Infinity) {
@@ -223,7 +236,7 @@ function AudioBubble({
       a.addEventListener("seeked", onSeeked, { once: true });
       a.currentTime = 1e101;
     }
-  }, []);
+  }, [playbackRate]);
 
   const handleTimeUpdate = () => {
     const a = audioRef.current;
@@ -284,6 +297,14 @@ function AudioBubble({
     ? "flex justify-between text-[10px] text-white/80 font-medium tracking-tight"
     : "flex justify-between text-[10px] text-muted-foreground font-medium tracking-tight";
 
+  const speedButtonClasses = isMe
+    ? playbackRate > 1
+      ? "inline-flex h-4.5 px-1.5 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold tracking-tight bg-white text-primary shadow-2xs hover:bg-white/90 active:scale-95 transition cursor-pointer tabular-nums"
+      : "inline-flex h-4.5 px-1.5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tracking-tight bg-white/20 text-white hover:bg-white/30 active:scale-95 transition cursor-pointer tabular-nums"
+    : playbackRate > 1
+      ? "inline-flex h-4.5 px-1.5 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold tracking-tight bg-primary text-primary-foreground shadow-2xs hover:opacity-90 active:scale-95 transition cursor-pointer tabular-nums"
+      : "inline-flex h-4.5 px-1.5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tracking-tight bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80 border border-border/80 active:scale-95 transition cursor-pointer tabular-nums";
+
   const isPendingLocal = Boolean(
     !localTranscript &&
       ((messageId && (messageId.startsWith("msg-") || messageId.startsWith("temp-"))) ||
@@ -296,6 +317,7 @@ function AudioBubble({
         ref={audioRef}
         src={src}
         preload="auto"
+        onPlay={() => syncAudioElement()}
         onLoadedMetadata={updateDuration}
         onDurationChange={updateDuration}
         onCanPlayThrough={updateDuration}
@@ -323,25 +345,39 @@ function AudioBubble({
         </button>
 
         <div className="flex flex-1 flex-col gap-1.5 min-w-0">
-          {/* Nome do arquivo padronizado + seta extremamente discreta para transcrição */}
+          {/* Nome do arquivo padronizado + seletor de velocidade + seta discreta para transcrição */}
           <div className="flex items-center justify-between gap-1.5">
             <p className={titleClasses}>{fileName}</p>
-            <SystemTooltip content={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}>
-              <button
-                type="button"
-                onClick={handleToggleTranscript}
-                aria-label={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}
-                className={
-                  isMe
-                    ? "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-white/55 hover:text-white hover:bg-white/10 transition cursor-pointer"
-                    : "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/55 hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
-                }
+            <div className="flex items-center gap-1 shrink-0">
+              <SystemTooltip
+                content={`Velocidade ${formatAudioPlaybackRate(playbackRate)} (clique para alternar: 1x → 1.5x → 2.0x → 2.5x)`}
               >
-                <ChevronDown
-                  className={`h-3 w-3 transition-transform duration-200 ${openTranscript ? "rotate-180" : ""}`}
-                />
-              </button>
-            </SystemTooltip>
+                <button
+                  type="button"
+                  onClick={cyclePlaybackRate}
+                  aria-label={`Velocidade de reprodução: ${formatAudioPlaybackRate(playbackRate)}`}
+                  className={speedButtonClasses}
+                >
+                  {formatAudioPlaybackRate(playbackRate)}
+                </button>
+              </SystemTooltip>
+              <SystemTooltip content={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}>
+                <button
+                  type="button"
+                  onClick={handleToggleTranscript}
+                  aria-label={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}
+                  className={
+                    isMe
+                      ? "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-white/55 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                      : "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/55 hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
+                  }
+                >
+                  <ChevronDown
+                    className={`h-3 w-3 transition-transform duration-200 ${openTranscript ? "rotate-180" : ""}`}
+                  />
+                </button>
+              </SystemTooltip>
+            </div>
           </div>
 
           {/* Barra de progresso */}
@@ -1327,6 +1363,29 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dealContext.data?.currentDeal?.id]);
+
+  useEffect(() => {
+    if (!isMetaWhatsappChat || !activeChat?.id || metaTemplates.length > 0 || metaTemplatesLoading) {
+      return;
+    }
+    const hasExperimentFailure = allMessages.some((msg) => {
+      const ov = messageStatusOverrides[msg.id];
+      const st = ov?.status || msg.status;
+      const err = ov?.error ?? msg.errorMessage;
+      return st === "failed" && isMetaExperimentError(err);
+    });
+    if (hasExperimentFailure) {
+      void loadMetaTemplates(dealContext.data?.currentDeal?.id ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isMetaWhatsappChat,
+    activeChat?.id,
+    allMessages,
+    messageStatusOverrides,
+    metaTemplates.length,
+    metaTemplatesLoading,
+  ]);
 
   const handleSendMetaTemplate = async (template: ApprovedMetaTemplate, parameters: string[]) => {
     if (!ensureActiveDealBeforeOutbound()) return false;
@@ -3597,6 +3656,43 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             const effectiveStatus = liveStatus?.status || m.status;
             const effectiveError = liveStatus?.error ?? m.errorMessage;
 
+            const deliveryNoticeCollapsed =
+              effectiveStatus === "failed" &&
+              (isMetaUndeliverableError(effectiveError) || isMetaExperimentError(effectiveError))
+                ? displayed.slice(i + 1).some((later) => {
+                    if (
+                      later.isInternalNote ||
+                      later.author === "Sistema" ||
+                      later.senderType === "system" ||
+                      later.isWarning
+                    ) {
+                      return false;
+                    }
+                    if (later.side === "in") return true;
+                    const laterOv = messageStatusOverrides[later.id];
+                    const laterStatus = laterOv?.status || later.status;
+                    const laterErr = laterOv?.error ?? later.errorMessage;
+                    if (["accepted", "delivered", "read"].includes(laterStatus || "")) {
+                      return true;
+                    }
+                    if (laterStatus === "failed") {
+                      if (
+                        isMetaUndeliverableError(effectiveError) &&
+                        isMetaUndeliverableError(laterErr)
+                      ) {
+                        return true;
+                      }
+                      if (
+                        isMetaExperimentError(effectiveError) &&
+                        isMetaExperimentError(laterErr)
+                      ) {
+                        return true;
+                      }
+                    }
+                    return false;
+                  })
+                : false;
+
             const foreignConversation = Boolean(m.conversationId && m.conversationId !== activeChat.id);
             return (
               <ChatMessageBubble
@@ -3650,6 +3746,17 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                 activeChat={activeChat}
                 aiPersona={aiPersona}
                 tenant={tenant}
+                operatorName={operatorProfile?.name || "Atendente"}
+                metaTemplates={metaTemplates}
+                metaTemplatesLoading={metaTemplatesLoading}
+                deliveryNoticeCollapsed={deliveryNoticeCollapsed}
+                onSendExperimentFallbackTemplate={handleSendMetaTemplate}
+                onOpenMetaTemplatesModal={() => {
+                  setShowMetaTemplateModal(true);
+                  if (metaTemplates.length === 0 && !metaTemplatesLoading) {
+                    void loadMetaTemplates();
+                  }
+                }}
                 reactingMsgId={reactingMsgId}
                 effectiveStatus={effectiveStatus}
                 effectiveError={effectiveError}

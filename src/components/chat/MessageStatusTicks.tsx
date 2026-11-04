@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertCircle, Check, CheckCheck, Clock } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
 
 /**
  * Checks de entrega no padrão do WhatsApp, alimentados pelos webhooks `statuses` da Meta Cloud API:
@@ -43,7 +44,7 @@ export function MessageStatusTicks({ status, error }: { status?: string | null; 
       icon = <Check className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.5} />;
       break;
     case "failed":
-      icon = <AlertCircle className="h-3.5 w-3.5 text-red-500" strokeWidth={2.5} />;
+      icon = <AlertCircle className="h-3.5 w-3.5 text-primary" strokeWidth={2.5} />;
       break;
     case "unknown":
     case "uncertain":
@@ -58,7 +59,8 @@ export function MessageStatusTicks({ status, error }: { status?: string | null; 
   }
 
   const label = LABELS[status] || status;
-  const content = status === "failed" && error ? `${label}: ${error}` : label;
+  const friendlyError = formatMetaErrorMessagePt(error);
+  const content = status === "failed" && friendlyError ? `${label}: ${friendlyError}` : label;
 
   return (
     <SystemTooltip content={content}>

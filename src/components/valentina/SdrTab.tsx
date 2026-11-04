@@ -26,6 +26,11 @@ import {
   computeIndustrialTriageProgress,
   getAdaptiveIndustrialCollectedData,
 } from "@/lib/triage/industrial-policy";
+import {
+  useAudioPlaybackRate,
+  formatAudioPlaybackRate,
+  applyAudioPlaybackRate,
+} from "@/lib/audio-playback-rate";
 
 export interface SdrTriageMessage {
   id?: string;
@@ -358,13 +363,16 @@ function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState<number>(0);
   const [currentTime, setCurrentTime] = useState<number>(0);
+  const { playbackRate, cyclePlaybackRate, syncAudioElement } = useAudioPlaybackRate(audioRef, src);
 
-  const togglePlay = () => {
+  const togglePlay = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!audioRef.current) return;
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
+      syncAudioElement();
       audioRef.current.play().catch((err) => console.error("Erro ao tocar áudio:", err));
       setIsPlaying(true);
     }
@@ -378,11 +386,15 @@ function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
   };
 
   return (
-    <div className="flex items-center gap-3 py-1 px-1 min-w-[210px] max-w-[250px]">
+    <div className="flex items-center gap-3 py-1 px-1 min-w-[225px] max-w-[270px]">
       <audio
         ref={audioRef}
         src={src}
-        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onPlay={() => syncAudioElement()}
+        onLoadedMetadata={() => {
+          applyAudioPlaybackRate(audioRef.current, playbackRate);
+          setDuration(audioRef.current?.duration || 0);
+        }}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
         onEnded={() => {
           setIsPlaying(false);
@@ -405,10 +417,49 @@ function AudioPlayerBubble({ src, isBot }: { src: string; isBot: boolean }) {
             className={`h-full rounded-full transition-all duration-100 ${isBot ? "bg-white" : "bg-primary"}`}
             style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
           />
+          <input
+            type="range"
+            min={0}
+            max={duration > 0 && isFinite(duration) ? duration : 1}
+            step={0.05}
+            value={currentTime}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation();
+              const v = Number(e.target.value);
+              setCurrentTime(v);
+              if (audioRef.current && isFinite(v)) {
+                audioRef.current.currentTime = v;
+              }
+            }}
+            className="absolute inset-0 w-full opacity-0 cursor-pointer h-full"
+          />
         </div>
-        <div className="flex justify-between items-center text-[9px] opacity-80 font-mono">
+        <div className="flex justify-between items-center text-[9px] opacity-85 font-mono">
           <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration)}</span>
+          <div className="flex items-center gap-1.5">
+            <SystemTooltip
+              content={`Velocidade ${formatAudioPlaybackRate(playbackRate)} (clique para alternar: 1x → 1.5x → 2.0x → 2.5x)`}
+            >
+              <button
+                type="button"
+                onClick={cyclePlaybackRate}
+                aria-label={`Velocidade de reprodução: ${formatAudioPlaybackRate(playbackRate)}`}
+                className={`inline-flex h-4 px-1.5 shrink-0 items-center justify-center rounded-full text-[9px] font-extrabold tracking-tight transition active:scale-95 cursor-pointer tabular-nums ${
+                  isBot
+                    ? playbackRate > 1
+                      ? "bg-white text-primary shadow-2xs"
+                      : "bg-white/20 text-white hover:bg-white/30"
+                    : playbackRate > 1
+                      ? "bg-primary text-primary-foreground shadow-2xs"
+                      : "bg-primary/15 text-primary hover:bg-primary/25"
+                }`}
+              >
+                {formatAudioPlaybackRate(playbackRate)}
+              </button>
+            </SystemTooltip>
+            <span>{formatTime(duration)}</span>
+          </div>
         </div>
       </div>
     </div>

@@ -417,6 +417,10 @@ export class MetaAdapter implements WhatsAppAdapter {
         // Tratar erro clássico de janela de 24 horas da Meta
         if (metaError?.code === 131047) {
           errorMessage = "Conversa fora da janela de 24h da Meta. É necessário utilizar um Template aprovado para reabrir o diálogo.";
+        } else if (metaError?.code === 130472 || /part of an experiment/i.test(errorMessage)) {
+          errorMessage = "User's number is part of an experiment (130472)";
+        } else if (metaError?.code === 131026 || /message undeliverable/i.test(errorMessage)) {
+          errorMessage = "Message undeliverable (131026)";
         }
 
         console.error(`[MetaAdapter] Falha no envio para ${userId ? "[BSUID]" : cleanTo} (tenant: ${tenantId}):`, metaError);

@@ -76,14 +76,26 @@ import { isAppShellPath } from "@/lib/app-routes";
 import { QuotedMessagePreview } from "@/components/chat/ChatPanel";
 import type { ApprovedMetaTemplate } from "@/components/chat/MetaTemplateSelectModal";
 import {
+  MetaExperimentFallbackCard,
+  MetaGenericDeliveryStatusBar,
+  MetaUndeliverableNoticeCard,
+} from "@/components/chat/MetaExperimentFallbackCard";
+import {
   collectTemplateCustomGroups,
   formatTemplateFirstName,
+  isMetaExperimentError,
+  isMetaUndeliverableError,
   matchesMetaTemplateFilter,
   normalizeTemplateCustomGroups,
 } from "@/lib/whatsapp/meta-template-common";
 import { toast } from "sonner";
 import { fetchDealRequirement } from "@/lib/crm/conversation-deal-client";
 import { getConversationSortTimestamp, type Conversation, type Message } from "@/lib/mockData";
+import {
+  useAudioPlaybackRate,
+  formatAudioPlaybackRate,
+  applyAudioPlaybackRate,
+} from "@/lib/audio-playback-rate";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -360,6 +372,7 @@ function MiniAudioBubble({
   const [openTranscript, setOpenTranscript] = useState(false);
   const [localTranscript, setLocalTranscript] = useState<string | null>(transcription || null);
   const [loadingTranscript, setLoadingTranscript] = useState(false);
+  const { playbackRate, cyclePlaybackRate, syncAudioElement } = useAudioPlaybackRate(audioRef, src);
 
   useEffect(() => {
     if (transcription) {
@@ -413,6 +426,7 @@ function MiniAudioBubble({
       a.pause();
       setPlaying(false);
     } else {
+      syncAudioElement();
       void a.play();
       setPlaying(true);
     }
@@ -434,7 +448,7 @@ function MiniAudioBubble({
 
   return (
     <div
-      className={`flex flex-col rounded-xl px-2.5 py-2 min-w-[200px] max-w-[240px] select-none ${
+      className={`flex flex-col rounded-xl px-2.5 py-2 min-w-[215px] max-w-[260px] select-none ${
         isMe
           ? "bg-white/10 text-primary-foreground border border-white/15"
           : "bg-muted/70 text-foreground border border-border"
@@ -444,10 +458,12 @@ function MiniAudioBubble({
         ref={audioRef}
         src={src}
         preload="metadata"
+        onPlay={() => syncAudioElement()}
         onTimeUpdate={() => setCurrent(audioRef.current?.currentTime || 0)}
         onLoadedMetadata={() => {
           const a = audioRef.current;
           if (!a) return;
+          applyAudioPlaybackRate(a, playbackRate);
           if (isFinite(a.duration) && a.duration > 0) setDuration(a.duration);
         }}
         onEnded={() => {
@@ -469,17 +485,54 @@ function MiniAudioBubble({
           {playing ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current ml-0.5" />}
         </button>
         <div className="flex flex-1 flex-col gap-1 min-w-0">
-          <div className="relative h-1 w-full rounded-full bg-black/15 overflow-hidden">
+          <div className="relative h-1.5 w-full rounded-full bg-black/15 overflow-hidden">
             <div
               className={`absolute inset-y-0 left-0 rounded-full transition-all duration-100 ${
                 isMe ? "bg-white" : "bg-primary"
               }`}
               style={{ width: `${pct}%` }}
             />
+            <input
+              type="range"
+              min={0}
+              max={duration > 0 && isFinite(duration) ? duration : 1}
+              step={0.05}
+              value={current}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                e.stopPropagation();
+                const v = Number(e.target.value);
+                setCurrent(v);
+                if (audioRef.current && isFinite(v)) {
+                  audioRef.current.currentTime = v;
+                }
+              }}
+              className="absolute inset-0 w-full opacity-0 cursor-pointer h-full"
+            />
           </div>
-          <div className="flex items-center justify-between text-[9px] opacity-75 font-mono">
+          <div className="flex items-center justify-between text-[9px] opacity-85 font-mono">
             <span>{fmt(current)}</span>
             <div className="flex items-center gap-1">
+              <SystemTooltip
+                content={`Velocidade ${formatAudioPlaybackRate(playbackRate)} (clique para alternar: 1x → 1.5x → 2.0x → 2.5x)`}
+              >
+                <button
+                  type="button"
+                  onClick={cyclePlaybackRate}
+                  aria-label={`Velocidade de reprodução: ${formatAudioPlaybackRate(playbackRate)}`}
+                  className={`inline-flex h-4 px-1.5 shrink-0 items-center justify-center rounded-full text-[9px] font-extrabold tracking-tight transition active:scale-95 cursor-pointer tabular-nums ${
+                    isMe
+                      ? playbackRate > 1
+                        ? "bg-white text-primary shadow-2xs"
+                        : "bg-white/20 text-white hover:bg-white/30"
+                      : playbackRate > 1
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-primary/15 text-primary hover:bg-primary/25"
+                  }`}
+                >
+                  {formatAudioPlaybackRate(playbackRate)}
+                </button>
+              </SystemTooltip>
               <span>{duration > 0 && isFinite(duration) ? fmt(duration) : <Mic className="h-2.5 w-2.5" />}</span>
               <SystemTooltip content={openTranscript ? "Ocultar transcrição" : "Ver transcrição"}>
                 <button
@@ -1174,6 +1227,7 @@ export function CrmChatWidget() {
     logSystemEvent,
     markAsRead,
     markAsUnread,
+    messageStatusOverrides,
     operatorProfile,
     operators,
     pinChat,
@@ -2900,8 +2954,49 @@ export function CrmChatWidget() {
 
                             // Mensagem do Operador (Enviada / Eu)
                             if (isMe) {
+                              const liveStatus = messageStatusOverrides[message.id];
+                              const effectiveStatus = liveStatus?.status || message.status;
+                              const effectiveError = liveStatus?.error ?? message.errorMessage;
+                              const collapsedNotice =
+                                effectiveStatus === "failed" &&
+                                (isMetaUndeliverableError(effectiveError) ||
+                                  isMetaExperimentError(effectiveError))
+                                  ? threadMessages.slice(i + 1).some((later: any) => {
+                                      if (
+                                        later.isInternalNote ||
+                                        later.author === "Sistema" ||
+                                        later.senderType === "system" ||
+                                        later.isWarning
+                                      ) {
+                                        return false;
+                                      }
+                                      if (later.side === "in") return true;
+                                      const laterOv = messageStatusOverrides[later.id];
+                                      const laterSt = laterOv?.status || later.status;
+                                      const laterErr = laterOv?.error ?? later.errorMessage;
+                                      if (["accepted", "delivered", "read"].includes(laterSt || "")) {
+                                        return true;
+                                      }
+                                      if (laterSt === "failed") {
+                                        if (
+                                          isMetaUndeliverableError(effectiveError) &&
+                                          isMetaUndeliverableError(laterErr)
+                                        ) {
+                                          return true;
+                                        }
+                                        if (
+                                          isMetaExperimentError(effectiveError) &&
+                                          isMetaExperimentError(laterErr)
+                                        ) {
+                                          return true;
+                                        }
+                                      }
+                                      return false;
+                                    })
+                                  : false;
+
                               return (
-                                <div key={message.id || i} className="flex justify-end w-full group">
+                                <div key={message.id || i} className="flex flex-col items-end w-full group">
                                   <div className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm text-xs leading-relaxed select-text">
                                     {resolvedQuotedContent && (
                                       <QuotedMessagePreview
@@ -2920,9 +3015,57 @@ export function CrmChatWidget() {
                                     />
                                     <div className="mt-1 flex items-center justify-end gap-1 text-[9.5px] text-primary-foreground/75 font-medium select-none">
                                       <span>{message.time}</span>
-                                      <CheckCheck className="h-3 w-3 text-primary-foreground/90 inline" />
+                                      {effectiveStatus === "failed" ? (
+                                        <AlertCircle className="h-3 w-3 text-primary-foreground/95 inline" />
+                                      ) : (
+                                        <CheckCheck className="h-3 w-3 text-primary-foreground/90 inline" />
+                                      )}
                                     </div>
                                   </div>
+
+                                  {["failed", "unknown", "uncertain", "pending"].includes(
+                                    effectiveStatus || "",
+                                  ) && (
+                                    <div className="w-full flex justify-end">
+                                      {effectiveStatus === "failed" &&
+                                      isMetaUndeliverableError(effectiveError) ? (
+                                        <MetaUndeliverableNoticeCard
+                                          customerName={selected.name}
+                                          customerPhone={selected.phone}
+                                          customerEmail={selected.email}
+                                          collapsedByDefault={collapsedNotice}
+                                          compact
+                                        />
+                                      ) : effectiveStatus === "failed" &&
+                                        isMetaExperimentError(effectiveError) ? (
+                                        <MetaExperimentFallbackCard
+                                          failedMessageText={message.text}
+                                          customerName={selected.name}
+                                          operatorName={
+                                            operatorProfile?.name || message.author || "Atendente"
+                                          }
+                                          tenantId={tenant || "tecfag"}
+                                          templates={metaTemplates}
+                                          loadingTemplates={metaTemplatesLoading}
+                                          resolvedByLaterMessage={collapsedNotice}
+                                          onSendTemplate={handleSendMetaTemplate}
+                                          onOpenAllTemplates={() => {
+                                            setShowMetaTemplateModal(true);
+                                            if (metaTemplates.length === 0 && !metaTemplatesLoading) {
+                                              void loadMetaTemplates(selected.id);
+                                            }
+                                          }}
+                                          compact
+                                        />
+                                      ) : (
+                                        <MetaGenericDeliveryStatusBar
+                                          status={effectiveStatus || "failed"}
+                                          error={effectiveError}
+                                          phone={selected.phone}
+                                        />
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             }

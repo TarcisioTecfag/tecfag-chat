@@ -69,6 +69,7 @@ export const Route = createFileRoute("/api/whatsapp/meta-state")({
             activeProvider: "meta",
             window,
             templates,
+            fallbackTemplates: allTemplates.filter((item) => item.supported),
             customGroups: Array.from(visibleGroupNames),
             stageFilterMeta: {
               restricted: restrictByStage,

@@ -37,6 +37,16 @@ import { stripNotificationEmojis } from "@/lib/format-notification-text";
 import { MessageReactionPicker } from "./MessageReactionPicker";
 import { MessageReactions } from "./MessageReactions";
 import { MessageStatusTicks } from "./MessageStatusTicks";
+import {
+  MetaExperimentFallbackCard,
+  MetaGenericDeliveryStatusBar,
+  MetaUndeliverableNoticeCard,
+} from "./MetaExperimentFallbackCard";
+import type { ApprovedMetaTemplate } from "./MetaTemplateSelectModal";
+import {
+  isMetaExperimentError,
+  isMetaUndeliverableError,
+} from "@/lib/whatsapp/meta-template-common";
 import { SystemAnnotationBubble, type SystemAnnotationItem } from "./SystemAnnotationBubble";
 import { AgenticThoughtTrace } from "@/components/valentina/chat-blocks/AgenticThoughtTrace";
 import {
@@ -789,12 +799,23 @@ export interface ChatMessageBubbleProps {
     name: string;
     avatar?: string;
     initials?: string;
+    phone?: string;
+    email?: string;
   };
   aiPersona: {
     name: string;
     avatarUrl: string;
   };
   tenant: string;
+  operatorName?: string;
+  metaTemplates?: ApprovedMetaTemplate[];
+  metaTemplatesLoading?: boolean;
+  deliveryNoticeCollapsed?: boolean;
+  onSendExperimentFallbackTemplate?: (
+    template: ApprovedMetaTemplate,
+    parameters: string[],
+  ) => Promise<boolean>;
+  onOpenMetaTemplatesModal?: () => void;
   reactingMsgId: string | null;
   effectiveStatus?: string;
   effectiveError?: string | null;
@@ -836,6 +857,12 @@ function ChatMessageBubbleComponent({
   activeChat,
   aiPersona,
   tenant,
+  operatorName,
+  metaTemplates,
+  metaTemplatesLoading,
+  deliveryNoticeCollapsed,
+  onSendExperimentFallbackTemplate,
+  onOpenMetaTemplatesModal,
   reactingMsgId,
   effectiveStatus,
   effectiveError,
@@ -1114,40 +1141,49 @@ function ChatMessageBubbleComponent({
             onReactionClick={() => onToggleReaction(activeChat.id, m.id, "")}
           />
           {["failed", "unknown", "uncertain", "pending"].includes(effectiveStatus || "") && (
-            <div className="text-xs mt-2 space-x-3">
-              <span>
-                {effectiveStatus === "pending"
-                  ? "Na fila de envio"
-                  : effectiveStatus === "failed"
-                    ? "Falha no envio"
-                    : "Resultado do envio desconhecido"}
-              </span>
-              {effectiveError && <p>{effectiveError}</p>}
-              {effectiveStatus !== "pending" && onReconcile && (
-                <>
-                  <button
-                    className="underline"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onReconcile(m.id, "resend", effectiveStatus !== "failed");
-                    }}
-                  >
-                    Reenviar
-                  </button>
-                  {effectiveStatus !== "failed" && (
-                    <button
-                      className="underline"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onReconcile(m.id, "confirm_sent", true);
-                      }}
-                    >
-                      Já foi enviado
-                    </button>
-                  )}
-                </>
+            <>
+              {effectiveStatus === "failed" && isMetaUndeliverableError(effectiveError) ? (
+                <MetaUndeliverableNoticeCard
+                  customerName={activeChat.name}
+                  customerPhone={activeChat.phone}
+                  customerEmail={activeChat.email}
+                  collapsedByDefault={Boolean(deliveryNoticeCollapsed)}
+                  onResend={
+                    onReconcile
+                      ? () => onReconcile(m.id, "resend", false)
+                      : undefined
+                  }
+                />
+              ) : effectiveStatus === "failed" && isMetaExperimentError(effectiveError) ? (
+                <MetaExperimentFallbackCard
+                  failedMessageText={safeText}
+                  customerName={activeChat.name}
+                  operatorName={operatorName || m.author || "Atendente"}
+                  tenantId={tenant}
+                  templates={metaTemplates || []}
+                  loadingTemplates={metaTemplatesLoading}
+                  resolvedByLaterMessage={Boolean(deliveryNoticeCollapsed)}
+                  onSendTemplate={onSendExperimentFallbackTemplate}
+                  onOpenAllTemplates={onOpenMetaTemplatesModal}
+                />
+              ) : (
+                <MetaGenericDeliveryStatusBar
+                  status={effectiveStatus || "failed"}
+                  error={effectiveError}
+                  phone={activeChat.phone}
+                  onResend={
+                    effectiveStatus !== "pending" && onReconcile
+                      ? () => onReconcile(m.id, "resend", effectiveStatus !== "failed")
+                      : undefined
+                  }
+                  onConfirmSent={
+                    effectiveStatus !== "pending" && effectiveStatus !== "failed" && onReconcile
+                      ? () => onReconcile(m.id, "confirm_sent", true)
+                      : undefined
+                  }
+                />
               )}
-            </div>
+            </>
           )}
 
           {(() => {
@@ -1996,6 +2032,16 @@ export const ChatMessageBubble = memo(
       return false;
     }
     if (prev.effectiveStatus !== next.effectiveStatus || prev.effectiveError !== next.effectiveError) return false;
+    if (prev.deliveryNoticeCollapsed !== next.deliveryNoticeCollapsed) return false;
+    if (
+      next.effectiveStatus === "failed" &&
+      ((prev.metaTemplates?.length ?? 0) !== (next.metaTemplates?.length ?? 0) ||
+        prev.metaTemplatesLoading !== next.metaTemplatesLoading ||
+        prev.activeChat.phone !== next.activeChat.phone ||
+        prev.activeChat.email !== next.activeChat.email)
+    ) {
+      return false;
+    }
     if (
       prev.reactingMsgId !== next.reactingMsgId &&
       (prev.reactingMsgId === prev.m.id || next.reactingMsgId === next.m.id)

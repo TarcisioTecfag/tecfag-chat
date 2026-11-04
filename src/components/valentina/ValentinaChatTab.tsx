@@ -15,6 +15,7 @@ import { useChat } from "@/hooks/useChatState";
 import { getAiPersona } from "@/lib/ai-persona";
 import { AiAvatar } from "@/components/ui/AiAvatar";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ValentinaBlockRenderer } from "./chat-blocks/ValentinaBlockRenderer";
 import { ValentinaThreadRail, type CreateFolderOptions } from "./chat-blocks/ValentinaThreadRail";
@@ -873,10 +874,9 @@ export function ValentinaChatTab() {
               <div className="grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground shrink-0">
                 <Mic className="h-3.5 w-3.5" />
               </div>
-              <audio
-                controls
+              <AudioWithSpeed
                 src={attachedAudio.dataUrl}
-                className="h-7 max-w-[210px] sm:max-w-[260px]"
+                audioClassName="h-7 max-w-[210px] sm:max-w-[260px]"
               />
               <span className="text-[10px] font-bold text-primary tabular-nums">
                 {formatRecordingDuration(attachedAudio.durationSec || 1)}
@@ -1373,10 +1373,9 @@ export function ValentinaChatTab() {
                           {msg.attachedAudioInfo && (
                             <div className="flex items-center gap-2 rounded-xl bg-black/15 px-2.5 py-1.5">
                               <Mic className="h-3.5 w-3.5 shrink-0" />
-                              <audio
-                                controls
+                              <AudioWithSpeed
                                 src={msg.attachedAudioInfo.dataUrl}
-                                className="h-7 max-w-[210px] sm:max-w-[250px]"
+                                audioClassName="h-7 max-w-[210px] sm:max-w-[250px]"
                               />
                             </div>
                           )}

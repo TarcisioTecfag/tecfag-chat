@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, FileText } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
 import { attendanceEventLabels, type AttendanceEventDTO } from "@/lib/attendance-event-types";
 
 function renderAttendanceEventDescription(raw?: string | null) {
@@ -48,7 +49,7 @@ function renderAttendanceEventDescription(raw?: string | null) {
         </a>
       )}
       {type === "audio" && (
-        <audio controls preload="metadata" src={mediaUrl} className="h-8 w-full max-w-[260px]" />
+        <AudioWithSpeed src={mediaUrl} className="w-full max-w-[300px]" audioClassName="h-8 flex-1 min-w-0" />
       )}
       {type === "video" && (
         <video

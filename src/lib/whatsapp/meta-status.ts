@@ -11,7 +11,7 @@ type MetaStatus = {
   pricing?: Record<string, unknown>;
   conversation?: Record<string, unknown>;
   recipient_id?: string;
-  errors?: Array<{ message?: string }>;
+  errors?: Array<{ code?: number; title?: string; message?: string }>;
 };
 
 const statusRank: Record<string, number> = { sending: 0, accepted: 1, delivered: 2, read: 3 };
@@ -61,7 +61,16 @@ export async function applyMetaStatus(tenantId: string, statusObj: MetaStatus, p
     const pricing = statusObj.pricing
       ? { ...statusObj.pricing, conversation: statusObj.conversation || null, recipientId: statusObj.recipient_id || null }
       : existing.metaPricing;
-    const errorMessage = nextStatus === "failed" ? statusObj.errors?.[0]?.message || "Falha informada pela Meta" : null;
+    const firstErr = statusObj.errors?.[0];
+    const rawErrMsg = firstErr?.message || firstErr?.title || "";
+    const errorMessage =
+      nextStatus === "failed"
+        ? firstErr?.code === 130472 || /part of an experiment/i.test(rawErrMsg)
+          ? "User's number is part of an experiment (130472)"
+          : firstErr?.code === 131026 || /message undeliverable/i.test(rawErrMsg)
+            ? "Message undeliverable (131026)"
+            : rawErrMsg || "Falha informada pela Meta"
+        : null;
 
     const updated = await db.update(messages).set({
       status: nextStatus,
