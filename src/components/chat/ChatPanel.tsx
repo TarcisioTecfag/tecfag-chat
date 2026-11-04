@@ -1364,29 +1364,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dealContext.data?.currentDeal?.id]);
 
-  useEffect(() => {
-    if (!isMetaWhatsappChat || !activeChat?.id || metaTemplates.length > 0 || metaTemplatesLoading) {
-      return;
-    }
-    const hasExperimentFailure = allMessages.some((msg) => {
-      const ov = messageStatusOverrides[msg.id];
-      const st = ov?.status || msg.status;
-      const err = ov?.error ?? msg.errorMessage;
-      return st === "failed" && isMetaExperimentError(err);
-    });
-    if (hasExperimentFailure) {
-      void loadMetaTemplates(dealContext.data?.currentDeal?.id ?? null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isMetaWhatsappChat,
-    activeChat?.id,
-    allMessages,
-    messageStatusOverrides,
-    metaTemplates.length,
-    metaTemplatesLoading,
-  ]);
-
   const handleSendMetaTemplate = async (template: ApprovedMetaTemplate, parameters: string[]) => {
     if (!ensureActiveDealBeforeOutbound()) return false;
     const sent = await sendMessage("", false, undefined, null, {
@@ -1652,6 +1629,29 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     }
     return map;
   }, [allMessages]);
+
+  useEffect(() => {
+    if (!isMetaWhatsappChat || !activeChat?.id || metaTemplates.length > 0 || metaTemplatesLoading) {
+      return;
+    }
+    const hasExperimentFailure = allMessages.some((msg) => {
+      const ov = messageStatusOverrides[msg.id];
+      const st = ov?.status || msg.status;
+      const err = ov?.error ?? msg.errorMessage;
+      return st === "failed" && isMetaExperimentError(err);
+    });
+    if (hasExperimentFailure) {
+      void loadMetaTemplates(dealContext.data?.currentDeal?.id ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isMetaWhatsappChat,
+    activeChat?.id,
+    allMessages,
+    messageStatusOverrides,
+    metaTemplates.length,
+    metaTemplatesLoading,
+  ]);
 
   const handleBubbleClick = useCallback((e: React.MouseEvent, id: string) => {
     if ((e.target as HTMLElement).closest("a, button")) return;
