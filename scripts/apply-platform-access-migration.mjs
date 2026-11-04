@@ -399,6 +399,30 @@ if (!databaseUrl) {
     } else {
       console.log(`[platform migration] ${vtexProductsSeedName} já aplicada anteriormente.`);
     }
+
+    // 5. Carga de Homologação Tecfag (Evelyn Silveira e Beatriz Ribeiro — Negociações, Empresas, Contatos e Tarefas)
+    const evelynBeatrizHomologationName = "seed_tecfag_homologation_evelyn_beatriz_2026_11_04_v1";
+    const [appliedEvelynBeatrizHomologation] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${evelynBeatrizHomologationName}
+    `;
+    if (!appliedEvelynBeatrizHomologation) {
+      console.log(`[platform migration] Iniciando execução única de ${evelynBeatrizHomologationName}...`);
+      const { runEvelynBeatrizHomologationImport } = await import(
+        "./import-homologation-evelyn-beatriz.mjs"
+      );
+      const summary = await runEvelynBeatrizHomologationImport(sql);
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${evelynBeatrizHomologationName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(
+        `[platform migration] ${evelynBeatrizHomologationName} concluída com sucesso:`,
+        summary,
+      );
+    } else {
+      console.log(`[platform migration] ${evelynBeatrizHomologationName} já aplicada anteriormente.`);
+    }
   } catch (error) {
     console.error(
       "[platform migration] Falha crítica ao aplicar migrações estruturais DDL:",
