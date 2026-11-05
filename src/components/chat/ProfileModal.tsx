@@ -24,6 +24,7 @@ import {
   Palette,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
+import { compressAvatarFile } from "@/lib/avatar-image";
 import { useDensity } from "@/hooks/useDensity";
 import { useOptionalOnboarding } from "@/hooks/useOnboarding";
 import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
@@ -198,32 +199,15 @@ export function ProfileModalForm({ onClose }: ProfileModalFormProps) {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === "string") {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement("canvas");
-            const ctx = canvas.getContext("2d");
-            const size = 120;
-            canvas.width = size;
-            canvas.height = size;
-
-            if (ctx) {
-              const minSize = Math.min(img.width, img.height);
-              const sx = (img.width - minSize) / 2;
-              const sy = (img.height - minSize) / 2;
-
-              ctx.drawImage(img, sx, sy, minSize, minSize, 0, 0, size, size);
-              const compressedBase64 = canvas.toDataURL("image/jpeg", 0.75);
-              setAvatar(compressedBase64);
-            }
-          };
-          img.src = reader.result;
-        }
-      };
-      reader.readAsDataURL(file);
+      void compressAvatarFile(file, 512, 0.92)
+        .then((compressedBase64) => {
+          setAvatar(compressedBase64);
+        })
+        .catch(() => {
+          toast.error("Não foi possível processar a imagem selecionada.");
+        });
     }
   };
 

@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Clock, Eye, ClipboardCheck, ChevronRight } from "lucide-react";
+import { enhanceLegacyAvatarSrc } from "@/lib/avatar-image";
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -373,18 +374,33 @@ function ProgressBar({ label, value, pct }: { label: string; value: string; pct:
 
 function HighResAvatar({ src, name, className = "" }: { src: string | null; name: string; className?: string }) {
   const [imgErr, setImgErr] = useState(false);
+  const [resolvedSrc, setResolvedSrc] = useState<string | null>(src);
   const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
 
-  if (src && !imgErr) {
+  useEffect(() => {
+    setImgErr(false);
+    setResolvedSrc(src);
+    if (!src) return;
+    let active = true;
+    void enhanceLegacyAvatarSrc(src).then((enhanced) => {
+      if (active && enhanced) {
+        setResolvedSrc(enhanced);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [src]);
+
+  if (resolvedSrc && !imgErr) {
     return (
       <div className={`relative overflow-hidden aspect-square rounded-2xl bg-muted shrink-0 border border-border ${className}`}>
         <img
-          src={src}
+          src={resolvedSrc}
           alt={`Foto de ${name}`}
           decoding="async"
           loading="eager"
           className="w-full h-full object-cover object-center shadow-sm"
-          style={{ imageRendering: "-webkit-optimize-contrast" }}
           onError={() => setImgErr(true)}
         />
       </div>

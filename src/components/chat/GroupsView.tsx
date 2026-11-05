@@ -17,6 +17,7 @@ import { OWN_CONVERSATIONS_PRESET } from "@/lib/access-control/conversation-poli
 import { MultiTenantAccessPanel } from "./MultiTenantAccessPanel";
 import { MetaTemplatesManager } from "./MetaTemplatesManager";
 import { getAiPersona } from "@/lib/ai-persona";
+import { compressAvatarFile } from "@/lib/avatar-image";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 import {
@@ -749,38 +750,24 @@ export function GroupsView() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && selectedOpIdForAvatar) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === "string") {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement("canvas");
-            const ctx = canvas.getContext("2d");
-            
-            const size = 120;
-            canvas.width = size;
-            canvas.height = size;
-            
-            if (ctx) {
-              const minSize = Math.min(img.width, img.height);
-              const sx = (img.width - minSize) / 2;
-              const sy = (img.height - minSize) / 2;
-              
-              ctx.drawImage(img, sx, sy, minSize, minSize, 0, 0, size, size);
-              const compressedBase64 = canvas.toDataURL("image/jpeg", 0.75);
-              
-              void updateOperator(selectedOpIdForAvatar, { avatar: compressedBase64 }).then((res) => {
-                if (res.success) {
-                  toast.success("Foto de perfil atualizada!");
-                }
-              });
-            }
-          };
-          img.src = reader.result;
-        }
-      };
-      reader.readAsDataURL(file);
+    const targetOpId = selectedOpIdForAvatar;
+    e.target.value = "";
+    if (file && targetOpId) {
+      void compressAvatarFile(file, 512, 0.92)
+        .then((compressedBase64) => {
+          setEditingOperator((prev) =>
+            prev && prev.id === targetOpId ? { ...prev, avatar: compressedBase64 } : prev,
+          );
+          return updateOperator(targetOpId, { avatar: compressedBase64 });
+        })
+        .then((res) => {
+          if (res?.success) {
+            toast.success("Foto de perfil atualizada em alta definição!");
+          }
+        })
+        .catch(() => {
+          toast.error("Não foi possível processar a imagem selecionada.");
+        });
     }
   };
 
@@ -4087,22 +4074,28 @@ export function GroupsView() {
           <div className="relative w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden bg-card border border-border text-foreground animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
             {/* Cabeçalho */}
             <div className="flex items-center gap-3.5 px-6 pt-5 pb-4 border-b border-border bg-muted/20 shrink-0">
-              <div className="relative shrink-0">
-                <img
-                  src={editingOperator.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(editingOperator.name || "OP")}`}
-                  alt={editingOperator.name}
-                  className="h-12 w-12 rounded-full object-cover border-2 border-primary/30 bg-muted"
-                />
-                <span
-                  className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full ring-2 ring-card ${
-                    editingOperator.status === "disponivel"
-                      ? "bg-emerald-500"
-                      : editingOperator.status === "pausa"
-                        ? "bg-amber-500"
-                        : "bg-muted-foreground"
-                  }`}
-                />
-              </div>
+              <SystemTooltip content="Clique para enviar nova foto em alta definição">
+                <button
+                  type="button"
+                  onClick={() => handleAvatarClick(editingOperator.id)}
+                  className="relative shrink-0 group cursor-pointer rounded-full focus:outline-none"
+                >
+                  <img
+                    src={editingOperator.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(editingOperator.name || "OP")}`}
+                    alt={editingOperator.name}
+                    className="h-12 w-12 rounded-full object-cover border-2 border-primary/30 bg-muted group-hover:opacity-80 transition"
+                  />
+                  <span
+                    className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full ring-2 ring-card ${
+                      editingOperator.status === "disponivel"
+                        ? "bg-emerald-500"
+                        : editingOperator.status === "pausa"
+                          ? "bg-amber-500"
+                          : "bg-muted-foreground"
+                    }`}
+                  />
+                </button>
+              </SystemTooltip>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary px-2 py-0.5 rounded-md border border-primary/20">
