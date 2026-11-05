@@ -24,6 +24,10 @@ import {
   ArrowRight,
   Package,
   Link2,
+  ScrollText,
+  Briefcase,
+  Bot,
+  Headphones,
 } from "lucide-react";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
@@ -34,12 +38,25 @@ export interface CustomerJourneyModalProps {
   contactId?: string | null;
   initialName?: string | null;
   onClose: () => void;
-  onOpenChat?: (contactId: string) => void;
+  onOpenChat?: (conversationOrContactId: string) => void;
+}
+
+interface JourneyCrmDeal {
+  id: string;
+  title: string;
+  value: number;
+  status: string;
+  pipelineName: string | null;
+  stageName: string | null;
+  operatorName: string | null;
 }
 
 interface JourneyVisitorProfile {
   id: string;
   contactId: string | null;
+  conversationId?: string | null;
+  operatorName?: string | null;
+  crmDeal?: JourneyCrmDeal | null;
   cookieId: string;
   name: string;
   email: string | null;
@@ -102,6 +119,14 @@ interface JourneyChat {
   closedAt: string | null;
 }
 
+interface JourneyMessage {
+  id: string;
+  sender: "visitor" | "ai" | "operator" | "system";
+  senderName: string;
+  content: string;
+  timestamp: string;
+}
+
 interface JourneyTimelineEvent {
   type: string;
   timestamp: string;
@@ -113,6 +138,7 @@ interface JourneyDetailResponse {
   pageviews: JourneyPageview[];
   clickEvents: JourneyClickEvent[];
   chats: JourneyChat[];
+  messages?: JourneyMessage[];
   timeline: JourneyTimelineEvent[];
 }
 
@@ -134,6 +160,14 @@ function formatDuration(seconds: number): string {
   if (mins < 60) return `${mins}m ${secs}s`;
   const hours = Math.floor(mins / 60);
   return `${hours}h ${mins % 60}m`;
+}
+
+function formatCurrencyBrl(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(value || 0);
 }
 
 function formatTimeAgo(dateStr?: string | null): string {
@@ -159,7 +193,7 @@ function getInitials(name: string): string {
     name === "Visitante do Site" ||
     name.startsWith("Visitante #")
   ) {
-    return "?";
+    return "VS";
   }
   return name
     .split(" ")
@@ -178,9 +212,17 @@ const STAGE_LABELS: Record<
     label: "Novo Visitante",
     colorClass: "text-muted-foreground bg-muted border-border",
   },
+  novo: {
+    label: "Novo Visitante",
+    colorClass: "text-muted-foreground bg-muted border-border",
+  },
   interested: {
     label: "Interessado",
-    colorClass: "text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20",
+    colorClass: "text-primary bg-primary/10 border-primary/25",
+  },
+  qualificando: {
+    label: "Em Qualificação",
+    colorClass: "text-primary bg-primary/10 border-primary/25",
   },
   negotiating: {
     label: "Negociando",
@@ -191,7 +233,7 @@ const STAGE_LABELS: Record<
     colorClass: "text-primary bg-primary/10 border-primary/25",
   },
   converted: {
-    label: "Convertido",
+    label: "Negócio no CRM",
     colorClass: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
   },
   lost: {
@@ -203,8 +245,7 @@ const STAGE_LABELS: Record<
 const INTENT_CONFIG: Record<string, { label: string; badgeClass: string }> = {
   high: {
     label: "Alta intenção",
-    badgeClass:
-      "bg-primary/12 text-primary border border-primary/25",
+    badgeClass: "bg-primary/12 text-primary border border-primary/25",
   },
   medium: {
     label: "Média",
@@ -213,8 +254,7 @@ const INTENT_CONFIG: Record<string, { label: string; badgeClass: string }> = {
   },
   low: {
     label: "Baixa",
-    badgeClass:
-      "bg-muted text-muted-foreground border border-border",
+    badgeClass: "bg-muted text-muted-foreground border border-border",
   },
 };
 
@@ -225,7 +265,7 @@ const CLICK_TYPE_LABELS: Record<string, { label: string; colorClass: string }> =
   },
   phone_click: {
     label: "Clicou para Ligar",
-    colorClass: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/25",
+    colorClass: "bg-primary/10 text-primary border-primary/25",
   },
   cta_click: {
     label: "Clicou em CTA / Orçamento",
@@ -233,7 +273,7 @@ const CLICK_TYPE_LABELS: Record<string, { label: string; colorClass: string }> =
   },
   widget_open: {
     label: "Abriu o Chat do Site",
-    colorClass: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/25",
+    colorClass: "bg-primary/10 text-primary border-primary/25",
   },
   add_to_cart: {
     label: "Adicionou ao Carrinho / Comprar",
@@ -245,7 +285,7 @@ const CLICK_TYPE_LABELS: Record<string, { label: string; colorClass: string }> =
   },
   chat_sent: {
     label: "Enviou Mensagem no Chat",
-    colorClass: "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/25",
+    colorClass: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25",
   },
 };
 
@@ -299,11 +339,17 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
   const [data, setData] = useState<JourneyDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "pages" | "journey">("pages");
+  const [activeTab, setActiveTab] = useState<"info" | "pages" | "journey" | "chats">("pages");
   const [tabKey, setTabKey] = useState(0);
   useTrainingSurface("journey", (step) => {
     if (loading || !data) return false;
-    setActiveTab(step.id === "chat.journey-client" ? "info" : step.id === "chat.journey-timeline" ? "journey" : "pages");
+    setActiveTab(
+      step.id === "chat.journey-client"
+        ? "info"
+        : step.id === "chat.journey-timeline"
+          ? "journey"
+          : "pages",
+    );
     return true;
   });
 
@@ -349,7 +395,7 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
 
-  const handleTabChange = (tab: "info" | "pages" | "journey") => {
+  const handleTabChange = (tab: "info" | "pages" | "journey" | "chats") => {
     setActiveTab(tab);
     setTabKey((k) => k + 1);
   };
@@ -360,22 +406,30 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
   const pageviews = data?.pageviews || [];
   const clickEvents = data?.clickEvents || [];
   const chats = data?.chats || [];
+  const chatMessages = data?.messages || [];
   const timeline = data?.timeline || [];
 
   const displayName = v?.name || initialName || "Visitante do Site";
   const stageCfg = STAGE_LABELS[v?.pipelineStage || "new_visitor"] || STAGE_LABELS.new_visitor;
   const browserName = parseBrowserName(v?.userAgent);
   const locationParts = [v?.city, v?.region, v?.country].filter(Boolean);
+  const targetChatId = v?.conversationId || null;
 
-  const tabs: { id: "info" | "pages" | "journey"; label: string; count?: number }[] = [
+  const tabs: { id: "info" | "pages" | "journey" | "chats"; label: string; count?: number }[] = [
     { id: "info", label: "Cliente" },
     { id: "pages", label: "Navegação", count: pageviews.length },
     { id: "journey", label: "Jornada", count: timeline.length },
+    {
+      id: "chats",
+      label: "Conversas",
+      count: chatMessages.length > 0 ? chatMessages.length : chats.length,
+    },
   ];
 
   const modalContent = (
     <div
-      data-tour="journey.dialog" className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-fade-in"
+      data-tour="journey.dialog"
+      className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-fade-in"
       style={{
         backgroundColor: "rgba(9, 13, 22, 0.62)",
         backdropFilter: "blur(6px)",
@@ -385,7 +439,7 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
       }}
     >
       <div
-        className="animate-scale-in bg-card text-card-foreground rounded-3xl w-full max-w-xl max-h-[88vh] flex flex-col overflow-hidden border border-border shadow-2xl"
+        className="animate-scale-in bg-card text-card-foreground rounded-3xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden border border-border shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── HEADER COM TEMA DO SISTEMA ────────────────────────────────────── */}
@@ -431,8 +485,9 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                     {displayName}
                   </h2>
                   {v?.isOnline && (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-400/25 text-emerald-100 border border-emerald-300/30">
-                      ● Online
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-400/25 text-emerald-100 border border-emerald-300/30">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                      Online agora
                     </span>
                   )}
                 </div>
@@ -462,12 +517,12 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
 
             {/* Right controls */}
             <div className="flex items-center gap-1.5 shrink-0">
-              {onOpenChat && v?.contactId && (
-                <SystemTooltip content="Abrir conversa deste contato">
+              {onOpenChat && targetChatId && (
+                <SystemTooltip content="Abrir atendimento deste visitante no Chat">
                   <button
                     type="button"
                     onClick={() => {
-                      onOpenChat(v.contactId!);
+                      onOpenChat(targetChatId);
                       onClose();
                     }}
                     className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl text-white/95 hover:text-white transition-all cursor-pointer"
@@ -505,7 +560,7 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
           </div>
         </div>
 
-        {/* ── FLOATING KPI BAR (5 MÉTRICAS ESTILO LEGADO) ──────────────────── */}
+        {/* ── FLOATING KPI BAR (5 MÉTRICAS EXECUTIVAS) ──────────────────── */}
         <div className="px-5 -mt-5 shrink-0 z-10">
           <div className="bg-card rounded-2xl border border-border grid grid-cols-5 divide-x divide-border shadow-lg">
             {[
@@ -515,27 +570,27 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                 colorClass: "text-foreground",
               },
               {
-                label: "Chats",
-                value: chats.length,
+                label: "Cliques",
+                value: clickEvents.length,
                 colorClass: "text-foreground",
               },
               {
-                label: "Eng.",
-                value: v?.engagementScore ?? 0,
+                label: "Engajamento",
+                value: `${v?.engagementScore ?? 0}%`,
                 colorClass: "text-primary",
               },
               {
                 label: "Intenção",
-                value: v?.leadScore ?? 0,
+                value: `${v?.leadScore ?? 0} pts`,
                 colorClass:
                   (v?.leadScore ?? 0) >= 60
                     ? "text-emerald-600 dark:text-emerald-400"
-                    : (v?.leadScore ?? 0) >= 35
+                    : (v?.leadScore ?? 0) >= 30
                       ? "text-amber-600 dark:text-amber-400"
                       : "text-muted-foreground",
               },
               {
-                label: "Tempo",
+                label: "Tempo no Site",
                 value: formatDuration(v?.totalTimeOnSite || 0),
                 colorClass: "text-foreground",
                 small: true,
@@ -548,7 +603,7 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
               >
                 <p
                   className={`font-extrabold leading-none ${
-                    stat.small ? "text-xs mt-0.5" : "text-base"
+                    stat.small ? "text-xs mt-0.5" : "text-sm"
                   } ${stat.colorClass}`}
                 >
                   {stat.value}
@@ -561,7 +616,7 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
           </div>
         </div>
 
-        {/* ── BADGES DE ORIGEM, ESTÁGIO E VÍNCULO WHATSAPP ────────────────── */}
+        {/* ── BADGES DE ORIGEM, ESTÁGIO, CONSULTOR E VÍNCULO WHATSAPP ──────── */}
         {v && (
           <div className="px-6 pt-3 pb-1 flex items-center gap-1.5 flex-wrap shrink-0">
             {v.source && (
@@ -576,6 +631,12 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
               <Layers className="w-3 h-3" />
               {stageCfg.label}
             </span>
+            {v.operatorName && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/25">
+                <Headphones className="w-3 h-3 shrink-0" />
+                Consultor: {v.operatorName}
+              </span>
+            )}
             {v.productInterest && (
               <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 truncate max-w-[230px]">
                 <Sparkles className="w-3 h-3 shrink-0" />
@@ -588,22 +649,17 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                 Vinculado ao WhatsApp
               </span>
             )}
-            {clickEvents.length > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                <MousePointerClick className="w-3 h-3 shrink-0 text-primary" />
-                {clickEvents.length} {clickEvents.length === 1 ? "clique" : "cliques"}
-              </span>
-            )}
           </div>
         )}
 
-        {/* ── TABS (CLIENTE / NAVEGAÇÃO / JORNADA) ─────────────────────────── */}
+        {/* ── TABS (CLIENTE / NAVEGAÇÃO / JORNADA / CONVERSAS) ─────────────── */}
         <div className="px-6 pt-2 shrink-0 border-b border-border flex gap-1">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
-                data-tour={`journey.${tab.id === "journey" ? "timeline" : tab.id}`} key={tab.id}
+                data-tour={`journey.${tab.id === "journey" ? "timeline" : tab.id}`}
+                key={tab.id}
                 type="button"
                 onClick={() => handleTabChange(tab.id)}
                 className={`relative px-3.5 py-2 text-xs font-semibold rounded-t-lg transition-colors duration-150 flex items-center gap-1.5 cursor-pointer ${
@@ -691,6 +747,37 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                       value={v.company}
                       delay={140}
                     />
+                  )}
+
+                  {v.crmDeal && (
+                    <div
+                      style={{ animationDelay: "150ms" }}
+                      className="animate-stagger-in p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <Briefcase className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                            Negociação Vinculada no CRM
+                          </p>
+                          <p className="text-xs font-bold text-foreground truncate mt-0.5">
+                            {v.crmDeal.title} · {formatCurrencyBrl(v.crmDeal.value)}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {[v.crmDeal.pipelineName, v.crmDeal.stageName]
+                              .filter(Boolean)
+                              .join(" → ")}
+                          </p>
+                        </div>
+                      </div>
+                      <a
+                        href={`/crm/deals/${v.crmDeal.id}`}
+                        className="shrink-0 inline-flex items-center gap-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 px-2.5 py-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 transition"
+                      >
+                        Abrir CRM
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
                   )}
 
                   {(v.productInterest || v.siteContext?.product?.name) && (
@@ -810,13 +897,15 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                                 </span>
                               )}
                               {pv.timeOnPage > 0 && (
-                                <span className="text-[10px] text-muted-foreground flex items-center gap-0.5 font-medium">
-                                  ⏱ {formatDuration(pv.timeOnPage)}
+                                <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1 font-medium">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  {formatDuration(pv.timeOnPage)}
                                 </span>
                               )}
                               {pv.scrollDepth > 0 && (
-                                <span className="text-[10px] text-muted-foreground font-medium">
-                                  📜 {pv.scrollDepth}%
+                                <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1 font-medium">
+                                  <ScrollText className="w-2.5 h-2.5" />
+                                  {pv.scrollDepth}%
                                 </span>
                               )}
                               <span className="text-[10px] text-muted-foreground flex items-center gap-0.5 ml-auto">
@@ -887,7 +976,8 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                           const clickCfg = isClick
                             ? CLICK_TYPE_LABELS[event.data.clickType] || {
                                 label: event.data.clickType || "Clique no site",
-                                colorClass: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25",
+                                colorClass:
+                                  "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25",
                               }
                             : null;
 
@@ -920,7 +1010,8 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                                         </p>
                                         {event.data.device && (
                                           <p className="text-[11px] text-muted-foreground mt-0.5">
-                                            {event.data.device} · {parseBrowserName(event.data.browser)}
+                                            {event.data.device} ·{" "}
+                                            {parseBrowserName(event.data.browser)}
                                           </p>
                                         )}
                                       </>
@@ -935,23 +1026,26 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                                           {event.data.url}
                                         </p>
                                         <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                          {event.data.intent && INTENT_CONFIG[event.data.intent] && (
-                                            <span
-                                              className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                                                INTENT_CONFIG[event.data.intent].badgeClass
-                                              }`}
-                                            >
-                                              {INTENT_CONFIG[event.data.intent].label}
-                                            </span>
-                                          )}
+                                          {event.data.intent &&
+                                            INTENT_CONFIG[event.data.intent] && (
+                                              <span
+                                                className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                                  INTENT_CONFIG[event.data.intent].badgeClass
+                                                }`}
+                                              >
+                                                {INTENT_CONFIG[event.data.intent].label}
+                                              </span>
+                                            )}
                                           {event.data.timeOnPage > 0 && (
-                                            <span className="text-[10px] text-muted-foreground font-medium">
-                                              ⏱ {formatDuration(event.data.timeOnPage)}
+                                            <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1 font-medium">
+                                              <Clock className="w-2.5 h-2.5" />
+                                              {formatDuration(event.data.timeOnPage)}
                                             </span>
                                           )}
                                           {event.data.scrollDepth > 0 && (
-                                            <span className="text-[10px] text-muted-foreground font-medium">
-                                              📜 {event.data.scrollDepth}%
+                                            <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1 font-medium">
+                                              <ScrollText className="w-2.5 h-2.5" />
+                                              {event.data.scrollDepth}%
                                             </span>
                                           )}
                                         </div>
@@ -968,8 +1062,9 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                                           </span>
                                         </div>
                                         {event.data.elementText && (
-                                          <p className="text-xs font-semibold text-foreground truncate mt-1">
-                                            ↗ "{event.data.elementText}"
+                                          <p className="text-xs font-semibold text-foreground truncate mt-1 inline-flex items-center gap-1">
+                                            <MousePointerClick className="w-3 h-3 text-primary shrink-0" />
+                                            <span>"{event.data.elementText}"</span>
                                           </p>
                                         )}
                                         {event.data.pageTitle && (
@@ -1009,9 +1104,15 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                                       </>
                                     )}
 
-                                    {!isStart && !isPage && !isClick && !isChat && !isContinuity && (
-                                      <p className="text-xs text-muted-foreground">{event.type}</p>
-                                    )}
+                                    {!isStart &&
+                                      !isPage &&
+                                      !isClick &&
+                                      !isChat &&
+                                      !isContinuity && (
+                                        <p className="text-xs text-muted-foreground">
+                                          {event.type}
+                                        </p>
+                                      )}
                                   </div>
 
                                   <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
@@ -1023,6 +1124,87 @@ export const CustomerJourneyModal: React.FC<CustomerJourneyModalProps> = ({
                           );
                         })}
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── ABA 4: CONVERSAS & TRANSCRIÇÃO DO CHAT DO SITE ── */}
+              {activeTab === "chats" && (
+                <div className="space-y-3 animate-slide-in-right">
+                  {targetChatId && onOpenChat && (
+                    <div className="flex items-center justify-between gap-3 rounded-xl bg-primary/10 border border-primary/25 px-3.5 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-foreground">
+                          Atendimento vinculado na fila de Conversas
+                        </p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {v?.operatorName
+                            ? `Consultor responsável: ${v.operatorName}`
+                            : "Em triagem automática ou aguardando captura"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenChat(targetChatId);
+                          onClose();
+                        }}
+                        className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-primary text-primary-foreground px-3 py-1.5 text-xs font-bold hover:opacity-90 transition cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        Ir para Conversa
+                      </button>
+                    </div>
+                  )}
+
+                  {chatMessages.length === 0 && chats.length === 0 ? (
+                    <div className="text-center py-10">
+                      <MessageSquare className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                      <p className="text-xs font-semibold text-foreground">
+                        Nenhuma mensagem trocada no chat ainda
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Este visitante navegou pelo site sem enviar mensagens no widget até o momento.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {chatMessages.map((msg) => {
+                        const isVisitor = msg.sender === "visitor";
+                        const isAi = msg.sender === "ai";
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`flex flex-col rounded-xl border p-3 ${
+                              isVisitor
+                                ? "bg-muted/40 border-border mr-6"
+                                : isAi
+                                  ? "bg-primary/8 border-primary/20 ml-6"
+                                  : "bg-emerald-500/8 border-emerald-500/20 ml-6"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-foreground">
+                                {isVisitor ? (
+                                  <User className="w-3 h-3 text-muted-foreground" />
+                                ) : isAi ? (
+                                  <Bot className="w-3 h-3 text-primary" />
+                                ) : (
+                                  <Headphones className="w-3 h-3 text-emerald-500" />
+                                )}
+                                {msg.senderName}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {formatTimeAgo(msg.timestamp)}
+                              </span>
+                            </div>
+                            <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">
+                              {msg.content}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

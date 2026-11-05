@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getActiveVisitors, getAllRecentVisitors } from "@/lib/livechat/livechatStorage";
+import { getEnrichedSiteVisitorsOverview } from "@/lib/livechat/livechatStorage";
 import { requireSession } from "@/lib/auth-session";
 import { canMonitorAllSiteVisitors } from "@/lib/access-control/channel-permissions";
 
@@ -25,10 +25,14 @@ export const Route = createFileRoute("/api/livechat/visitors")({
         try {
           const url = new URL(request.url, "http://localhost");
           const includeRecent = url.searchParams.get("includeRecent") === "1";
-          const visitors = includeRecent
-            ? await getAllRecentVisitors(tenantId, 80)
-            : await getActiveVisitors(tenantId);
-          return new Response(JSON.stringify({ visitors }), {
+          const period = url.searchParams.get("period");
+          const limitParam = Number(url.searchParams.get("limit") || 100);
+          const { visitors, summary } = await getEnrichedSiteVisitorsOverview(tenantId, {
+            includeRecent,
+            period,
+            limit: Number.isFinite(limitParam) ? limitParam : 100,
+          });
+          return new Response(JSON.stringify({ visitors, summary }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });

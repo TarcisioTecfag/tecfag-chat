@@ -2112,7 +2112,7 @@ export class ValemChatWidget {
       (e: MouseEvent) => {
         const target = e.target as HTMLElement | null;
         if (!target) return;
-        const widgetRoot = document.getElementById("valem-chat-widget-root");
+        const widgetRoot = document.getElementById("vlm-chat-root") || document.getElementById("valem-chat-widget-root");
         if (widgetRoot && widgetRoot.contains(target)) return;
 
         const anchor = target.closest(
