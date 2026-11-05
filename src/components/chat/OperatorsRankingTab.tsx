@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock, Eye, ClipboardCheck, ChevronRight } from "lucide-react";
-import { enhanceLegacyAvatarSrc } from "@/lib/avatar-image";
+import { Clock, Eye, ClipboardCheck, ChevronRight, Camera, Loader2 } from "lucide-react";
+import { enhanceLegacyAvatarSrc, compressAvatarFile } from "@/lib/avatar-image";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { toast } from "sonner";
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -372,9 +374,24 @@ function ProgressBar({ label, value, pct }: { label: string; value: string; pct:
 
 // ── HighResAvatar Component ──────────────────────────────────────────────────
 
-function HighResAvatar({ src, name, className = "" }: { src: string | null; name: string; className?: string }) {
+function HighResAvatar({
+  src,
+  name,
+  className = "",
+  editable = false,
+  onUpload,
+  isUploading = false,
+}: {
+  src: string | null;
+  name: string;
+  className?: string;
+  editable?: boolean;
+  onUpload?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  isUploading?: boolean;
+}) {
   const [imgErr, setImgErr] = useState(false);
   const [resolvedSrc, setResolvedSrc] = useState<string | null>(src);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
 
   useEffect(() => {
@@ -392,24 +409,64 @@ function HighResAvatar({ src, name, className = "" }: { src: string | null; name
     };
   }, [src]);
 
-  if (resolvedSrc && !imgErr) {
+  const avatarContent =
+    resolvedSrc && !imgErr ? (
+      <img
+        src={resolvedSrc}
+        alt={`Foto de ${name}`}
+        decoding="async"
+        loading="eager"
+        className="w-full h-full object-cover object-center shadow-sm select-none"
+        style={{ imageRendering: "auto" }}
+        onError={() => setImgErr(true)}
+      />
+    ) : (
+      <div className="w-full h-full bg-primary/15 text-primary font-black flex items-center justify-center text-lg sm:text-2xl">
+        {initials}
+      </div>
+    );
+
+  if (!editable) {
     return (
       <div className={`relative overflow-hidden aspect-square rounded-2xl bg-muted shrink-0 border border-border ${className}`}>
-        <img
-          src={resolvedSrc}
-          alt={`Foto de ${name}`}
-          decoding="async"
-          loading="eager"
-          className="w-full h-full object-cover object-center shadow-sm"
-          onError={() => setImgErr(true)}
-        />
+        {avatarContent}
       </div>
     );
   }
 
   return (
-    <div className={`aspect-square shrink-0 rounded-2xl bg-primary/15 text-primary font-black flex items-center justify-center border border-border ${className}`}>
-      {initials}
+    <div className={`relative overflow-hidden aspect-square rounded-2xl bg-muted shrink-0 border border-border group ${className}`}>
+      {avatarContent}
+
+      {/* Overlay de Upload em Alta Resolução (HD 512x512) */}
+      <SystemTooltip content="Clique para trocar a foto de perfil por uma em alta definição (512×512 HD)">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          aria-label={`Trocar foto de perfil de ${name}`}
+          className="absolute inset-0 flex flex-col items-center justify-center bg-black/65 opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer text-white p-2 focus:opacity-100"
+        >
+          {isUploading ? (
+            <Loader2 className="size-6 animate-spin text-white" />
+          ) : (
+            <>
+              <Camera className="size-6 text-white drop-shadow" aria-hidden="true" />
+              <span className="mt-1.5 text-[10px] font-black uppercase tracking-wider text-white text-center leading-tight">
+                Trocar Foto HD
+              </span>
+            </>
+          )}
+        </button>
+      </SystemTooltip>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={onUpload}
+      />
     </div>
   );
 }
@@ -429,6 +486,8 @@ export function OperatorsRankingTab({
 }) {
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [showOccurrences, setShowOccurrences] = useState(false);
+  const [localAvatarOverrides, setLocalAvatarOverrides] = useState<Record<string, string>>({});
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   if (!overview || !overview.operators || overview.operators.length === 0) {
     return (
@@ -454,6 +513,42 @@ export function OperatorsRankingTab({
   });
 
   const atual = operadores.find((o) => o.operatorId === selecionadoId) ?? operadores[0];
+
+  const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !atual.operatorId) return;
+
+    try {
+      setIsUploadingAvatar(true);
+      const hdBase64 = await compressAvatarFile(file, 512, 0.92);
+
+      const res = await fetch("/api/operators", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: atual.operatorId,
+          avatar: hdBase64,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Falha ao salvar foto do operador.");
+      }
+
+      setLocalAvatarOverrides((prev) => ({
+        ...prev,
+        [atual.operatorId]: hdBase64,
+      }));
+
+      toast.success("Foto de perfil atualizada em alta definição (512×512 HD)!");
+    } catch (err: any) {
+      toast.error(err?.message || "Não foi possível atualizar a foto.");
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
 
   const scoredOps = operadores.filter((o) => (o.avgPerformanceScore ?? 0) > 0);
   const mediaScore =
@@ -586,7 +681,7 @@ export function OperatorsRankingTab({
 
                     {/* Avatar do Operador */}
                     <HighResAvatar 
-                      src={op.operatorAvatar} 
+                      src={localAvatarOverrides[op.operatorId] ?? op.operatorAvatar} 
                       name={op.operatorName} 
                       className="size-14 sm:size-16" 
                     />
@@ -676,9 +771,12 @@ export function OperatorsRankingTab({
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-4 lg:flex lg:items-center lg:gap-8"
               >
                 <HighResAvatar 
-                  src={atual.operatorAvatar} 
+                  src={localAvatarOverrides[atual.operatorId] ?? atual.operatorAvatar} 
                   name={atual.operatorName} 
                   className="col-span-2 size-24 sm:size-32 lg:size-36" 
+                  editable={true}
+                  onUpload={handleUploadAvatar}
+                  isUploading={isUploadingAvatar}
                 />
                 <div className="min-w-0 flex-1">
                   <h2

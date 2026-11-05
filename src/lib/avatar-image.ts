@@ -138,9 +138,12 @@ export function compressAvatarFile(
 }
 
 /**
- * Aplica suavização de blocos JPEG + realce sutil de luminância para avatares
- * legados de baixa resolução (`<= 160px`, como os antigos `120x120` JPEG 0.75).
- * Fotos novas (`> 160px`) são retornadas intactas sem custo de processamento.
+ * Aplica interpolação bicúbica progressiva em múltiplos estágios + suavização
+ * morfológica de bordas (anti-aliasing) e deblocking para avatares legados de baixa
+ * resolução (`< 384px`, como os antigos `120x120` JPEG 0.75).
+ * Elimina degraus de pixel ("serrilhado" / aliasing) e macroblocos de compressão
+ * sem aplicar unsharp mask agressivo (que geraria dentes de serra artificiais).
+ * Fotos novas (`>= 384px`) são retornadas intactas sem custo de processamento.
  */
 export function enhanceLegacyAvatarSrc(src: string | null | undefined): Promise<string | null> {
   if (!src) return Promise.resolve(null);
@@ -164,62 +167,63 @@ export function enhanceLegacyAvatarSrc(src: string | null | undefined): Promise<
         const w = img.naturalWidth || img.width;
         const h = img.naturalHeight || img.height;
 
-        // Se já está em boa resolução (> 160px), mantém exatamente o original
-        if (w <= 0 || h <= 0 || w > 160 || h > 160) {
+        // Se já está em resolução suficiente (>= 384px), mantém exatamente o original
+        if (w <= 0 || h <= 0 || w >= 384 || h >= 384) {
           enhancedAvatarCache.set(src, src);
           resolve(src);
           return;
         }
 
-        // Upscale 3x (ex: 120x120 -> 360x360) em 2 estágios com interpolação bicúbica "high"
-        const midW = w * 2;
-        const midH = h * 2;
-        const midCanvas = document.createElement("canvas");
-        midCanvas.width = midW;
-        midCanvas.height = midH;
-        const midCtx = midCanvas.getContext("2d");
-        if (!midCtx) {
+        // Multi-stage progressive smooth bicubic upscale (ex: 120 -> 192 -> 307 -> 384)
+        // O step-up progressivo evita aliasing e quebras de gradiente típicas de upscales diretos
+        const targetSize = 384;
+        let currentW = w;
+        let currentH = h;
+        let currentCanvas = document.createElement("canvas");
+        currentCanvas.width = currentW;
+        currentCanvas.height = currentH;
+        let currentCtx = currentCanvas.getContext("2d");
+        if (!currentCtx) {
           enhancedAvatarCache.set(src, src);
           resolve(src);
           return;
         }
-        midCtx.imageSmoothingEnabled = true;
-        midCtx.imageSmoothingQuality = "high";
-        midCtx.drawImage(img, 0, 0, midW, midH);
+        currentCtx.drawImage(img, 0, 0);
 
-        const outW = w * 3;
-        const outH = h * 3;
-        const outCanvas = document.createElement("canvas");
-        outCanvas.width = outW;
-        outCanvas.height = outH;
-        const outCtx = outCanvas.getContext("2d");
-        if (!outCtx) {
-          enhancedAvatarCache.set(src, src);
-          resolve(src);
-          return;
+        while (currentW < targetSize) {
+          const nextW = Math.min(targetSize, Math.round(currentW * 1.55));
+          const nextH = Math.min(targetSize, Math.round(currentH * 1.55));
+          const nextCanvas = document.createElement("canvas");
+          nextCanvas.width = nextW;
+          nextCanvas.height = nextH;
+          const nextCtx = nextCanvas.getContext("2d");
+          if (!nextCtx) break;
+          nextCtx.imageSmoothingEnabled = true;
+          nextCtx.imageSmoothingQuality = "high";
+          nextCtx.drawImage(currentCanvas, 0, 0, currentW, currentH, 0, 0, nextW, nextH);
+          currentCanvas = nextCanvas;
+          currentCtx = nextCtx;
+          currentW = nextW;
+          currentH = nextH;
         }
-        outCtx.imageSmoothingEnabled = true;
-        outCtx.imageSmoothingQuality = "high";
-        outCtx.drawImage(midCanvas, 0, 0, outW, outH);
 
-        // Cria versão levemente suavizada para extrair apenas detalhe de luminância (Unsharp Mask em Y)
-        const blurCanvas = document.createElement("canvas");
-        blurCanvas.width = outW;
-        blurCanvas.height = outH;
-        const blurCtx = blurCanvas.getContext("2d");
+        // Suavização anti-aliasing direcionada para eliminar degraus de pixel e macroblocking JPEG
+        const smoothCanvas = document.createElement("canvas");
+        smoothCanvas.width = currentW;
+        smoothCanvas.height = currentH;
+        const smoothCtx = smoothCanvas.getContext("2d");
 
-        if (blurCtx) {
-          blurCtx.imageSmoothingEnabled = true;
-          blurCtx.imageSmoothingQuality = "high";
-          blurCtx.filter = "blur(1.1px)";
-          blurCtx.drawImage(outCanvas, 0, 0);
-          blurCtx.filter = "none";
+        if (smoothCtx) {
+          smoothCtx.imageSmoothingEnabled = true;
+          smoothCtx.imageSmoothingQuality = "high";
+          smoothCtx.filter = "blur(1.2px)";
+          smoothCtx.drawImage(currentCanvas, 0, 0);
+          smoothCtx.filter = "none";
 
-          const origData = outCtx.getImageData(0, 0, outW, outH);
-          const blurData = blurCtx.getImageData(0, 0, outW, outH);
+          const origData = currentCtx.getImageData(0, 0, currentW, currentH);
+          const blurData = smoothCtx.getImageData(0, 0, currentW, currentH);
           const px = origData.data;
           const bpx = blurData.data;
-          const amount = 0.42; // Nitidez moderada apenas na luminância (rosto/olhos)
 
           for (let i = 0; i < px.length; i += 4) {
             const r = px[i];
@@ -230,28 +234,26 @@ export function enhanceLegacyAvatarSrc(src: string | null | undefined): Promise<
             const bg = bpx[i + 1];
             const bb = bpx[i + 2];
 
-            // Luminância Rec.601
-            const yOrig = 0.299 * r + 0.587 * g + 0.114 * b;
-            const yBlur = 0.299 * br + 0.587 * bg + 0.114 * bb;
-            const diffY = yOrig - yBlur;
+            // Mede a variação local em todos os canais de cor
+            const diff = Math.max(Math.abs(r - br), Math.abs(g - bg), Math.abs(b - bb));
 
-            // Ignora micro-ruído de blocagem JPEG (< 2 níveis) e realça bordas reais
-            const delta = Math.abs(diffY) < 1.8 ? 0 : diffY * amount;
+            // Anti-aliasing adaptativo:
+            // 1. Em áreas homogêneas (diff < 8, ex: fundo vermelho e tons contínuos de pele):
+            //    mescla moderada para eliminar blocos JPEG 8x8 e ruído 4:2:0.
+            // 2. Em bordas e transições (diff < 28, ex: contorno dos braços e queixo):
+            //    suaviza os degraus de pixel (anti-aliasing suave), eliminando o serrilhado.
+            // 3. Em contraste muito alto: preserva a geometria nítida sem criar dentes de serra.
+            const blendFactor = diff < 8 ? 0.42 : diff < 28 ? 0.28 : 0.14;
 
-            // Suaviza levemente a crominância (reduz blocos vermelhos 4:2:0) mantendo a luminância nítida
-            const smoothR = r * 0.75 + br * 0.25 + delta;
-            const smoothG = g * 0.75 + bg * 0.25 + delta;
-            const smoothB = b * 0.75 + bb * 0.25 + delta;
-
-            px[i] = smoothR < 0 ? 0 : smoothR > 255 ? 255 : smoothR;
-            px[i + 1] = smoothG < 0 ? 0 : smoothG > 255 ? 255 : smoothG;
-            px[i + 2] = smoothB < 0 ? 0 : smoothB > 255 ? 255 : smoothB;
+            px[i] = Math.round(r * (1 - blendFactor) + br * blendFactor);
+            px[i + 1] = Math.round(g * (1 - blendFactor) + bg * blendFactor);
+            px[i + 2] = Math.round(b * (1 - blendFactor) + bb * blendFactor);
           }
 
-          outCtx.putImageData(origData, 0, 0);
+          currentCtx.putImageData(origData, 0, 0);
         }
 
-        const enhanced = exportCanvasHighQuality(outCanvas, 0.92);
+        const enhanced = exportCanvasHighQuality(currentCanvas, 0.94);
         enhancedAvatarCache.set(src, enhanced);
         resolve(enhanced);
       } catch {
