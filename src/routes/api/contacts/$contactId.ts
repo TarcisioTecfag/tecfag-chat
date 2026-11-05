@@ -269,6 +269,20 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             }
           }
 
+          if (updatedContact) {
+            try {
+              const { SessionManager } = await import("../../../lib/baileys/session-manager");
+              SessionManager.getInstance().notifyPublic(session.tenantId, {
+                type: "contact_updated",
+                contactId,
+                contact: updatedContact,
+                updates,
+              });
+            } catch {
+              // Ignora se SessionManager não estiver ativo em contexto de teste
+            }
+          }
+
           return new Response(JSON.stringify({ success: true, contact: updatedContact, account: linkedAccount }), {
             headers: { ...CORS, "Content-Type": "application/json" },
           });

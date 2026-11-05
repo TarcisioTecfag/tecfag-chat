@@ -74,6 +74,7 @@ import {
   ExternalLink,
   MessageSquare,
   MapPin,
+  Copy,
 } from "lucide-react";
 
 
@@ -356,6 +357,36 @@ export function SharedFiles() {
   const [linkedAccount, setLinkedAccount] = useState<CrmAccountDTO | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<CrmAccountDTO | null>(null);
   const [savingInfo, setSavingInfo] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isEditingNameInline, setIsEditingNameInline] = useState(false);
+  const [inlineNameValue, setInlineNameValue] = useState("");
+  const [savingInlineName, setSavingInlineName] = useState(false);
+  const inlineNameInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const handleCopyValue = React.useCallback((key: string, value: string | null | undefined, label: string) => {
+    const clean = (value || "").trim();
+    if (!clean) return;
+    navigator.clipboard
+      ?.writeText(clean)
+      .then(() => {
+        setCopiedKey(key);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => {
+          setCopiedKey((prev) => (prev === key ? null : prev));
+        }, 1800);
+        toast.success(`${label} copiado!`);
+      })
+      .catch(() => {
+        toast.error(`Não foi possível copiar ${label.toLowerCase()}.`);
+      });
+  }, []);
   useTrainingSurface("chat.details-panel", (step) => {
     if (!activeChat) return false;
     setActiveTab(step.id === "chat.shared-files" ? "files" : step.id === "chat.events" ? "events" : "details");
@@ -388,6 +419,7 @@ export function SharedFiles() {
     setSelectedAccount(null);
     setContactSiteVisitorId(null);
     setIsEditingInfo(false);
+    setIsEditingNameInline(false);
     isFirstCnpjRender.current = true;
     setCnpjDetails({});
     setAutoSaveStatus("idle");
@@ -701,6 +733,7 @@ export function SharedFiles() {
 
   // Handle Client Info Edit
   const startEditing = () => {
+    setIsEditingNameInline(false);
     setEditForm({
       name: activeChat.name || "",
       phone: activeChat.phone || "",
@@ -710,10 +743,50 @@ export function SharedFiles() {
     setIsEditingInfo(true);
   };
 
+  const startInlineNameEdit = () => {
+    if (!canEditClientInfo || !activeChat || activeChat.id === "valentina") return;
+    setInlineNameValue(activeChat.name || "");
+    setIsEditingNameInline(true);
+    setTimeout(() => {
+      inlineNameInputRef.current?.focus();
+      inlineNameInputRef.current?.select();
+    }, 10);
+  };
+
+  const handleSaveInlineName = async () => {
+    if (!activeChat || savingInlineName) return;
+    const trimmed = inlineNameValue.trim();
+    if (!trimmed) {
+      setIsEditingNameInline(false);
+      setInlineNameValue(activeChat.name || "");
+      return;
+    }
+    if (trimmed === (activeChat.name || "").trim()) {
+      setIsEditingNameInline(false);
+      return;
+    }
+    setSavingInlineName(true);
+    try {
+      await updateClientInfo(activeChat.id, { name: trimmed });
+      setEditForm((prev) => ({ ...prev, name: trimmed }));
+      setIsEditingNameInline(false);
+      toast.success("Nome do contato atualizado.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível atualizar o nome do contato.");
+    } finally {
+      setSavingInlineName(false);
+    }
+  };
+
   const handleSaveInfo = async () => {
     setSavingInfo(true);
     try {
-      await updateClientInfo(activeChat.id, { ...editForm, accountId: selectedAccount?.id || null });
+      const normalizedName = editForm.name.trim() || activeChat.name || "";
+      await updateClientInfo(activeChat.id, {
+        ...editForm,
+        name: normalizedName,
+        accountId: selectedAccount?.id || null,
+      });
       let hydratedAccount = selectedAccount;
       if (selectedAccount?.id && selectedAccount.address === undefined) {
         const accRes = await fetch(`/api/contacts/account-options?id=${encodeURIComponent(selectedAccount.id)}`).catch(() => null);
@@ -979,19 +1052,41 @@ export function SharedFiles() {
               <span className="text-[10px] font-bold text-muted-foreground uppercase">
                 Informações
               </span>
-              {canEditClientInfo && (
-                <button
-                  data-tour="details.contact-editor" data-training-save="true" onClick={isEditingInfo ? handleSaveInfo : startEditing}
-                  disabled={savingInfo}
-                  className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
-                >
-                  {isEditingInfo ? "Salvar" : "Editar"}
-                </button>
+              {canEditClientInfo && activeChat.id !== "valentina" && (
+                <div className="flex items-center gap-2">
+                  {isEditingInfo && (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingInfo(false)}
+                      disabled={savingInfo}
+                      className="text-[10px] font-bold text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                  <button
+                    data-tour="details.contact-editor" data-training-save="true" onClick={isEditingInfo ? handleSaveInfo : startEditing}
+                    disabled={savingInfo}
+                    className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
+                  >
+                    {isEditingInfo ? "Salvar" : "Editar"}
+                  </button>
+                </div>
               )}
             </div>
 
             {isEditingInfo ? (
               <div className="space-y-2.5">
+                <div className="space-y-0.5">
+                  <label className="text-[9px] font-bold text-muted-foreground">Nome do contato</label>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    placeholder="Nome do cliente..."
+                    className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                  />
+                </div>
                 <div className="space-y-0.5">
                   <label className="text-[9px] font-bold text-muted-foreground">Telefone</label>
                   <PhoneCountryInput
@@ -1019,27 +1114,218 @@ export function SharedFiles() {
               </div>
             ) : (
               <div className="space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs text-foreground font-medium">
-                    {formatPhoneNumber(activeChat.phone)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs text-foreground font-medium truncate">
-                    {activeChat.email || "Não informado"}
-                  </span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Building className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
-                  <div className="text-xs text-foreground font-medium">
-                    {linkedAccount ? linkedAccount.name : "Sem empresa / cliente vinculado"}
-                    {linkedAccount?.document && (
-                      <div className="text-[10px] text-muted-foreground font-normal">
-                        {linkedAccount.type === "company" ? formatCNPJ(linkedAccount.document) : formatCPF(linkedAccount.document)}
+                {/* Nome do Cliente com Edição Rápida Inline ao Clicar + Cópia */}
+                <div className="flex items-center justify-between gap-1.5 min-w-0 group/info-name">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    {isEditingNameInline ? (
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
+                        <input
+                          ref={inlineNameInputRef}
+                          type="text"
+                          value={inlineNameValue}
+                          disabled={savingInlineName}
+                          onChange={(e) => setInlineNameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleSaveInlineName();
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              setIsEditingNameInline(false);
+                              setInlineNameValue(activeChat.name || "");
+                            }
+                          }}
+                          onBlur={() => {
+                            void handleSaveInlineName();
+                          }}
+                          placeholder="Nome do contato..."
+                          className="h-6 flex-1 min-w-0 rounded-md bg-card px-1.5 text-xs font-semibold text-foreground border border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <SystemTooltip content="Salvar nome (Enter)">
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => void handleSaveInlineName()}
+                            disabled={savingInlineName}
+                            className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground hover:opacity-90 transition cursor-pointer"
+                          >
+                            <Check className="h-3 w-3" />
+                          </button>
+                        </SystemTooltip>
+                        <SystemTooltip content="Cancelar (Esc)">
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setIsEditingNameInline(false);
+                              setInlineNameValue(activeChat.name || "");
+                            }}
+                            disabled={savingInlineName}
+                            className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </SystemTooltip>
                       </div>
+                    ) : canEditClientInfo && activeChat.id !== "valentina" ? (
+                      <SystemTooltip content="Clique para editar o nome do contato">
+                        <button
+                          type="button"
+                          onClick={startInlineNameEdit}
+                          className="text-xs text-foreground font-semibold truncate text-left hover:text-primary transition-colors cursor-pointer"
+                        >
+                          {activeChat.name || "Sem nome"}
+                        </button>
+                      </SystemTooltip>
+                    ) : (
+                      <span className="text-xs text-foreground font-semibold truncate">
+                        {activeChat.name || "Sem nome"}
+                      </span>
                     )}
+                  </div>
+                  {!isEditingNameInline && (
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {canEditClientInfo && activeChat.id !== "valentina" && (
+                        <SystemTooltip content="Editar nome do contato">
+                          <button
+                            type="button"
+                            onClick={startInlineNameEdit}
+                            className="grid h-5 w-5 place-items-center rounded-md text-muted-foreground/60 hover:text-primary hover:bg-muted/80 transition-colors cursor-pointer"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        </SystemTooltip>
+                      )}
+                      {activeChat.name && (
+                        <SystemTooltip content="Copiar nome">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyValue("name", activeChat.name, "Nome")}
+                            className="grid h-5 w-5 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                          >
+                            {copiedKey === "name" ? (
+                              <Check className="h-3 w-3 text-emerald-500" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </button>
+                        </SystemTooltip>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Telefone + Cópia */}
+                <div className="flex items-center justify-between gap-1.5 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-foreground font-medium truncate">
+                      {activeChat.phone ? formatPhoneNumber(activeChat.phone) : "Não informado"}
+                    </span>
+                  </div>
+                  {activeChat.phone && (
+                    <SystemTooltip content="Copiar telefone">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopyValue("phone", formatPhoneNumber(activeChat.phone), "Telefone")
+                        }
+                        className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                      >
+                        {copiedKey === "phone" ? (
+                          <Check className="h-3 w-3 text-emerald-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
+                    </SystemTooltip>
+                  )}
+                </div>
+
+                {/* E-mail + Cópia */}
+                <div className="flex items-center justify-between gap-1.5 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-foreground font-medium truncate">
+                      {activeChat.email || "Não informado"}
+                    </span>
+                  </div>
+                  {activeChat.email && (
+                    <SystemTooltip content="Copiar e-mail">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyValue("email", activeChat.email, "E-mail")}
+                        className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                      >
+                        {copiedKey === "email" ? (
+                          <Check className="h-3 w-3 text-emerald-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
+                    </SystemTooltip>
+                  )}
+                </div>
+
+                {/* Empresa / Cliente Vinculado + Cópia */}
+                <div className="flex items-start justify-between gap-1.5 min-w-0">
+                  <div className="flex items-start gap-2 min-w-0 flex-1">
+                    <Building className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                    <div className="text-xs text-foreground font-medium min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <span className="truncate">
+                          {linkedAccount ? linkedAccount.name : "Sem empresa / cliente vinculado"}
+                        </span>
+                        {linkedAccount?.name && (
+                          <SystemTooltip content="Copiar empresa">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyValue("company", linkedAccount.name, "Empresa")}
+                              className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                            >
+                              {copiedKey === "company" ? (
+                                <Check className="h-3 w-3 text-emerald-500" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </button>
+                          </SystemTooltip>
+                        )}
+                      </div>
+                      {linkedAccount?.document && (
+                        <div className="flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground font-normal mt-0.5">
+                          <span className="truncate">
+                            {linkedAccount.type === "company"
+                              ? formatCNPJ(linkedAccount.document)
+                              : formatCPF(linkedAccount.document)}
+                          </span>
+                          <SystemTooltip
+                            content={linkedAccount.type === "company" ? "Copiar CNPJ" : "Copiar CPF"}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleCopyValue(
+                                  "document",
+                                  linkedAccount.type === "company"
+                                    ? formatCNPJ(linkedAccount.document)
+                                    : formatCPF(linkedAccount.document),
+                                  linkedAccount.type === "company" ? "CNPJ" : "CPF",
+                                )
+                              }
+                              className="grid h-4.5 w-4.5 shrink-0 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                            >
+                              {copiedKey === "document" ? (
+                                <Check className="h-2.5 w-2.5 text-emerald-500" />
+                              ) : (
+                                <Copy className="h-2.5 w-2.5" />
+                              )}
+                            </button>
+                          </SystemTooltip>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1907,12 +2193,11 @@ export function SharedFiles() {
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
-                            <div
-                              className="text-xs font-bold text-foreground truncate"
-                              title={file.name}
-                            >
-                              {file.name}
-                            </div>
+                            <SystemTooltip content={file.name}>
+                              <div className="text-xs font-bold text-foreground truncate">
+                                {file.name}
+                              </div>
+                            </SystemTooltip>
                             <div className="text-[9px] text-muted-foreground font-medium">
                               Enviado por {file.author} às {file.time}
                             </div>

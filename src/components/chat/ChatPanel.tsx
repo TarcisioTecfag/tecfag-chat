@@ -68,6 +68,9 @@ import {
   Bookmark,
   LayoutTemplate,
   CircleHelp,
+  Pencil,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   Dialog,
@@ -1171,6 +1174,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     resetValentinaChat,
     toggleReaction,
     syncConversationMessages,
+    updateClientInfo,
   } = useChat();
 
   const connectionsState = useWhatsappConnections(tenant);
@@ -1216,6 +1220,74 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const ownerOperator = activeChat?.operatorId
     ? operators.find((o) => o.id === activeChat.operatorId)
     : null;
+
+  const [isEditingHeaderName, setIsEditingHeaderName] = useState(false);
+  const [headerNameDraft, setHeaderNameDraft] = useState("");
+  const [savingHeaderName, setSavingHeaderName] = useState(false);
+  const [copiedHeaderName, setCopiedHeaderName] = useState(false);
+  const headerNameInputRef = useRef<HTMLInputElement | null>(null);
+  const copyHeaderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setIsEditingHeaderName(false);
+    setCopiedHeaderName(false);
+  }, [activeChat?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (copyHeaderTimerRef.current) clearTimeout(copyHeaderTimerRef.current);
+    };
+  }, []);
+
+  const startHeaderNameEdit = () => {
+    if (!canEditClientInfo || !activeChat || activeChat.id === "valentina") return;
+    setHeaderNameDraft(activeChat.name || "");
+    setIsEditingHeaderName(true);
+    setTimeout(() => {
+      headerNameInputRef.current?.focus();
+      headerNameInputRef.current?.select();
+    }, 10);
+  };
+
+  const handleSaveHeaderName = async () => {
+    if (!activeChat || savingHeaderName) return;
+    const trimmed = headerNameDraft.trim();
+    if (!trimmed) {
+      setIsEditingHeaderName(false);
+      setHeaderNameDraft(activeChat.name || "");
+      return;
+    }
+    if (trimmed === (activeChat.name || "").trim()) {
+      setIsEditingHeaderName(false);
+      return;
+    }
+    setSavingHeaderName(true);
+    try {
+      await updateClientInfo(activeChat.id, { name: trimmed });
+      setIsEditingHeaderName(false);
+      toast.success("Nome do contato atualizado.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível atualizar o nome do contato.");
+    } finally {
+      setSavingHeaderName(false);
+    }
+  };
+
+  const handleCopyHeaderName = () => {
+    const clean = (activeChat?.name || "").trim();
+    if (!clean) return;
+    navigator.clipboard
+      ?.writeText(clean)
+      .then(() => {
+        setCopiedHeaderName(true);
+        if (copyHeaderTimerRef.current) clearTimeout(copyHeaderTimerRef.current);
+        copyHeaderTimerRef.current = setTimeout(() => setCopiedHeaderName(false), 1800);
+        toast.success("Nome copiado!");
+      })
+      .catch(() => {
+        toast.error("Não foi possível copiar o nome.");
+      });
+  };
 
   const [text, setText] = useState(initialTransientState?.text ?? "");
   const metaWindowCacheRef = useRef<Map<string, { open: boolean; expiresAt: string | null }>>(
@@ -2751,7 +2823,101 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
           </div>
 
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-foreground truncate">{activeChat.name}</h2>
+            {activeChat.id !== "valentina" && isEditingHeaderName ? (
+              <div className="flex items-center gap-1 max-w-xs">
+                <input
+                  ref={headerNameInputRef}
+                  type="text"
+                  value={headerNameDraft}
+                  disabled={savingHeaderName}
+                  onChange={(e) => setHeaderNameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleSaveHeaderName();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setIsEditingHeaderName(false);
+                      setHeaderNameDraft(activeChat.name || "");
+                    }
+                  }}
+                  onBlur={() => {
+                    void handleSaveHeaderName();
+                  }}
+                  placeholder="Nome do contato..."
+                  className="h-6 flex-1 min-w-0 rounded-md bg-muted px-2 text-xs font-bold text-foreground border border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <SystemTooltip content="Salvar nome (Enter)">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => void handleSaveHeaderName()}
+                    disabled={savingHeaderName}
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground hover:opacity-90 transition cursor-pointer"
+                  >
+                    <Check className="h-3 w-3" />
+                  </button>
+                </SystemTooltip>
+                <SystemTooltip content="Cancelar (Esc)">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setIsEditingHeaderName(false);
+                      setHeaderNameDraft(activeChat.name || "");
+                    }}
+                    disabled={savingHeaderName}
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </SystemTooltip>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 min-w-0">
+                {canEditClientInfo && activeChat.id !== "valentina" ? (
+                  <SystemTooltip content="Clique para editar o nome do contato">
+                    <button
+                      type="button"
+                      onClick={startHeaderNameEdit}
+                      className="text-sm font-bold text-foreground truncate text-left hover:text-primary transition-colors cursor-pointer"
+                    >
+                      {activeChat.name}
+                    </button>
+                  </SystemTooltip>
+                ) : (
+                  <h2 className="text-sm font-bold text-foreground truncate">{activeChat.name}</h2>
+                )}
+                {activeChat.id !== "valentina" && (
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {canEditClientInfo && (
+                      <SystemTooltip content="Editar nome do contato">
+                        <button
+                          type="button"
+                          onClick={startHeaderNameEdit}
+                          className="grid h-5 w-5 place-items-center rounded-md text-muted-foreground/55 hover:text-primary hover:bg-muted/80 transition-colors cursor-pointer"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      </SystemTooltip>
+                    )}
+                    <SystemTooltip content="Copiar nome">
+                      <button
+                        type="button"
+                        onClick={handleCopyHeaderName}
+                        className="grid h-5 w-5 place-items-center rounded-md text-muted-foreground/55 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                      >
+                        {copiedHeaderName ? (
+                          <Check className="h-3 w-3 text-emerald-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
+                    </SystemTooltip>
+                  </div>
+                )}
+              </div>
+            )}
             {activeChat.whatsappUsername && (
               <span className="block text-[11px] text-primary truncate">@{activeChat.whatsappUsername}</span>
             )}

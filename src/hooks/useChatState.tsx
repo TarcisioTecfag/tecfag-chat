@@ -3881,30 +3881,67 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const updateClientInfo = async (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & { accountId?: string | null }) => {
-    // 1. Atualiza estado local imediatamente (optimistic update)
+    const conv = rawConversations.find((c) => c.id === id);
+    const contactId = ((conv as any)?.contactId as string | undefined) || (id.startsWith("cont-") ? id : undefined);
+
+    const nextInitials =
+      typeof fields.name === "string" && fields.name.trim()
+        ? fields.name
+            .trim()
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((part) => part[0]?.toUpperCase() || "")
+            .join("") || "C"
+        : undefined;
+
+    // 1. Atualiza estado local imediatamente (optimistic update) em todas as conversas do contato
     setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...fields } : c))
+      prev.map((c) => {
+        if (c.id !== id && (!contactId || c.contactId !== contactId)) return c;
+        return {
+          ...c,
+          ...fields,
+          ...(nextInitials ? { initials: nextInitials } : {}),
+        };
+      })
     );
 
     // 2. Persiste no banco via API usando o contactId da conversa
-    const conv = rawConversations.find((c) => c.id === id);
-    const contactId = (conv as any)?.contactId as string | undefined;
-
     if (!contactId) {
       throw new Error("Contato do atendimento não encontrado.");
     }
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/contacts/${contactId}`, {
+      const isOwnedActiveAttendance =
+        conv?.queue === "meus" &&
+        Boolean(currentOperatorId) &&
+        conv?.operatorId === currentOperatorId;
+
+      let res = await fetch(`${BACKEND_URL}/api/contacts/${encodeURIComponent(contactId)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "X-Attendance-Conversation": id },
+        headers: {
+          "Content-Type": "application/json",
+          ...(isOwnedActiveAttendance ? { "X-Attendance-Conversation": id } : {}),
+        },
         body: JSON.stringify(fields),
       });
+
+      if (!res.ok && res.status === 403 && isOwnedActiveAttendance) {
+        res = await fetch(`${BACKEND_URL}/api/contacts/${encodeURIComponent(contactId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(fields),
+        });
+      }
+
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Não foi possível salvar os dados do contato.");
       } else {
         console.log("[updateClientInfo] Contato atualizado com sucesso:", contactId);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("crm-deals-changed"));
+        }
       }
     } catch (e) {
       console.error("[updateClientInfo] Falha na requisição:", e);
@@ -4390,12 +4427,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         } else if (data.type === "contact_updated") {
           const contactId = data.contact?.id || data.contactId;
+          if (contactId && data.contact) {
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.contactId !== contactId && c.id !== contactId) return c;
+                const nextName =
+                  typeof data.contact.name === "string" && data.contact.name.trim()
+                    ? data.contact.name.trim()
+                    : c.name;
+                const nextInitials =
+                  nextName
+                    .split(/\s+/)
+                    .slice(0, 2)
+                    .map((p: string) => p[0]?.toUpperCase() || "")
+                    .join("") || c.initials;
+                return {
+                  ...c,
+                  name: nextName,
+                  initials: nextInitials,
+                  ...(data.contact.phone !== undefined ? { phone: data.contact.phone || "" } : {}),
+                  ...(data.contact.email !== undefined ? { email: data.contact.email || "" } : {}),
+                };
+              }),
+            );
+          }
           const conversationId = conversationsRef.current.find((chat) => chat.contactId === contactId)?.id;
           if (conversationId) {
-          void refreshAssignedChatRef.current(conversationId).catch((error) =>
-            console.warn("Falha ao atualizar contato da conversa:", error)
-          );
-        }
+            void refreshAssignedChatRef.current(conversationId).catch((error) =>
+              console.warn("Falha ao atualizar contato da conversa:", error)
+            );
+          }
         } else if (data.type === "message") {
           const { message } = data;
 
