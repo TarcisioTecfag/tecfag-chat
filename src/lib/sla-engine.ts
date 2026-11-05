@@ -370,8 +370,9 @@ export class SlaEngine {
   }
 
   /**
-   * Varre todos os tenants cadastrados e verifica a necessidade de emitir relatórios
-   * com base nas configurações em channel_configs.
+   * Varre todos os tenants cadastrados e compila os relatórios executivos diários/semanais
+   * no banco (ai_reports) para consulta no painel de BI, disparando via WhatsApp/E-mail
+   * apenas quando os canais externos estiverem ativos e sem trava de aprovação humana.
    */
   private async runReportEngine() {
     const activeTenants = await db.select().from(tenants);
@@ -382,43 +383,47 @@ export class SlaEngine {
         where: eq(channelConfigs.tenantId, t.id),
       });
 
-      if (!config) continue;
-
       const now = new Date();
-      const brtHourStr = new Intl.DateTimeFormat("pt-BR", {
+      const brtFmt = new Intl.DateTimeFormat("en-CA", {
         timeZone: "America/Sao_Paulo",
-        hour: "numeric",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
         hour12: false,
-      }).format(now);
-      const brtHour = parseInt(brtHourStr, 10);
+      });
+      const parts = brtFmt.formatToParts(now);
+      const map: Record<string, string> = {};
+      for (const p of parts) {
+        if (p.type !== "literal") map[p.type] = p.value;
+      }
+      const brtHour = parseInt(map.hour === "24" ? "0" : (map.hour || "0"), 10);
+      const todayStr = `${map.year}-${map.month}-${map.day}`;
       const isPast6PM = brtHour >= 18;
 
       if (isPast6PM) {
-        const todayStr = now.toISOString().split("T")[0]; // YYYY-MM-DD
+        // 1. Relatório Diário (sempre compila para o painel de BI após 18h BRT)
+        const exists = await db.query.aiReports.findFirst({
+          where: and(
+            eq(aiReports.tenantId, t.id),
+            eq(aiReports.type, "daily"),
+            eq(aiReports.period, todayStr)
+          ),
+        });
 
-        // 1. Relatório Diário
-        if (config.reportDailyWhatsapp || config.reportDailyEmail) {
-          const exists = await db.query.aiReports.findFirst({
-            where: and(
-              eq(aiReports.tenantId, t.id),
-              eq(aiReports.type, "daily"),
-              eq(aiReports.period, todayStr)
-            ),
-          });
-
-          if (!exists) {
-            console.log(
-              `[SlaEngine] Iniciando geração de Relatório Diário para o tenant: ${t.id} (${todayStr})`
-            );
-            await this.generateAndSendReport(t.id, "daily", todayStr, config);
-          }
+        if (!exists) {
+          console.log(
+            `[SlaEngine] Iniciando geração de Relatório Diário para o tenant: ${t.id} (${todayStr})`
+          );
+          await this.generateAndSendReport(t.id, "daily", todayStr, config);
         }
 
-        // 2. Relatório Semanal (dispara na Sexta-feira após as 18h)
-        const isFriday = now.getDay() === 5;
-        if (isFriday && (config.reportWeeklyWhatsapp || config.reportWeeklyEmail)) {
-          const weekStr = getWeekString(now);
-          const exists = await db.query.aiReports.findFirst({
+        // 2. Relatório Semanal (compila na Sexta-feira após as 18h BRT)
+        const brtDow = new Date(`${todayStr}T12:00:00.000-03:00`).getDay();
+        const isFriday = brtDow === 5;
+        if (isFriday) {
+          const weekStr = getWeekString(new Date(`${todayStr}T12:00:00.000-03:00`));
+          const existsWeekly = await db.query.aiReports.findFirst({
             where: and(
               eq(aiReports.tenantId, t.id),
               eq(aiReports.type, "weekly"),
@@ -426,7 +431,7 @@ export class SlaEngine {
             ),
           });
 
-          if (!exists) {
+          if (!existsWeekly) {
             console.log(
               `[SlaEngine] Iniciando geração de Relatório Semanal para o tenant: ${t.id} (${weekStr})`
             );
@@ -465,20 +470,23 @@ export class SlaEngine {
 
       // ── Salvar o relatório na tabela aiReports (v2 — com JSON rico) ──
       const reportId = storedReport.id;
-      await db.insert(aiReports).values({
-        id: reportId,
-        tenantId,
-        type,
-        period,
-        reportMarkdown: markdownReport,
-        reportData: storedReport as any,
-        stage: "rascunho",
-        currentVersion: "v1",
-        headline: storedReport.headline,
-        summary: storedReport.summary,
-        confidence: storedReport.confidence,
-        generatedAt: now,
-      });
+      await db
+        .insert(aiReports)
+        .values({
+          id: reportId,
+          tenantId,
+          type,
+          period,
+          reportMarkdown: markdownReport,
+          reportData: storedReport as any,
+          stage: "rascunho",
+          currentVersion: "v1",
+          headline: storedReport.headline,
+          summary: storedReport.summary,
+          confidence: storedReport.confidence,
+          generatedAt: now,
+        })
+        .onConflictDoNothing();
 
       // ── Cria o registro de versão v1 ──
       const { aiReportVersions } = await import("../db/schema");
@@ -488,7 +496,7 @@ export class SlaEngine {
         tenantId,
         version: "v1",
         createdAt: storedReport.versions[0]?.createdAt ?? storedReport.syncedAt,
-        author: "IA · sla_advisor",
+        author: storedReport.versions[0]?.author ?? "IA · sla_advisor",
         note: "Primeira síntese automática do ciclo.",
         stage: "rascunho",
         reportData: storedReport as any,
@@ -496,10 +504,24 @@ export class SlaEngine {
 
       console.log(`[SlaEngine] ✓ Relatório v2 salvo em ai_reports (${reportId})`);
 
+      if (!config) return;
+
+      const wantExternalDispatch =
+        type === "daily"
+          ? Boolean(config.reportDailyWhatsapp || config.reportDailyEmail)
+          : Boolean(config.reportWeeklyWhatsapp || config.reportWeeklyEmail);
+
+      if (!wantExternalDispatch) {
+        console.log(
+          `[SlaEngine] Relatório ${reportId} salvo no painel BI. Disparo externo (WhatsApp/E-mail) desativado para o ciclo.`
+        );
+        return;
+      }
+
       // ── Disparo: só envia se NÃO exigir aprovação humana ──
       if (config.reportRequiresApproval) {
         console.log(
-          `[SlaEngine] Modo aprovacão ativo: relatório ${reportId} aguardando aprovação humana. Envio suspenso.`
+          `[SlaEngine] Modo aprovação ativo: relatório ${reportId} aguardando aprovação humana. Envio suspenso.`
         );
         return;
       }

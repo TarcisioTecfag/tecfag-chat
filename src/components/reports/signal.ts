@@ -3,22 +3,22 @@ import type { Signal } from "@/data/reports";
 export const signalStyles: Record<Signal, { chip: string; dot: string; text: string; bar: string }> =
   {
     positive: {
-      chip: "bg-primary/10 text-primary border-primary/25",
-      dot: "bg-primary",
-      text: "text-primary",
-      bar: "bg-primary",
+      chip: "bg-positive/12 text-positive border-positive/30",
+      dot: "bg-positive",
+      text: "text-positive",
+      bar: "bg-positive",
     },
     warning: {
-      chip: "bg-muted text-foreground border-border",
-      dot: "bg-muted-foreground",
-      text: "text-foreground",
-      bar: "bg-muted-foreground",
+      chip: "bg-warning/12 text-warning border-warning/30",
+      dot: "bg-warning",
+      text: "text-warning",
+      bar: "bg-warning",
     },
     critical: {
-      chip: "bg-primary/15 text-primary border-primary/30",
-      dot: "bg-primary",
-      text: "text-primary",
-      bar: "bg-primary",
+      chip: "bg-critical/12 text-critical border-critical/30",
+      dot: "bg-critical",
+      text: "text-critical",
+      bar: "bg-critical",
     },
     info: {
       chip: "bg-muted/60 text-muted-foreground border-border",

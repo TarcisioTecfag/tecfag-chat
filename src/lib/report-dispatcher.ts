@@ -12,6 +12,7 @@ import { db } from "../db";
 import { channelConfigs, aiReports, aiReportVersions } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import type { StoredReport } from "./report-builder";
+import { getAiPersona } from "./ai-persona";
 
 export type DispatchResult = {
   whatsappSent: string[];  // números enviados com sucesso
@@ -23,12 +24,14 @@ export type DispatchResult = {
 export class ReportDispatcher {
   /**
    * Busca a config do tenant e dispara o relatório por todos os canais configurados.
-   * Se approval gate estiver ativo, NÃO deve ser chamado pelo cron — apenas pelo operador.
+   * Se options.forceManual = true, tenta enviar para os destinatários cadastrados mesmo
+   * que os toggles automáticos de cron estejam desmarcados.
    */
   static async dispatch(
     tenantId: string,
     storedReport: StoredReport,
     markdownReport: string,
+    options?: { forceManual?: boolean },
   ): Promise<DispatchResult> {
     const result: DispatchResult = {
       whatsappSent: [],
@@ -46,12 +49,15 @@ export class ReportDispatcher {
       return result;
     }
 
+    const persona = getAiPersona(tenantId);
     const type = storedReport.kind === "Semanal" ? "weekly" : "daily";
 
     // ── WhatsApp ─────────────────────────────────────────────────────────────
     const wantWhatsapp =
-      (type === "daily" && config.reportDailyWhatsapp) ||
-      (type === "weekly" && config.reportWeeklyWhatsapp);
+      options?.forceManual === true
+        ? Boolean(config.reportWhatsappNumbers && config.reportWhatsappNumbers.trim())
+        : (type === "daily" && config.reportDailyWhatsapp) ||
+          (type === "weekly" && config.reportWeeklyWhatsapp);
 
     if (wantWhatsapp && config.reportWhatsappNumbers) {
       const numbers = config.reportWhatsappNumbers
@@ -59,26 +65,28 @@ export class ReportDispatcher {
         .map((n: string) => n.trim())
         .filter(Boolean);
 
-      const whatsappText = ReportDispatcher.buildWhatsAppText(storedReport, type);
+      const whatsappText = ReportDispatcher.buildWhatsAppText(tenantId, storedReport, type);
 
       for (const num of numbers) {
         try {
-          await ReportDispatcher.sendWhatsApp(tenantId, num, whatsappText);
+          await ReportDispatcher.sendWhatsApp(tenantId, num, whatsappText, config);
           result.whatsappSent.push(num);
         } catch (err: any) {
           result.errors.push(`WhatsApp ${num}: ${err.message}`);
         }
       }
     } else if (!wantWhatsapp) {
-      result.skipped.push("WhatsApp desativado nas configurações");
+      result.skipped.push("WhatsApp desativado ou sem números configurados");
     } else if (!config.reportWhatsappNumbers) {
       result.skipped.push("Nenhum número de WhatsApp configurado");
     }
 
     // ── E-mail ────────────────────────────────────────────────────────────────
     const wantEmail =
-      (type === "daily" && config.reportDailyEmail) ||
-      (type === "weekly" && config.reportWeeklyEmail);
+      options?.forceManual === true
+        ? Boolean(config.reportEmailAddresses && config.reportEmailAddresses.trim() && config.smtpHost && config.smtpPort)
+        : (type === "daily" && config.reportDailyEmail) ||
+          (type === "weekly" && config.reportWeeklyEmail);
 
     if (wantEmail && config.reportEmailAddresses && config.smtpHost && config.smtpPort) {
       const emails = config.reportEmailAddresses
@@ -86,8 +94,8 @@ export class ReportDispatcher {
         .map((e: string) => e.trim())
         .filter(Boolean);
 
-      const subject = `Valem Chat — Relatório ${type === "weekly" ? "Semanal" : "Diário"} de Performance (${storedReport.code})`;
-      const html = ReportDispatcher.buildEmailHtml(markdownReport, storedReport, type);
+      const subject = `${persona.company} — Relatório ${type === "weekly" ? "Semanal" : "Diário"} de Performance (${storedReport.code})`;
+      const html = ReportDispatcher.buildEmailHtml(tenantId, markdownReport, storedReport, type);
 
       try {
         await ReportDispatcher.sendEmail(emails, subject, html, config);
@@ -96,7 +104,7 @@ export class ReportDispatcher {
         result.errors.push(`E-mail SMTP: ${err.message}`);
       }
     } else if (!wantEmail) {
-      result.skipped.push("E-mail desativado nas configurações");
+      result.skipped.push("E-mail desativado ou SMTP incompleto");
     } else if (!config.smtpHost || !config.smtpPort) {
       result.skipped.push("SMTP não configurado");
     } else if (!config.reportEmailAddresses) {
@@ -109,90 +117,168 @@ export class ReportDispatcher {
   /**
    * Marca o relatório como "enviado" no banco e registra a versão de dispatch.
    */
-  static async markAsEnviado(reportId: string, tenantId: string, operatorId = "system") {
+  static async markAsEnviado(reportId: string, tenantId: string, operatorLabel = "Sistema (cron)") {
     const pad = (n: number) => String(n).padStart(2, "0");
     const now = new Date();
     const nowStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}, ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
+    const [existing] = await db
+      .select()
+      .from(aiReports)
+      .where(and(eq(aiReports.id, reportId), eq(aiReports.tenantId, tenantId)))
+      .limit(1);
+
+    const updatedReportData = existing?.reportData
+      ? {
+          ...(existing.reportData as any),
+          stage: "enviado",
+          review: Array.isArray((existing.reportData as any).review)
+            ? (existing.reportData as any).review.map((step: any) =>
+                step.stage === "enviado" ? { ...step, at: nowStr } : step,
+              )
+            : [],
+        }
+      : null;
+
     await db
       .update(aiReports)
-      .set({ stage: "enviado" })
+      .set({
+        stage: "enviado",
+        ...(updatedReportData ? { reportData: updatedReportData } : {}),
+      })
       .where(and(eq(aiReports.id, reportId), eq(aiReports.tenantId, tenantId)));
 
     await db.insert(aiReportVersions).values({
       id: `rev-dispatch-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
       reportId,
       tenantId,
-      version: "dispatch",
+      version: existing?.currentVersion ?? "v1",
       createdAt: nowStr,
-      author: operatorId === "system" ? "Sistema (cron)" : operatorId,
+      author: operatorLabel === "system" ? "Sistema (cron)" : operatorLabel,
       note: "Relatório enviado à diretoria via WhatsApp e/ou E-mail.",
       stage: "enviado",
-      reportData: null,
+      reportData: updatedReportData,
     });
   }
 
-  // ── Helpers privados ───────────────────────────────────────────────────────
+  // ── Helpers públicos & privados ────────────────────────────────────────────
 
-  private static buildWhatsAppText(report: StoredReport, type: string): string {
+  static buildWhatsAppText(tenantId: string, report: StoredReport, type: string): string {
+    const persona = getAiPersona(tenantId);
+    const highlightsText =
+      report.highlights.length > 0
+        ? `\n*Destaques Positivos:*\n` +
+          report.highlights.map((h) => `• *${h.title}:* ${h.detail}`).join("\n") +
+          "\n"
+        : "";
+    const gapsText =
+      report.gaps.length > 0
+        ? `\n*Pontos de Atenção:*\n` +
+          report.gaps.map((g) => `• *${g.title}:* ${g.detail}`).join("\n") +
+          "\n"
+        : "";
+
     return (
-      `📊 *VALEM CHAT — RELATÓRIO ${type === "weekly" ? "SEMANAL" : "DIÁRIO"} DE PERFORMANCE*\n\n` +
-      `Período: ${report.period}\n\n` +
-      `*${report.headline}*\n\n` +
+      `*${persona.company.toUpperCase()} — RELATÓRIO ${type === "weekly" ? "SEMANAL" : "DIÁRIO"} DE PERFORMANCE*\n\n` +
+      `Período: ${report.period} (${report.code})\n\n` +
+      `*${report.headline}*\n` +
+      `${report.summary}\n\n` +
       `*Resumo dos KPIs:*\n` +
-      `• Total de Conversas: ${report.kpis.volume}\n` +
+      `• Volume Operacional: ${report.kpis.volume}\n` +
       `• SLA Cumprido: ${report.kpis.sla}%\n` +
-      `• Tempo Médio de Resposta: ${report.kpis.frt}s\n` +
-      `• Score Geral da Equipe: ${report.kpis.qa}/10\n` +
-      `• Clientes Satisfeitos: ${report.kpis.satisfied}%\n\n` +
-      `_Acesse o painel administrativo para visualizar o relatório completo gerado por Inteligência Artificial._`
+      `• 1ª Resposta Média: ${report.kpis.frt}s\n` +
+      `• Nota QA: ${report.kpis.qa}/10\n` +
+      `• Clientes Satisfeitos: ${report.kpis.satisfied}%\n` +
+      highlightsText +
+      gapsText +
+      `\n_Relatório compilado por ${persona.name} (IA Executiva)._`
     );
   }
 
-  private static buildEmailHtml(markdown: string, report: StoredReport, type: string): string {
+  private static buildEmailHtml(
+    tenantId: string,
+    markdown: string,
+    report: StoredReport,
+    type: string,
+  ): string {
+    const persona = getAiPersona(tenantId);
+    const accentColor = tenantId === "tecfag" ? "#df3d3d" : "#2dc4a0";
     return `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff;">
-        <h2 style="color: #6366f1; font-weight: 800; margin-bottom: 5px;">Valem Chat &amp; BI</h2>
-        <p style="color: #64748b; font-size: 13px; margin-top: 0;">Relatório de Performance Executiva (${type === "weekly" ? "Semanal" : "Diário"})</p>
-        <p style="font-size: 14px;">Período: <strong>${report.period}</strong></p>
+      <div style="font-family: sans-serif; max-width: 640px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff;">
+        <h2 style="color: ${accentColor}; font-weight: 800; margin-bottom: 5px;">${persona.company} · BI Executivo</h2>
+        <p style="color: #64748b; font-size: 13px; margin-top: 0;">Relatório de Performance Executiva (${type === "weekly" ? "Semanal" : "Diário"}) · Síntese por ${persona.name}</p>
+        <p style="font-size: 14px;">Período: <strong>${report.period}</strong> (${report.code})</p>
         <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
         <div style="font-size: 14px; line-height: 1.6; color: #1e293b;">
           ${markdown
             .replace(/\n/g, "<br/>")
-            .replace(/### (.*)/g, "<h4 style='color: #4f46e5; margin: 15px 0 5px 0;'>$1</h4>")
-            .replace(/## (.*)/g, "<h3 style='color: #6366f1; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin: 20px 0 10px 0;'>$1</h3>")
+            .replace(/### (.*)/g, `<h4 style='color: #0f172a; margin: 15px 0 5px 0;'>$1</h4>`)
+            .replace(/## (.*)/g, `<h3 style='color: ${accentColor}; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin: 20px 0 10px 0;'>$1</h3>`)
             .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-            .replace(/>\s*\[!NOTE\](.*)/gi, "<div style='background-color: #f8fafc; border-left: 4px solid #6366f1; padding: 12px; margin: 15px 0; border-radius: 6px; color: #334155;'><strong>Recomendação da IA:</strong>$1</div>")
+            .replace(/>\s*\[!NOTE\](.*)/gi, `<div style='background-color: #f8fafc; border-left: 4px solid ${accentColor}; padding: 12px; margin: 15px 0; border-radius: 6px; color: #334155;'><strong>Recomendação da IA:</strong>$1</div>`)
           }
         </div>
         <div style="margin-top: 30px; font-size: 11px; text-align: center; color: #94a3b8; border-top: 1px solid #eee; padding-top: 15px;">
-          Este é um e-mail automático disparado pelo motor analítico do Valem Chat.
+          Este é um e-mail automático disparado pelo motor analítico de ${persona.company} (${persona.name}).
         </div>
       </div>
     `;
   }
 
-  private static async sendWhatsApp(tenantId: string, num: string, text: string): Promise<void> {
-    if (tenantId === "valem") {
-      const { SessionManager, resolveRealJid } = await import("./baileys/session-manager");
-      const sessionManager = SessionManager.getInstance();
-      const sock = sessionManager.getSession(tenantId);
-
-      if (sock && sessionManager.getStatus(tenantId) === "connected") {
-        const jid = await resolveRealJid(sock, num);
-        if (jid) {
-          await sock.sendMessage(jid, { text });
-          console.log(`[ReportDispatcher] ✓ WhatsApp enviado para ${num}`);
-        } else {
-          throw new Error(`JID não resolvido para ${num}`);
-        }
-      } else {
-        throw new Error("Sessão Baileys não conectada");
-      }
-    } else {
-      // Tecfag — Meta API (mock enquanto inativo)
-      console.log(`[ReportDispatcher] [MOCK Meta API] WhatsApp para ${num} (tecfag inativo)`);
+  private static async sendWhatsApp(
+    tenantId: string,
+    num: string,
+    text: string,
+    config: any,
+  ): Promise<void> {
+    const cleanPhone = num.replace(/\D/g, "");
+    if (!cleanPhone) {
+      throw new Error(`Número inválido: ${num}`);
     }
+
+    // 1. Tenta via Meta Cloud API se configurada no tenant
+    if (config?.metaAccessToken && config?.metaPhoneNumberId) {
+      const response = await fetch(
+        `https://graph.facebook.com/v20.0/${config.metaPhoneNumberId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.metaAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: cleanPhone,
+            type: "text",
+            text: { preview_url: false, body: text },
+          }),
+        },
+      );
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => "");
+        throw new Error(`Meta API (${response.status}): ${errBody.slice(0, 140)}`);
+      }
+      console.log(`[ReportDispatcher] ✓ WhatsApp enviado via Meta Cloud API para ${cleanPhone}`);
+      return;
+    }
+
+    // 2. Tenta via Baileys SessionManager
+    const { SessionManager, resolveRealJid } = await import("./baileys/session-manager");
+    const sessionManager = SessionManager.getInstance();
+    const sock = sessionManager.getSession(tenantId);
+
+    if (sock && sessionManager.getStatus(tenantId) === "connected") {
+      const jid = await resolveRealJid(sock, cleanPhone);
+      if (jid) {
+        await sock.sendMessage(jid, { text });
+        console.log(`[ReportDispatcher] ✓ WhatsApp enviado via Baileys para ${cleanPhone}`);
+        return;
+      }
+      throw new Error(`JID não resolvido para ${cleanPhone}`);
+    }
+
+    throw new Error("Canal WhatsApp não conectado para disparo imediato");
   }
 
   private static async sendEmail(

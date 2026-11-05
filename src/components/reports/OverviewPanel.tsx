@@ -14,6 +14,7 @@ import {
 } from "@/data/reports";
 import { TrendChart } from "./TrendChart";
 import { signalStyles } from "./signal";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const keys: TrendKey[] = ["sla", "volume", "frt", "qa", "satisfied"];
@@ -37,7 +38,7 @@ export function OverviewPanel({
   const themes = useMemo(() => themeRanking(range), [range]);
   const feedback = feedbackTotals();
 
-  const heatmap = useMemo(() => dailyReports.slice(0, 70).reverse(), []);
+  const heatmap = useMemo(() => dailyReports.slice(0, 70).reverse(), [latest.id]);
 
   return (
     <div className="space-y-4">
@@ -159,15 +160,20 @@ export function OverviewPanel({
               const tone =
                 r.kpis.sla >= 92 ? "bg-positive" : r.kpis.sla >= 88 ? "bg-warning" : "bg-critical";
               return (
-                <button
+                <SystemTooltip
                   key={r.id}
-                  onClick={() => onOpen(r.id)}
-                  title={`${r.code} · SLA ${r.kpis.sla.toFixed(1)}%`}
-                  className={cn(
-                    "h-5 rounded-[3px] opacity-80 transition-all hover:scale-110 hover:opacity-100",
-                    tone,
-                  )}
-                />
+                  content={`${r.code} · SLA ${r.kpis.sla.toFixed(1)}% · ${r.kpis.volume} interações`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onOpen(r.id)}
+                    aria-label={`${r.code} SLA ${r.kpis.sla.toFixed(1)}%`}
+                    className={cn(
+                      "h-5 w-full rounded-[3px] opacity-80 transition-all hover:scale-110 hover:opacity-100",
+                      tone,
+                    )}
+                  />
+                </SystemTooltip>
               );
             })}
           </div>
@@ -198,7 +204,7 @@ export function OverviewPanel({
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
                   <div
                     className={cn("h-full rounded-full", signalStyles[t.signal].bar)}
-                    style={{ width: `${Math.min(100, (t.count / range) * 100)}%` }}
+                    style={{ width: `${Math.min(100, (t.count / Math.max(1, dailyReports.slice(0, range).length)) * 100)}%` }}
                   />
                 </div>
               </div>

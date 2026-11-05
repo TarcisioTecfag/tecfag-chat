@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { CalendarDays, CalendarRange, Search, Filter } from "lucide-react";
+import { CalendarDays, CalendarRange, Search, Filter, RefreshCw } from "lucide-react";
 import type { StoredReport } from "@/data/reports";
 import { groupReports, stageMeta, coverage } from "@/data/reports";
 import { signalStyles } from "./signal";
+import { SystemTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type KindFilter = "todos" | "Diário" | "Semanal";
@@ -12,10 +13,14 @@ export function ReportSidebar({
   reports,
   activeId,
   onSelect,
+  onGenerateNow,
+  isGenerating,
 }: {
   reports: StoredReport[];
   activeId: string;
   onSelect: (id: string) => void;
+  onGenerateNow?: (type: "daily" | "weekly") => void;
+  isGenerating?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<KindFilter>("todos");
@@ -126,14 +131,15 @@ export function ReportSidebar({
                       >
                         {report.code}
                       </span>
-                      <span
-                        className={cn(
-                          "size-1.5 shrink-0 rounded-full",
-                          signalStyles[meta.signal].dot,
-                          report.stage === "enviado" && "opacity-40",
-                        )}
-                        title={meta.label}
-                      />
+                      <SystemTooltip content={meta.label}>
+                        <span
+                          className={cn(
+                            "size-1.5 shrink-0 rounded-full",
+                            signalStyles[meta.signal].dot,
+                            report.stage === "enviado" && "opacity-40",
+                          )}
+                        />
+                      </SystemTooltip>
                     </div>
                     <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                       {report.headline}
@@ -150,9 +156,24 @@ export function ReportSidebar({
       </div>
 
       <div className="mt-3 rounded-xl border border-dashed border-border p-2.5">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Próxima geração
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Próxima geração
+          </p>
+          {onGenerateNow ? (
+            <SystemTooltip content="Compilar / Atualizar relatório de hoje agora com IA">
+              <button
+                type="button"
+                disabled={isGenerating}
+                onClick={() => onGenerateNow("daily")}
+                className="flex items-center gap-1 rounded-md border border-border bg-card/70 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:border-primary/40 disabled:opacity-50"
+              >
+                <RefreshCw className={cn("size-2.5", isGenerating && "animate-spin")} />
+                Gerar agora
+              </button>
+            </SystemTooltip>
+          ) : null}
+        </div>
         <p className="mt-0.5 text-xs text-foreground">Hoje, 18:00 BRT · Diário</p>
         <p className="text-[11px] text-muted-foreground">
           Cobertura {coverage.firstDate} → {coverage.lastDate}

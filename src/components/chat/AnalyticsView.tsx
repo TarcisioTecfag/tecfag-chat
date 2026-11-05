@@ -820,7 +820,7 @@ export function AnalyticsView() {
 
       {/* Tab Content */}
       {activeTab === "reports" ? (
-        <ReportsIATab tenant={tenant} />
+        <ReportsIATab tenant={tenant} refreshTrigger={lastRefresh.getTime()} />
       ) : (
         <div className="flex-1 overflow-y-auto md:overflow-hidden px-3 md:px-5 py-4 flex flex-col">
           {activeTab === "overview" && (

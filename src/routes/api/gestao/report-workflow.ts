@@ -3,6 +3,7 @@ import { db } from "../../../db";
 import { aiReports, aiReportVersions, aiReportFeedback } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
+import { getAiPersona } from "../../../lib/ai-persona";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,7 +11,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-// Helper para geração de IDs únicos
 const generateId = (prefix: string) => {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 };
@@ -19,9 +19,41 @@ const stageOrder = ["rascunho", "revisao", "aprovado", "enviado"];
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const nowStr = () => {
-  const d = new Date();
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(new Date());
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  const h = map.hour === "24" ? "00" : map.hour;
+  return `${map.day}/${map.month}/${map.year}, ${h}:${map.minute}`;
 };
+
+function getBrtTodayStr(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function getWeekString(d: Date) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
 
 export const Route = createFileRoute("/api/gestao/report-workflow")({
   server: {
@@ -39,13 +71,17 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
           session.permissions?.analytics?.canAccessAiReports === true;
         if (!canAccess) {
           return new Response(
-            JSON.stringify({ error: "Permissão insuficiente para alterar o workflow de relatórios de IA.", code: "FORBIDDEN" }),
-            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({
+              error: "Permissão insuficiente para alterar o workflow de relatórios de IA.",
+              code: "FORBIDDEN",
+            }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
           );
         }
 
         const actorId = session.operator.id;
         const actorLabel = session.operator.name || session.operator.id || "Operador";
+        const persona = getAiPersona(tenantId);
 
         try {
           const body = await request.json();
@@ -54,12 +90,129 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
           if (bodyTenantId && bodyTenantId !== tenantId) {
             return new Response(
               JSON.stringify({ error: "Acesso negado ao tenant especificado.", code: "FORBIDDEN" }),
-              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
             );
           }
 
-          if (!reportId || !action) {
-            return new Response(JSON.stringify({ error: "reportId e action são obrigatórios" }), {
+          if (!action) {
+            return new Response(JSON.stringify({ error: "action é obrigatório" }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          // ==========================================
+          // ACTION: GENERATE (geração sob demanda / atualização com IA)
+          // ==========================================
+          if (action === "generate") {
+            const { buildStoredReport } = await import("../../../lib/report-builder");
+            const reqType: "daily" | "weekly" = body.type === "weekly" ? "weekly" : "daily";
+            const now = new Date();
+            const targetPeriod: string =
+              body.period ||
+              (reqType === "weekly" ? getWeekString(now) : getBrtTodayStr());
+
+            const existing = await db.query.aiReports.findFirst({
+              where: and(
+                eq(aiReports.tenantId, tenantId),
+                eq(aiReports.type, reqType),
+                eq(aiReports.period, targetPeriod),
+              ),
+            });
+
+            const { storedReport, markdown } = await buildStoredReport(
+              tenantId,
+              reqType,
+              targetPeriod,
+              now,
+            );
+
+            if (existing) {
+              const nextVerNum =
+                (parseInt(String(existing.currentVersion || "v1").replace(/\D/g, ""), 10) || 1) + 1;
+              const newVersion = `v${nextVerNum}`;
+              const updatedData = {
+                ...storedReport,
+                id: existing.id,
+                currentVersion: newVersion,
+                stage: "rascunho" as const,
+              };
+
+              await db
+                .update(aiReports)
+                .set({
+                  reportData: updatedData as any,
+                  reportMarkdown: markdown,
+                  headline: storedReport.headline,
+                  summary: storedReport.summary,
+                  confidence: storedReport.confidence,
+                  currentVersion: newVersion,
+                  stage: "rascunho",
+                  generatedAt: now,
+                })
+                .where(and(eq(aiReports.tenantId, tenantId), eq(aiReports.id, existing.id)));
+
+              await db.insert(aiReportVersions).values({
+                id: generateId("rev-gen"),
+                reportId: existing.id,
+                tenantId,
+                version: newVersion,
+                createdAt: nowStr(),
+                author: `${persona.name} · solicitada por ${actorLabel}`,
+                note: `Síntese atualizada sob demanda com dados em tempo real.`,
+                stage: "rascunho",
+                reportData: updatedData as any,
+              });
+
+              return new Response(
+                JSON.stringify({
+                  success: true,
+                  reportId: existing.id,
+                  version: newVersion,
+                }),
+                { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            } else {
+              await db.insert(aiReports).values({
+                id: storedReport.id,
+                tenantId,
+                type: reqType,
+                period: targetPeriod,
+                reportMarkdown: markdown,
+                reportData: storedReport as any,
+                stage: "rascunho",
+                currentVersion: "v1",
+                headline: storedReport.headline,
+                summary: storedReport.summary,
+                confidence: storedReport.confidence,
+                generatedAt: now,
+              });
+
+              await db.insert(aiReportVersions).values({
+                id: generateId("rev-gen"),
+                reportId: storedReport.id,
+                tenantId,
+                version: "v1",
+                createdAt: nowStr(),
+                author: `${persona.name} · solicitada por ${actorLabel}`,
+                note: "Primeira síntese compilada sob demanda.",
+                stage: "rascunho",
+                reportData: storedReport as any,
+              });
+
+              return new Response(
+                JSON.stringify({
+                  success: true,
+                  reportId: storedReport.id,
+                  version: "v1",
+                }),
+                { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+          }
+
+          if (!reportId) {
+            return new Response(JSON.stringify({ error: "reportId é obrigatório" }), {
               status: 400,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -70,7 +223,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
           // ==========================================
           if (action === "advance-stage") {
             const { note } = body;
-            
+
             const [report] = await db
               .select()
               .from(aiReports)
@@ -93,11 +246,24 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
             }
 
             const nextStage = stageOrder[currentIndex + 1];
+            const stamp = nowStr();
+
+            const updatedReportData = report.reportData
+              ? {
+                  ...(report.reportData as any),
+                  stage: nextStage,
+                  review: Array.isArray((report.reportData as any).review)
+                    ? (report.reportData as any).review.map((step: any) =>
+                        step.stage === nextStage ? { ...step, name: actorLabel, at: stamp } : step,
+                      )
+                    : [],
+                }
+              : report.reportData;
 
             await db.transaction(async (tx) => {
               await tx
                 .update(aiReports)
-                .set({ stage: nextStage })
+                .set({ stage: nextStage, reportData: updatedReportData })
                 .where(and(eq(aiReports.tenantId, tenantId), eq(aiReports.id, reportId)));
 
               await tx.insert(aiReportVersions).values({
@@ -105,11 +271,11 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                 reportId,
                 tenantId,
                 version: report.currentVersion,
-                createdAt: nowStr(),
+                createdAt: stamp,
                 author: actorLabel,
                 note: note || `Avanço para ${nextStage}`,
                 stage: nextStage,
-                reportData: report.reportData
+                reportData: updatedReportData,
               });
             });
 
@@ -138,78 +304,66 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
             }
 
             const rejectStage = "rascunho";
+            const nextVerNum =
+              (parseInt(String(report.currentVersion || "v1").replace(/\D/g, ""), 10) || 1) + 1;
+            const newVersion = `v${nextVerNum}`;
 
-            // 1. Marca como rascunho e loga a rejeição
+            const { buildStoredReport } = await import("../../../lib/report-builder");
+            const { storedReport: newReport, markdown: newMarkdown } = await buildStoredReport(
+              tenantId,
+              report.type as "daily" | "weekly",
+              report.period,
+              report.generatedAt ?? new Date(),
+            );
+
+            const stamp = nowStr();
+            const updatedData = {
+              ...newReport,
+              id: reportId,
+              currentVersion: newVersion,
+              stage: rejectStage as "rascunho",
+            };
+
             await db.transaction(async (tx) => {
               await tx
                 .update(aiReports)
-                .set({ stage: rejectStage })
+                .set({
+                  reportData: updatedData as any,
+                  reportMarkdown: newMarkdown,
+                  headline: newReport.headline,
+                  summary: newReport.summary,
+                  confidence: newReport.confidence,
+                  currentVersion: newVersion,
+                  stage: rejectStage,
+                })
                 .where(and(eq(aiReports.tenantId, tenantId), eq(aiReports.id, reportId)));
 
               await tx.insert(aiReportVersions).values({
-                id: generateId("rev"),
+                id: generateId("rev-resynth"),
                 reportId,
                 tenantId,
-                version: report.currentVersion,
-                createdAt: nowStr(),
-                author: actorLabel,
-                note: note || "Rejeitado e retornado para rascunho — re-síntese IA iniciada.",
+                version: newVersion,
+                createdAt: stamp,
+                author: `${persona.name} · re-síntese solicitada por ${actorLabel}`,
+                note:
+                  note ||
+                  "Nova síntese gerada automaticamente após devolução para ajustes com feedback incorporado.",
                 stage: rejectStage,
-                reportData: report.reportData
+                reportData: updatedData as any,
               });
             });
 
-            // 2. Dispara re-síntese da IA em background (não bloqueia a resposta)
-            const doResynth = async () => {
-              try {
-                const { buildStoredReport, buildMarkdownFromStoredReport } = await import("../../../lib/report-builder");
-                const now = new Date();
-
-                const newVersion = `v${(parseInt(report.currentVersion.replace("v", "")) || 1) + 1}`;
-                const { storedReport: newReport, markdown: newMarkdown } = await buildStoredReport(
-                  tenantId,
-                  report.type as "daily" | "weekly",
-                  report.period,
-                  now
-                );
-
-                await db
-                  .update(aiReports)
-                  .set({
-                    reportData: { ...newReport, id: reportId } as any,
-                    reportMarkdown: newMarkdown,
-                    headline: newReport.headline,
-                    summary: newReport.summary,
-                    confidence: newReport.confidence,
-                    currentVersion: newVersion,
-                    stage: "rascunho",
-                  })
-                  .where(and(eq(aiReports.tenantId, tenantId), eq(aiReports.id, reportId)));
-
-                await db.insert(aiReportVersions).values({
-                  id: generateId("rev-resynth"),
-                  reportId,
-                  tenantId,
-                  version: newVersion,
-                  createdAt: nowStr(),
-                  author: "IA · re-síntese pós-rejeição",
-                  note: `Nova síntese gerada automaticamente após rejeição. Feedback dos operadores incorporado.`,
-                  stage: "rascunho",
-                  reportData: { ...newReport, id: reportId } as any,
-                });
-
-                console.log(`[report-workflow] ✓ Re-síntese ${newVersion} concluída para ${reportId}`);
-              } catch (e: any) {
-                console.error(`[report-workflow] Erro na re-síntese de ${reportId}:`, e.message);
-              }
-            };
-
-            // Fire-and-forget (sem await)
-            doResynth();
-
-            return new Response(JSON.stringify({ success: true, stage: rejectStage, resynthesize: true }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({
+                success: true,
+                stage: rejectStage,
+                version: newVersion,
+                resynthesize: true,
+              }),
+              {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
           }
 
           // ==========================================
@@ -229,10 +383,12 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
               });
             }
 
-            if (report.stage !== "aprovado") {
+            if (report.stage !== "aprovado" && report.stage !== "enviado") {
               return new Response(
-                JSON.stringify({ error: "Relatório deve estar aprovado antes de ser enviado à diretoria" }),
-                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                JSON.stringify({
+                  error: "Relatório deve estar aprovado antes de ser enviado à diretoria",
+                }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
               );
             }
 
@@ -246,12 +402,15 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
               });
             }
 
-            // Dispara envio via ReportDispatcher
             const { ReportDispatcher } = await import("../../../lib/report-dispatcher");
-            const dispatchResult = await ReportDispatcher.dispatch(tenantId, storedReport, markdownReport);
+            const dispatchResult = await ReportDispatcher.dispatch(
+              tenantId,
+              storedReport,
+              markdownReport,
+              { forceManual: true },
+            );
 
-            // Marca como enviado
-            await ReportDispatcher.markAsEnviado(reportId, tenantId, actorId);
+            await ReportDispatcher.markAsEnviado(reportId, tenantId, actorLabel);
 
             return new Response(
               JSON.stringify({
@@ -264,7 +423,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                   skipped: dispatchResult.skipped,
                 },
               }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
             );
           }
 
@@ -290,8 +449,8 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                   eq(aiReportFeedback.reportId, reportId),
                   eq(aiReportFeedback.version, version),
                   eq(aiReportFeedback.sectionId, sectionId),
-                  eq(aiReportFeedback.operatorId, actorId)
-                )
+                  eq(aiReportFeedback.operatorId, actorId),
+                ),
               )
               .limit(1);
 
@@ -302,8 +461,8 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                 .where(
                   and(
                     eq(aiReportFeedback.tenantId, tenantId),
-                    eq(aiReportFeedback.id, existingFeedback[0].id)
-                  )
+                    eq(aiReportFeedback.id, existingFeedback[0].id),
+                  ),
                 );
             } else {
               await db.insert(aiReportFeedback).values({
@@ -314,7 +473,7 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
                 sectionId,
                 vote,
                 comment,
-                operatorId: actorId
+                operatorId: actorId,
               });
             }
 
@@ -328,10 +487,10 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
           // ==========================================
           if (action === "get-feedback") {
             const { version } = body;
-            
+
             let queryConditions = and(
               eq(aiReportFeedback.tenantId, tenantId),
-              eq(aiReportFeedback.reportId, reportId)
+              eq(aiReportFeedback.reportId, reportId),
             );
 
             if (version) {
@@ -352,7 +511,6 @@ export const Route = createFileRoute("/api/gestao/report-workflow")({
             status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
-
         } catch (e: any) {
           console.error("[gestao/report-workflow] Erro POST:", e);
           return new Response(JSON.stringify({ error: "Erro interno", details: e.message }), {

@@ -1,5 +1,5 @@
 export function VolumeChart({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(...data.map((d) => d.value));
+  const max = Math.max(1, ...data.map((d) => d.value));
 
   return (
     <div className="flex items-end gap-2">

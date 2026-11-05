@@ -53,6 +53,7 @@ export type ReportVersion = {
   author: string;
   note: string;
   stage: ApprovalStage;
+  reportData?: Record<string, any> | null;
 };
 
 export type ReviewStep = {
@@ -99,6 +100,12 @@ export type StoredReport = Report & {
   kpis: ReportKpis;
   themes: string[];
   feedbackSummary: { up: number; down: number; comments: number };
+  userFeedback?: {
+    version: string;
+    sectionId: string;
+    vote: "up" | "down" | null;
+    comment: string;
+  }[];
 };
 
 export type TrendKey = "sla" | "volume" | "frt" | "qa" | "satisfied";
@@ -212,7 +219,6 @@ const monthNames = [
 ];
 
 export function groupLabel(dateIso: string): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
   const [y, m, d] = dateIso.split("-").map(Number);
   const date = new Date(y, m - 1, d);
   const today = new Date();
@@ -252,7 +258,11 @@ export function trendSeries(key: TrendKey, days = 100) {
  * Média de um KPI num slice dos dailyReports. Assinatura IDÊNTICA ao original.
  */
 export function periodAverage(key: TrendKey, from: number, to: number) {
-  const slice = dailyReports.slice(from, to);
+  let slice = dailyReports.slice(from, to);
+  if (!slice.length && from > 0 && dailyReports.length >= 2) {
+    const mid = Math.max(1, Math.floor(dailyReports.length / 2));
+    slice = dailyReports.slice(mid);
+  }
   if (!slice.length) return 0;
   return slice.reduce((sum, r) => sum + r.kpis[key], 0) / slice.length;
 }

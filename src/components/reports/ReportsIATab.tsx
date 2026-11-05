@@ -6,9 +6,6 @@
  * 1. Busca StoredReport[] da API /api/gestao/reports-v2
  * 2. Popula o store reativo em @/data/reports via loadReports()
  * 3. Renderiza a mesma árvore de componentes do insight-navigator original
- *
- * ZERO alterações nos componentes reports/ — eles importam de @/data/reports
- * exatamente como no projeto original.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -21,9 +18,11 @@ import {
   TrendingUp,
   Check,
   X,
+  Copy,
+  RefreshCw,
 } from "lucide-react";
 
-import { loadReports, previousOf, reports, stageMeta } from "@/data/reports";
+import { loadReports, previousOf, stageMeta } from "@/data/reports";
 import type { ApprovalStage, StoredReport } from "@/data/reports";
 import { OverviewPanel } from "@/components/reports/OverviewPanel";
 import { CompareView } from "@/components/reports/CompareView";
@@ -37,15 +36,47 @@ import { VersionHistory } from "@/components/reports/VersionHistory";
 import { SectionFeedback } from "@/components/reports/SectionFeedback";
 import type { FeedbackValue } from "@/components/reports/SectionFeedback";
 import { signalStyles } from "@/components/reports/signal";
+import { SystemTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { getAiPersona } from "@/lib/ai-persona";
 import { cn } from "@/lib/utils";
 
-export function ReportsIATab({ tenant }: { tenant: string }) {
+export function ReportsIATab({
+  tenant,
+  refreshTrigger = 0,
+}: {
+  tenant: string;
+  refreshTrigger?: number;
+}) {
   const activeTenant = tenant && tenant !== "undefined" && tenant !== "null" ? tenant : "valem";
+  const persona = getAiPersona(activeTenant);
+
+  const [reportList, setReportList] = useState<StoredReport[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [isSynthing, setIsSynthing] = useState(false);
+
+  // Estado local (idêntico ao index.tsx do insight-navigator)
+  const [activeId, setActiveId] = useState("");
+  const [mode, setMode] = useState<"panorama" | "relatorio" | "comparar">("panorama");
+  const [stages, setStages] = useState<Record<string, ApprovalStage>>({});
+  const [versionByReport, setVersionByReport] = useState<Record<string, string>>({});
+  const [feedback, setFeedback] = useState<Record<string, FeedbackValue>>({});
+
+  // Estado do popover "Agendar no WhatsApp"
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [copiedWa, setCopiedWa] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({
+    reportDailyWhatsapp: false,
+    reportWeeklyWhatsapp: false,
+    reportWhatsappNumbers: "",
+    reportRequiresApproval: false,
+  });
+  const [fullReportSettings, setFullReportSettings] = useState<Record<string, any>>({});
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleSavedMsg, setScheduleSavedMsg] = useState<string | null>(null);
 
   // ── Fetch de dados da API ──
   const fetchReports = useCallback(async () => {
@@ -54,61 +85,172 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: StoredReport[] = await res.json();
       loadReports(data);
+      setReportList(data);
+
+      // Hidrata feedback salvo no banco
+      const hydratedFeedback: Record<string, FeedbackValue> = {};
+      for (const r of data) {
+        if (Array.isArray(r.userFeedback)) {
+          for (const fb of r.userFeedback) {
+            hydratedFeedback[`${r.id}:${fb.version}:${fb.sectionId}`] = {
+              vote: fb.vote,
+              comment: fb.comment ?? "",
+            };
+          }
+        }
+      }
+      setFeedback((prev) => ({ ...hydratedFeedback, ...prev }));
+
       setLoaded(true);
       setError(null);
     } catch (e: any) {
       console.error("[ReportsIATab] Erro ao carregar relatórios:", e);
       setError(e.message);
       loadReports([]);
+      setReportList([]);
       setLoaded(true);
     }
   }, [activeTenant]);
 
   useEffect(() => {
     fetchReports();
-  }, [fetchReports]);
+  }, [fetchReports, refreshTrigger]);
 
-  // ── Estado local (idêntico ao index.tsx do insight-navigator) ──
-  const [activeId, setActiveId] = useState("");
-  const [mode, setMode] = useState<"panorama" | "relatorio" | "comparar">("panorama");
-  const [stages, setStages] = useState<Record<string, ApprovalStage>>({});
-  const [versionByReport, setVersionByReport] = useState<Record<string, string>>({});
-  const [feedback, setFeedback] = useState<Record<string, FeedbackValue>>({});
+  // Carrega configurações de envio para o Popover "Agendar no WhatsApp"
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const res = await fetch(`/api/settings/reports?tenantId=${activeTenant}`);
+        if (res.ok) {
+          const data = await res.json();
+          setFullReportSettings(data);
+          setScheduleForm({
+            reportDailyWhatsapp: Boolean(data.reportDailyWhatsapp),
+            reportWeeklyWhatsapp: Boolean(data.reportWeeklyWhatsapp),
+            reportWhatsappNumbers: data.reportWhatsappNumbers || "",
+            reportRequiresApproval: Boolean(data.reportRequiresApproval),
+          });
+        }
+      } catch {}
+    };
+    loadSettings();
+  }, [activeTenant]);
 
   // Sincroniza estado quando os dados carregam
   useEffect(() => {
-    if (loaded && reports.length > 0) {
-      if (!activeId || !reports.find((r) => r.id === activeId)) {
-        setActiveId(reports[0].id);
+    if (loaded && reportList.length > 0) {
+      if (!activeId || !reportList.find((r) => r.id === activeId)) {
+        setActiveId(reportList[0].id);
       }
       setStages((prev) => {
         const next = { ...prev };
-        for (const r of reports) {
-          if (!(r.id in next)) next[r.id] = r.stage;
+        for (const r of reportList) {
+          next[r.id] = r.stage;
         }
         return next;
       });
       setVersionByReport((prev) => {
         const next = { ...prev };
-        for (const r of reports) {
+        for (const r of reportList) {
           if (!(r.id in next)) next[r.id] = r.currentVersion;
         }
         return next;
       });
     }
-  }, [loaded, reports.length]); // eslint-disable-line
+  }, [loaded, reportList, activeId]);
 
-  const report = reports.find((r) => r.id === activeId) ?? reports[0];
+  const baseReport = reportList.find((r) => r.id === activeId) ?? reportList[0];
+  const activeVersion = baseReport
+    ? (versionByReport[baseReport.id] ?? baseReport.currentVersion)
+    : "v1";
+
+  // Se o usuário selecionou uma versão específica no VersionHistory e ela possui snapshot reportData, exibe o snapshot
+  const report = useMemo(() => {
+    if (!baseReport) return undefined;
+    const versionEntry = baseReport.versions.find((v) => v.version === activeVersion);
+    if (versionEntry?.reportData && typeof versionEntry.reportData === "object") {
+      const snap = versionEntry.reportData as Partial<StoredReport>;
+      return {
+        ...baseReport,
+        headline: snap.headline ?? baseReport.headline,
+        summary: snap.summary ?? baseReport.summary,
+        confidence: snap.confidence ?? baseReport.confidence,
+        metrics: Array.isArray(snap.metrics) && snap.metrics.length > 0 ? snap.metrics : baseReport.metrics,
+        sentiment: Array.isArray(snap.sentiment) && snap.sentiment.length > 0 ? snap.sentiment : baseReport.sentiment,
+        volumeSeries:
+          Array.isArray(snap.volumeSeries) && snap.volumeSeries.length > 0
+            ? snap.volumeSeries
+            : baseReport.volumeSeries,
+        highlights: Array.isArray(snap.highlights) ? snap.highlights : baseReport.highlights,
+        gaps: Array.isArray(snap.gaps) ? snap.gaps : baseReport.gaps,
+        actions: Array.isArray(snap.actions) ? snap.actions : baseReport.actions,
+        sources: Array.isArray(snap.sources) && snap.sources.length > 0 ? snap.sources : baseReport.sources,
+      };
+    }
+    return baseReport;
+  }, [baseReport, activeVersion]);
 
   // ── Workflow de aprovação (chama API) ──
   const stage = report ? (stages[report.id] ?? report.stage) : "rascunho";
-  const activeVersion = report ? (versionByReport[report.id] ?? report.currentVersion) : "v1";
   const stageIndexMap: ApprovalStage[] = ["rascunho", "revisao", "aprovado", "enviado"];
 
-  const setStage = (next: ApprovalStage) =>
+  const setStage = (next: ApprovalStage) => {
+    if (!report) return;
     setStages((prev) => ({ ...prev, [report.id]: next }));
+  };
+
+  // Disparo manual à diretoria
+  const dispatch = async () => {
+    if (!report || isSending) return;
+    setIsSending(true);
+    setSendResult(null);
+    try {
+      const res = await fetch("/api/gestao/report-workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: activeTenant,
+          reportId: report.id,
+          action: "dispatch",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStage("enviado");
+        const sent = [
+          ...(data.dispatch?.whatsappSent ?? []).map((n: string) => `WhatsApp: ${n}`),
+          ...(data.dispatch?.emailSent ?? []).map((e: string) => `E-mail: ${e}`),
+        ];
+        const errs: string[] = data.dispatch?.errors ?? [];
+        setSendResult({
+          ok: true,
+          msg:
+            sent.length > 0
+              ? `Enviado para: ${sent.join(", ")}`
+              : errs.length > 0
+                ? `Marcado como enviado (Aviso: ${errs[0]})`
+                : "Relatório marcado como enviado à diretoria.",
+        });
+        await fetchReports();
+      } else {
+        setSendResult({ ok: false, msg: data.error || "Erro ao enviar" });
+      }
+    } catch (e: any) {
+      setSendResult({ ok: false, msg: e.message || "Erro de rede" });
+      console.error("[ReportsIATab] Erro no dispatch:", e);
+    } finally {
+      setIsSending(false);
+      setTimeout(() => setSendResult(null), 6000);
+    }
+  };
 
   const advance = async () => {
+    if (!report) return;
+    // Se já está aprovado, clicar em "Enviar à diretoria" no ApprovalPanel executa o dispatch real
+    if (stage === "aprovado") {
+      await dispatch();
+      return;
+    }
     const i = stageIndexMap.indexOf(stage);
     if (i < stageIndexMap.length - 1) {
       const nextStage = stageIndexMap[i + 1];
@@ -121,9 +263,9 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
             tenantId: activeTenant,
             reportId: report.id,
             action: "advance-stage",
-            operatorId: "system",
           }),
         });
+        await fetchReports();
       } catch (e) {
         console.error("[ReportsIATab] Erro ao avançar stage:", e);
       }
@@ -131,34 +273,9 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
   };
 
   const reject = async () => {
+    if (!report || isSynthing) return;
     setStage("rascunho");
     setIsSynthing(true);
-    setSendResult(null);
-    try {
-      await fetch("/api/gestao/report-workflow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId: activeTenant,
-          reportId: report.id,
-          action: "reject",
-          operatorId: "system",
-        }),
-      });
-    } catch (e) {
-      console.error("[ReportsIATab] Erro ao rejeitar:", e);
-    }
-    // Aguarda ~12s e recarrega para mostrar a nova versão re-sintetizada
-    setTimeout(async () => {
-      await fetchReports();
-      setIsSynthing(false);
-    }, 12000);
-  };
-
-  // Disparo manual à diretoria (Lacuna 1)
-  const dispatch = async () => {
-    if (!report || stage !== "aprovado" || isSending) return;
-    setIsSending(true);
     setSendResult(null);
     try {
       const res = await fetch("/api/gestao/report-workflow", {
@@ -167,36 +284,202 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
         body: JSON.stringify({
           tenantId: activeTenant,
           reportId: report.id,
-          action: "dispatch",
-          operatorId: "system",
+          action: "reject",
         }),
       });
       const data = await res.json();
-      if (data.success) {
-        setStage("enviado");
-        const sent = [
-          ...(data.dispatch?.whatsappSent ?? []).map((n: string) => `WhatsApp: ${n}`),
-          ...(data.dispatch?.emailSent ?? []).map((e: string) => `E-mail: ${e}`),
-        ];
-        setSendResult({
-          ok: true,
-          msg: sent.length > 0
-            ? `Enviado para: ${sent.join(", ")}`
-            : "Enviado! Verifique os canais configurados.",
-        });
-      } else {
-        setSendResult({ ok: false, msg: data.error || "Erro ao enviar" });
+      await fetchReports();
+      if (data?.version) {
+        setVersionByReport((prev) => ({ ...prev, [report.id]: data.version }));
       }
-    } catch (e: any) {
-      setSendResult({ ok: false, msg: e.message || "Erro de rede" });
-      console.error("[ReportsIATab] Erro no dispatch:", e);
+    } catch (e) {
+      console.error("[ReportsIATab] Erro ao rejeitar:", e);
     } finally {
-      setIsSending(false);
-      // Limpa o toast após 6s
-      setTimeout(() => setSendResult(null), 6000);
+      setIsSynthing(false);
     }
   };
 
+  // Geração / Atualização sob demanda
+  const generateNow = async (type: "daily" | "weekly" = "daily", period?: string) => {
+    if (isSynthing) return;
+    setIsSynthing(true);
+    setSendResult(null);
+    try {
+      const res = await fetch("/api/gestao/report-workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: activeTenant,
+          action: "generate",
+          type,
+          period,
+        }),
+      });
+      const data = await res.json();
+      await fetchReports();
+      if (data?.reportId) {
+        setActiveId(data.reportId);
+        if (data?.version) {
+          setVersionByReport((prev) => ({ ...prev, [data.reportId]: data.version }));
+        }
+        setSendResult({
+          ok: true,
+          msg: `Relatório ${data.version ?? "v1"} sincronizado com sucesso via IA.`,
+        });
+        setTimeout(() => setSendResult(null), 5000);
+      }
+    } catch (e: any) {
+      setSendResult({ ok: false, msg: e.message || "Falha ao sincronizar relatório." });
+    } finally {
+      setIsSynthing(false);
+    }
+  };
+
+  // Exportação executiva em PDF (Impressão formatada A4)
+  const exportPdf = () => {
+    if (!report) return;
+    const printWin = window.open("", "_blank", "width=960,height=800");
+    if (!printWin) return;
+
+    const metricsHtml = report.metrics
+      .map(
+        (m) => `
+        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+          <div style="font-size:10px;text-transform:uppercase;color:#64748b;letter-spacing:0.08em;">${m.label}</div>
+          <div style="font-size:22px;font-weight:700;color:#0f172a;margin-top:4px;">${m.value}${m.unit ?? ""}</div>
+          <div style="font-size:11px;color:#475569;margin-top:4px;">${m.delta !== undefined ? `${m.delta >= 0 ? "+" : ""}${m.delta}% ` : ""}${m.deltaLabel ?? m.target ?? ""}</div>
+        </div>`,
+      )
+      .join("");
+
+    const listHtml = (items: typeof report.highlights) =>
+      items
+        .map(
+          (f) => `
+          <div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:8px;">
+            <div style="font-size:13px;font-weight:700;color:#0f172a;">${f.title} <span style="font-size:10px;color:#64748b;text-transform:uppercase;">[${f.tag}]</span></div>
+            <div style="font-size:12px;color:#334155;margin-top:4px;line-height:1.5;">${f.detail}</div>
+            ${f.impact ? `<div style="font-size:11px;font-weight:600;color:#0f172a;margin-top:6px;">Impacto: ${f.impact}</div>` : ""}
+          </div>`,
+        )
+        .join("");
+
+    const actionsHtml = report.actions
+      .map(
+        (a, i) => `
+        <div style="border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-bottom:8px;background:#f8fafc;">
+          <div style="font-size:13px;font-weight:700;color:#0f172a;">0${i + 1}. ${a.title} (${a.priority})</div>
+          <div style="font-size:12px;color:#334155;margin-top:4px;line-height:1.5;">${a.detail}</div>
+          <div style="font-size:11px;color:#475569;margin-top:6px;"><strong>Responsável:</strong> ${a.owner} · <strong>Prazo:</strong> ${a.horizon} · <strong>Resultado esperado:</strong> ${a.expected}</div>
+        </div>`,
+      )
+      .join("");
+
+    printWin.document.write(`
+      <!doctype html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <title>${persona.company} — Relatório ${report.kind} (${report.code})</title>
+          <style>
+            body { font-family: system-ui, -apple-system, sans-serif; color: #0f172a; padding: 32px; max-width: 840px; margin: 0 auto; }
+            @media print { body { padding: 12px; } }
+          </style>
+        </head>
+        <body>
+          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:20px;">
+            <div>
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;">${persona.company} · Relatório ${report.kind} (${report.code})</div>
+              <h1 style="font-size:20px;margin:4px 0 0 0;">${report.headline}</h1>
+            </div>
+            <div style="text-align:right;font-size:11px;color:#64748b;">
+              <div>Período: ${report.period}</div>
+              <div>Versão: ${activeVersion} · Confiança: ${report.confidence}%</div>
+            </div>
+          </div>
+          <p style="font-size:13px;line-height:1.6;color:#334155;margin-bottom:20px;">${report.summary}</p>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px;">
+            ${metricsHtml}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+            <div>
+              <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:0.1em;color:#16a34a;margin-bottom:8px;">Destaques Positivos</h3>
+              ${listHtml(report.highlights)}
+            </div>
+            <div>
+              <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:0.1em;color:#d97706;margin-bottom:8px;">Oportunidades de Melhoria</h3>
+              ${listHtml(report.gaps)}
+            </div>
+          </div>
+          <div>
+            <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:0.1em;color:#0f172a;margin-bottom:8px;">Plano de Ação Recomendado pela IA (${persona.name})</h3>
+            ${actionsHtml}
+          </div>
+          <script>
+            window.onload = function() { setTimeout(function() { window.print(); }, 250); };
+          </script>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
+  };
+
+  // Copiar resumo formatado para WhatsApp
+  const copyWhatsAppSummary = async () => {
+    if (!report) return;
+    const text =
+      `*${persona.company.toUpperCase()} — RELATÓRIO ${report.kind.toUpperCase()} (${report.code})*\n` +
+      `Período: ${report.period}\n\n` +
+      `*${report.headline}*\n${report.summary}\n\n` +
+      `*Indicadores:*\n` +
+      report.metrics.map((m) => `• ${m.label}: *${m.value}${m.unit ?? ""}*`).join("\n") +
+      (report.highlights.length > 0
+        ? `\n\n*Destaques:*\n` + report.highlights.map((h) => `• ${h.title}: ${h.detail}`).join("\n")
+        : "") +
+      (report.actions.length > 0
+        ? `\n\n*Plano de Ação:*\n` +
+          report.actions.map((a) => `• ${a.title} (${a.owner} · ${a.horizon})`).join("\n")
+        : "");
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedWa(true);
+      setTimeout(() => setCopiedWa(false), 2500);
+    } catch {}
+  };
+
+  const saveScheduleSettings = async () => {
+    setSavingSchedule(true);
+    setScheduleSavedMsg(null);
+    try {
+      const res = await fetch("/api/settings/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...fullReportSettings,
+          tenantId: activeTenant,
+          reportDailyWhatsapp: scheduleForm.reportDailyWhatsapp,
+          reportWeeklyWhatsapp: scheduleForm.reportWeeklyWhatsapp,
+          reportWhatsappNumbers: scheduleForm.reportWhatsappNumbers,
+          reportRequiresApproval: scheduleForm.reportRequiresApproval,
+        }),
+      });
+      if (res.ok) {
+        setScheduleSavedMsg("Agendamento salvo!");
+        setTimeout(() => {
+          setScheduleSavedMsg(null);
+          setScheduleOpen(false);
+        }, 1500);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setScheduleSavedMsg(err.error || "Apenas admins podem salvar.");
+      }
+    } catch {
+      setScheduleSavedMsg("Erro ao salvar agendamento.");
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
 
   // ── Feedback por seção ──
   const feedbackKey = (section: string) => `${report?.id}:${activeVersion}:${section}`;
@@ -204,7 +487,6 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
     feedback[feedbackKey(section)] ?? { vote: null, comment: "" };
   const setSectionFeedback = (key: string, next: FeedbackValue) => {
     setFeedback((prev) => ({ ...prev, [key]: next }));
-    // Persiste via API em background
     const parts = key.split(":");
     fetch("/api/gestao/report-workflow", {
       method: "POST",
@@ -217,7 +499,6 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
         sectionId: parts[2],
         vote: next.vote,
         comment: next.comment,
-        operatorId: "system",
       }),
     }).catch((e) => console.error("[ReportsIATab] Erro ao salvar feedback:", e));
   };
@@ -240,8 +521,6 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
     onChange: setSectionFeedback,
   });
 
-  const canSend = stage === "aprovado" || stage === "enviado";
-
   // ── Loading / Empty / Error ──
   if (!loaded) {
     return (
@@ -254,7 +533,7 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
     );
   }
 
-  if (error && reports.length === 0) {
+  if (error && reportList.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center space-y-3">
@@ -270,7 +549,7 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
     );
   }
 
-  if (reports.length === 0) {
+  if (reportList.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center space-y-3 max-w-md">
@@ -278,8 +557,19 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
           <h3 className="text-lg font-semibold text-foreground">Nenhum relatório de IA gerado ainda</h3>
           <p className="text-sm text-muted-foreground">
             Os relatórios são compilados automaticamente todos os dias às 18h.
-            O primeiro relatório aparecerá aqui após o encerramento do expediente de hoje.
+            Você também pode compilar o relatório agora mesmo com um clique.
           </p>
+          <div className="pt-2 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              disabled={isSynthing}
+              onClick={() => generateNow("daily")}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              <RefreshCw className={cn("size-3.5", isSynthing && "animate-spin")} />
+              {isSynthing ? "Compilando relatório..." : "Gerar relatório de hoje agora"}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -293,7 +583,13 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
       <main className="grid items-start gap-5 p-4 lg:p-6 lg:grid-cols-[minmax(230px,250px)_minmax(0,1fr)] 2xl:grid-cols-[250px_minmax(0,1fr)_320px]">
           {/* ── Sidebar ── */}
           <div className="lg:sticky lg:top-4 space-y-4">
-            <ReportSidebar reports={reports} activeId={activeId} onSelect={setActiveId} />
+            <ReportSidebar
+              reports={reportList}
+              activeId={activeId}
+              onSelect={setActiveId}
+              onGenerateNow={(t) => generateNow(t)}
+              isGenerating={isSynthing}
+            />
             <div className="2xl:hidden space-y-4">
               <ApprovalPanel report={report} stage={stage} onAdvance={advance} onReject={reject} />
               <VersionHistory
@@ -327,7 +623,7 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
             {/* Panorama */}
             {mode === "panorama" && (
               <OverviewPanel
-                latest={reports[0]}
+                latest={reportList[0]}
                 onOpen={(id) => {
                   setActiveId(id);
                   setMode("relatorio");
@@ -358,10 +654,22 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
                   <span className="rounded-full border border-border bg-secondary/60 px-2.5 py-1 font-mono text-[10px] text-muted-foreground">
                     {activeVersion}
                   </span>
-                  <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Sparkles className="size-3.5 text-primary" />
-                    Sincronizado via IA em {report.syncedAt}
-                  </span>
+                  <SystemTooltip content="Clique para atualizar a síntese deste período agora com IA">
+                    <button
+                      type="button"
+                      disabled={isSynthing}
+                      onClick={() =>
+                        generateNow(
+                          report.kind === "Semanal" ? "weekly" : "daily",
+                          report.code,
+                        )
+                      }
+                      className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+                    >
+                      <Sparkles className={cn("size-3.5 text-primary", isSynthing && "animate-spin")} />
+                      Sincronizado via IA em {report.syncedAt}
+                    </button>
+                  </SystemTooltip>
                 </div>
 
                 <div className="mt-4 grid gap-5 xl:grid-cols-[1.4fr_1fr]">
@@ -403,30 +711,139 @@ export function ReportsIATab({ tenant }: { tenant: string }) {
                       {isSynthing && (
                         <div className="w-full rounded-lg px-3 py-2 text-xs font-medium mb-1 bg-primary/10 border border-primary/30 text-primary flex items-center gap-2">
                           <span className="size-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                          Re-sintetizando com IA... nova versão em instantes.
+                          Sincronizando síntese executiva com IA...
                         </div>
                       )}
-                      <button
-                        disabled={stage !== "aprovado" || isSending}
-                        onClick={dispatch}
-                        title={stage !== "aprovado" ? "Aprove o relatório antes de enviar" : "Enviar agora à diretoria"}
-                        className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                      <SystemTooltip
+                        content={
+                          stage !== "aprovado"
+                            ? "Aprove o relatório no fluxo ao lado antes de enviar"
+                            : "Enviar agora à diretoria via WhatsApp e E-mail"
+                        }
                       >
-                        {isSending ? (
-                          <><span className="size-4 rounded-full border-2 border-white border-t-transparent animate-spin" /> Enviando...</>
-                        ) : (
-                          <><Send className="size-4" /> Enviar à diretoria</>
-                        )}
-                      </button>
-                      <button className="flex items-center gap-2 rounded-lg border border-border bg-card/60 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/40">
+                        <button
+                          type="button"
+                          disabled={stage !== "aprovado" || isSending}
+                          onClick={dispatch}
+                          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {isSending ? (
+                            <><span className="size-4 rounded-full border-2 border-white border-t-transparent animate-spin" /> Enviando...</>
+                          ) : (
+                            <><Send className="size-4" /> Enviar à diretoria</>
+                          )}
+                        </button>
+                      </SystemTooltip>
+                      <button
+                        type="button"
+                        onClick={exportPdf}
+                        className="flex items-center gap-2 rounded-lg border border-border bg-card/60 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/40"
+                      >
                         <Download className="size-4" /> Exportar PDF
                       </button>
-                      <button
-                        disabled={!canSend}
-                        className="flex items-center gap-2 rounded-lg border border-border bg-card/60 px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <Bell className="size-4" /> Agendar no WhatsApp
-                      </button>
+
+                      <Popover open={scheduleOpen} onOpenChange={setScheduleOpen}>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex items-center gap-2 rounded-lg border border-border bg-card/60 px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                          >
+                            <Bell className="size-4" /> Agendar no WhatsApp
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-80 p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold text-foreground">
+                              Disparo & Agendamento WhatsApp
+                            </p>
+                            <button
+                              type="button"
+                              onClick={copyWhatsAppSummary}
+                              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-[11px] font-medium text-foreground hover:border-primary/40"
+                            >
+                              {copiedWa ? <Check className="size-3 text-positive" /> : <Copy className="size-3" />}
+                              {copiedWa ? "Copiado!" : "Copiar resumo"}
+                            </button>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-medium text-muted-foreground">
+                              Números da Diretoria (DDI + DDD + Número)
+                            </label>
+                            <input
+                              type="text"
+                              value={scheduleForm.reportWhatsappNumbers}
+                              onChange={(e) =>
+                                setScheduleForm((p) => ({
+                                  ...p,
+                                  reportWhatsappNumbers: e.target.value,
+                                }))
+                              }
+                              placeholder="Ex: 5514999998888, 5511988887777"
+                              className="w-full rounded-lg border border-border bg-background/60 px-2.5 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary/50"
+                            />
+                          </div>
+
+                          <div className="space-y-2 pt-1">
+                            <label className="flex items-center justify-between text-xs text-foreground cursor-pointer">
+                              <span>Relatório Diário (18:00 BRT)</span>
+                              <input
+                                type="checkbox"
+                                checked={scheduleForm.reportDailyWhatsapp}
+                                onChange={(e) =>
+                                  setScheduleForm((p) => ({
+                                    ...p,
+                                    reportDailyWhatsapp: e.target.checked,
+                                  }))
+                                }
+                                className="accent-primary"
+                              />
+                            </label>
+                            <label className="flex items-center justify-between text-xs text-foreground cursor-pointer">
+                              <span>Relatório Semanal (Sexta 18:00)</span>
+                              <input
+                                type="checkbox"
+                                checked={scheduleForm.reportWeeklyWhatsapp}
+                                onChange={(e) =>
+                                  setScheduleForm((p) => ({
+                                    ...p,
+                                    reportWeeklyWhatsapp: e.target.checked,
+                                  }))
+                                }
+                                className="accent-primary"
+                              />
+                            </label>
+                            <label className="flex items-center justify-between text-xs text-muted-foreground cursor-pointer">
+                              <span>Exigir aprovação antes do envio</span>
+                              <input
+                                type="checkbox"
+                                checked={scheduleForm.reportRequiresApproval}
+                                onChange={(e) =>
+                                  setScheduleForm((p) => ({
+                                    ...p,
+                                    reportRequiresApproval: e.target.checked,
+                                  }))
+                                }
+                                className="accent-primary"
+                              />
+                            </label>
+                          </div>
+
+                          {scheduleSavedMsg && (
+                            <p className="text-[11px] font-medium text-primary">{scheduleSavedMsg}</p>
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={savingSchedule}
+                            onClick={saveScheduleSettings}
+                            className="w-full rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                          >
+                            {savingSchedule ? "Salvando..." : "Salvar agendamento"}
+                          </button>
+                        </PopoverContent>
+                      </Popover>
+
                       <div className="ml-auto">
                         <SectionFeedback {...sectionProps("resumo", "Resumo executivo")} />
                       </div>

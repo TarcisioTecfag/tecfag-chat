@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, MessageSquare, ThumbsDown, ThumbsUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +17,10 @@ export function SectionFeedback({
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value.comment);
+
+  useEffect(() => {
+    setDraft(value.comment);
+  }, [value.comment, sectionId]);
 
   const vote = (v: "up" | "down") =>
     onChange(sectionId, { ...value, vote: value.vote === v ? null : v });
