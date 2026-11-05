@@ -342,12 +342,12 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <div className="flex flex-col gap-3 pt-2">
           <button
             onClick={() => {
-              if (missingAsset) {
+              if (typeof window !== "undefined") {
                 window.location.reload();
-              } else {
-                router.invalidate();
-                reset();
+                return;
               }
+              router.invalidate();
+              reset();
             }}
             className="w-full py-3.5 px-4 rounded-2xl bg-primary hover:bg-primary-hover text-primary-foreground font-black text-xs transition flex items-center justify-center gap-2 shadow-soft cursor-pointer"
           >
