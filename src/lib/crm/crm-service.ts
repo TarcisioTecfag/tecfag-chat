@@ -4851,6 +4851,7 @@ export class CrmService {
       deleteConversationIds?: string[];
       deleteContactIds?: string[];
       excludedDealIds?: string[];
+      onlyWithoutConversations?: boolean;
       taskData?: {
         title: string;
         type?: string;
@@ -4922,6 +4923,52 @@ export class CrmService {
       if (params.excludedDealIds && params.excludedDealIds.length > 0) {
         const excludedSet = new Set(params.excludedDealIds);
         foundDeals = foundDeals.filter((d) => !excludedSet.has(d.id));
+      }
+
+      let preservedWithConversationsCount = 0;
+      if (params.onlyWithoutConversations) {
+        const dealIdsToCheck = foundDeals.map((d) => d.id);
+        const dealsWithDirectConvs = await tx
+          .select({ dealId: crmConversationDeals.dealId })
+          .from(crmConversationDeals)
+          .where(
+            and(
+              eq(crmConversationDeals.tenantId, tenantId),
+              inArray(crmConversationDeals.dealId, dealIdsToCheck),
+              eq(crmConversationDeals.isActive, true)
+            )
+          );
+
+        const dealContactsWithConvs = await tx
+          .select({ dealId: crmDealContacts.dealId })
+          .from(crmDealContacts)
+          .innerJoin(
+            conversations,
+            and(
+              eq(conversations.tenantId, tenantId),
+              eq(conversations.contactId, crmDealContacts.contactId)
+            )
+          )
+          .where(
+            and(
+              eq(crmDealContacts.tenantId, tenantId),
+              inArray(crmDealContacts.dealId, dealIdsToCheck)
+            )
+          );
+
+        const dealsWithConvsSet = new Set([
+          ...dealsWithDirectConvs.map((d) => d.dealId),
+          ...dealContactsWithConvs.map((d) => d.dealId),
+        ]);
+
+        preservedWithConversationsCount = dealsWithConvsSet.size;
+        foundDeals = foundDeals.filter((d) => !dealsWithConvsSet.has(d.id));
+
+        if (foundDeals.length === 0) {
+          throw new CrmValidationError(
+            `Nenhuma negociação foi excluída: todas as ${dealIdsToCheck.length} negociações selecionadas possuem conversas ativas vinculadas.`
+          );
+        }
       }
 
       if (foundDeals.length === 0) {
@@ -5029,6 +5076,10 @@ export class CrmService {
             : deletedContactsCount > 0
               ? ` e ${deletedContactsCount} contato(s)/chat(s) excluído(s)`
               : "";
+        const preservedSuffix =
+          preservedWithConversationsCount > 0
+            ? ` (${preservedWithConversationsCount} com conversa foram preservadas)`
+            : "";
 
         return {
           success: true,
@@ -5036,7 +5087,8 @@ export class CrmService {
           dealIds: idsToDelete,
           deletedConversationsCount: conversationIdsToDelete.length,
           deletedContactsCount,
-          message: `${idsToDelete.length} negociação(ões)${convSuffix} permanentemente.`,
+          preservedCount: preservedWithConversationsCount,
+          message: `${idsToDelete.length} negociação(ões)${convSuffix} permanentemente${preservedSuffix}.`,
         };
       }
 
@@ -5088,11 +5140,17 @@ export class CrmService {
           allFiltered: !!params.allFiltered,
         });
 
+        const trashPreservedSuffix =
+          preservedWithConversationsCount > 0
+            ? ` (${preservedWithConversationsCount} com conversa foram preservadas)`
+            : "";
+
         return {
           success: true,
           updatedCount: idsToTrash.length,
           dealIds: idsToTrash,
-          message: `${idsToTrash.length} negociação(ões) enviada(s) para a lixeira.`,
+          preservedCount: preservedWithConversationsCount,
+          message: `${idsToTrash.length} negociação(ões) enviada(s) para a lixeira${trashPreservedSuffix}.`,
         };
       }
 

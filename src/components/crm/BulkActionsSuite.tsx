@@ -187,6 +187,7 @@ export function BulkActionsSuite({
   const [blockingDeals, setBlockingDeals] = useState<BlockingDealItem[]>([]);
   const [flaggedBlockingDealIds, setFlaggedBlockingDealIds] = useState<Set<string>>(new Set());
   const [flaggedConversationIds, setFlaggedConversationIds] = useState<Set<string>>(new Set());
+  const [deleteOnlyWithoutConversations, setDeleteOnlyWithoutConversations] = useState(false);
 
   const resetDeleteModalState = () => {
     setDeleteCountInput("");
@@ -194,6 +195,7 @@ export function BulkActionsSuite({
     setBlockingDeals([]);
     setFlaggedBlockingDealIds(new Set());
     setFlaggedConversationIds(new Set());
+    setDeleteOnlyWithoutConversations(false);
   };
   useTrainingSurface("crm.bulk-suite", (step) => {
     setTransferOpen(step.id === "crm.bulk-transfer");
@@ -662,6 +664,38 @@ export function BulkActionsSuite({
     return Math.max(0, effectiveCount - unflaggedBlockingDealIds.length);
   }, [isDeleteExpanded, effectiveCount, unflaggedBlockingDealIds.length]);
 
+  const selectedDealsList = useMemo(() => {
+    return deals.filter((d) => selectedIds.has(d.id));
+  }, [deals, selectedIds]);
+
+  const localWithoutConvsCount = useMemo(() => {
+    return selectedDealsList.filter((d) => !d.conversationsCount || d.conversationsCount === 0).length;
+  }, [selectedDealsList]);
+
+  const nonBlockingCount = useMemo(() => {
+    if (isDeleteExpanded) {
+      return Math.max(0, effectiveCount - blockingDeals.length);
+    }
+    return !isAllFilterSelected ? localWithoutConvsCount : 0;
+  }, [isDeleteExpanded, effectiveCount, blockingDeals.length, isAllFilterSelected, localWithoutConvsCount]);
+
+  const targetDeleteDealCount = useMemo(() => {
+    if (deleteOnlyWithoutConversations) {
+      if (isDeleteExpanded) return nonBlockingCount;
+      if (!isAllFilterSelected) return localWithoutConvsCount;
+      return effectiveCount;
+    }
+    return isDeleteExpanded ? effectiveDeleteDealCount : effectiveCount;
+  }, [
+    deleteOnlyWithoutConversations,
+    isDeleteExpanded,
+    nonBlockingCount,
+    isAllFilterSelected,
+    localWithoutConvsCount,
+    effectiveCount,
+    effectiveDeleteDealCount,
+  ]);
+
   const unresolvedBlockingDeals = useMemo(() => {
     if (!isDeleteExpanded) return [];
     return blockingDeals.filter((d) => {
@@ -670,8 +704,41 @@ export function BulkActionsSuite({
     });
   }, [isDeleteExpanded, blockingDeals, flaggedBlockingDealIds, flaggedConversationIds]);
 
+  const handleToggleDeleteOnlyWithoutConversations = (checked: boolean) => {
+    setDeleteOnlyWithoutConversations(checked);
+    if (checked) {
+      if (isDeleteExpanded) {
+        setFlaggedBlockingDealIds(new Set());
+        setFlaggedConversationIds(new Set());
+        setDeleteCountInput(String(nonBlockingCount));
+        if (nonBlockingCount === 0) {
+          toast.info(
+            "Todas as negociações selecionadas possuem conversas ativas. Nenhuma será excluída com esta opção ativada."
+          );
+        }
+      } else if (!isAllFilterSelected) {
+        setDeleteCountInput(String(localWithoutConvsCount));
+        if (localWithoutConvsCount === 0) {
+          toast.info(
+            "Todas as negociações selecionadas possuem conversas ativas. Nenhuma será excluída com esta opção ativada."
+          );
+        }
+      } else {
+        setDeleteCountInput(String(effectiveCount));
+      }
+    } else {
+      if (isDeleteExpanded) {
+        setFlaggedBlockingDealIds(new Set(blockingDeals.map((d) => d.dealId)));
+        setDeleteCountInput(String(effectiveCount));
+      } else {
+        setDeleteCountInput(String(effectiveCount));
+      }
+    }
+  };
+
   const handleToggleAllBlockingDealsAndConversations = (checked: boolean) => {
     if (checked) {
+      setDeleteOnlyWithoutConversations(false);
       setFlaggedBlockingDealIds(new Set(blockingDeals.map((d) => d.dealId)));
       setFlaggedConversationIds(new Set(allBlockingConversationIds));
       setDeleteCountInput(String(effectiveCount));
@@ -682,6 +749,7 @@ export function BulkActionsSuite({
 
   const handleToggleAllBlockingConversations = (checked: boolean) => {
     if (checked) {
+      setDeleteOnlyWithoutConversations(false);
       setFlaggedBlockingDealIds(new Set(blockingDeals.map((d) => d.dealId)));
       setFlaggedConversationIds(new Set(allBlockingConversationIds));
       setDeleteCountInput(String(effectiveCount));
@@ -691,6 +759,7 @@ export function BulkActionsSuite({
   };
 
   const handleToggleBlockingDeal = (deal: BlockingDealItem, checked: boolean) => {
+    setDeleteOnlyWithoutConversations(false);
     const nextDeals = new Set(flaggedBlockingDealIds);
     const nextConvs = new Set(flaggedConversationIds);
     if (checked) {
@@ -719,6 +788,7 @@ export function BulkActionsSuite({
     convId: string,
     checked: boolean
   ) => {
+    setDeleteOnlyWithoutConversations(false);
     const nextConvs = new Set(flaggedConversationIds);
     const nextDeals = new Set(flaggedBlockingDealIds);
     if (checked) {
@@ -734,9 +804,23 @@ export function BulkActionsSuite({
   };
 
   const handleDeleteTrash = async () => {
+    if (
+      deleteOnlyWithoutConversations &&
+      targetDeleteDealCount <= 0 &&
+      (isDeleteExpanded || !isAllFilterSelected)
+    ) {
+      toast.error(
+        "Todas as negociações selecionadas possuem conversas ativas. Nenhuma será enviada para a lixeira com essa opção ativada."
+      );
+      return;
+    }
+
     const ok = await executeBulkRequest(
-      { action: "delete_trash" },
-      `${effectiveCount} negociação(ões) enviada(s) para a lixeira.`
+      {
+        action: "delete_trash",
+        onlyWithoutConversations: deleteOnlyWithoutConversations || undefined,
+      },
+      `${targetDeleteDealCount} negociação(ões) enviada(s) para a lixeira.`
     );
     if (ok) {
       setIsDeleteModalOpen(false);
@@ -746,9 +830,15 @@ export function BulkActionsSuite({
   };
 
   const handleDeletePermanent = async () => {
-    const targetCount = isDeleteExpanded ? effectiveDeleteDealCount : effectiveCount;
+    const targetCount = targetDeleteDealCount;
     if (targetCount <= 0) {
-      toast.error("Selecione ao menos uma negociação para excluir.");
+      if (deleteOnlyWithoutConversations) {
+        toast.error(
+          "Todas as negociações selecionadas possuem conversas ativas. Nenhuma pode ser excluída com essa opção ativada."
+        );
+      } else {
+        toast.error("Selecione ao menos uma negociação para excluir.");
+      }
       return;
     }
     if (deleteCountInput.trim() !== String(targetCount)) {
@@ -759,7 +849,7 @@ export function BulkActionsSuite({
       toast.error("Marque a caixa de confirmação de exclusão.");
       return;
     }
-    if (isDeleteExpanded && unresolvedBlockingDeals.length > 0) {
+    if (!deleteOnlyWithoutConversations && isDeleteExpanded && unresolvedBlockingDeals.length > 0) {
       toast.error(
         "Marque as conversas/chats vinculados das negociações selecionadas (ou desmarque as negociações que não deseja excluir)."
       );
@@ -769,7 +859,7 @@ export function BulkActionsSuite({
     setLoading(true);
     try {
       const selectedContactIds = new Set<string>();
-      if (isDeleteExpanded) {
+      if (!deleteOnlyWithoutConversations && isDeleteExpanded) {
         for (const d of blockingDeals) {
           if (!flaggedBlockingDealIds.has(d.dealId)) continue;
           for (const c of d.conversations) {
@@ -780,20 +870,31 @@ export function BulkActionsSuite({
         }
       }
 
+      const excludedIds = deleteOnlyWithoutConversations
+        ? isDeleteExpanded
+          ? blockingDeals.map((d) => d.dealId)
+          : undefined
+        : isDeleteExpanded
+          ? unflaggedBlockingDealIds
+          : undefined;
+
+      const dealsToPass = isDeleteExpanded
+        ? Array.from(selectedIds).filter((id) => !(excludedIds || []).includes(id))
+        : Array.from(selectedIds);
+
       const body: Record<string, any> = {
         action: "delete_permanent",
-        dealIds: isDeleteExpanded
-          ? Array.from(selectedIds).filter((id) => !unflaggedBlockingDealIds.includes(id))
-          : Array.from(selectedIds),
-        excludedDealIds: isDeleteExpanded ? unflaggedBlockingDealIds : undefined,
+        dealIds: dealsToPass,
+        excludedDealIds: excludedIds,
         allFiltered: isAllFilterSelected,
         filterParams: isAllFilterSelected ? filterParams : undefined,
+        onlyWithoutConversations: deleteOnlyWithoutConversations || undefined,
         deleteConversationIds:
-          isDeleteExpanded && flaggedConversationIds.size > 0
+          !deleteOnlyWithoutConversations && isDeleteExpanded && flaggedConversationIds.size > 0
             ? Array.from(flaggedConversationIds)
             : undefined,
         deleteContactIds:
-          isDeleteExpanded && selectedContactIds.size > 0
+          !deleteOnlyWithoutConversations && isDeleteExpanded && selectedContactIds.size > 0
             ? Array.from(selectedContactIds)
             : undefined,
       };
@@ -817,7 +918,7 @@ export function BulkActionsSuite({
           );
           setFlaggedConversationIds(new Set());
           toast.warning(
-            "Existem conversas/chats vinculados que impedem a exclusão. Selecione abaixo quais conversas e negociações deseja excluir em conjunto."
+            "Existem conversas/chats vinculados que impedem a exclusão. Selecione abaixo quais conversas e negociações deseja excluir em conjunto, ou ative a opção para excluir apenas as sem conversa."
           );
           return;
         }
@@ -1362,15 +1463,20 @@ export function BulkActionsSuite({
             <p className="text-foreground">
               Você está excluindo{" "}
               <strong className="font-bold text-foreground">
-                {effectiveDeleteDealCount} Negociaç{effectiveDeleteDealCount === 1 ? "ão" : "ões"}
+                {targetDeleteDealCount} Negociaç{targetDeleteDealCount === 1 ? "ão" : "ões"}
               </strong>
-              {isDeleteExpanded && flaggedConversationIds.size > 0 && (
+              {!deleteOnlyWithoutConversations && isDeleteExpanded && flaggedConversationIds.size > 0 && (
                 <>
                   {" "}e{" "}
                   <strong className="font-bold text-primary">
                     {flaggedConversationIds.size} conversa(s)/chat(s) vinculada(s)
                   </strong>
                 </>
+              )}
+              {deleteOnlyWithoutConversations && (
+                <span className="ml-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  (apenas as sem conversa)
+                </span>
               )}
               .
             </p>
@@ -1389,7 +1495,7 @@ export function BulkActionsSuite({
                       {blockingDeals.length} negociaç{blockingDeals.length === 1 ? "ão impede" : "ões impedem"} a exclusão direta
                     </p>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Todo contato e atendimento precisa de uma negociação. As negociações abaixo são o único vínculo ativo de seus contatos/chats. Flague quais negociações e quais conversas/chats vinculados deseja excluir junto para não ser impedido (ou desmarque as negociações que prefere manter).
+                      Todo contato e atendimento precisa de uma negociação. As negociações abaixo são o único vínculo ativo de seus contatos/chats. Flague quais negociações e quais conversas/chats vinculados deseja excluir junto para não ser impedido, ou selecione a opção de excluir apenas as negociações sem conversa.
                     </p>
                   </div>
                 </div>
@@ -1428,13 +1534,24 @@ export function BulkActionsSuite({
                     </label>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <button
                       type="button"
                       onClick={() => handleToggleAllBlockingConversations(true)}
                       className="text-[11px] font-bold text-primary hover:underline cursor-pointer px-1.5 py-0.5 rounded hover:bg-primary/10 transition"
                     >
                       Marcar todas as conversas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleDeleteOnlyWithoutConversations(true)}
+                      className={`text-[11px] font-bold px-1.5 py-0.5 rounded transition cursor-pointer ${
+                        deleteOnlyWithoutConversations
+                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          : "text-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
+                      }`}
+                    >
+                      Excluir apenas sem conversa ({nonBlockingCount})
                     </button>
                     {flaggedConversationIds.size > 0 && (
                       <button
@@ -1629,6 +1746,73 @@ export function BulkActionsSuite({
               </div>
             )}
 
+            {/* Opção para excluir apenas os que não possuem conversa */}
+            <div
+              onClick={() =>
+                handleToggleDeleteOnlyWithoutConversations(!deleteOnlyWithoutConversations)
+              }
+              className={`flex items-start justify-between gap-3 p-2.5 rounded-xl border transition-colors cursor-pointer select-none ${
+                deleteOnlyWithoutConversations
+                  ? "border-emerald-500/40 bg-emerald-500/5 dark:bg-emerald-950/20"
+                  : "border-border bg-card/60 hover:bg-card"
+              }`}
+            >
+              <div
+                className="flex items-start gap-2.5 min-w-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <SystemTooltip
+                  content={
+                    deleteOnlyWithoutConversations
+                      ? "Desmarcar para voltar a incluir todas as negociações selecionadas"
+                      : "Excluir somente as negociações que não possuem histórico de conversas ou chats vinculados"
+                  }
+                >
+                  <span className="inline-flex items-center mt-0.5">
+                    <Checkbox
+                      id="bulk-delete-only-without-convs"
+                      checked={deleteOnlyWithoutConversations}
+                      onCheckedChange={(val) =>
+                        handleToggleDeleteOnlyWithoutConversations(Boolean(val))
+                      }
+                      className="data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600 rounded-sm"
+                    />
+                  </span>
+                </SystemTooltip>
+                <label
+                  htmlFor="bulk-delete-only-without-convs"
+                  className="cursor-pointer space-y-0.5 min-w-0"
+                  onClick={() =>
+                    handleToggleDeleteOnlyWithoutConversations(!deleteOnlyWithoutConversations)
+                  }
+                >
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-bold text-foreground">
+                      Excluir apenas os que não possuem conversa
+                    </span>
+                    {deleteOnlyWithoutConversations && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        Ativo
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Preserva automaticamente todas as negociações que possuem conversas ou atendimentos ativos vinculados.
+                  </p>
+                </label>
+              </div>
+
+              <div className="shrink-0 text-right">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-border bg-muted text-foreground">
+                  {isDeleteExpanded
+                    ? `${nonBlockingCount} sem conversa`
+                    : !isAllFilterSelected
+                      ? `${localWithoutConvsCount} sem conversa`
+                      : "Filtro no servidor"}
+                </span>
+              </div>
+            </div>
+
             <p className="text-muted-foreground">
               Preencha o campo abaixo com a quantidade de itens a serem excluídos para
               confirmar a exclusão.
@@ -1672,11 +1856,18 @@ export function BulkActionsSuite({
               variant="outline"
               size="sm"
               onClick={handleDeleteTrash}
-              disabled={loading}
+              disabled={
+                loading ||
+                (deleteOnlyWithoutConversations &&
+                  targetDeleteDealCount <= 0 &&
+                  (isDeleteExpanded || !isAllFilterSelected))
+              }
               className="text-xs font-bold border-border hover:bg-muted text-foreground cursor-pointer"
             >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : deleteOnlyWithoutConversations ? (
+                `Lixeira (${targetDeleteDealCount} sem conversa)`
               ) : (
                 "Enviar para lixeira"
               )}
@@ -1688,15 +1879,19 @@ export function BulkActionsSuite({
               onClick={handleDeletePermanent}
               disabled={
                 loading ||
-                effectiveDeleteDealCount <= 0 ||
-                deleteCountInput.trim() !== String(effectiveDeleteDealCount) ||
+                targetDeleteDealCount <= 0 ||
+                deleteCountInput.trim() !== String(targetDeleteDealCount) ||
                 !deleteConfirmCheckbox ||
-                (isDeleteExpanded && unresolvedBlockingDeals.length > 0)
+                (!deleteOnlyWithoutConversations &&
+                  isDeleteExpanded &&
+                  unresolvedBlockingDeals.length > 0)
               }
               className="text-xs font-bold cursor-pointer disabled:opacity-40"
             >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : deleteOnlyWithoutConversations ? (
+                `Excluir ${targetDeleteDealCount} sem conversa permanentemente`
               ) : isDeleteExpanded && flaggedConversationIds.size > 0 ? (
                 `Excluir ${effectiveDeleteDealCount} negociaç${effectiveDeleteDealCount === 1 ? "ão" : "ões"} e ${flaggedConversationIds.size} conversa${flaggedConversationIds.size === 1 ? "" : "s"}`
               ) : (
