@@ -33,6 +33,10 @@ import {
   rdMarketingJourneyPages,
   attendanceEvents,
   conversationDealContexts,
+  agentFlowStates,
+  commercialEvidence,
+  whatsappConnectionContacts,
+  contactChannelIdentities,
 } from "../../db/schema";
 import { getDealContext } from "./conversation-deal-context";
 import type {
@@ -201,7 +205,17 @@ export class CrmConcurrencyError extends CrmError {
 }
 
 export function handleCrmError(err: any, corsHeaders: Record<string, string> = {}): Response {
-  if (err instanceof DealRequiredError) return Response.json({ error: err.message, code: err.code }, { status: err.statusCode, headers: corsHeaders });
+  if (err instanceof DealRequiredError) {
+    return Response.json(
+      {
+        error: err.message,
+        code: err.code,
+        ...(err.blockingDeals ? { blockingDeals: err.blockingDeals } : {}),
+        ...(err.allTargetDealIds ? { allTargetDealIds: err.allTargetDealIds } : {}),
+      },
+      { status: err.statusCode, headers: corsHeaders },
+    );
+  }
   if (err?.constraint === "crm_accounts_tenant_document_identity" || err?.constraint === "idx_crm_accounts_tenant_doc_uniq") {
     return new Response(JSON.stringify({ error: "Já existe uma empresa ou cliente com este documento.", code: "DUPLICATE_DOCUMENT" }), {
       status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -4821,6 +4835,9 @@ export class CrmService {
       source?: string;
       productId?: string;
       action?: "delete_trash" | "delete_permanent" | "create_deals_for_companies" | "create_tasks";
+      deleteConversationIds?: string[];
+      deleteContactIds?: string[];
+      excludedDealIds?: string[];
       taskData?: {
         title: string;
         type?: string;
@@ -4832,7 +4849,14 @@ export class CrmService {
     },
     operatorName: string,
     authorizedOperatorId?: string
-  ): Promise<{ success: boolean; updatedCount: number; dealIds: string[]; message?: string }> {
+  ): Promise<{
+    success: boolean;
+    updatedCount: number;
+    dealIds: string[];
+    deletedConversationsCount?: number;
+    deletedContactsCount?: number;
+    message?: string;
+  }> {
     return await db.transaction(async (tx) => {
       const audit = async (action: string, ids: string[], details: Record<string, unknown> = {}) => {
         await tx.insert(crmActionHistory).values({
@@ -4881,6 +4905,12 @@ export class CrmService {
       if (!params.allFiltered && params.dealIds && foundDeals.length !== new Set(params.dealIds).size) {
         throw new CrmNotFoundError("Uma ou mais negociações não estão disponíveis para esta operação.");
       }
+
+      if (params.excludedDealIds && params.excludedDealIds.length > 0) {
+        const excludedSet = new Set(params.excludedDealIds);
+        foundDeals = foundDeals.filter((d) => !excludedSet.has(d.id));
+      }
+
       if (foundDeals.length === 0) {
         throw new CrmNotFoundError("Nenhuma negociação correspondente encontrada no tenant.");
       }
@@ -4890,26 +4920,110 @@ export class CrmService {
       // Ação Especial 1: Exclusão Permanente
       if (params.action === "delete_permanent") {
         const idsToDelete = foundDeals.map((d) => d.id);
-        await assertDealsCanBeRemoved(tx, tenantId, idsToDelete);
+        const { conversationIdsToDelete, contactIdsToDelete } = await assertDealsCanBeRemoved(
+          tx,
+          tenantId,
+          idsToDelete,
+          {
+            deleteConversationIds: params.deleteConversationIds,
+            deleteContactIds: params.deleteContactIds,
+          }
+        );
+
+        for (let i = 0; i < conversationIdsToDelete.length; i += 500) {
+          const convChunk = conversationIdsToDelete.slice(i, i + 500);
+          await tx
+            .delete(agentFlowStates)
+            .where(
+              and(
+                eq(agentFlowStates.tenantId, tenantId),
+                inArray(agentFlowStates.conversationId, convChunk)
+              )
+            );
+          await tx
+            .delete(messages)
+            .where(
+              and(eq(messages.tenantId, tenantId), inArray(messages.conversationId, convChunk))
+            );
+          await tx
+            .delete(conversations)
+            .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.id, convChunk)));
+        }
+
+        for (let i = 0; i < idsToDelete.length; i += 500) {
+          const chunk = idsToDelete.slice(i, i + 500);
+          await tx
+            .delete(commercialEvidence)
+            .where(
+              and(eq(commercialEvidence.tenantId, tenantId), inArray(commercialEvidence.dealId, chunk))
+            );
+          await tx
+            .delete(crmDeals)
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)));
+        }
+
+        let deletedContactsCount = 0;
+        for (const contactId of contactIdsToDelete) {
+          const [remConv] = await tx
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)))
+            .limit(1);
+          const [remDeal] = await tx
+            .select({ id: crmDealContacts.id })
+            .from(crmDealContacts)
+            .where(
+              and(eq(crmDealContacts.tenantId, tenantId), eq(crmDealContacts.contactId, contactId))
+            )
+            .limit(1);
+          if (!remConv && !remDeal) {
+            await tx
+              .delete(whatsappConnectionContacts)
+              .where(
+                and(
+                  eq(whatsappConnectionContacts.tenantId, tenantId),
+                  eq(whatsappConnectionContacts.contactId, contactId)
+                )
+              );
+            await tx
+              .delete(contactChannelIdentities)
+              .where(
+                and(
+                  eq(contactChannelIdentities.tenantId, tenantId),
+                  eq(contactChannelIdentities.contactId, contactId)
+                )
+              );
+            await tx
+              .delete(contacts)
+              .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, contactId)));
+            deletedContactsCount++;
+          }
+        }
+
         await audit("delete_permanent", idsToDelete, {
           deals: foundDeals.length > 500
             ? foundDeals.slice(0, 100).map((d) => ({ id: d.id, title: d.title }))
             : foundDeals.map((d) => ({ id: d.id, title: d.title })),
           totalCount: idsToDelete.length,
           allFiltered: !!params.allFiltered,
+          deletedConversationIds: conversationIdsToDelete,
+          deletedContactsCount,
         });
-        for (let i = 0; i < idsToDelete.length; i += 500) {
-          const chunk = idsToDelete.slice(i, i + 500);
-          await tx
-            .delete(crmDeals)
-            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, chunk)));
-        }
+
+        const convSuffix =
+          conversationIdsToDelete.length > 0
+            ? ` e ${conversationIdsToDelete.length} conversa(s)/chat(s) excluída(s)`
+            : deletedContactsCount > 0
+              ? ` e ${deletedContactsCount} contato(s)/chat(s) excluído(s)`
+              : "";
 
         return {
           success: true,
           updatedCount: idsToDelete.length,
           dealIds: idsToDelete,
-          message: `${idsToDelete.length} negociação(ões) excluída(s) permanentemente.`,
+          deletedConversationsCount: conversationIdsToDelete.length,
+          deletedContactsCount,
+          message: `${idsToDelete.length} negociação(ões)${convSuffix} permanentemente.`,
         };
       }
 

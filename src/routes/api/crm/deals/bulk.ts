@@ -110,6 +110,9 @@ export const Route = createFileRoute("/api/crm/deals/bulk")({
             source: body.source,
             productId: body.productId,
             action: body.action,
+            deleteConversationIds: Array.isArray(body.deleteConversationIds) ? body.deleteConversationIds : undefined,
+            deleteContactIds: Array.isArray(body.deleteContactIds) ? body.deleteContactIds : undefined,
+            excludedDealIds: Array.isArray(body.excludedDealIds) ? body.excludedDealIds : undefined,
             taskData: body.taskData,
             authorizedPipelineIds,
           }, session.operator.name, session.operator.role !== "admin" && !session.permissions?.crm?.canViewAllDeals ? session.operator.id : undefined);

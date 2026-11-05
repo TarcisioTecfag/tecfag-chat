@@ -66,7 +66,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  MessageSquare,
+  Phone,
+  User,
 } from "lucide-react";
+import type { BlockingDealItem } from "@/lib/crm/deal-associations";
 import { DealCardData } from "./DealCard";
 import { CRM_TASK_TYPES, CrmTaskType } from "./CreateTaskModal";
 import { DEAL_STATUS_OPTIONS } from "./deal-status-config";
@@ -180,6 +184,17 @@ export function BulkActionsSuite({
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteCountInput, setDeleteCountInput] = useState("");
   const [deleteConfirmCheckbox, setDeleteConfirmCheckbox] = useState(false);
+  const [blockingDeals, setBlockingDeals] = useState<BlockingDealItem[]>([]);
+  const [flaggedBlockingDealIds, setFlaggedBlockingDealIds] = useState<Set<string>>(new Set());
+  const [flaggedConversationIds, setFlaggedConversationIds] = useState<Set<string>>(new Set());
+
+  const resetDeleteModalState = () => {
+    setDeleteCountInput("");
+    setDeleteConfirmCheckbox(false);
+    setBlockingDeals([]);
+    setFlaggedBlockingDealIds(new Set());
+    setFlaggedConversationIds(new Set());
+  };
   useTrainingSurface("crm.bulk-suite", (step) => {
     setTransferOpen(step.id === "crm.bulk-transfer");
     setStatusOpen(step.id === "crm.bulk-status");
@@ -625,6 +640,99 @@ export function BulkActionsSuite({
   };
 
   // 8. AÇÃO: Exclusão (Lixeira vs Permanente)
+  const isDeleteExpanded = blockingDeals.length > 0;
+
+  const allBlockingConversationIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const d of blockingDeals) {
+      for (const c of d.conversations) ids.add(c.id);
+    }
+    return Array.from(ids);
+  }, [blockingDeals]);
+
+  const unflaggedBlockingDealIds = useMemo(() => {
+    if (!isDeleteExpanded) return [];
+    return blockingDeals
+      .filter((d) => !flaggedBlockingDealIds.has(d.dealId))
+      .map((d) => d.dealId);
+  }, [isDeleteExpanded, blockingDeals, flaggedBlockingDealIds]);
+
+  const effectiveDeleteDealCount = useMemo(() => {
+    if (!isDeleteExpanded) return effectiveCount;
+    return Math.max(0, effectiveCount - unflaggedBlockingDealIds.length);
+  }, [isDeleteExpanded, effectiveCount, unflaggedBlockingDealIds.length]);
+
+  const unresolvedBlockingDeals = useMemo(() => {
+    if (!isDeleteExpanded) return [];
+    return blockingDeals.filter((d) => {
+      if (!flaggedBlockingDealIds.has(d.dealId)) return false;
+      return !d.conversations.some((c) => flaggedConversationIds.has(c.id));
+    });
+  }, [isDeleteExpanded, blockingDeals, flaggedBlockingDealIds, flaggedConversationIds]);
+
+  const handleToggleAllBlockingDealsAndConversations = (checked: boolean) => {
+    if (checked) {
+      setFlaggedBlockingDealIds(new Set(blockingDeals.map((d) => d.dealId)));
+      setFlaggedConversationIds(new Set(allBlockingConversationIds));
+      setDeleteCountInput(String(effectiveCount));
+    } else {
+      setFlaggedConversationIds(new Set());
+    }
+  };
+
+  const handleToggleAllBlockingConversations = (checked: boolean) => {
+    if (checked) {
+      setFlaggedBlockingDealIds(new Set(blockingDeals.map((d) => d.dealId)));
+      setFlaggedConversationIds(new Set(allBlockingConversationIds));
+      setDeleteCountInput(String(effectiveCount));
+    } else {
+      setFlaggedConversationIds(new Set());
+    }
+  };
+
+  const handleToggleBlockingDeal = (deal: BlockingDealItem, checked: boolean) => {
+    const nextDeals = new Set(flaggedBlockingDealIds);
+    const nextConvs = new Set(flaggedConversationIds);
+    if (checked) {
+      nextDeals.add(deal.dealId);
+      for (const c of deal.conversations) nextConvs.add(c.id);
+    } else {
+      nextDeals.delete(deal.dealId);
+      for (const c of deal.conversations) {
+        const usedByAnotherFlaggedDeal = blockingDeals.some(
+          (other) =>
+            other.dealId !== deal.dealId &&
+            nextDeals.has(other.dealId) &&
+            other.conversations.some((oc) => oc.id === c.id)
+        );
+        if (!usedByAnotherFlaggedDeal) nextConvs.delete(c.id);
+      }
+    }
+    setFlaggedBlockingDealIds(nextDeals);
+    setFlaggedConversationIds(nextConvs);
+    const nextUnflaggedCount = blockingDeals.filter((d) => !nextDeals.has(d.dealId)).length;
+    setDeleteCountInput(String(Math.max(0, effectiveCount - nextUnflaggedCount)));
+  };
+
+  const handleToggleBlockingConversation = (
+    deal: BlockingDealItem,
+    convId: string,
+    checked: boolean
+  ) => {
+    const nextConvs = new Set(flaggedConversationIds);
+    const nextDeals = new Set(flaggedBlockingDealIds);
+    if (checked) {
+      nextConvs.add(convId);
+      nextDeals.add(deal.dealId);
+    } else {
+      nextConvs.delete(convId);
+    }
+    setFlaggedConversationIds(nextConvs);
+    setFlaggedBlockingDealIds(nextDeals);
+    const nextUnflaggedCount = blockingDeals.filter((d) => !nextDeals.has(d.dealId)).length;
+    setDeleteCountInput(String(Math.max(0, effectiveCount - nextUnflaggedCount)));
+  };
+
   const handleDeleteTrash = async () => {
     const ok = await executeBulkRequest(
       { action: "delete_trash" },
@@ -632,31 +740,103 @@ export function BulkActionsSuite({
     );
     if (ok) {
       setIsDeleteModalOpen(false);
-      setDeleteCountInput("");
-      setDeleteConfirmCheckbox(false);
+      resetDeleteModalState();
       onClearSelection();
     }
   };
 
   const handleDeletePermanent = async () => {
-    if (deleteCountInput.trim() !== String(effectiveCount)) {
-      toast.error(`Digite exatamente "${effectiveCount}" para confirmar.`);
+    const targetCount = isDeleteExpanded ? effectiveDeleteDealCount : effectiveCount;
+    if (targetCount <= 0) {
+      toast.error("Selecione ao menos uma negociação para excluir.");
+      return;
+    }
+    if (deleteCountInput.trim() !== String(targetCount)) {
+      toast.error(`Digite exatamente "${targetCount}" para confirmar.`);
       return;
     }
     if (!deleteConfirmCheckbox) {
       toast.error("Marque a caixa de confirmação de exclusão.");
       return;
     }
+    if (isDeleteExpanded && unresolvedBlockingDeals.length > 0) {
+      toast.error(
+        "Marque as conversas/chats vinculados das negociações selecionadas (ou desmarque as negociações que não deseja excluir)."
+      );
+      return;
+    }
 
-    const ok = await executeBulkRequest(
-      { action: "delete_permanent" },
-      `${effectiveCount} negociação(ões) excluída(s) permanentemente.`
-    );
-    if (ok) {
+    setLoading(true);
+    try {
+      const selectedContactIds = new Set<string>();
+      if (isDeleteExpanded) {
+        for (const d of blockingDeals) {
+          if (!flaggedBlockingDealIds.has(d.dealId)) continue;
+          for (const c of d.conversations) {
+            if (flaggedConversationIds.has(c.id)) {
+              selectedContactIds.add(c.contactId);
+            }
+          }
+        }
+      }
+
+      const body: Record<string, any> = {
+        action: "delete_permanent",
+        dealIds: isDeleteExpanded
+          ? Array.from(selectedIds).filter((id) => !unflaggedBlockingDealIds.includes(id))
+          : Array.from(selectedIds),
+        excludedDealIds: isDeleteExpanded ? unflaggedBlockingDealIds : undefined,
+        allFiltered: isAllFilterSelected,
+        filterParams: isAllFilterSelected ? filterParams : undefined,
+        deleteConversationIds:
+          isDeleteExpanded && flaggedConversationIds.size > 0
+            ? Array.from(flaggedConversationIds)
+            : undefined,
+        deleteContactIds:
+          isDeleteExpanded && selectedContactIds.size > 0
+            ? Array.from(selectedContactIds)
+            : undefined,
+      };
+
+      const res = await fetch("/api/crm/deals/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        if (
+          errData?.code === "DEAL_REQUIRED" &&
+          Array.isArray(errData?.blockingDeals) &&
+          errData.blockingDeals.length > 0
+        ) {
+          setBlockingDeals(errData.blockingDeals);
+          setFlaggedBlockingDealIds(
+            new Set(errData.blockingDeals.map((d: BlockingDealItem) => d.dealId))
+          );
+          setFlaggedConversationIds(new Set());
+          toast.warning(
+            "Existem conversas/chats vinculados que impedem a exclusão. Selecione abaixo quais conversas e negociações deseja excluir em conjunto."
+          );
+          return;
+        }
+        throw new Error(errData.error || "Falha ao executar exclusão permanente.");
+      }
+
+      const data = await res.json();
+      toast.success(
+        data.message || `${targetCount} negociação(ões) excluída(s) permanentemente.`
+      );
       setIsDeleteModalOpen(false);
-      setDeleteCountInput("");
-      setDeleteConfirmCheckbox(false);
+      resetDeleteModalState();
       onClearSelection();
+      onSuccess();
+    } catch (err: any) {
+      console.error("[BulkActionsSuite] Erro na exclusão:", err);
+      toast.error(err.message || "Erro ao excluir negociações.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -888,8 +1068,7 @@ export function BulkActionsSuite({
           <button
             type="button"
             onClick={() => {
-              setDeleteCountInput("");
-              setDeleteConfirmCheckbox(false);
+              resetDeleteModalState();
               setIsDeleteModalOpen(true);
             }}
             className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/10 transition cursor-pointer"
@@ -1158,8 +1337,21 @@ export function BulkActionsSuite({
       {/* ──────────────────────────────────────────────────────────────────────────
           MODAL 2: EXCLUSÃO DE NEGOCIAÇÕES (LIXEIRA VS PERMANENTE) (SCREENSHOT 10)
           ────────────────────────────────────────────────────────────────────────── */}
-      <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-        <DialogContent data-tour="bulk.delete" className="max-w-md">
+      <Dialog
+        open={isDeleteModalOpen}
+        onOpenChange={(open) => {
+          setIsDeleteModalOpen(open);
+          if (!open) resetDeleteModalState();
+        }}
+      >
+        <DialogContent
+          data-tour="bulk.delete"
+          className={
+            isDeleteExpanded
+              ? "max-w-2xl transition-all duration-200"
+              : "max-w-md transition-all duration-200"
+          }
+        >
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-foreground">
               Deseja excluir as negociações?
@@ -1170,8 +1362,16 @@ export function BulkActionsSuite({
             <p className="text-foreground">
               Você está excluindo{" "}
               <strong className="font-bold text-foreground">
-                {effectiveCount} Negociações
+                {effectiveDeleteDealCount} Negociaç{effectiveDeleteDealCount === 1 ? "ão" : "ões"}
               </strong>
+              {isDeleteExpanded && flaggedConversationIds.size > 0 && (
+                <>
+                  {" "}e{" "}
+                  <strong className="font-bold text-primary">
+                    {flaggedConversationIds.size} conversa(s)/chat(s) vinculada(s)
+                  </strong>
+                </>
+              )}
               .
             </p>
 
@@ -1179,6 +1379,255 @@ export function BulkActionsSuite({
               Escolha entre enviar para a lixeira ou excluir permanentemente da sua conta. Se
               optar por excluir, lembre-se que não será possível recuperar a informação.
             </p>
+
+            {isDeleteExpanded && (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-2.5">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-foreground">
+                      {blockingDeals.length} negociaç{blockingDeals.length === 1 ? "ão impede" : "ões impedem"} a exclusão direta
+                    </p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Todo contato e atendimento precisa de uma negociação. As negociações abaixo são o único vínculo ativo de seus contatos/chats. Flague quais negociações e quais conversas/chats vinculados deseja excluir junto para não ser impedido (ou desmarque as negociações que prefere manter).
+                    </p>
+                  </div>
+                </div>
+
+                {/* Barra mestre de seleção de negociações + conversas */}
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <SystemTooltip
+                      content={
+                        flaggedConversationIds.size === allBlockingConversationIds.length &&
+                        flaggedBlockingDealIds.size === blockingDeals.length
+                          ? "Desmarcar todas as conversas vinculadas"
+                          : "Flagar todas as negociações bloqueadoras e todas as suas conversas/chats para excluir junto"
+                      }
+                    >
+                      <span className="inline-flex items-center">
+                        <Checkbox
+                          id="bulk-delete-flag-all-convs"
+                          checked={
+                            allBlockingConversationIds.length > 0 &&
+                            flaggedConversationIds.size === allBlockingConversationIds.length &&
+                            flaggedBlockingDealIds.size === blockingDeals.length
+                          }
+                          onCheckedChange={(val) =>
+                            handleToggleAllBlockingDealsAndConversations(Boolean(val))
+                          }
+                          className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+                        />
+                      </span>
+                    </SystemTooltip>
+                    <label
+                      htmlFor="bulk-delete-flag-all-convs"
+                      className="text-[11px] font-bold text-foreground cursor-pointer select-none"
+                    >
+                      Flagar todas as negociações e conversas ({flaggedConversationIds.size}/{allBlockingConversationIds.length})
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAllBlockingConversations(true)}
+                      className="text-[11px] font-bold text-primary hover:underline cursor-pointer px-1.5 py-0.5 rounded hover:bg-primary/10 transition"
+                    >
+                      Marcar todas as conversas
+                    </button>
+                    {flaggedConversationIds.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleAllBlockingConversations(false)}
+                        className="text-[11px] font-medium text-muted-foreground hover:text-foreground cursor-pointer px-1.5 py-0.5 rounded hover:bg-muted transition"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Lista expansível das negociações bloqueadoras e suas conversas */}
+                <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                  {blockingDeals.map((deal) => {
+                    const isDealFlagged = flaggedBlockingDealIds.has(deal.dealId);
+                    const dealFlaggedConvsCount = deal.conversations.filter((c) =>
+                      flaggedConversationIds.has(c.id)
+                    ).length;
+                    const isDealResolved = isDealFlagged && dealFlaggedConvsCount > 0;
+
+                    return (
+                      <div
+                        key={deal.dealId}
+                        className={`rounded-xl border p-2.5 transition-colors ${
+                          !isDealFlagged
+                            ? "border-border/60 bg-muted/20 opacity-75"
+                            : isDealResolved
+                              ? "border-primary/40 bg-card"
+                              : "border-destructive/40 bg-card"
+                        }`}
+                      >
+                        {/* Cabeçalho da Negociação */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2 min-w-0">
+                            <SystemTooltip
+                              content={
+                                isDealFlagged
+                                  ? "Desmarcar esta negociação (não será excluída)"
+                                  : "Flagar esta negociação e suas conversas para excluir"
+                              }
+                            >
+                              <span className="inline-flex items-center mt-0.5">
+                                <Checkbox
+                                  id={`blocking-deal-${deal.dealId}`}
+                                  checked={isDealFlagged}
+                                  onCheckedChange={(val) =>
+                                    handleToggleBlockingDeal(deal, Boolean(val))
+                                  }
+                                  className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+                                />
+                              </span>
+                            </SystemTooltip>
+                            <label
+                              htmlFor={`blocking-deal-${deal.dealId}`}
+                              className="cursor-pointer select-none min-w-0"
+                            >
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-bold text-foreground truncate">
+                                  {deal.dealTitle}
+                                </span>
+                                <span className="text-[10px] font-mono text-muted-foreground">
+                                  {deal.dealCode}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                                <span className="inline-flex items-center gap-1">
+                                  <User className="h-3 w-3" />
+                                  {deal.contactName}
+                                </span>
+                                {deal.contactPhone && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Phone className="h-3 w-3" />
+                                    {deal.contactPhone}
+                                  </span>
+                                )}
+                              </div>
+                            </label>
+                          </div>
+
+                          <span
+                            className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              !isDealFlagged
+                                ? "bg-muted text-muted-foreground border-border"
+                                : isDealResolved
+                                  ? "bg-primary/10 text-primary border-primary/30"
+                                  : "bg-destructive/10 text-destructive border-destructive/30"
+                            }`}
+                          >
+                            {!isDealFlagged
+                              ? "Negociação mantida"
+                              : isDealResolved
+                                ? "Chat + conversa marcados"
+                                : "Marque a conversa abaixo"}
+                          </span>
+                        </div>
+
+                        {/* Lista de conversas vinculadas a esta negociação */}
+                        <div className="mt-2 pl-6 space-y-1.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Conversas / Chats vinculados ({dealFlaggedConvsCount}/{deal.conversations.length} marcados para excluir):
+                          </p>
+                          {deal.conversations.map((conv) => {
+                            const isConvFlagged = flaggedConversationIds.has(conv.id);
+                            const queueLabel =
+                              conv.queueState === "meus"
+                                ? "Em atendimento"
+                                : conv.queueState === "fila"
+                                  ? "Na fila"
+                                  : conv.queueState === "automacao"
+                                    ? "Triagem IA"
+                                    : conv.queueState === "finalizados"
+                                      ? "Finalizado"
+                                      : "Contato do Chat";
+
+                            return (
+                              <div
+                                key={conv.id}
+                                onClick={() =>
+                                  handleToggleBlockingConversation(deal, conv.id, !isConvFlagged)
+                                }
+                                className={`flex items-start justify-between gap-2 rounded-lg border px-2.5 py-2 cursor-pointer transition-colors ${
+                                  isConvFlagged
+                                    ? "border-primary/40 bg-primary/5"
+                                    : "border-border bg-muted/30 hover:bg-muted/50"
+                                }`}
+                              >
+                                <div
+                                  className="flex items-start gap-2 min-w-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <SystemTooltip
+                                    content={
+                                      isConvFlagged
+                                        ? "Desmarcar exclusão desta conversa/chat"
+                                        : "Marcar para excluir este chat e conversa junto com a negociação"
+                                    }
+                                  >
+                                    <span className="inline-flex items-center mt-0.5">
+                                      <Checkbox
+                                        checked={isConvFlagged}
+                                        onCheckedChange={(val) =>
+                                          handleToggleBlockingConversation(
+                                            deal,
+                                            conv.id,
+                                            Boolean(val)
+                                          )
+                                        }
+                                        className="data-[state=checked]:bg-primary data-[state=checked]:border-primary rounded-sm"
+                                      />
+                                    </span>
+                                  </SystemTooltip>
+                                  <div
+                                    className="min-w-0"
+                                    onClick={() =>
+                                      handleToggleBlockingConversation(
+                                        deal,
+                                        conv.id,
+                                        !isConvFlagged
+                                      )
+                                    }
+                                  >
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <MessageSquare className="h-3 w-3 text-primary shrink-0" />
+                                      <span className="text-[11px] font-bold text-foreground">
+                                        Excluir chat e conversa de {conv.contactName}
+                                      </span>
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground border border-border">
+                                        {queueLabel}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground truncate mt-0.5 max-w-md">
+                                      {conv.lastMessageText || "Sem mensagens recentes"}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {conv.lastMessageTime && (
+                                  <span className="text-[10px] text-muted-foreground shrink-0">
+                                    {new Date(conv.lastMessageTime).toLocaleDateString("pt-BR")}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <p className="text-muted-foreground">
               Preencha o campo abaixo com a quantidade de itens a serem excluídos para
@@ -1239,13 +1688,17 @@ export function BulkActionsSuite({
               onClick={handleDeletePermanent}
               disabled={
                 loading ||
-                deleteCountInput.trim() !== String(effectiveCount) ||
-                !deleteConfirmCheckbox
+                effectiveDeleteDealCount <= 0 ||
+                deleteCountInput.trim() !== String(effectiveDeleteDealCount) ||
+                !deleteConfirmCheckbox ||
+                (isDeleteExpanded && unresolvedBlockingDeals.length > 0)
               }
               className="text-xs font-bold cursor-pointer disabled:opacity-40"
             >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : isDeleteExpanded && flaggedConversationIds.size > 0 ? (
+                `Excluir ${effectiveDeleteDealCount} negociaç${effectiveDeleteDealCount === 1 ? "ão" : "ões"} e ${flaggedConversationIds.size} conversa${flaggedConversationIds.size === 1 ? "" : "s"}`
               ) : (
                 "Excluir permanentemente"
               )}

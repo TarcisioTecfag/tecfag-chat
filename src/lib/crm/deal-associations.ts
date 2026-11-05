@@ -13,11 +13,40 @@ export type DealTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0
 export const DEAL_REQUIRED_MESSAGE =
   "Todo contato e atendimento precisa de uma negociação. Vincule uma existente ou crie uma para continuar.";
 
+export interface BlockingConversationItem {
+  id: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string | null;
+  channel: string;
+  queueState: string;
+  lastMessageText: string | null;
+  lastMessageTime: string | null;
+}
+
+export interface BlockingDealItem {
+  dealId: string;
+  dealTitle: string;
+  dealCode: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string | null;
+  conversations: BlockingConversationItem[];
+}
+
 export class DealRequiredError extends Error {
   readonly code = "DEAL_REQUIRED";
   readonly statusCode = 409;
-  constructor() {
+  readonly blockingDeals?: BlockingDealItem[];
+  readonly allTargetDealIds?: string[];
+  constructor(blockingDeals?: BlockingDealItem[], allTargetDealIds?: string[]) {
     super(DEAL_REQUIRED_MESSAGE);
+    if (blockingDeals && blockingDeals.length > 0) {
+      this.blockingDeals = blockingDeals;
+    }
+    if (allTargetDealIds && allTargetDealIds.length > 0) {
+      this.allTargetDealIds = allTargetDealIds;
+    }
   }
 }
 
@@ -78,13 +107,27 @@ export async function assertDealsCanBeRemoved(
   tx: DealTransaction,
   tenantId: string,
   dealIds: string[],
-) {
+  options?: {
+    deleteConversationIds?: string[];
+    deleteContactIds?: string[];
+  },
+): Promise<{
+  conversationIdsToDelete: string[];
+  contactIdsToDelete: string[];
+}> {
   const participants = await tx
-    .select({ contactId: crmDealContacts.contactId })
+    .select({
+      dealId: crmDealContacts.dealId,
+      contactId: crmDealContacts.contactId,
+    })
     .from(crmDealContacts)
     .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.dealId, dealIds)));
   const linkedConvs = await tx
-    .select({ contactId: conversations.contactId })
+    .select({
+      dealId: crmConversationDeals.dealId,
+      contactId: conversations.contactId,
+      conversationId: conversations.id,
+    })
     .from(crmConversationDeals)
     .innerJoin(
       conversations,
@@ -100,6 +143,34 @@ export async function assertDealsCanBeRemoved(
         eq(crmConversationDeals.isActive, true),
       ),
     );
+
+  const contactToDealIds = new Map<string, Set<string>>();
+  for (const p of participants) {
+    if (!contactToDealIds.has(p.contactId)) contactToDealIds.set(p.contactId, new Set());
+    contactToDealIds.get(p.contactId)!.add(p.dealId);
+  }
+  for (const lc of linkedConvs) {
+    if (!contactToDealIds.has(lc.contactId)) contactToDealIds.set(lc.contactId, new Set());
+    contactToDealIds.get(lc.contactId)!.add(lc.dealId);
+  }
+
+  const requestedConvDeleteSet = new Set(options?.deleteConversationIds || []);
+  const requestedContactDeleteSet = new Set(options?.deleteContactIds || []);
+  const conversationIdsToDelete = new Set<string>();
+  const contactIdsToDelete = new Set<string>();
+
+  const blockingContactEntries: Array<{
+    contactId: string;
+    dealIds: Set<string>;
+    convs: Array<{
+      id: string;
+      contactId: string;
+      queueState: string;
+      lastMessageText: string | null;
+      lastMessageTime: Date | null;
+    }>;
+  }> = [];
+
   for (const contactId of [
     ...new Set([...participants, ...linkedConvs].map((p) => p.contactId)),
   ].sort()) {
@@ -115,13 +186,158 @@ export async function assertDealsCanBeRemoved(
         ),
       )
       .limit(1);
-    if (!other) throw new DealRequiredError();
+
     const convs = await tx
-      .select({ id: conversations.id })
+      .select({
+        id: conversations.id,
+        contactId: conversations.contactId,
+        queueState: conversations.queueState,
+        lastMessageText: conversations.lastMessageText,
+        lastMessageTime: conversations.lastMessageTime,
+      })
       .from(conversations)
       .where(and(eq(conversations.tenantId, tenantId), eq(conversations.contactId, contactId)));
-    for (const conv of convs) await syncConversationDeals(tx, tenantId, conv.id, contactId);
+
+    if (!other) {
+      if (convs.length > 0) {
+        const selectedConvsForContact = convs.filter((c) => requestedConvDeleteSet.has(c.id));
+        if (requestedContactDeleteSet.has(contactId) || selectedConvsForContact.length === convs.length) {
+          for (const c of convs) conversationIdsToDelete.add(c.id);
+          contactIdsToDelete.add(contactId);
+          continue;
+        }
+        if (selectedConvsForContact.length > 0) {
+          for (const c of selectedConvsForContact) conversationIdsToDelete.add(c.id);
+          continue;
+        }
+      } else {
+        if (
+          requestedContactDeleteSet.has(contactId) ||
+          requestedConvDeleteSet.has(`contact:${contactId}`)
+        ) {
+          contactIdsToDelete.add(contactId);
+          continue;
+        }
+      }
+
+      blockingContactEntries.push({
+        contactId,
+        dealIds: contactToDealIds.get(contactId) || new Set(),
+        convs,
+      });
+      continue;
+    }
+
+    for (const conv of convs) {
+      if (requestedConvDeleteSet.has(conv.id)) {
+        conversationIdsToDelete.add(conv.id);
+      } else {
+        await syncConversationDeals(tx, tenantId, conv.id, contactId);
+      }
+    }
   }
+
+  if (blockingContactEntries.length > 0) {
+    const blockingContactIds = blockingContactEntries.map((e) => e.contactId);
+    const blockingDealIdsSet = new Set<string>();
+    for (const entry of blockingContactEntries) {
+      for (const dId of entry.dealIds) blockingDealIdsSet.add(dId);
+    }
+    const blockingDealIds = [...blockingDealIdsSet];
+
+    const contactRows =
+      blockingContactIds.length > 0
+        ? await tx
+            .select({
+              id: contacts.id,
+              name: contacts.name,
+              phone: contacts.phone,
+              mainChannel: contacts.mainChannel,
+            })
+            .from(contacts)
+            .where(and(eq(contacts.tenantId, tenantId), inArray(contacts.id, blockingContactIds)))
+        : [];
+    const contactMap = new Map(contactRows.map((c) => [c.id, c]));
+
+    const dealRows =
+      blockingDealIds.length > 0
+        ? await tx
+            .select({
+              id: crmDeals.id,
+              title: crmDeals.title,
+            })
+            .from(crmDeals)
+            .where(and(eq(crmDeals.tenantId, tenantId), inArray(crmDeals.id, blockingDealIds)))
+        : [];
+    const dealMap = new Map(dealRows.map((d) => [d.id, d]));
+
+    const blockingByDeal = new Map<string, BlockingDealItem>();
+
+    for (const entry of blockingContactEntries) {
+      const contactInfo = contactMap.get(entry.contactId);
+      const contactName = contactInfo?.name || "Contato sem nome";
+      const contactPhone = contactInfo?.phone || null;
+      const channel = contactInfo?.mainChannel || "whatsapp";
+
+      const convItems: BlockingConversationItem[] =
+        entry.convs.length > 0
+          ? entry.convs.map((c) => ({
+              id: c.id,
+              contactId: entry.contactId,
+              contactName,
+              contactPhone,
+              channel,
+              queueState: c.queueState,
+              lastMessageText: c.lastMessageText,
+              lastMessageTime: c.lastMessageTime ? c.lastMessageTime.toISOString() : null,
+            }))
+          : [
+              {
+                id: `contact:${entry.contactId}`,
+                contactId: entry.contactId,
+                contactName,
+                contactPhone,
+                channel,
+                queueState: "contato",
+                lastMessageText: "Contato vinculado sem histórico de mensagens",
+                lastMessageTime: null,
+              },
+            ];
+
+      for (const dId of entry.dealIds) {
+        const dealInfo = dealMap.get(dId);
+        const existing = blockingByDeal.get(dId);
+        if (!existing) {
+          blockingByDeal.set(dId, {
+            dealId: dId,
+            dealTitle: dealInfo?.title || dId,
+            dealCode: `#${dId.slice(-5)}`,
+            contactId: entry.contactId,
+            contactName,
+            contactPhone,
+            conversations: [...convItems],
+          });
+        } else {
+          for (const ci of convItems) {
+            if (!existing.conversations.some((x) => x.id === ci.id)) {
+              existing.conversations.push(ci);
+            }
+          }
+        }
+      }
+    }
+
+    const orderedBlockingDeals = dealIds
+      .filter((id) => blockingByDeal.has(id))
+      .map((id) => blockingByDeal.get(id)!);
+
+    throw new DealRequiredError(orderedBlockingDeals, dealIds);
+  }
+
+  return {
+    conversationIdsToDelete: [...conversationIdsToDelete],
+    contactIdsToDelete: [...contactIdsToDelete],
+  };
 }
 
 export async function linkContactToDeal(
