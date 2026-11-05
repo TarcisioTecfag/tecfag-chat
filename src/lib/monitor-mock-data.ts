@@ -179,7 +179,7 @@ export type OperatorMetric = {
   frustratedCount: number;
   satisfiedPctLastWeek?: number;
   satisfiedPctLastMonth?: number;
-  trafficLight: "green" | "yellow" | "red";
+  trafficLight: "green" | "yellow" | "red" | "gray";
 };
 
 export type AlertCategoryTag =

@@ -9,21 +9,79 @@ export type OperatorMetric = {
   operatorName: string;
   operatorAvatar: string | null;
   status: string;
+  isOnline?: boolean;
+  presenceLabel?: "ONLINE" | "EM ATENDIMENTO" | "EM PAUSA" | "OFFLINE";
+  lastSeenAt?: string | null;
+  usageSecondsToday?: number;
+  roleSubtitle?: string;
+  scoreSourceLabel?: "Auditoria IA" | "Índice Operacional" | "Sem dados";
+
   totalConversations: number;
+  yesterdayConversations?: number;
+  vsYesterdayDelta?: number;
+  vsYesterdayLabel?: string;
+  vsYesterdayPositive?: boolean;
+  monthlyConversations?: number;
+  avgDailyConversations7d?: number;
+  conversationsNote?: string;
+
+  avgResponseTimeSeconds?: number | null;
   avgResponseTimeFormatted: string;
+  avgResponseTime7dFormatted?: string;
   avgResponseTimeLastWeekFormatted?: string;
   avgResponseTimeLastMonthFormatted?: string;
+  tmaNote?: string;
+  slaTargetMinutes?: number;
+  slaPct?: number | null;
+  slaNote?: string;
+
   overdueCount: number;
   overdueCountLastWeek?: number;
   overdueCountLastMonth?: number;
+
   avgPerformanceScore: number | null;
   avgPerformanceScoreLastWeek: number | null;
   avgPerformanceScoreLastMonth: number | null;
+  sentimentScore10?: number | null;
+  sentimentLabel?: string;
+  sentimentNote?: string;
   satisfiedCount: number;
   neutralCount: number;
   frustratedCount: number;
   satisfiedPctLastWeek?: number;
   satisfiedPctLastMonth?: number;
+
+  conversionRatePct?: number;
+  conversionDisplay?: string;
+  conversionNote?: string;
+  totalDealsCount?: number;
+  openDealsCount?: number;
+  wonDealsCount?: number;
+  lostDealsCount?: number;
+  openPipelineValue?: number;
+  wonPipelineValue?: number;
+
+  monthlyVolumePct?: number;
+  retentionOrResolutionPct?: number;
+  retentionLabel?: string;
+  crmWalletPct?: number;
+
+  monthlyRank?: number;
+  totalRankedOperators?: number;
+  monthlyRankNote?: string;
+
+  horasLabels?: string[];
+  horasSla?: number[];
+  horasSentimento?: number[];
+  horasConversao?: number[];
+  horasScore?: number[];
+
+  diasLabels?: string[];
+  diasAtendimentos?: number[];
+  diasTmaMin?: number[];
+  diasAtrasados?: number[];
+  diasRanking?: number[];
+
   trafficLight: "green" | "yellow" | "red" | "gray";
 };
 
@@ -39,7 +97,7 @@ export type OverviewData = {
 export type AuditItem = {
   id: string;
   conversationId: string;
-  operatorId: string | null;
+  operatorId?: string | null;
   contactName: string | null;
   operatorName: string;
   performanceScore: number | null;
@@ -54,24 +112,29 @@ export type AuditItem = {
   actionableInsight: string | null;
   flagCount: number;
   auditedAt: string | null;
-  status: string;
+  status?: string;
   errorMessage?: string | null;
 };
 
 const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
-function statusDot(trafficLight: OperatorMetric["trafficLight"]) {
-  if (trafficLight === "yellow") return "bg-muted-foreground";
-  if (trafficLight === "red") return "bg-primary/60";
-  if (trafficLight === "gray") return "bg-muted-foreground/40";
-  return "bg-primary";
+function presenceDot(op: OperatorMetric) {
+  if (op.isOnline) {
+    if (op.presenceLabel === "EM PAUSA" || op.status === "ausente") return "bg-amber-500";
+    if (op.presenceLabel === "EM ATENDIMENTO" || op.status === "ocupado") return "bg-primary";
+    return "bg-emerald-500";
+  }
+  return "bg-muted-foreground/40";
 }
 
-function statusLabel(trafficLight: OperatorMetric["trafficLight"]) {
-  if (trafficLight === "green") return "ONLINE";
-  if (trafficLight === "yellow") return "EM PAUSA";
-  if (trafficLight === "red") return "EM ATENDIMENTO";
+function presenceStatusLabel(op: OperatorMetric) {
+  if (op.presenceLabel) return op.presenceLabel;
+  if (op.isOnline) {
+    if (op.status === "ausente") return "EM PAUSA";
+    if (op.status === "ocupado") return "EM ATENDIMENTO";
+    return "ONLINE";
+  }
   return "OFFLINE";
 }
 
@@ -80,7 +143,17 @@ function statusLabel(trafficLight: OperatorMetric["trafficLight"]) {
 const R = 80;
 const ARC = Math.PI * R;
 
-function GaugeHalf({ value, display, label }: { value: number; display: string; label: string }) {
+function GaugeHalf({
+  value,
+  display,
+  label,
+  sublabel,
+}: {
+  value: number;
+  display: string;
+  label: string;
+  sublabel?: string;
+}) {
   const pct = Math.max(0, Math.min(100, value));
   const offset = ARC * (1 - pct / 100);
 
@@ -110,9 +183,14 @@ function GaugeHalf({ value, display, label }: { value: number; display: string; 
           {display}
         </span>
       </div>
-      <span className="mt-4 text-[11px] font-extrabold uppercase tracking-widest text-muted-foreground">
+      <span className="mt-4 text-[11px] font-extrabold uppercase tracking-widest text-muted-foreground text-center">
         {label}
       </span>
+      {sublabel && (
+        <span className="mt-1 text-[11px] font-medium text-muted-foreground text-center truncate max-w-full">
+          {sublabel}
+        </span>
+      )}
     </div>
   );
 }
@@ -256,27 +334,33 @@ function KpiCard({
 }
 
 function ProgressBar({ label, value, pct }: { label: string; value: string; pct: number }) {
+  const clampedPct = Math.max(0, Math.min(100, pct));
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <span className="min-w-0 truncate text-sm text-muted-foreground font-medium">{label}</span>
         <span className="shrink-0 text-sm font-black text-foreground">
-          {value}{" "}
-          <span className="font-bold text-primary" aria-hidden="true">
-            ↑
-          </span>
+          {value}
+          {clampedPct > 0 && (
+            <>
+              {" "}
+              <span className="font-bold text-primary" aria-hidden="true">
+                ↑
+              </span>
+            </>
+          )}
         </span>
       </div>
       <div
         className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
         role="progressbar"
-        aria-valuenow={pct}
+        aria-valuenow={clampedPct}
         aria-valuemin={0}
         aria-valuemax={100}
       >
         <motion.div 
           initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
+          animate={{ width: `${clampedPct}%` }}
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="h-full bg-primary rounded-full" 
         />
@@ -338,14 +422,16 @@ export function OperatorsRankingTab({
     );
   }
 
-  // Ordena os operadores dando prioridade a quem tem atendimentos ativos/hoje (e maior quantidade / score),
-  // mantendo quem está com 0 atendimentos no final da lista
+  // Ordena os operadores dando prioridade a quem tem atendimentos hoje, depois volume 30d e score,
+  // mantendo quem está sem atendimento no final da lista
   const operadores = [...overview.operators].sort((a, b) => {
     const aHasConvs = a.totalConversations > 0 ? 1 : 0;
     const bHasConvs = b.totalConversations > 0 ? 1 : 0;
     if (bHasConvs !== aHasConvs) return bHasConvs - aHasConvs;
     const convDiff = (b.totalConversations ?? 0) - (a.totalConversations ?? 0);
     if (convDiff !== 0) return convDiff;
+    const monthDiff = (b.monthlyConversations ?? 0) - (a.monthlyConversations ?? 0);
+    if (monthDiff !== 0) return monthDiff;
     const scoreDiff = (b.avgPerformanceScore ?? 0) - (a.avgPerformanceScore ?? 0);
     if (scoreDiff !== 0) return scoreDiff;
     return a.operatorName.localeCompare(b.operatorName, "pt-BR");
@@ -353,31 +439,85 @@ export function OperatorsRankingTab({
 
   const atual = operadores.find((o) => o.operatorId === selecionadoId) ?? operadores[0];
 
-  const mediaScore = overview.teamPerformanceScore ?? 
-    Math.round(operadores.reduce((s, o) => s + (o.avgPerformanceScore ?? 0), 0) / operadores.length);
+  const scoredOps = operadores.filter((o) => (o.avgPerformanceScore ?? 0) > 0);
+  const mediaScore =
+    overview.teamPerformanceScore ??
+    (scoredOps.length > 0
+      ? Math.round(scoredOps.reduce((s, o) => s + (o.avgPerformanceScore ?? 0), 0) / scoredOps.length)
+      : null);
 
-  // Status Real Online vs Offline
-  const onlineCount = operadores.filter((o) => o.trafficLight === "green" || o.status === "disponivel" || o.status === "online").length;
-  const offlineCount = operadores.length - onlineCount;
+  // Status Real Online vs Total (baseado em presença real computeOperatorPresenceSnapshot)
+  const onlineCount = operadores.filter((o) => o.isOnline === true).length;
 
-  const totalSent = atual.satisfiedCount + atual.neutralCount + atual.frustratedCount;
-  const satisfiedPct = totalSent > 0 ? Math.round((atual.satisfiedCount / totalSent) * 100) : (atual.satisfiedPctLastWeek ?? 84);
   const scoreVal = atual.avgPerformanceScore ?? 0;
 
-  const horasLabels = ["09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h"];
-  const diasLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  // Séries e Rótulos Reais (com fallback seguro apenas para evitar array vazio em TrendChart)
+  const horasLabels =
+    atual.horasLabels && atual.horasLabels.length >= 2
+      ? atual.horasLabels
+      : ["09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h"];
+  const diasLabels =
+    atual.diasLabels && atual.diasLabels.length >= 2
+      ? atual.diasLabels
+      : ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
-  const horasSla = [91, 93, 92, 95, 96, 97, 97, 98];
-  const horasSentimento = [7.4, 7.6, 7.5, 7.9, 8.0, 8.1, 8.1, 8.2];
-  const horasConversao = [8, 9, 9, 10, 11, 11, 12, 12];
-  const horasScore = [78, 80, 82, 82, 87, 90, 92, 94];
+  const slaPctVal = atual.slaPct ?? null;
+  const slaDisplay = slaPctVal !== null ? `${slaPctVal}%` : "–";
+  const slaGaugeVal = slaPctVal ?? 0;
 
-  const diasAtendimentos = [38, 41, 44, 40, 46, 45, atual.totalConversations > 0 ? atual.totalConversations : 48];
-  const diasTmaMin = [5.4, 5.1, 4.9, 5.0, 4.6, 4.4, 4.2];
-  const diasAtrasados = [3, 2, 2, 1, 1, 0, atual.overdueCount];
-  const diasRanking = [8, 7, 6, 5, 4, 3, 2];
+  const sentimentVal = atual.sentimentScore10 ?? null;
+  const sentimentDisplay = sentimentVal !== null ? sentimentVal.toFixed(1) : "–";
+  const sentimentGaugeVal = sentimentVal !== null ? Math.round(sentimentVal * 10) : 0;
+  const sentimentTitle = atual.sentimentLabel ?? "Sentimento do Cliente";
 
-  const operatorAudits = audits.filter((a) => a.operatorId === atual.operatorId);
+  const conversionPctVal = atual.conversionRatePct ?? 0;
+  const conversionDisplay = atual.conversionDisplay ?? `${conversionPctVal}%`;
+
+  const horasSla =
+    atual.horasSla && atual.horasSla.length >= 2
+      ? atual.horasSla
+      : Array(horasLabels.length).fill(slaGaugeVal);
+  const horasSentimento =
+    atual.horasSentimento && atual.horasSentimento.length >= 2
+      ? atual.horasSentimento
+      : Array(horasLabels.length).fill(sentimentVal ?? 0);
+  const horasConversao =
+    atual.horasConversao && atual.horasConversao.length >= 2
+      ? atual.horasConversao
+      : Array(horasLabels.length).fill(conversionPctVal);
+  const horasScore =
+    atual.horasScore && atual.horasScore.length >= 2
+      ? atual.horasScore
+      : Array(horasLabels.length).fill(scoreVal);
+
+  const diasAtendimentos =
+    atual.diasAtendimentos && atual.diasAtendimentos.length >= 2
+      ? atual.diasAtendimentos
+      : [0, 0, 0, 0, 0, 0, atual.totalConversations];
+  const diasTmaMin =
+    atual.diasTmaMin && atual.diasTmaMin.length >= 2
+      ? atual.diasTmaMin
+      : [0, 0, 0, 0, 0, 0, 0];
+  const diasAtrasados =
+    atual.diasAtrasados && atual.diasAtrasados.length >= 2
+      ? atual.diasAtrasados
+      : [0, 0, 0, 0, 0, 0, atual.overdueCount];
+
+  const currentRank =
+    atual.monthlyRank ?? (operadores.findIndex((o) => o.operatorId === atual.operatorId) + 1);
+  const diasRanking =
+    atual.diasRanking && atual.diasRanking.length >= 2
+      ? atual.diasRanking
+      : Array(diasLabels.length).fill(currentRank);
+
+  const tmaEffectiveFormatted =
+    atual.avgResponseTimeFormatted !== "–"
+      ? atual.avgResponseTimeFormatted
+      : (atual.avgResponseTime7dFormatted ?? "–");
+
+  const operatorAudits = audits.filter(
+    (a) => a.operatorId === atual.operatorId || a.operatorName === atual.operatorName,
+  );
 
   return (
     <div className="flex-1 w-full min-h-0 overflow-y-auto scrollbar-thin bg-background text-foreground selection:bg-primary/30 rounded-2xl border border-border">
@@ -394,6 +534,12 @@ export function OperatorsRankingTab({
               const ativo = op.operatorId === atual.operatorId;
               const opScore = op.avgPerformanceScore ?? 0;
               const rankPos = idx + 1;
+              const trendText =
+                op.vsYesterdayLabel ??
+                (op.totalConversations > 0
+                  ? `${op.totalConversations} atendimento(s) hoje`
+                  : "Sem atendimentos hoje");
+              const trendPositive = op.vsYesterdayPositive ?? op.totalConversations > 0;
 
               return (
                 <li key={op.operatorId}>
@@ -429,7 +575,7 @@ export function OperatorsRankingTab({
                       className="size-14 sm:size-16" 
                     />
 
-                    {/* Nome, Status Real & Tendência */}
+                    {/* Nome, Status Real & Tendência Real */}
                     <span className="min-w-0 flex-1">
                       <span className="flex items-start justify-between gap-2">
                         <span
@@ -449,13 +595,20 @@ export function OperatorsRankingTab({
                         </span>
                       </span>
                       <span className="mt-1 flex items-center gap-2">
-                        <span className={`size-2 shrink-0 rounded-full ${statusDot(op.trafficLight)}`} aria-hidden="true" />
+                        <span className={`size-2 shrink-0 rounded-full ${presenceDot(op)}`} aria-hidden="true" />
                         <span className="truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                          {statusLabel(op.trafficLight)} • {op.totalConversations} ATEND.
+                          {presenceStatusLabel(op)} • {op.totalConversations} ATEND.
+                          {op.totalConversations === 0 && (op.monthlyConversations ?? 0) > 0
+                            ? ` (${op.monthlyConversations} no mês)`
+                            : ""}
                         </span>
                       </span>
-                      <span className="block text-xs font-semibold text-primary mt-0.5">
-                        ↑ Alta vs ontem
+                      <span
+                        className={`block text-xs font-semibold mt-0.5 truncate ${
+                          trendPositive ? "text-primary" : "text-muted-foreground"
+                        }`}
+                      >
+                        {trendText}
                       </span>
                     </span>
                   </motion.button>
@@ -464,7 +617,7 @@ export function OperatorsRankingTab({
             })}
           </ul>
 
-          {/* Resumo do Time no Rodapé da Sidebar (Online Real vs Offline) */}
+          {/* Resumo do Time no Rodapé da Sidebar (Online Real vs Total) */}
           <div className="mt-auto border-t border-border p-5">
             <h3 className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
               Resumo do time
@@ -472,10 +625,12 @@ export function OperatorsRankingTab({
             <dl className="mt-3 grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-card p-3 ring-1 ring-border">
                 <dt className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">Score médio</dt>
-                <dd className="font-black text-2xl leading-none text-primary mt-1">{mediaScore}</dd>
+                <dd className="font-black text-2xl leading-none text-primary mt-1">
+                  {mediaScore !== null ? mediaScore : "–"}
+                </dd>
               </div>
               <div className="rounded-xl bg-card p-3 ring-1 ring-border">
-                <dt className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">Online / Offline</dt>
+                <dt className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">Online / Total</dt>
                 <dd className="font-black text-2xl leading-none text-foreground mt-1">
                   {onlineCount}/{operadores.length}
                 </dd>
@@ -516,8 +671,8 @@ export function OperatorsRankingTab({
                   >
                     {atual.operatorName}
                   </h2>
-                  <p className="max-w-[56ch] text-pretty text-sm text-muted-foreground lg:text-base font-medium mt-1">
-                    Senior Account Executive • Time de Operações Brasil
+                  <p className="max-w-[64ch] text-pretty text-sm text-muted-foreground lg:text-base font-medium mt-1">
+                    {atual.roleSubtitle ?? "Consultor(a) Comercial • Comercial"}
                   </p>
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button
@@ -526,7 +681,7 @@ export function OperatorsRankingTab({
                       className={`flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold uppercase text-primary-foreground transition-colors hover:opacity-90 cursor-pointer ${focusRing}`}
                     >
                       <Eye className="size-4 shrink-0" aria-hidden="true" />
-                      {showOccurrences ? "Ocultar Ocorrências" : "Ver Ocorrências"}
+                      {showOccurrences ? "Ocultar Ocorrências" : `Ver Ocorrências (${operatorAudits.length})`}
                     </button>
                     <button
                       type="button"
@@ -539,14 +694,17 @@ export function OperatorsRankingTab({
                   </div>
                 </div>
 
-                {/* Score Geral Numérico Imponente */}
+                {/* Score Geral Numérico Imponente (100% consistente com a Sidebar) */}
                 <div className="shrink-0 text-right">
-                  <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
+                  <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground block">
                     Score Geral
                   </span>
                   <div className="mt-1 font-black text-5xl leading-none text-primary sm:text-6xl lg:text-7xl">
-                    {scoreVal > 0 ? scoreVal : 94}
+                    {scoreVal > 0 ? scoreVal : "–"}
                   </div>
+                  <span className="mt-1.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    {atual.scoreSourceLabel ?? (scoreVal > 0 ? "Auditoria IA" : "Sem atividade")}
+                  </span>
                 </div>
               </section>
 
@@ -562,7 +720,12 @@ export function OperatorsRankingTab({
                   <MetricCard
                     label="SLA de Atendimento"
                     gauge={
-                      <GaugeHalf value={98} display="98%" label="SLA de Atendimento" />
+                      <GaugeHalf
+                        value={slaGaugeVal}
+                        display={slaDisplay}
+                        label="SLA de Atendimento"
+                        sublabel={atual.slaNote}
+                      />
                     }
                     trend={
                       <TrendChart
@@ -574,17 +737,18 @@ export function OperatorsRankingTab({
                     }
                   />
                   <MetricCard
-                    label="Sentimento do Cliente"
+                    label={sentimentTitle}
                     gauge={
                       <GaugeHalf
-                        value={82}
-                        display="8.2"
-                        label="Sentimento do Cliente"
+                        value={sentimentGaugeVal}
+                        display={sentimentDisplay}
+                        label={sentimentTitle}
+                        sublabel={atual.sentimentNote}
                       />
                     }
                     trend={
                       <TrendChart
-                        title="Histórico de sentimento nas últimas 8 horas"
+                        title="Histórico de qualidade nas últimas 8 horas"
                         points={horasSentimento}
                         labels={horasLabels}
                         format={(v) => v.toFixed(1)}
@@ -596,9 +760,10 @@ export function OperatorsRankingTab({
                     className="sm:col-span-2 xl:col-span-1"
                     gauge={
                       <GaugeHalf
-                        value={60}
-                        display="12%"
+                        value={conversionPctVal}
+                        display={conversionDisplay}
                         label="Taxa de Conversão"
+                        sublabel={atual.conversionNote}
                       />
                     }
                     trend={
@@ -613,7 +778,7 @@ export function OperatorsRankingTab({
                 </div>
               </section>
 
-              {/* Seção Indicadores Operacionais (4 KPIs com Gráficos 7d) */}
+              {/* Seção Indicadores Operacionais (4 KPIs com Gráficos 7d Reais) */}
               <section aria-labelledby="titulo-kpis" className="space-y-4">
                 <h3 id="titulo-kpis" className="text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
                   Indicadores operacionais • últimos 7 dias
@@ -621,9 +786,9 @@ export function OperatorsRankingTab({
                 <div className="grid gap-px overflow-hidden rounded-2xl bg-border ring-1 ring-border sm:grid-cols-2 xl:grid-cols-4">
                   <KpiCard
                     label="Atendimentos Hoje"
-                    value={String(atual.totalConversations > 0 ? atual.totalConversations : 48)}
-                    note="+12% vs média"
-                    positive
+                    value={String(atual.totalConversations)}
+                    note={atual.conversationsNote ?? "Sem atendimentos nos últimos 7d"}
+                    positive={(atual.totalConversations ?? 0) > (atual.avgDailyConversations7d ?? 0)}
                     trend={
                       <TrendChart
                         title="Atendimentos por dia nos últimos 7 dias"
@@ -636,8 +801,12 @@ export function OperatorsRankingTab({
                   />
                   <KpiCard
                     label="Tempo Médio (TMA)"
-                    value={atual.avgResponseTimeFormatted !== "–" ? atual.avgResponseTimeFormatted : "04:12"}
-                    note="Meta: 05:00"
+                    value={tmaEffectiveFormatted}
+                    note={atual.tmaNote ?? `Meta SLA: ${atual.slaTargetMinutes ?? 15}min`}
+                    positive={
+                      atual.avgResponseTimeSeconds != null &&
+                      atual.avgResponseTimeSeconds <= (atual.slaTargetMinutes ?? 15) * 60
+                    }
                     trend={
                       <TrendChart
                         title="Tempo médio de atendimento nos últimos 7 dias"
@@ -652,7 +821,11 @@ export function OperatorsRankingTab({
                   <KpiCard
                     label="Casos Atrasados"
                     value={String(atual.overdueCount).padStart(2, "0")}
-                    note={atual.overdueCount > 0 ? "Atenção necessária" : "Nenhum alerta"}
+                    note={
+                      atual.overdueCount > 0
+                        ? `${atual.overdueCount} aguardando > ${atual.slaTargetMinutes ?? 15}min`
+                        : "Nenhum alerta de SLA"
+                    }
                     danger={atual.overdueCount > 0}
                     trend={
                       <TrendChart
@@ -667,9 +840,12 @@ export function OperatorsRankingTab({
                   />
                   <KpiCard
                     label="Ranking Mensal"
-                    value="2º Lugar"
-                    note="Top 1% da operação"
-                    positive
+                    value={`${currentRank}º Lugar`}
+                    note={atual.monthlyRankNote ?? `De ${operadores.length} consultores`}
+                    positive={
+                      currentRank <= 3 &&
+                      ((atual.monthlyConversations ?? 0) > 0 || atual.totalConversations > 0)
+                    }
                     trend={
                       <TrendChart
                         title="Posição no ranking nos últimos 7 dias"
@@ -684,7 +860,7 @@ export function OperatorsRankingTab({
                 </div>
               </section>
 
-              {/* Evolução do Score & Comparativo Mensal */}
+              {/* Evolução do Score & Comparativo Mensal Real (30 dias) */}
               <section aria-labelledby="titulo-evolucao" className="grid gap-4 lg:grid-cols-2">
                 <article className="rounded-2xl bg-muted/30 p-5 ring-1 ring-border sm:p-6">
                   <h4 className="mb-4 text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
@@ -699,18 +875,23 @@ export function OperatorsRankingTab({
                 </article>
                 <article className="rounded-2xl bg-muted/30 p-5 ring-1 ring-border sm:p-6">
                   <h4 className="mb-4 text-xs font-extrabold uppercase tracking-[0.2em] text-muted-foreground">
-                    Comparativo Mensal
+                    Comparativo Mensal (últimos 30 dias)
                   </h4>
                   <div className="space-y-4">
                     <ProgressBar
-                      label="Volume de Conversas"
-                      value="1.240"
-                      pct={85}
+                      label="Volume de Conversas (30d)"
+                      value={`${atual.monthlyConversations ?? atual.totalConversations} atend.`}
+                      pct={atual.monthlyVolumePct ?? 0}
                     />
                     <ProgressBar
-                      label="Retenção de Base"
-                      value="92%"
-                      pct={92}
+                      label={atual.retentionLabel ?? "Conformidade de SLA (30d)"}
+                      value={`${atual.retentionOrResolutionPct ?? 0}%`}
+                      pct={atual.retentionOrResolutionPct ?? 0}
+                    />
+                    <ProgressBar
+                      label="Carteira Ativa no CRM"
+                      value={`${atual.openDealsCount ?? 0} negócio(s)`}
+                      pct={atual.crmWalletPct ?? 0}
                     />
                   </div>
                 </article>
@@ -733,7 +914,7 @@ export function OperatorsRankingTab({
 
                     {operatorAudits.length === 0 ? (
                       <p className="text-xs text-muted-foreground py-2 italic">
-                        Nenhuma auditoria recente encontrada para este operador.
+                        Nenhuma auditoria de I.A. registrada para {atual.operatorName} neste período.
                       </p>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
