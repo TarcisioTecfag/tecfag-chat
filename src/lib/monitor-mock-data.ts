@@ -13,6 +13,7 @@
 
 export type LiveMessage = {
   id: string;
+  conversationId?: string;
   senderType?: "client" | "agent" | "bot" | "system";
   senderName?: string;
   sender?: string;
@@ -21,18 +22,56 @@ export type LiveMessage = {
   content?: string;        // texto puro ou [MEDIA:image|video|audio|document|sticker]msgId
   sentAt?: string;         // ISO string
   isInternalNote?: boolean;
+  mediaInterpretation?: string | null;
+  status?: string;
+  errorMessage?: string | null;
+  quotedMessageId?: string | null;
+  quotedMessageSender?: string | null;
+  quotedMessageContent?: string | null;
+  metaDetails?: Record<string, unknown> | null;
 };
+
+export type LiveDealSummary = {
+  id: string;
+  title: string;
+  value: number | null;
+  status: string;
+  pipelineName: string | null;
+  stageName: string | null;
+  rating?: number;
+};
+
+export type LiveActivityCategory =
+  | "waiting_reply"
+  | "active_today"
+  | "recent_active"
+  | "awaiting_first_contact"
+  | "dormant";
 
 export type LiveConversation = {
   id: string;
   contactName: string;
   contactPhone: string;
+  contactEmail?: string | null;
   contactAvatar?: string | null;
+  accountName?: string | null;
+  accountDocument?: string | null;
   queueState?: string;
   lastMessage: string;
   lastMessageTime?: string;
   waitingMinutes: number;
   isUnanswered: boolean;
+  hasRealInteraction?: boolean;
+  isActiveToday?: boolean;
+  activityCategory?: LiveActivityCategory;
+  lastClientMessageAt?: string | null;
+  metaWindowOpen?: boolean;
+  metaWindowRemainingMinutes?: number | null;
+  activeDeal?: LiveDealSummary | null;
+  openTasksCount?: number;
+  overdueTasksCount?: number;
+  nextTaskTitle?: string | null;
+  failedMessagesCount?: number;
   operatorId?: string | null;
   operatorName?: string | null;
   messages: LiveMessage[];
@@ -43,13 +82,40 @@ export type LiveOperator = {
   operatorName: string;
   operatorAvatar?: string | null;
   status: "disponivel" | "ocupado" | "ausente";
+  isOnline?: boolean;
+  lastSeenAt?: string | null;
+  usageSecondsToday?: number;
+  waitingReplyCount?: number;
+  criticalWaitCount?: number;
+  activeTodayCount?: number;
+  awaitingFirstContactCount?: number;
+  dormantCount?: number;
+  maxWaitMinutes?: number;
+  activeDealsValue?: number;
   conversations: LiveConversation[];
+};
+
+export type LiveSummary = {
+  totalOperators: number;
+  onlineOperators: number;
+  unassignedQueueCount: number;
+  automationCount: number;
+  waitingReplyCount: number;
+  criticalWaitCount: number;
+  activeTodayCount: number;
+  awaitingFirstContactCount: number;
+  dormantCount: number;
+  maxWaitMinutes: number;
+  avgWaitMinutes: number;
+  activePipelineValue: number;
+  openDealsInLiveCount: number;
 };
 
 export type LiveData = {
   operators: LiveOperator[];
   unassigned: LiveConversation[];   // Na fila sem operador
-  automation: LiveConversation[];   // Com Valentina (automação)
+  automation: LiveConversation[];   // Com Valentina/Fagner (automação)
+  summary?: LiveSummary;
 };
 
 

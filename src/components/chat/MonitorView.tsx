@@ -17,11 +17,13 @@ import {
   Mail, Calendar, CheckCircle2, Circle, ExternalLink,
   Loader2, X, Filter, Coins, DollarSign, Cpu, Layers, Bot, Sparkles, ShieldCheck,
   Play, Volume2, FileText, Radio, ChevronDown, Globe,
-  Smile, Meh, Frown
+  Smile, Meh, Frown, Briefcase, Building2, Lock, Send,
+  CornerUpLeft, Check, CheckCheck, LayoutDashboard, Flame, ArrowLeft
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
+import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
 import { MOCK_LIVE, MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
 import { OperatorsRankingTab } from "./OperatorsRankingTab";
 import { SiteVisitorsTab } from "./SiteVisitorsTab";
@@ -304,19 +306,22 @@ function Avatar({ name, avatar, size = "md" }: { name: string; avatar?: string |
   };
   if (avatar && !imgError) {
     return (
-      <img
-        src={avatar}
-        alt={name}
-        title={name}
-        className={`${sizes[size]} rounded-full object-cover shrink-0 border border-border`}
-        onError={() => setImgError(true)}
-      />
+      <SystemTooltip content={name}>
+        <img
+          src={avatar}
+          alt={name}
+          className={`${sizes[size]} rounded-full object-cover shrink-0 border border-border`}
+          onError={() => setImgError(true)}
+        />
+      </SystemTooltip>
     );
   }
   return (
-    <div className={`${sizes[size]} rounded-full bg-primary/15 text-primary font-extrabold flex items-center justify-center shrink-0`} title={name}>
-      {initials}
-    </div>
+    <SystemTooltip content={name}>
+      <div className={`${sizes[size]} rounded-full bg-primary/15 text-primary font-extrabold flex items-center justify-center shrink-0`}>
+        {initials}
+      </div>
+    </SystemTooltip>
   );
 }
 
@@ -1592,7 +1597,14 @@ function LiveOperatorSelect({
 }: {
   value: string;
   onChange: (v: string) => void;
-  operators: { operatorId: string; operatorName: string; status: string }[];
+  operators: {
+    operatorId: string;
+    operatorName: string;
+    status: string;
+    isOnline?: boolean;
+    waitingReplyCount?: number;
+    activeTodayCount?: number;
+  }[];
 }) {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
@@ -1609,7 +1621,7 @@ function LiveOperatorSelect({
     ? (operators.find((o) => o.operatorId === value)?.operatorName ?? "Operador")
     : "Todos";
 
-  const options = [{ operatorId: "", operatorName: "Todos", status: "" }, ...operators];
+  const options = [{ operatorId: "", operatorName: "Todos", status: "", isOnline: false, waitingReplyCount: 0, activeTodayCount: 0 }, ...operators];
 
   return (
     <div ref={ref} className="relative flex-1">
@@ -1627,28 +1639,44 @@ function LiveOperatorSelect({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 bg-card border border-border rounded-2xl shadow-xl py-1.5 min-w-full max-h-48 overflow-y-auto scrollbar-thin">
+        <div className="absolute left-0 top-full mt-1.5 z-50 bg-card border border-border rounded-2xl shadow-xl py-1.5 min-w-[220px] w-full max-h-56 overflow-y-auto scrollbar-thin">
           {options.map((op) => {
             const isActive = op.operatorId === value;
             return (
               <button
                 key={op.operatorId}
                 onClick={() => { onChange(op.operatorId); setOpen(false); }}
-                className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-[11px] text-left transition cursor-pointer ${
+                className={`w-full flex items-center gap-2 px-3 py-2 text-[11px] text-left transition cursor-pointer ${
                   isActive
                     ? "bg-primary/10 text-primary font-bold"
                     : "text-foreground hover:bg-muted/60"
                 }`}
               >
-                {op.operatorId && (
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                    op.status === "disponivel" ? "bg-primary" :
-                    op.status === "ocupado" ? "bg-muted-foreground" : "bg-muted-foreground/40"
-                  }`} />
+                {op.operatorId ? (
+                  <span
+                    className={`h-2 w-2 rounded-full shrink-0 ${
+                      op.isOnline
+                        ? "bg-emerald-500"
+                        : op.status === "ocupado"
+                        ? "bg-muted-foreground"
+                        : "bg-muted-foreground/35"
+                    }`}
+                  />
+                ) : (
+                  <Users className="h-3 w-3 text-muted-foreground shrink-0" />
                 )}
-                {!op.operatorId && <Users className="h-3 w-3 text-muted-foreground" />}
-                <span className="truncate">{op.operatorName}</span>
-                {isActive && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary shrink-0" />}
+                <span className="truncate flex-1">{op.operatorName}</span>
+                {op.operatorId && (op.waitingReplyCount ?? 0) > 0 && (
+                  <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/25 shrink-0">
+                    {op.waitingReplyCount} esp.
+                  </span>
+                )}
+                {op.operatorId && (op.activeTodayCount ?? 0) > 0 && (op.waitingReplyCount ?? 0) === 0 && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
+                    {op.activeTodayCount} hoje
+                  </span>
+                )}
+                {isActive && <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />}
               </button>
             );
           })}
@@ -1658,37 +1686,207 @@ function LiveOperatorSelect({
   );
 }
 
-// ─── LiveTab ──────────────────────────────────────────────────────────────────
+// ─── LiveTab & Helpers ────────────────────────────────────────────────────────
 
 const LIVE_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
+function formatLiveMessagePreview(raw?: string | null): string {
+  if (!raw) return "Nenhuma mensagem recente";
+  const mediaMatch = raw.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::([\s\S]+))?$/);
+  if (mediaMatch) {
+    const [, mediaType, , caption] = mediaMatch;
+    const cleanCaption = caption ? caption.replace(/\s+/g, " ").trim() : "";
+    const labels: Record<string, string> = {
+      image: "📷 Imagem",
+      video: "🎥 Vídeo",
+      audio: "🎵 Áudio",
+      document: "📄 Documento",
+      sticker: "🏷️ Figurinha",
+    };
+    const prefix = labels[mediaType] || "📎 Mídia";
+    return cleanCaption ? `${prefix}: ${cleanCaption}` : prefix;
+  }
+  return raw.replace(/\s+/g, " ").trim();
+}
+
+function formatWaitDuration(minutes: number): string {
+  if (minutes < 1) return "< 1m";
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function formatMessageDateSeparator(isoStr?: string): string | null {
+  if (!isoStr) return null;
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return null;
+
+  const fmtKey = (date: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 3600 * 1000);
+  const msgKey = fmtKey(d);
+
+  if (msgKey === fmtKey(now)) return "Hoje";
+  if (msgKey === fmtKey(yesterday)) return "Ontem";
+
+  return d.toLocaleDateString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getMessageDateKey(isoStr?: string): string {
+  if (!isoStr) return "";
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
 /**
- * Renderiza o conteúdo de uma mensagem ao vivo:
- * - Suporta texto puro
- * - Suporta [MEDIA:type]messageId:caption
- * - Notas internas usam destaque neutro/primário nativo
+ * Renderiza o conteúdo de uma mensagem ao vivo com paridade completa:
+ * - Mensagens de sistema centralizadas em pílula
+ * - Notas internas e Sussurros da Supervisão destacados
+ * - Suporte a citações (quotedMessageContent)
+ * - Suporte a mídia multiline ([MEDIA:type]messageId:caption)
+ * - Exibição de transcrição de áudio (mediaInterpretation)
+ * - Exibição de status de entrega e falhas da Meta (#131026, #130472, #131049)
  */
-function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolean }) {
+function LiveMessageBubble({
+  msg,
+  isAgent,
+  contactPhone,
+}: {
+  msg: LiveMessage;
+  isAgent: boolean;
+  contactPhone?: string;
+}) {
+  const [showTranscript, setShowTranscript] = useState(true);
   const content = msg.content || "";
 
-  // Detecta padrão [MEDIA:type]messageId
-  const mediaMatch = content.match(/^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::(.+))?$/);
+  const timeStr = msg.sentAt
+    ? new Date(msg.sentAt).toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
 
-  const bubbleCls = `max-w-[72%] rounded-2xl px-3.5 py-2 shadow-sm text-xs leading-relaxed ${
-    msg.isInternalNote
-      ? "bg-muted border border-border text-foreground italic"
+  // 1. Mensagens de sistema ficam centralizadas (não como balão do cliente)
+  if (msg.senderType === "system") {
+    return (
+      <div className="flex justify-center my-1.5">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/50 border border-border text-[10px] text-muted-foreground font-medium max-w-[85%] text-center">
+          <Clock className="h-3 w-3 shrink-0 opacity-70" />
+          <span className="truncate">{content}</span>
+          {timeStr && <span className="opacity-60 shrink-0">· {timeStr}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  // Detecta padrão [MEDIA:type]messageId:caption (com suporte a quebras de linha na legenda)
+  const mediaMatch = content.match(
+    /^\[MEDIA:(image|video|audio|document|sticker)\]([^:]+)(?::([\s\S]+))?$/
+  );
+
+  const isSupervisorWhisper =
+    Boolean(msg.isInternalNote) &&
+    (Boolean((msg.metaDetails as any)?.supervisorWhisper) ||
+      Boolean(msg.senderName?.includes("(Supervisão)")));
+
+  const isFailed = msg.status === "failed" || Boolean(msg.errorMessage);
+  const translatedError = isFailed
+    ? formatMetaErrorMessagePt(msg.errorMessage || "Falha no envio da mensagem", contactPhone)
+    : null;
+
+  const bubbleCls = `max-w-[75%] rounded-2xl px-3.5 py-2.5 shadow-sm text-xs leading-relaxed ${
+    isSupervisorWhisper
+      ? "bg-primary/10 border border-primary/30 text-foreground"
+      : msg.isInternalNote
+      ? "bg-muted/80 border border-border text-foreground"
+      : isFailed
+      ? "bg-card border-2 border-primary/50 text-foreground rounded-tr-none"
       : isAgent
       ? "bg-primary text-primary-foreground rounded-tr-none"
       : "bg-card text-foreground border border-border rounded-tl-none"
   }`;
 
-  const timeCls = `text-[9px] block text-right mt-1 select-none ${
-    isAgent ? "text-primary-foreground/60" : "text-muted-foreground/60"
+  const isLightOnPrimary = isAgent && !msg.isInternalNote && !isFailed;
+
+  const timeCls = `text-[9px] flex items-center justify-end gap-1 mt-1 select-none ${
+    isLightOnPrimary ? "text-primary-foreground/70" : "text-muted-foreground"
   }`;
 
-  const timeStr = msg.sentAt
-    ? new Date(msg.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-    : "";
+  const renderDeliveryIcon = () => {
+    if (!isAgent || msg.isInternalNote) return null;
+    if (isFailed) {
+      return <AlertTriangle className="h-3 w-3 text-primary shrink-0" />;
+    }
+    if (msg.status === "read" || msg.status === "delivered") {
+      return <CheckCheck className="h-3 w-3 shrink-0 opacity-90" />;
+    }
+    return <Check className="h-3 w-3 shrink-0 opacity-75" />;
+  };
+
+  const renderQuotedBlock = () => {
+    if (!msg.quotedMessageContent) return null;
+    return (
+      <div
+        className={`mb-2 rounded-lg px-2.5 py-1.5 border-l-2 text-[10px] ${
+          isLightOnPrimary
+            ? "bg-black/15 border-white/60 text-primary-foreground/90"
+            : "bg-muted/60 border-primary text-muted-foreground"
+        }`}
+      >
+        <div className="flex items-center gap-1 font-bold mb-0.5">
+          <CornerUpLeft className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">{msg.quotedMessageSender || "Mensagem citada"}</span>
+        </div>
+        <p className="line-clamp-2 break-words opacity-90">
+          {formatLiveMessagePreview(msg.quotedMessageContent)}
+        </p>
+      </div>
+    );
+  };
+
+  const renderInternalHeader = () => {
+    if (!msg.isInternalNote) return null;
+    return (
+      <div className="flex items-center gap-1.5 mb-1 pb-1 border-b border-border/60 text-[10px] font-extrabold text-primary">
+        <Lock className="h-3 w-3 shrink-0" />
+        <span>
+          {isSupervisorWhisper ? "Orientação da Supervisão (Sussurro)" : "Nota Interna da Equipe"}
+        </span>
+      </div>
+    );
+  };
+
+  const renderFailureNotice = () => {
+    if (!isFailed || !translatedError) return null;
+    return (
+      <div className="mt-2 rounded-xl bg-primary/10 border border-primary/25 p-2 text-[10px] text-foreground flex items-start gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <span className="font-extrabold text-primary block">Falha de Entrega no WhatsApp</span>
+          <span className="text-muted-foreground leading-snug block mt-0.5">{translatedError}</span>
+        </div>
+      </div>
+    );
+  };
 
   if (mediaMatch) {
     const [, mediaType, messageId, caption] = mediaMatch;
@@ -1702,7 +1900,7 @@ function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolea
           <img
             src={mediaUrl}
             alt="Imagem"
-            className="max-h-52 w-full object-contain rounded-xl cursor-pointer hover:opacity-90 transition"
+            className="max-h-56 w-full object-contain rounded-xl cursor-pointer hover:opacity-90 transition"
           />
         </a>
       );
@@ -1711,20 +1909,52 @@ function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolea
         <a href={mediaUrl} target="_blank" rel="noopener noreferrer" className="relative block">
           <video
             src={mediaUrl}
-            className="max-h-52 w-full object-contain rounded-xl pointer-events-none"
+            controls
+            preload="metadata"
+            className="max-h-56 w-full object-contain rounded-xl"
           />
-          <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-xl">
-            <div className="h-10 w-10 rounded-full bg-white/90 flex items-center justify-center shadow">
-              <Play className="h-5 w-5 fill-slate-800 ml-0.5" />
-            </div>
-          </div>
         </a>
       );
     } else if (mediaType === "audio") {
       mediaEl = (
-        <div className="flex items-center gap-2 py-1">
-          <Volume2 className="h-4 w-4 shrink-0" />
-          <AudioWithSpeed src={mediaUrl} audioClassName="h-7 w-40" />
+        <div className="flex flex-col gap-1.5 py-1 min-w-[210px]">
+          <div className="flex items-center gap-2">
+            <Volume2 className="h-4 w-4 shrink-0" />
+            <AudioWithSpeed src={mediaUrl} audioClassName="h-7 w-44" />
+            {msg.mediaInterpretation && (
+              <SystemTooltip content={showTranscript ? "Ocultar transcrição" : "Ver transcrição do áudio"}>
+                <button
+                  type="button"
+                  onClick={() => setShowTranscript((v) => !v)}
+                  className={`p-1 rounded-md transition cursor-pointer ${
+                    isLightOnPrimary ? "hover:bg-white/15" : "hover:bg-muted"
+                  }`}
+                >
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${
+                      showTranscript ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+              </SystemTooltip>
+            )}
+          </div>
+          {msg.mediaInterpretation && showTranscript && (
+            <div
+              className={`rounded-lg px-2.5 py-1.5 text-[10px] leading-relaxed border ${
+                isLightOnPrimary
+                  ? "bg-black/15 border-white/20 text-primary-foreground/95"
+                  : "bg-muted/60 border-border text-foreground"
+              }`}
+            >
+              <span className="font-bold uppercase tracking-wider text-[8px] opacity-75 block mb-0.5">
+                Transcrição IA:
+              </span>
+              <p className="italic whitespace-pre-wrap break-words">
+                "{msg.mediaInterpretation}"
+              </p>
+            </div>
+          )}
         </div>
       );
     } else if (mediaType === "document") {
@@ -1734,16 +1964,16 @@ function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolea
           href={mediaUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 hover:underline"
+          className="flex items-center gap-2 hover:underline py-0.5"
         >
           <FileText className="h-4 w-4 shrink-0" />
-          <span className="text-[11px] truncate max-w-[150px]">{fileName}</span>
+          <span className="text-[11px] font-semibold truncate max-w-[180px]">{fileName}</span>
         </a>
       );
     } else {
       mediaEl = (
         <a href={mediaUrl} target="_blank" rel="noopener noreferrer" className="underline text-[11px]">
-          Mídia
+          Mídia ({mediaType})
         </a>
       );
     }
@@ -1751,9 +1981,17 @@ function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolea
     return (
       <div className={`flex ${isAgent ? "justify-end" : "justify-start"}`}>
         <div className={bubbleCls}>
+          {renderInternalHeader()}
+          {renderQuotedBlock()}
           {mediaEl}
-          {caption && <p className="mt-1 text-[11px]">{caption}</p>}
-          <span className={timeCls}>{timeStr} · {msg.senderName}</span>
+          {caption && mediaType !== "document" && (
+            <p className="mt-1.5 text-[11px] whitespace-pre-wrap break-words">{caption}</p>
+          )}
+          {renderFailureNotice()}
+          <div className={timeCls}>
+            <span>{timeStr} · {msg.senderName}</span>
+            {renderDeliveryIcon()}
+          </div>
         </div>
       </div>
     );
@@ -1762,12 +2000,20 @@ function LiveMessageBubble({ msg, isAgent }: { msg: LiveMessage; isAgent: boolea
   return (
     <div className={`flex ${isAgent ? "justify-end" : "justify-start"}`}>
       <div className={bubbleCls}>
+        {renderInternalHeader()}
+        {renderQuotedBlock()}
         <p className="whitespace-pre-wrap break-words">{content}</p>
-        <span className={timeCls}>{timeStr} · {msg.senderName}</span>
+        {renderFailureNotice()}
+        <div className={timeCls}>
+          <span>{timeStr} · {msg.senderName}</span>
+          {renderDeliveryIcon()}
+        </div>
       </div>
     </div>
   );
 }
+
+type LiveSidebarFilter = "active" | "waiting" | "unstarted" | "all";
 
 function LiveTab({ demoMode }: { demoMode: boolean }) {
   const { tenant, setSelectedChatId, setActiveView } = useChat();
@@ -1778,26 +2024,29 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Conversa selecionada
+  // Conversa selecionada (null = exibe o Cockpit Executivo da Diretoria)
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
-
-  // Modal de confirmação para conversas da Valentina
-  const [valentinaPending, setValentinaPending] = useState<LiveConversation | null>(null);
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState("");          // YYYY-MM-DD
   const [opIdFilter, setOpIdFilter] = useState("");          // operatorId
+  const [sidebarFilter, setSidebarFilter] = useState<LiveSidebarFilter>("active");
+
+  // Sussurro do Supervisor (Nota Interna Direta)
+  const [whisperText, setWhisperText] = useState("");
+  const [sendingWhisper, setSendingWhisper] = useState(false);
 
   // Histórico completo (carregado sob demanda)
   const [fullHistory, setFullHistory] = useState<LiveMessage[]>([]);
   const [fullHistoryLoading, setFullHistoryLoading] = useState(false);
   const [fullHistoryConvId, setFullHistoryConvId] = useState<string | null>(null);
 
-  // Quando a conversa muda, limpa histórico completo
+  // Quando a conversa muda, limpa histórico completo e campo de sussurro
   useEffect(() => {
     setFullHistory([]);
     setFullHistoryConvId(null);
+    setWhisperText("");
   }, [selectedConvId]);
 
   const loadFullHistory = useCallback(async (convId: string) => {
@@ -1851,63 +2100,221 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
     return () => clearInterval(interval);
   }, [fetchLive]);
 
+  // Enviar Sussurro / Nota Interna de Supervisão
+  const handleSendWhisper = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = whisperText.trim();
+    if (!trimmed || !selectedConvId || sendingWhisper) return;
 
-  // Encontrar conversa selecionada em qualquer seção
-  const allConvs = [
-    ...(liveData?.operators.flatMap((op) => op.conversations) ?? []),
-    ...(liveData?.unassigned ?? []),
-  ];
-  const selectedConv = allConvs.find((c) => c.id === selectedConvId) ?? null;
-  const selectedOpName = liveData?.operators.find((op) =>
-    op.conversations.some((c) => c.id === selectedConvId)
-  )?.operatorName ?? null;
+    setSendingWhisper(true);
+    try {
+      const res = await fetch("/api/gestao/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: selectedConvId,
+          content: trimmed,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Não foi possível enviar a orientação.");
+      }
 
-  // Filtro de busca local (aplicado na sidebar apenas)
-  const searchLower = searchTerm.toLowerCase();
-  const matchesSearch = (c: LiveConversation) =>
-    !searchTerm ||
-    c.contactName.toLowerCase().includes(searchLower) ||
-    c.contactPhone.includes(searchTerm);
+      const createdMsg: LiveMessage = data.message;
+      setWhisperText("");
+      toast.success("Orientação interna enviada para o operador!");
 
-  // Lista de operadores disponíveis para o dropdown e sidebar,
-  // dando prioridade a quem tem mais atendimentos ativos primeiro e movendo 0 atend. para o final
+      if (createdMsg) {
+        setLiveData((prev) => {
+          if (!prev) return prev;
+          const appendMsg = (c: LiveConversation) =>
+            c.id === selectedConvId
+              ? { ...c, messages: [...c.messages, createdMsg] }
+              : c;
+          return {
+            ...prev,
+            operators: prev.operators.map((op) => ({
+              ...op,
+              conversations: op.conversations.map(appendMsg),
+            })),
+            unassigned: prev.unassigned.map(appendMsg),
+            automation: prev.automation.map(appendMsg),
+          };
+        });
+        if (fullHistoryConvId === selectedConvId) {
+          setFullHistory((prev) => [...prev, createdMsg]);
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao enviar orientação de supervisão.");
+    } finally {
+      setSendingWhisper(false);
+    }
+  };
+
+  // Encontrar conversa selecionada em qualquer seção (incluindo automação IA)
+  const allConvs = useMemo(
+    () => [
+      ...(liveData?.operators.flatMap((op) => op.conversations) ?? []),
+      ...(liveData?.unassigned ?? []),
+      ...(liveData?.automation ?? []),
+    ],
+    [liveData]
+  );
+
+  const selectedConv = useMemo(
+    () => allConvs.find((c) => c.id === selectedConvId) ?? null,
+    [allConvs, selectedConvId]
+  );
+
+  const selectedOpName = useMemo(() => {
+    if (!selectedConvId) return null;
+    const foundOp = liveData?.operators.find((op) =>
+      op.conversations.some((c) => c.id === selectedConvId)
+    );
+    if (foundOp) return foundOp.operatorName;
+    if (selectedConv?.queueState === "automacao") return `${aiPersona.name} (IA)`;
+    return selectedConv?.operatorName ?? null;
+  }, [liveData?.operators, selectedConvId, selectedConv, aiPersona.name]);
+
+  // Mensagens exibidas: combina fullHistory (quando carregado) com novas mensagens ao vivo sem congelar!
+  const displayedMessages = useMemo(() => {
+    if (!selectedConv) return [];
+    if (fullHistoryConvId !== selectedConvId || fullHistory.length === 0) {
+      return selectedConv.messages;
+    }
+    const existingIds = new Set(fullHistory.map((m) => m.id));
+    const newerFromLive = selectedConv.messages.filter((m) => !existingIds.has(m.id));
+    return [...fullHistory, ...newerFromLive];
+  }, [selectedConv, fullHistoryConvId, selectedConvId, fullHistory]);
+
+  // Filtro de busca e categoria na sidebar
+  const searchLower = searchTerm.toLowerCase().trim();
+  const matchesSearch = useCallback(
+    (c: LiveConversation) =>
+      !searchLower ||
+      c.contactName.toLowerCase().includes(searchLower) ||
+      c.contactPhone.includes(searchLower) ||
+      (c.accountName?.toLowerCase().includes(searchLower) ?? false) ||
+      (c.activeDeal?.title.toLowerCase().includes(searchLower) ?? false),
+    [searchLower]
+  );
+
+  const matchesSidebarCategory = useCallback(
+    (c: LiveConversation) => {
+      if (searchLower) return true; // Na busca textual, pesquisa em toda a carteira
+      if (sidebarFilter === "waiting") {
+        return Boolean(c.isUnanswered);
+      }
+      if (sidebarFilter === "unstarted") {
+        return c.activityCategory === "awaiting_first_contact" || c.hasRealInteraction === false;
+      }
+      if (sidebarFilter === "active") {
+        // Mostra quem está esperando resposta, quem teve interação hoje ou recente, fila e IA
+        if (c.queueState === "fila" || c.queueState === "automacao") return true;
+        if (c.isUnanswered || c.isActiveToday) return true;
+        if (c.activityCategory === "recent_active") return true;
+        return false;
+      }
+      return true; // "all"
+    },
+    [sidebarFilter, searchLower]
+  );
+
+  const filterConv = useCallback(
+    (c: LiveConversation) => matchesSearch(c) && matchesSidebarCategory(c),
+    [matchesSearch, matchesSidebarCategory]
+  );
+
+  // Lista de operadores ordenada por urgência e atividade real hoje
   const allOperators = useMemo(() => {
     const ops = liveData?.operators ?? [];
-    const statusPriority = (status: string) =>
-      status === "disponivel" ? 0 : status === "ocupado" ? 1 : 2;
     return [...ops].sort((a, b) => {
+      const waitDiff = (b.waitingReplyCount ?? 0) - (a.waitingReplyCount ?? 0);
+      if (waitDiff !== 0) return waitDiff;
+      const activeDiff = (b.activeTodayCount ?? 0) - (a.activeTodayCount ?? 0);
+      if (activeDiff !== 0) return activeDiff;
+      if (Boolean(a.isOnline) !== Boolean(b.isOnline)) {
+        return a.isOnline ? -1 : 1;
+      }
       const convDiff = b.conversations.length - a.conversations.length;
       if (convDiff !== 0) return convDiff;
-      const statusDiff = statusPriority(a.status) - statusPriority(b.status);
-      if (statusDiff !== 0) return statusDiff;
       return a.operatorName.localeCompare(b.operatorName, "pt-BR");
     });
   }, [liveData?.operators]);
+
+  // Contadores para as pílulas da sidebar
+  const filterCounts = useMemo(() => {
+    const opConvs = liveData?.operators.flatMap((o) => o.conversations) ?? [];
+    const queueCount = liveData?.unassigned.length ?? 0;
+    const autoCount = liveData?.automation.length ?? 0;
+
+    const waitingCount =
+      opConvs.filter((c) => c.isUnanswered).length + queueCount;
+    const activeCount =
+      opConvs.filter(
+        (c) =>
+          c.isUnanswered ||
+          c.isActiveToday ||
+          c.activityCategory === "recent_active"
+      ).length +
+      queueCount +
+      autoCount;
+    const unstartedCount = opConvs.filter(
+      (c) => c.activityCategory === "awaiting_first_contact" || c.hasRealInteraction === false
+    ).length;
+    const allCount = opConvs.length + queueCount + autoCount;
+
+    return { activeCount, waitingCount, unstartedCount, allCount };
+  }, [liveData]);
 
   // Ref para auto-scroll do chat
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [selectedConvId, selectedConv?.messages?.length]);
+  }, [selectedConvId, displayedMessages.length]);
+
+  const filteredUnassigned = useMemo(
+    () => (liveData?.unassigned ?? []).filter(filterConv),
+    [liveData?.unassigned, filterConv]
+  );
+
+  const filteredAutomation = useMemo(
+    () =>
+      sidebarFilter === "unstarted"
+        ? []
+        : (liveData?.automation ?? []).filter(matchesSearch),
+    [liveData?.automation, sidebarFilter, matchesSearch]
+  );
 
   // ── Renderização ────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full min-h-[500px] divide-x divide-line rounded-2xl border border-border overflow-hidden bg-card">
 
-      {/* ── SIDEBAR ─────────────────────────────────────────────────────────── */}
-      <div className="w-80 flex flex-col min-h-0 bg-muted/10 shrink-0">
+      {/* ── SIDEBAR ESQUERDA ────────────────────────────────────────────────── */}
+      <div className="w-80 lg:w-[336px] flex flex-col min-h-0 bg-muted/10 shrink-0">
 
-        {/* Barra de busca */}
-        <div className="p-3 border-b border-line shrink-0 space-y-2">
+        {/* Barra de busca e filtros */}
+        <div className="p-3 border-b border-line shrink-0 space-y-2.5">
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Buscar por nome ou número..."
+              placeholder="Buscar cliente, número, empresa ou card..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-muted/60 border border-border rounded-xl pl-9 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+              className="w-full bg-muted/60 border border-border rounded-xl pl-9 pr-7 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm("")}
+                className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Filtros: Data + Operador */}
@@ -1920,27 +2327,84 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
             />
           </div>
 
-          {/* Filtros ativos */}
+          {/* Pílulas de Filtro Operacional (Saneamento de Falsos Ativos) */}
+          <div className="grid grid-cols-4 gap-1 bg-muted/50 p-1 rounded-xl border border-border/60">
+            {(
+              [
+                { id: "active", label: "Ativos", count: filterCounts.activeCount },
+                { id: "waiting", label: "Espera", count: filterCounts.waitingCount },
+                { id: "unstarted", label: "S/ Início", count: filterCounts.unstartedCount },
+                { id: "all", label: "Todos", count: filterCounts.allCount },
+              ] as const
+            ).map((pill) => {
+              const active = sidebarFilter === pill.id;
+              return (
+                <button
+                  key={pill.id}
+                  type="button"
+                  onClick={() => setSidebarFilter(pill.id)}
+                  className={`flex flex-col items-center justify-center py-1 px-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                    active
+                      ? "bg-card text-primary shadow-xs border border-primary/25"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <span className="truncate leading-tight">{pill.label}</span>
+                  <span
+                    className={`text-[9px] font-extrabold leading-tight ${
+                      active
+                        ? "text-primary"
+                        : pill.id === "waiting" && pill.count > 0
+                        ? "text-primary"
+                        : "text-muted-foreground/80"
+                    }`}
+                  >
+                    {pill.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Chips de filtros ativos (Data com correção de fuso T12:00:00) */}
           {(dateFilter || opIdFilter) && (
             <div className="flex items-center gap-1 flex-wrap">
               {dateFilter && (
                 <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
-                  {new Date(dateFilter).toLocaleDateString("pt-BR")}
-                  <button onClick={() => setDateFilter("")}><X className="h-2.5 w-2.5" /></button>
+                  {new Date(dateFilter + "T12:00:00").toLocaleDateString("pt-BR")}
+                  <button type="button" onClick={() => setDateFilter("")} className="cursor-pointer">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
                 </span>
               )}
               {opIdFilter && (
                 <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
                   {allOperators.find((o) => o.operatorId === opIdFilter)?.operatorName ?? "Operador"}
-                  <button onClick={() => setOpIdFilter("")}><X className="h-2.5 w-2.5" /></button>
+                  <button type="button" onClick={() => setOpIdFilter("")} className="cursor-pointer">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
                 </span>
               )}
             </div>
           )}
         </div>
 
+        {/* Botão rápido para voltar ao Cockpit Executivo quando uma conversa está selecionada */}
+        {selectedConvId && (
+          <div className="px-2.5 pt-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setSelectedConvId(null)}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 text-[11px] font-extrabold transition cursor-pointer"
+            >
+              <LayoutDashboard className="h-3.5 w-3.5" />
+              Ver Cockpit Executivo Ao Vivo
+            </button>
+          </div>
+        )}
+
         {/* Lista de conversas agrupadas */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-4">
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-3.5">
           {loading && (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/40" />
@@ -1948,15 +2412,20 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
           )}
 
           {/* ── Seção: Na Fila (sem operador) ─────────────────────────────── */}
-          {!loading && !opIdFilter && (liveData?.unassigned.filter(matchesSearch).length ?? 0) > 0 && (
+          {!loading && !opIdFilter && filteredUnassigned.length > 0 && (
             <div className="space-y-1">
-              <div className="flex items-center gap-1.5 px-2 py-1">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-[10px] font-extrabold text-muted-foreground uppercase tracking-wider">
-                  Na Fila · {liveData!.unassigned.filter(matchesSearch).length}
+              <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-primary/5 border border-primary/15">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-primary animate-pulse" />
+                  <span className="text-[10px] font-extrabold text-primary uppercase tracking-wider">
+                    Na Fila sem Operador
+                  </span>
+                </div>
+                <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
+                  {filteredUnassigned.length}
                 </span>
               </div>
-              {liveData!.unassigned.filter(matchesSearch).map((conv) => (
+              {filteredUnassigned.map((conv) => (
                 <LiveConvCard
                   key={conv.id}
                   conv={conv}
@@ -1967,124 +2436,290 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
             </div>
           )}
 
-          {/* ── Seção: Com Valentina (automação) ──────────────────────────── */}
-          {!loading && !opIdFilter && (liveData?.automation.filter(matchesSearch).length ?? 0) > 0 && (
+          {/* ── Seção: Com Fagner / Valentina (automação — agora espiável inline!) ── */}
+          {!loading && !opIdFilter && filteredAutomation.length > 0 && (
             <div className="space-y-1">
-              <div className="flex items-center gap-1.5 px-2 py-1">
-                <Bot className="h-3.5 w-3.5 text-primary" />
-                <span className="text-[10px] font-extrabold text-primary uppercase tracking-wider">
-                  Com {aiPersona.name} · {liveData!.automation.filter(matchesSearch).length}
+              <div className="flex items-center justify-between px-2 py-1">
+                <div className="flex items-center gap-1.5">
+                  <Bot className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-[10px] font-extrabold text-primary uppercase tracking-wider">
+                    Triagem IA ({aiPersona.name})
+                  </span>
+                </div>
+                <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
+                  {filteredAutomation.length}
                 </span>
               </div>
-              {liveData!.automation.filter(matchesSearch).map((conv) => (
+              {filteredAutomation.map((conv) => (
                 <LiveConvCard
                   key={conv.id}
                   conv={conv}
-                  isSelected={false}
-                  locked
-                  onClick={() => setValentinaPending(conv)}
+                  isSelected={conv.id === selectedConvId}
+                  isAiTriage
+                  onClick={() => setSelectedConvId(conv.id)}
                 />
               ))}
             </div>
           )}
 
-          {/* ── Seção: Operadores (ordenados por maior nº de atendimentos ativos primeiro) ── */}
-          {!loading && allOperators
-            .filter((op) => opIdFilter ? op.operatorId === opIdFilter : true)
-            .map((op) => ({
-              op,
-              filtered: op.conversations.filter(matchesSearch),
-            }))
-            .filter(({ filtered }) => !(filtered.length === 0 && searchTerm))
-            .sort((a, b) => {
-              const filteredDiff = b.filtered.length - a.filtered.length;
-              if (filteredDiff !== 0) return filteredDiff;
-              const totalDiff = b.op.conversations.length - a.op.conversations.length;
-              if (totalDiff !== 0) return totalDiff;
-              const statusPriority = (status: string) =>
-                status === "disponivel" ? 0 : status === "ocupado" ? 1 : 2;
-              const statusDiff = statusPriority(a.op.status) - statusPriority(b.op.status);
-              if (statusDiff !== 0) return statusDiff;
-              return a.op.operatorName.localeCompare(b.op.operatorName, "pt-BR");
-            })
-            .map(({ op, filtered }) => (
-              <div key={op.operatorId} className="space-y-1">
-                <div className="flex items-center justify-between px-2 py-1 shrink-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`h-2 w-2 rounded-full ${
-                      op.status === "disponivel" ? "bg-primary" :
-                      op.status === "ocupado" ? "bg-muted-foreground" :
-                      "bg-muted-foreground/40"
-                    }`} />
-                    <span className="text-[11px] font-bold text-foreground truncate max-w-[120px]">{op.operatorName}</span>
+          {/* ── Seção: Operadores ── */}
+          {!loading &&
+            allOperators
+              .filter((op) => (opIdFilter ? op.operatorId === opIdFilter : true))
+              .map((op) => ({
+                op,
+                filtered: op.conversations.filter(filterConv),
+              }))
+              .filter(({ op, filtered }) => {
+                if (opIdFilter) return true;
+                if (searchLower) return filtered.length > 0;
+                if (sidebarFilter === "waiting") return filtered.length > 0;
+                if (sidebarFilter === "unstarted") return filtered.length > 0;
+                if (sidebarFilter === "active") {
+                  return filtered.length > 0 || Boolean(op.isOnline);
+                }
+                return true;
+              })
+              .sort((a, b) => {
+                const waitDiff =
+                  (b.op.waitingReplyCount ?? 0) - (a.op.waitingReplyCount ?? 0);
+                if (waitDiff !== 0) return waitDiff;
+                const filteredDiff = b.filtered.length - a.filtered.length;
+                if (filteredDiff !== 0) return filteredDiff;
+                if (Boolean(a.op.isOnline) !== Boolean(b.op.isOnline)) {
+                  return a.op.isOnline ? -1 : 1;
+                }
+                return a.op.operatorName.localeCompare(b.op.operatorName, "pt-BR");
+              })
+              .map(({ op, filtered }) => {
+                const waitingCount = op.waitingReplyCount ?? 0;
+                const activeToday = op.activeTodayCount ?? 0;
+                const totalCarteira = op.conversations.length;
+
+                return (
+                  <div key={op.operatorId} className="space-y-1">
+                    <div className="flex items-center justify-between px-2 py-1 shrink-0 gap-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <SystemTooltip
+                          content={
+                            op.isOnline
+                              ? "Operador online agora no sistema"
+                              : op.lastSeenAt
+                              ? `Offline · Visto às ${new Date(op.lastSeenAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+                              : "Offline"
+                          }
+                        >
+                          <span
+                            className={`h-2 w-2 rounded-full shrink-0 ${
+                              op.isOnline
+                                ? "bg-emerald-500"
+                                : op.status === "ocupado"
+                                ? "bg-muted-foreground"
+                                : "bg-muted-foreground/35"
+                            }`}
+                          />
+                        </SystemTooltip>
+                        <span className="text-[11px] font-bold text-foreground truncate">
+                          {op.operatorName}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        {waitingCount > 0 && (
+                          <SystemTooltip content={`${waitingCount} cliente(s) aguardando resposta deste operador`}>
+                            <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground animate-pulse">
+                              {waitingCount} esp.
+                            </span>
+                          </SystemTooltip>
+                        )}
+                        <SystemTooltip
+                          content={`${activeToday} ativo(s) hoje · ${totalCarteira} total na carteira`}
+                        >
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                            {sidebarFilter === "all" || sidebarFilter === "unstarted"
+                              ? `${filtered.length}/${totalCarteira}`
+                              : `${activeToday} hoje`}
+                          </span>
+                        </SystemTooltip>
+                      </div>
+                    </div>
+
+                    {filtered.length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground pl-4 italic py-0.5">
+                        {sidebarFilter === "active"
+                          ? totalCarteira > 0
+                            ? `Sem conversa ativa hoje (${totalCarteira} na carteira)`
+                            : "Sem conversas ativas"
+                          : "Nenhum atendimento neste filtro"}
+                      </p>
+                    ) : (
+                      filtered.map((conv) => (
+                        <LiveConvCard
+                          key={conv.id}
+                          conv={conv}
+                          isSelected={conv.id === selectedConvId}
+                          onClick={() => setSelectedConvId(conv.id)}
+                        />
+                      ))
+                    )}
                   </div>
-                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase ${
-                    op.status === "disponivel" ? "text-primary bg-primary/10" :
-                    op.status === "ocupado" ? "text-foreground bg-muted" :
-                    "text-muted-foreground bg-muted/60"
-                  }`}>
-                    {op.conversations.length} atend.
-                  </span>
-                </div>
-                {filtered.length === 0 ? (
-                  <p className="text-[10px] text-muted-foreground pl-4 italic">Sem conversas ativas</p>
-                ) : (
-                  filtered.map((conv) => (
-                    <LiveConvCard
-                      key={conv.id}
-                      conv={conv}
-                      isSelected={conv.id === selectedConvId}
-                      onClick={() => setSelectedConvId(conv.id)}
-                    />
-                  ))
+                );
+              })}
+
+          {!loading &&
+            filteredUnassigned.length === 0 &&
+            filteredAutomation.length === 0 &&
+            allOperators.every((op) => op.conversations.filter(filterConv).length === 0) && (
+              <div className="flex flex-col items-center justify-center gap-2 py-10 px-4 text-center text-muted-foreground">
+                <Radio className="h-7 w-7 opacity-25" />
+                <span className="text-xs font-semibold text-foreground">
+                  Nenhum atendimento neste filtro
+                </span>
+                {sidebarFilter !== "all" && filterCounts.allCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSidebarFilter("all")}
+                    className="text-[11px] font-bold text-primary hover:underline cursor-pointer mt-1"
+                  >
+                    Ver todos os {filterCounts.allCount} registros da carteira
+                  </button>
                 )}
               </div>
-            ))
-          }
-
-          {!loading && !liveData?.operators.length && !liveData?.unassigned.length && !liveData?.automation.length && (
-            <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
-              <Radio className="h-8 w-8 opacity-20" />
-              <span className="text-xs">Nenhum atendimento ativo agora</span>
-            </div>
-          )}
+            )}
         </div>
 
         {/* Rodapé com timestamp de atualização */}
         {lastUpdated && (
-          <div className="px-3 py-2 border-t border-line shrink-0 flex items-center gap-1.5">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
-            </span>
-            <span className="text-[9px] text-muted-foreground">
-              Atualizado às {lastUpdated.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-            </span>
+          <div className="px-3 py-2 border-t border-line shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
+              </span>
+              <span className="text-[9px] text-muted-foreground">
+                Atualizado às{" "}
+                {lastUpdated.toLocaleTimeString("pt-BR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={fetchLive}
+              className="text-[9px] font-bold text-primary hover:underline cursor-pointer"
+            >
+              Atualizar
+            </button>
           </div>
         )}
       </div>
 
-      {/* ── ÁREA PRINCIPAL: Chat em Tempo Real ──────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-h-0 bg-muted/5">
+      {/* ── ÁREA PRINCIPAL: Cockpit Executivo OU Modo Espião do Chat ────────── */}
+      <div className="flex-1 flex flex-col min-h-0 bg-muted/5 overflow-hidden">
         {selectedConv ? (
           <>
-            {/* Header da conversa */}
-            <div className="px-5 py-3 border-b border-line bg-card flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <Avatar name={selectedConv.contactName} size="md" />
-                <div>
-                  <h3 className="text-xs font-extrabold text-foreground">{selectedConv.contactName}</h3>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {selectedConv.contactPhone}
+            {/* Header Principal da Conversa Selecionada */}
+            <div className="px-5 py-3 border-b border-line bg-card flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <SystemTooltip content="Voltar ao Cockpit Executivo Ao Vivo">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedConvId(null)}
+                    className="h-8 w-8 rounded-xl border border-border bg-muted/40 hover:bg-muted flex items-center justify-center text-foreground transition cursor-pointer shrink-0"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                </SystemTooltip>
+
+                <Avatar
+                  name={selectedConv.contactName}
+                  avatar={selectedConv.contactAvatar}
+                  size="md"
+                />
+
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-xs font-extrabold text-foreground truncate">
+                      {selectedConv.contactName}
+                    </h3>
+                    {selectedConv.accountName && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground border border-border truncate max-w-[200px]">
+                        <Building2 className="h-2.5 w-2.5 text-primary shrink-0" />
+                        {selectedConv.accountName}
+                      </span>
+                    )}
+                    {selectedConv.isUnanswered && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/25 animate-pulse">
+                        <Clock className="h-2.5 w-2.5" />
+                        Esperando há {formatWaitDuration(selectedConv.waitingMinutes)}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <span>{formatPhone(selectedConv.contactPhone)}</span>
+                    {selectedConv.contactEmail && (
+                      <>
+                        <span>·</span>
+                        <span className="truncate max-w-[180px]">{selectedConv.contactEmail}</span>
+                      </>
+                    )}
                     {selectedOpName && (
-                      <> · Operador: <span className="font-semibold text-foreground">{selectedOpName}</span></>
+                      <>
+                        <span>·</span>
+                        <span>
+                          Responsável:{" "}
+                          <strong className="text-foreground">{selectedOpName}</strong>
+                        </span>
+                      </>
                     )}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {/* Botão Abrir Conversa */}
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                {/* Status da Janela 24h Meta */}
+                <SystemTooltip
+                  content={
+                    selectedConv.metaWindowOpen
+                      ? "O cliente enviou mensagem nas últimas 24h. Mensagens livres estão liberadas."
+                      : "Sem resposta do cliente nas últimas 24h. Novas abordagens na Meta exigem Template aprovado."
+                  }
+                >
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border ${
+                      selectedConv.metaWindowOpen
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                        : "bg-muted text-muted-foreground border-border"
+                    }`}
+                  >
+                    <Clock className="h-3 w-3 shrink-0" />
+                    {selectedConv.metaWindowOpen && selectedConv.metaWindowRemainingMinutes
+                      ? `Janela 24h (${formatWaitDuration(selectedConv.metaWindowRemainingMinutes)})`
+                      : "Janela 24h Fechada"}
+                  </span>
+                </SystemTooltip>
+
+                {/* Se estiver em triagem com a IA, botão adicional para abrir no módulo da IA */}
+                {selectedConv.queueState === "automacao" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedChatId(selectedConv.id);
+                      setActiveView("valentina");
+                    }}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-foreground bg-muted hover:bg-muted/80 border border-border px-3 py-1.5 rounded-lg transition cursor-pointer"
+                  >
+                    <Bot className="h-3.5 w-3.5 text-primary" />
+                    Ver n{aiPersona.gender === "female" ? "a" : "o"} {aiPersona.name}
+                  </button>
+                )}
+
+                {/* Botão Abrir Conversa no Chat */}
                 <button
+                  type="button"
                   onClick={() => {
                     setSelectedChatId(selectedConv.id);
                     setActiveView("chat");
@@ -2094,8 +2729,9 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
                   <ExternalLink className="h-3.5 w-3.5" />
                   Abrir Conversa
                 </button>
+
                 {/* Badge AO VIVO */}
-                <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
@@ -2105,145 +2741,583 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
               </div>
             </div>
 
-            {/* Balões de Mensagem com suporte a mídia */}
+            {/* Sub-barra de Contexto Comercial (CRM Deal & Tarefas) */}
+            <div className="px-5 py-2 border-b border-line bg-muted/25 flex flex-wrap items-center justify-between gap-2 text-[11px] shrink-0">
+              {selectedConv.activeDeal ? (
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <span className="inline-flex items-center gap-1 font-extrabold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-md">
+                    <Briefcase className="h-3 w-3 shrink-0" />
+                    <span className="truncate max-w-[220px]">{selectedConv.activeDeal.title}</span>
+                  </span>
+                  {selectedConv.activeDeal.value !== null && selectedConv.activeDeal.value > 0 && (
+                    <span className="font-extrabold text-foreground bg-card border border-border px-2 py-0.5 rounded-md">
+                      {selectedConv.activeDeal.value.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL",
+                      })}
+                    </span>
+                  )}
+                  {(selectedConv.activeDeal.pipelineName || selectedConv.activeDeal.stageName) && (
+                    <span className="text-[10px] font-semibold text-muted-foreground bg-card border border-border px-2 py-0.5 rounded-md">
+                      {[selectedConv.activeDeal.pipelineName, selectedConv.activeDeal.stageName]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <Briefcase className="h-3 w-3 opacity-60" />
+                  <span>Sem negociação ativa vinculada a este atendimento no CRM</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 shrink-0">
+                {(selectedConv.openTasksCount ?? 0) > 0 && (
+                  <SystemTooltip
+                    content={
+                      selectedConv.nextTaskTitle
+                        ? `Próxima tarefa: ${selectedConv.nextTaskTitle}`
+                        : "Tarefas pendentes neste atendimento"
+                    }
+                  >
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                        (selectedConv.overdueTasksCount ?? 0) > 0
+                          ? "bg-primary/15 text-primary border-primary/30"
+                          : "bg-card text-foreground border-border"
+                      }`}
+                    >
+                      <ClipboardCheck className="h-3 w-3 shrink-0" />
+                      {selectedConv.openTasksCount} tarefa(s)
+                      {(selectedConv.overdueTasksCount ?? 0) > 0 &&
+                        ` (${selectedConv.overdueTasksCount} atrasada)`}
+                    </span>
+                  </SystemTooltip>
+                )}
+              </div>
+            </div>
+
+            {/* Balões de Mensagem com suporte a mídia, transcrição e separadores de data */}
             <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col">
 
               {/* Banner de carregar histórico completo */}
-              {selectedConv.messages.length > 0 && fullHistoryConvId !== selectedConvId && (
-                <div className="px-5 pt-4 pb-2 shrink-0">
+              {selectedConv.messages.length >= 30 && fullHistoryConvId !== selectedConvId && (
+                <div className="px-5 pt-3 pb-1 shrink-0">
                   <button
+                    type="button"
                     onClick={() => loadFullHistory(selectedConvId!)}
                     disabled={fullHistoryLoading}
-                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-border bg-muted/30 hover:bg-muted/60 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                    className="w-full flex items-center justify-center gap-2 py-1.5 rounded-xl border border-dashed border-border bg-muted/30 hover:bg-muted/60 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition cursor-pointer disabled:opacity-50"
                   >
                     {fullHistoryLoading ? (
-                      <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Carregando histórico...</>
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Carregando histórico completo...
+                      </>
                     ) : (
-                      <><Clock className="h-3.5 w-3.5" /> Carregar histórico completo ({selectedConv.messages.length} recentes)
+                      <>
+                        <Clock className="h-3.5 w-3.5" /> Carregar histórico anterior completo (exibindo últimas{" "}
+                        {selectedConv.messages.length})
                       </>
                     )}
                   </button>
                 </div>
               )}
 
-              {/* Mensagens: histórico completo OU últimas 50 */}
-              <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-2">
-                {selectedConv.messages.length === 0 ? (
+              {/* Timeline de Mensagens */}
+              <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-2.5">
+                {displayedMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
                     <MessageSquare className="h-8 w-8 opacity-20" />
-                    <span className="text-xs">Nenhuma mensagem ainda</span>
+                    <span className="text-xs">Nenhuma mensagem registrada nesta conversa</span>
                   </div>
                 ) : (
-                  (fullHistoryConvId === selectedConvId ? fullHistory : selectedConv.messages).map((msg) => {
+                  displayedMessages.map((msg, idx) => {
                     const isAgent = msg.senderType === "agent" || msg.senderType === "bot";
-                    return <LiveMessageBubble key={msg.id} msg={msg} isAgent={isAgent} />;
+                    const curDateKey = getMessageDateKey(msg.sentAt);
+                    const prevDateKey =
+                      idx > 0 ? getMessageDateKey(displayedMessages[idx - 1].sentAt) : "";
+                    const showDateSep = Boolean(curDateKey && curDateKey !== prevDateKey);
+                    const dateLabel = showDateSep ? formatMessageDateSeparator(msg.sentAt) : null;
+
+                    return (
+                      <React.Fragment key={msg.id}>
+                        {dateLabel && (
+                          <div className="flex items-center justify-center my-3 select-none">
+                            <span className="px-3 py-0.5 rounded-full bg-muted/70 border border-border text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                              {dateLabel}
+                            </span>
+                          </div>
+                        )}
+                        <LiveMessageBubble
+                          msg={msg}
+                          isAgent={isAgent}
+                          contactPhone={selectedConv.contactPhone}
+                        />
+                      </React.Fragment>
+                    );
                   })
                 )}
                 <div ref={messagesEndRef} />
               </div>
             </div>
 
-            {/* Footer Modo Supervisor */}
-            <div className="px-5 py-2.5 border-t border-line bg-card flex items-center justify-between shrink-0 text-[10px] text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                {fullHistoryConvId === selectedConvId ? (
-                  <>
-                    <Clock className="h-3.5 w-3.5 text-primary" />
-                    <span className="text-primary font-semibold">
-                      Histórico completo · {fullHistory.length} mensagens
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-                    </span>
-                    Modo Supervisor · Espiando chat em tempo real
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {fullHistoryConvId === selectedConvId && (
+            {/* Footer Modo Supervisor + Barra de Sussurro (Nota Interna Direta) */}
+            <div className="px-5 py-3 border-t border-line bg-card flex flex-col gap-2 shrink-0">
+              {!demoMode && (
+                <form onSubmit={handleSendWhisper} className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Lock className="h-3.5 w-3.5 text-primary absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={whisperText}
+                      onChange={(e) => setWhisperText(e.target.value)}
+                      placeholder={`Enviar orientação interna (sussurro) para ${selectedOpName || "o consultor"}...`}
+                      className="w-full bg-muted/50 border border-border rounded-xl pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    />
+                  </div>
                   <button
-                    onClick={() => setFullHistoryConvId(null)}
-                    className="text-[10px] text-muted-foreground hover:text-foreground font-semibold underline cursor-pointer"
+                    type="submit"
+                    disabled={!whisperText.trim() || sendingWhisper}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition cursor-pointer disabled:opacity-40 shrink-0"
                   >
-                    Voltar ao tempo real
+                    {sendingWhisper ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" />
+                    )}
+                    Sussurrar
                   </button>
+                </form>
+              )}
+
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                  </span>
+                  <span>
+                    Modo Supervisor · Espiando em tempo real ({displayedMessages.length} mensagens) · O cliente nunca vê os sussurros internos
+                  </span>
+                </div>
+                {fullHistoryConvId === selectedConvId && (
+                  <span className="text-primary font-semibold">Histórico completo ativo</span>
                 )}
               </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
-            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <Eye className="h-8 w-8 text-primary/40" />
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-bold text-foreground">Selecione um atendimento</p>
-              <p className="text-xs mt-1">Clique em uma conversa na lista para espiá-la em tempo real</p>
-            </div>
-          </div>
+          <LiveExecutiveOverview
+            liveData={liveData}
+            loading={loading}
+            aiPersonaName={aiPersona.name}
+            onSelectConversation={(convId) => setSelectedConvId(convId)}
+            onFilterOperator={(opId) => {
+              setOpIdFilter(opId === opIdFilter ? "" : opId);
+              setSidebarFilter("active");
+            }}
+            selectedOpId={opIdFilter}
+            onSelectSidebarFilter={(f) => setSidebarFilter(f)}
+          />
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* ── MODAL: Confirmação para ver atendimento da Valentina ─────────────── */}
-      <AnimatePresence>
-        {valentinaPending && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={() => setValentinaPending(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.92, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.92, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-card border border-border rounded-2xl shadow-xl p-7 max-w-sm w-full mx-4 flex flex-col gap-5"
-            >
-              {/* Ícone */}
-              <div className="flex flex-col items-center gap-3 text-center">
-                <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-                  <Bot className="h-7 w-7 text-primary" />
+/**
+ * Cockpit Executivo da Operação Ao Vivo (Exibido na área principal de 75% quando nenhum chat está aberto).
+ * Oferece à Diretoria visibilidade imediata da fila, clientes esperando resposta, carga real por consultor
+ * e valor de negócios em atendimento agora.
+ */
+function LiveExecutiveOverview({
+  liveData,
+  loading,
+  aiPersonaName,
+  onSelectConversation,
+  onFilterOperator,
+  selectedOpId,
+  onSelectSidebarFilter,
+}: {
+  liveData: LiveData | null;
+  loading: boolean;
+  aiPersonaName: string;
+  onSelectConversation: (convId: string) => void;
+  onFilterOperator: (opId: string) => void;
+  selectedOpId: string;
+  onSelectSidebarFilter: (f: LiveSidebarFilter) => void;
+}) {
+  if (loading && !liveData) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+        <RefreshCw className="h-6 w-6 animate-spin text-primary/50" />
+        <span className="text-xs font-semibold">Carregando Cockpit Executivo da Operação...</span>
+      </div>
+    );
+  }
+
+  const operators = liveData?.operators ?? [];
+  const unassigned = liveData?.unassigned ?? [];
+  const automation = liveData?.automation ?? [];
+  const summary = liveData?.summary;
+
+  const waitingConvs = [
+    ...unassigned.map((c) => ({ ...c, isQueue: true })),
+    ...operators.flatMap((op) =>
+      op.conversations
+        .filter((c) => c.isUnanswered)
+        .map((c) => ({ ...c, operatorName: op.operatorName, isQueue: false }))
+    ),
+  ].sort((a, b) => b.waitingMinutes - a.waitingMinutes);
+
+  const waitingCount = summary?.waitingReplyCount ?? waitingConvs.filter((c) => !c.isQueue).length;
+  const criticalWaitCount =
+    summary?.criticalWaitCount ?? waitingConvs.filter((c) => c.waitingMinutes >= 15).length;
+  const maxWaitMinutes =
+    summary?.maxWaitMinutes ??
+    waitingConvs.reduce((m, c) => (c.waitingMinutes > m ? c.waitingMinutes : m), 0);
+  const activeTodayCount =
+    summary?.activeTodayCount ??
+    operators.reduce((acc, op) => acc + (op.activeTodayCount ?? 0), 0);
+  const onlineOpsCount =
+    summary?.onlineOperators ?? operators.filter((o) => o.isOnline).length;
+  const awaitingFirstCount =
+    summary?.awaitingFirstContactCount ??
+    operators.reduce((acc, op) => acc + (op.awaitingFirstContactCount ?? 0), 0);
+  const activePipelineValue = summary?.activePipelineValue ?? 0;
+  const openDealsCount = summary?.openDealsInLiveCount ?? 0;
+
+  return (
+    <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-5">
+      {/* Cabeçalho do Cockpit */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-extrabold text-foreground">
+              Cockpit Executivo · Operação Ao Vivo
+            </h2>
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-[10px] font-extrabold">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
+              TEMPO REAL
+            </span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Clique em qualquer cliente no radar ou na barra lateral para espiar a conversa e orientar o consultor
+          </p>
+        </div>
+      </div>
+
+      {/* Linha 1: 4 Cards de Pulso Executivo */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+        {/* Card 1: Aguardando Resposta */}
+        <button
+          type="button"
+          onClick={() => onSelectSidebarFilter("waiting")}
+          className="text-left bg-card rounded-2xl p-4 border border-border hover:border-primary/40 shadow-soft transition cursor-pointer flex flex-col justify-between gap-2"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Esperando Resposta
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Clock className={`h-4 w-4 ${waitingCount > 0 ? "animate-pulse" : ""}`} />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-black text-foreground">
+              {waitingCount + unassigned.length}
+            </span>
+            {criticalWaitCount > 0 && (
+              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/25">
+                {criticalWaitCount} &gt; 15m
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            {maxWaitMinutes > 0
+              ? `Maior espera agora: ${formatWaitDuration(maxWaitMinutes)}`
+              : "Nenhum cliente aguardando resposta"}
+          </p>
+        </button>
+
+        {/* Card 2: Em Atendimento Hoje + Fila/IA */}
+        <button
+          type="button"
+          onClick={() => onSelectSidebarFilter("active")}
+          className="text-left bg-card rounded-2xl p-4 border border-border hover:border-primary/40 shadow-soft transition cursor-pointer flex flex-col justify-between gap-2"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Conversando Hoje
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <MessageSquare className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-black text-foreground">{activeTodayCount}</span>
+            <span className="text-[10px] font-semibold text-muted-foreground">
+              com interação hoje
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Fila: <strong className="text-foreground">{unassigned.length}</strong> · Triagem{" "}
+            {aiPersonaName}: <strong className="text-foreground">{automation.length}</strong>
+          </p>
+        </button>
+
+        {/* Card 3: Equipe Conectada & Carteira Sem Início */}
+        <button
+          type="button"
+          onClick={() => onSelectSidebarFilter("unstarted")}
+          className="text-left bg-card rounded-2xl p-4 border border-border hover:border-primary/40 shadow-soft transition cursor-pointer flex flex-col justify-between gap-2"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Equipe Online Agora
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Users className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-black text-foreground">
+              {onlineOpsCount}
+              <span className="text-sm font-bold text-muted-foreground">
+                /{operators.length}
+              </span>
+            </span>
+            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              conectados
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            <strong className="text-foreground">{awaitingFirstCount}</strong> contatos aguardando 1º contato
+          </p>
+        </button>
+
+        {/* Card 4: Pipeline em Atendimento Ao Vivo */}
+        <div className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col justify-between gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Pipeline em Atendimento
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Briefcase className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xl font-black text-foreground truncate">
+              {activePipelineValue.toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+                maximumFractionDigits: 0,
+              })}
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            <strong className="text-foreground">{openDealsCount}</strong> negociações abertas vinculadas
+          </p>
+        </div>
+      </div>
+
+      {/* Linha 2: Radar de Atenção Imediata + Carga Real por Consultor */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        {/* Coluna 1 (7 cols): Radar de Clientes Aguardando Resposta & Fila */}
+        <div className="xl:col-span-7 bg-card rounded-2xl border border-border shadow-soft flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Flame className="h-4 w-4 text-primary" />
+              <span className="text-xs font-extrabold text-foreground">
+                Radar de Prioridade · Clientes Aguardando Resposta ({waitingConvs.length})
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              Ordenado por maior tempo de espera
+            </span>
+          </div>
+
+          <div className="divide-y divide-line max-h-[380px] overflow-y-auto scrollbar-thin">
+            {waitingConvs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <CheckCircle2 className="h-8 w-8 text-primary/70" />
+                <p className="text-xs font-bold text-foreground">Nenhum cliente esperando resposta!</p>
+                <p className="text-[11px]">Todos os clientes que enviaram mensagem já foram respondidos.</p>
+              </div>
+            ) : (
+              waitingConvs.slice(0, 15).map((conv) => {
+                const isCrit = conv.waitingMinutes >= 15;
+                return (
+                  <div
+                    key={conv.id}
+                    onClick={() => onSelectConversation(conv.id)}
+                    className="px-4 py-3 hover:bg-muted/40 transition cursor-pointer flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <Avatar name={conv.contactName} avatar={conv.contactAvatar} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-foreground truncate">
+                            {conv.contactName}
+                          </span>
+                          {conv.accountName && (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[140px]">
+                              {conv.accountName}
+                            </span>
+                          )}
+                          {conv.activeDeal && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 truncate max-w-[160px]">
+                              {conv.activeDeal.stageName || conv.activeDeal.title}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                          "{formatLiveMessagePreview(conv.lastMessage)}"
+                        </p>
+                        <p className="text-[9px] text-muted-foreground/80 mt-0.5">
+                          {conv.isQueue ? (
+                            <span className="text-primary font-bold">Na Fila (Sem consultor)</span>
+                          ) : (
+                            <>
+                              Consultor:{" "}
+                              <strong className="text-foreground">
+                                {conv.operatorName || "Atribuído"}
+                              </strong>
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-extrabold border ${
+                          isCrit
+                            ? "bg-primary text-primary-foreground border-primary animate-pulse"
+                            : "bg-primary/10 text-primary border-primary/20"
+                        }`}
+                      >
+                        <Clock className="h-3 w-3" />
+                        {formatWaitDuration(conv.waitingMinutes)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectConversation(conv.id);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-muted hover:bg-primary hover:text-primary-foreground text-foreground text-[10px] font-bold transition cursor-pointer border border-border"
+                      >
+                        Espiar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Coluna 2 (5 cols): Carga Real por Consultor */}
+        <div className="xl:col-span-5 bg-card rounded-2xl border border-border shadow-soft flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" />
+              <span className="text-xs font-extrabold text-foreground">
+                Carga Real da Equipe ({operators.length})
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              Hoje vs. Carteira
+            </span>
+          </div>
+
+          <div className="divide-y divide-line max-h-[380px] overflow-y-auto scrollbar-thin">
+            {operators.map((op) => {
+              const isSelectedOp = selectedOpId === op.operatorId;
+              const waiting = op.waitingReplyCount ?? 0;
+              const activeToday = op.activeTodayCount ?? 0;
+              const unstarted = op.awaitingFirstContactCount ?? 0;
+              const total = op.conversations.length;
+
+              return (
+                <div
+                  key={op.operatorId}
+                  onClick={() => onFilterOperator(op.operatorId)}
+                  className={`px-4 py-3 transition cursor-pointer flex items-center justify-between gap-2 ${
+                    isSelectedOp ? "bg-primary/10" : "hover:bg-muted/40"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="relative">
+                      <Avatar name={op.operatorName} avatar={op.operatorAvatar} size="sm" />
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card ${
+                          op.isOnline ? "bg-emerald-500" : "bg-muted-foreground/40"
+                        }`}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-foreground truncate">
+                        {op.operatorName}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {op.isOnline
+                          ? "Online agora"
+                          : op.lastSeenAt
+                          ? `Visto às ${new Date(op.lastSeenAt).toLocaleTimeString("pt-BR", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}`
+                          : "Offline"}
+                        {(op.activeDealsValue ?? 0) > 0 && (
+                          <>
+                            {" · "}
+                            <strong className="text-foreground">
+                              {(op.activeDealsValue ?? 0).toLocaleString("pt-BR", {
+                                style: "currency",
+                                currency: "BRL",
+                                maximumFractionDigits: 0,
+                              })}
+                            </strong>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 text-[10px]">
+                    <SystemTooltip content="Clientes aguardando resposta deste consultor agora">
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-extrabold border ${
+                          waiting > 0
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-muted/50 text-muted-foreground border-border"
+                        }`}
+                      >
+                        {waiting} esp.
+                      </span>
+                    </SystemTooltip>
+                    <SystemTooltip content="Conversas com interação real hoje">
+                      <span className="px-2 py-0.5 rounded-md font-bold bg-card text-foreground border border-border">
+                        {activeToday} hoje
+                      </span>
+                    </SystemTooltip>
+                    <SystemTooltip
+                      content={`${unstarted} aguardando 1º contato · ${total} total não finalizados na carteira`}
+                    >
+                      <span className="px-2 py-0.5 rounded-md font-medium bg-muted/40 text-muted-foreground border border-border">
+                        {total} cart.
+                      </span>
+                    </SystemTooltip>
+                  </div>
                 </div>
-                <h3 className="text-base font-black text-foreground leading-snug">
-                  Atendimento em Triagem
-                </h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  <strong className="text-foreground">{valentinaPending.contactName}</strong> está em triagem com {aiPersona.gender === 'female' ? 'a' : 'o'} {aiPersona.name} SDR.
-                  <br />
-                  Gostaria de ver esse atendimento?
-                </p>
-              </div>
-
-              {/* Ações */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setValentinaPending(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-border text-sm font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedChatId(valentinaPending.id);
-                    setActiveView("valentina");
-                    setValentinaPending(null);
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition cursor-pointer"
-                >
-                  Ver n{aiPersona.gender === 'female' ? 'a' : 'o'} {aiPersona.name}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2253,44 +3327,118 @@ function LiveConvCard({
   conv,
   isSelected,
   onClick,
-  locked = false,
+  isAiTriage = false,
 }: {
   conv: LiveConversation;
   isSelected: boolean;
   onClick: () => void;
-  locked?: boolean;
+  isAiTriage?: boolean;
 }) {
+  const isUnstarted =
+    conv.activityCategory === "awaiting_first_contact" || conv.hasRealInteraction === false;
+  const hasFailed = (conv.failedMessagesCount ?? 0) > 0;
+
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`w-full text-left p-2.5 rounded-xl transition flex flex-col gap-1 cursor-pointer border relative ${
         isSelected
-          ? "bg-primary text-primary-foreground border-primary"
-          : locked
-          ? "bg-muted/30 border-border hover:bg-muted/50 text-foreground opacity-80"
+          ? "bg-primary text-primary-foreground border-primary shadow-xs"
+          : conv.isUnanswered && conv.waitingMinutes >= 15
+          ? "bg-primary/5 border-primary/30 hover:bg-primary/10 text-foreground"
+          : isUnstarted
+          ? "bg-muted/20 border-border/70 hover:bg-muted/40 text-foreground opacity-85"
           : "bg-card border-border hover:bg-muted/40 text-foreground"
       }`}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="text-xs font-bold truncate pr-1">{conv.contactName}</span>
-        <div className="flex items-center gap-1 shrink-0">
-          {locked && (
-            <Bot className={`h-3 w-3 ${isSelected ? "text-primary-foreground/80" : "text-primary"}`} />
+        <div className="flex items-center gap-1 min-w-0 pr-1">
+          {isAiTriage && (
+            <Bot
+              className={`h-3 w-3 shrink-0 ${
+                isSelected ? "text-primary-foreground" : "text-primary"
+              }`}
+            />
           )}
-          {conv.isUnanswered && (
-            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
-              isSelected ? "bg-white/20 text-white" : "bg-primary/10 text-primary border border-primary/20 animate-pulse"
-            }`}>
-              {conv.waitingMinutes}m
+          <span className="text-xs font-bold truncate">{conv.contactName}</span>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {hasFailed && (
+            <SystemTooltip content="Há mensagem com falha de entrega nesta conversa">
+              <AlertTriangle
+                className={`h-3 w-3 ${
+                  isSelected ? "text-white" : "text-primary"
+                }`}
+              />
+            </SystemTooltip>
+          )}
+          {conv.isUnanswered ? (
+            <span
+              className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md flex items-center gap-0.5 ${
+                isSelected
+                  ? "bg-white/20 text-white"
+                  : conv.waitingMinutes >= 15
+                  ? "bg-primary text-primary-foreground animate-pulse"
+                  : "bg-primary/10 text-primary border border-primary/20"
+              }`}
+            >
+              <Clock className="h-2.5 w-2.5" />
+              {formatWaitDuration(conv.waitingMinutes)}
+            </span>
+          ) : isUnstarted ? (
+            <span
+              className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                isSelected
+                  ? "bg-white/15 text-white/90"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              S/ 1º contato
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <p
+        className={`text-[10px] truncate ${
+          isSelected ? "text-primary-foreground/80" : "text-muted-foreground"
+        }`}
+      >
+        {formatLiveMessagePreview(conv.lastMessage)}
+      </p>
+
+      {(conv.activeDeal || conv.accountName) && (
+        <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden">
+          {conv.accountName && (
+            <span
+              className={`text-[9px] font-semibold truncate max-w-[110px] ${
+                isSelected ? "text-primary-foreground/90" : "text-foreground/80"
+              }`}
+            >
+              {conv.accountName}
+            </span>
+          )}
+          {conv.activeDeal && (
+            <span
+              className={`text-[9px] font-bold px-1.5 py-0.2 rounded truncate ${
+                isSelected
+                  ? "bg-white/20 text-white"
+                  : "bg-primary/10 text-primary"
+              }`}
+            >
+              {conv.activeDeal.value
+                ? conv.activeDeal.value.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                    maximumFractionDigits: 0,
+                  })
+                : conv.activeDeal.stageName || conv.activeDeal.title}
             </span>
           )}
         </div>
-      </div>
-      <p className={`text-[10px] truncate ${
-        isSelected ? "text-primary-foreground/75" : "text-muted-foreground"
-      }`}>
-        {conv.lastMessage}
-      </p>
+      )}
     </button>
   );
 }
