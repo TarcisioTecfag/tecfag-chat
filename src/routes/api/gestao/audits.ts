@@ -25,7 +25,9 @@ import {
   getBrtDateKey,
 } from "../../../lib/operator-presence";
 import type {
+  AuditDirectorReview,
   AuditItem,
+  AuditLearnedRuleItem,
   AuditOperatorRankingItem,
   AuditStatusCounts,
   AuditsApiResponse,
@@ -49,6 +51,48 @@ function extractRows<T = any>(result: unknown): T[] {
     return (result as any).rows as T[];
   }
   return [];
+}
+
+function detectLikelyTestAudit(params: {
+  contactName?: string | null;
+  operatorName?: string | null;
+  summary?: string | null;
+  weaknesses?: string | null;
+}): boolean {
+  const nameLower = (params.contactName || "").trim().toLowerCase();
+  const opLower = (params.operatorName || "").trim().toLowerCase();
+  const textLower = `${params.summary || ""} ${params.weaknesses || ""}`.toLowerCase();
+
+  if (
+    nameLower === "teste" ||
+    nameLower === "test" ||
+    nameLower.startsWith("teste ") ||
+    nameLower.endsWith(" teste") ||
+    nameLower.includes("contato teste")
+  ) {
+    return true;
+  }
+
+  // Caso clássico em que o próprio consultor está conversando consigo mesmo em teste
+  if (
+    nameLower.length > 4 &&
+    opLower.length > 4 &&
+    (nameLower.includes(opLower) || opLower.includes(nameLower))
+  ) {
+    return true;
+  }
+
+  if (
+    textLower.includes("mensagens de 'teste'") ||
+    textLower.includes('mensagens de "teste"') ||
+    textLower.includes("envio de mensagens de 'teste'") ||
+    textLower.includes("atendimento de teste") ||
+    textLower.includes("placeholders ({{nome}}")
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function parseMediaPreview(
@@ -206,7 +250,9 @@ export const Route = createFileRoute("/api/gestao/audits")({
                 eq(aiConversationAudits.status, "processing"),
               ),
             );
-          } else if (statusParam !== "all") {
+          } else if (statusParam === "all") {
+            listFilters.push(sql`${aiConversationAudits.status} != 'dismissed_test'`);
+          } else {
             listFilters.push(eq(aiConversationAudits.status, statusParam));
           }
 
@@ -258,6 +304,8 @@ export const Route = createFileRoute("/api/gestao/audits")({
                     hadMissedObjection: aiConversationAudits.hadMissedObjection,
                     hadRudeLanguage: aiConversationAudits.hadRudeLanguage,
                     hadNoFollowUp: aiConversationAudits.hadNoFollowUp,
+                    summary: aiConversationAudits.summary,
+                    weaknesses: aiConversationAudits.weaknesses,
                     rawAiResponse: aiConversationAudits.rawAiResponse,
                     status: aiConversationAudits.status,
                     auditedAt: aiConversationAudits.auditedAt,
@@ -641,11 +689,45 @@ export const Route = createFileRoute("/api/gestao/audits")({
                 ? `Orientação de Auditoria IA (${rawName}): ${a.actionableInsight}`
                 : null);
 
+            const directorReview: AuditDirectorReview | null = rawJson?.directorReview
+              ? {
+                  verdict: rawJson.directorReview.verdict,
+                  comment: rawJson.directorReview.comment || "",
+                  learnedRule:
+                    rawJson.directorReview.learnedRule ||
+                    rawJson.directorReview.comment ||
+                    null,
+                  adjustedScore:
+                    typeof rawJson.directorReview.adjustedScore === "number"
+                      ? rawJson.directorReview.adjustedScore
+                      : null,
+                  originalAiScore:
+                    typeof rawJson.directorReview.originalAiScore === "number"
+                      ? rawJson.directorReview.originalAiScore
+                      : null,
+                  reviewedByOperatorId: rawJson.directorReview.reviewedByOperatorId || "",
+                  reviewedByOperatorName:
+                    rawJson.directorReview.reviewedByOperatorName || "Diretoria",
+                  reviewedAt:
+                    rawJson.directorReview.reviewedAt ||
+                    (a.auditedAt ? a.auditedAt.toISOString() : new Date().toISOString()),
+                }
+              : null;
+
+            const effectiveOperatorName =
+              opInfo?.name ?? (effectiveOpId ? "Consultor" : "Sem consultor");
+            const isLikelyTest = detectLikelyTestAudit({
+              contactName: rawName,
+              operatorName: effectiveOperatorName,
+              summary: a.summary,
+              weaknesses: a.weaknesses,
+            });
+
             return {
               id: a.id,
               conversationId: a.conversationId,
               operatorId: effectiveOpId,
-              operatorName: opInfo?.name ?? (effectiveOpId ? "Consultor" : "Sem consultor"),
+              operatorName: effectiveOperatorName,
               operatorAvatar: opInfo?.avatar ?? null,
               contactId: convMeta?.contactId ?? null,
               contactName: rawName,
@@ -678,6 +760,8 @@ export const Route = createFileRoute("/api/gestao/audits")({
                 agentMessageCount: 0,
               },
               recentMessages: recentMessagesMap.get(a.conversationId) ?? [],
+              directorReview,
+              isLikelyTest,
               flagCount,
               status: a.status,
               errorMessage: a.errorMessage,
@@ -711,15 +795,49 @@ export const Route = createFileRoute("/api/gestao/audits")({
             FROM conv_msg_stats cms
             JOIN conversations c
               ON c.id = cms.conversation_id AND c.tenant_id = ${tenantId}
+            LEFT JOIN contacts ct
+              ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
             LEFT JOIN ai_conversation_audits a
               ON a.conversation_id = c.id AND a.tenant_id = c.tenant_id
-            WHERE a.id IS NULL
-               OR a.status = 'error'
-               OR (a.status = 'done' AND a.audited_at IS NOT NULL AND cms.last_msg_at > a.audited_at + INTERVAL '10 minutes')
+            WHERE COALESCE(a.status, '') != 'dismissed_test'
+              AND LOWER(TRIM(COALESCE(ct.name, ''))) NOT IN ('teste', 'test', 'contato teste')
+              AND (
+                a.id IS NULL
+                OR a.status = 'error'
+                OR (a.status = 'done' AND a.audited_at IS NOT NULL AND cms.last_msg_at > a.audited_at + INTERVAL '10 minutes')
+              )
           `);
           const eligibleUnauditedCount = Number(
             extractRows<{ cnt: number }>(eligibleRes)[0]?.cnt ?? 0,
           );
+
+          const doneAudits = allScopeAudits.filter(
+            (a) => a.status === "done" && a.performanceScore !== null,
+          );
+
+          // Detecta quantas auditorias concluídas ou na fila parecem ser de teste
+          let likelyTestCount = 0;
+          for (const a of allScopeAudits) {
+            if (a.status === "dismissed_test") continue;
+            const convMeta = convMetaMap.get(a.conversationId);
+            const effectiveOpId =
+              a.operatorId || convMeta?.convOperatorId || convMeta?.walletOperatorId || null;
+            const opInfo = effectiveOpId ? operatorMap.get(effectiveOpId) : undefined;
+            const rawName =
+              a.contactName && a.contactName.trim() !== "" && a.contactName !== "Desconhecido"
+                ? a.contactName.trim()
+                : convMeta?.contactName || "";
+            if (
+              detectLikelyTestAudit({
+                contactName: rawName,
+                operatorName: opInfo?.name ?? null,
+                summary: (a as any).summary ?? null,
+                weaknesses: (a as any).weaknesses ?? null,
+              })
+            ) {
+              likelyTestCount++;
+            }
+          }
 
           // Calcula contadores de status e sumário executivo sobre allScopeAudits
           const statusCounts: AuditStatusCounts = {
@@ -730,11 +848,10 @@ export const Route = createFileRoute("/api/gestao/audits")({
             processing: allScopeAudits.filter((a) => a.status === "processing").length,
             error: allScopeAudits.filter((a) => a.status === "error").length,
             eligibleUnauditedCount,
+            dismissedTestCount: allScopeAudits.filter((a) => a.status === "dismissed_test")
+              .length,
+            likelyTestCount,
           };
-
-          const doneAudits = allScopeAudits.filter(
-            (a) => a.status === "done" && a.performanceScore !== null,
-          );
 
           let scoreSum = 0;
           let excellentCount = 0;
@@ -748,6 +865,12 @@ export const Route = createFileRoute("/api/gestao/audits")({
           let noFollowUpCount = 0;
           let rudeLanguageCount = 0;
           let totalFlagsCount = 0;
+
+          let reviewedCount = 0;
+          let approvedCount = 0;
+          let caveatsCount = 0;
+          let rejectedCount = 0;
+          const learnedRules: AuditLearnedRuleItem[] = [];
 
           let auditedPipelineValue = 0;
           let atRiskPipelineValue = 0;
@@ -810,6 +933,54 @@ export const Route = createFileRoute("/api/gestao/audits")({
             ].filter(Boolean).length;
             totalFlagsCount += fc;
 
+            const rawJson = (a.rawAiResponse as any) || {};
+            const rev = rawJson?.directorReview;
+            const convMeta = convMetaMap.get(a.conversationId);
+            const effectiveOpId =
+              a.operatorId ||
+              convMeta?.convOperatorId ||
+              convMeta?.walletOperatorId ||
+              "__sem_operador__";
+            const opInfo =
+              effectiveOpId !== "__sem_operador__" ? operatorMap.get(effectiveOpId) : undefined;
+            const opName =
+              opInfo?.name ??
+              (effectiveOpId === "__sem_operador__" ? "Sem Consultor" : "Consultor");
+
+            if (rev && rev.verdict) {
+              reviewedCount++;
+              if (rev.verdict === "approved") approvedCount++;
+              else if (rev.verdict === "approved_with_caveats") caveatsCount++;
+              else if (rev.verdict === "rejected_wrong") rejectedCount++;
+
+              if (
+                (rev.verdict === "approved_with_caveats" || rev.verdict === "rejected_wrong") &&
+                (rev.comment || rev.learnedRule)
+              ) {
+                const rawContactName =
+                  a.contactName && a.contactName.trim() !== "" && a.contactName !== "Desconhecido"
+                    ? a.contactName.trim()
+                    : convMeta?.contactName || "Cliente";
+                learnedRules.push({
+                  auditId: a.id,
+                  conversationId: a.conversationId,
+                  contactName: rawContactName,
+                  operatorName: opName,
+                  verdict: rev.verdict,
+                  comment: rev.comment || "",
+                  learnedRule: rev.learnedRule || rev.comment || "",
+                  originalAiScore:
+                    typeof rev.originalAiScore === "number" ? rev.originalAiScore : null,
+                  adjustedScore:
+                    typeof rev.adjustedScore === "number" ? rev.adjustedScore : sc,
+                  reviewedByOperatorName: rev.reviewedByOperatorName || "Diretoria",
+                  reviewedAt:
+                    rev.reviewedAt ||
+                    (a.auditedAt ? a.auditedAt.toISOString() : new Date().toISOString()),
+                });
+              }
+            }
+
             const pillars = computeFallbackPillarScores({
               performanceScore: sc,
               hadLongResponseGap: a.hadLongResponseGap,
@@ -823,7 +994,6 @@ export const Route = createFileRoute("/api/gestao/audits")({
             objSum += pillars.objectionHandling;
             closeSum += pillars.closingNextStep;
 
-            const convMeta = convMetaMap.get(a.conversationId);
             const deal =
               dealByConvMap.get(a.conversationId) ||
               (convMeta?.contactId ? dealByContactMap.get(convMeta.contactId) : null) ||
@@ -845,17 +1015,6 @@ export const Route = createFileRoute("/api/gestao/audits")({
                 atRiskDealsCount++;
               }
             }
-
-            const effectiveOpId =
-              a.operatorId ||
-              convMeta?.convOperatorId ||
-              convMeta?.walletOperatorId ||
-              "__sem_operador__";
-            const opInfo =
-              effectiveOpId !== "__sem_operador__" ? operatorMap.get(effectiveOpId) : undefined;
-            const opName =
-              opInfo?.name ??
-              (effectiveOpId === "__sem_operador__" ? "Sem Consultor" : "Consultor");
 
             const currOp = opAggMap.get(effectiveOpId) ?? {
               operatorId: effectiveOpId,
@@ -900,6 +1059,10 @@ export const Route = createFileRoute("/api/gestao/audits")({
             opAggMap.set(effectiveOpId, currOp);
           }
 
+          learnedRules.sort(
+            (a, b) => new Date(b.reviewedAt).getTime() - new Date(a.reviewedAt).getTime(),
+          );
+
           const totalAudited = doneAudits.length;
           const failureEntries = [
             { label: "Sem próximo passo (Follow-up)", count: noFollowUpCount },
@@ -941,6 +1104,12 @@ export const Route = createFileRoute("/api/gestao/audits")({
               objectionHandling: totalAudited > 0 ? Math.round(objSum / totalAudited) : 0,
               closingNextStep: totalAudited > 0 ? Math.round(closeSum / totalAudited) : 0,
             },
+            reviewedCount,
+            approvedCount,
+            caveatsCount,
+            rejectedCount,
+            pendingReviewCount: Math.max(0, totalAudited - reviewedCount),
+            learnedRulesCount: learnedRules.length,
           };
 
           const operatorRanking: AuditOperatorRankingItem[] = Array.from(opAggMap.values())
@@ -970,6 +1139,7 @@ export const Route = createFileRoute("/api/gestao/audits")({
             statusCounts,
             summary,
             operatorRanking,
+            learnedRules,
           };
 
           return new Response(JSON.stringify(payload), {
@@ -1078,8 +1248,12 @@ export const Route = createFileRoute("/api/gestao/audits")({
 
       PATCH: async ({ request }) => {
         /**
-         * Reseta auditorias (com erro ou re-auditoria forçada) de volta para 'pending'
-         * e dispara processamento imediato.
+         * Ações suportadas:
+         * - 'submit_review': Registra validação da Diretoria (aprovar, ressalvas ou erro da IA + aprendizado + ajuste opcional de nota + reavaliação opcional)
+         * - 'clear_review': Remove revisão/regra aprendida de uma auditoria
+         * - 'dismiss_test': Descarta auditoria(s) de teste e recalcula métricas do consultor
+         * - 'dismiss_detected_tests': Descarta em lote todas as auditorias detectadas como teste
+         * - 'retry_all' / reauditoria individual
          */
         const auth = await requireSession(request);
         if ("response" in auth) return auth.response;
@@ -1094,7 +1268,7 @@ export const Route = createFileRoute("/api/gestao/audits")({
         if (!canManage) {
           return new Response(
             JSON.stringify({
-              error: "Permissão insuficiente para reprocessar auditorias.",
+              error: "Permissão insuficiente para gerenciar auditorias.",
               code: "FORBIDDEN",
             }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -1104,9 +1278,15 @@ export const Route = createFileRoute("/api/gestao/audits")({
         try {
           const body = (await request.json()) as {
             auditId?: string;
+            auditIds?: string[];
             action?: string;
             force?: boolean;
             tenantId?: string;
+            verdict?: "approved" | "approved_with_caveats" | "rejected_wrong";
+            comment?: string;
+            learnedRule?: string;
+            adjustedScore?: number | null;
+            reauditWithAi?: boolean;
           };
           const { auditId, action, force, tenantId: bodyTenantId } = body;
 
@@ -1129,6 +1309,298 @@ export const Route = createFileRoute("/api/gestao/audits")({
                 ),
               ),
           );
+
+          // ── AÇÃO 1: VALIDAÇÃO DA DIRETORIA & APRENDIZADO CONTÍNUO DA IA ──
+          if (action === "submit_review" && auditId && body.verdict) {
+            const existingRows = await db
+              .select({
+                id: aiConversationAudits.id,
+                operatorId: aiConversationAudits.operatorId,
+                performanceScore: aiConversationAudits.performanceScore,
+                rawAiResponse: aiConversationAudits.rawAiResponse,
+              })
+              .from(aiConversationAudits)
+              .where(
+                and(
+                  eq(aiConversationAudits.id, auditId),
+                  eq(aiConversationAudits.tenantId, tenantId),
+                  visibleAuditConversation,
+                ),
+              )
+              .limit(1);
+
+            if (!existingRows.length) {
+              return new Response(
+                JSON.stringify({ error: "Auditoria não encontrada." }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+
+            const existing = existingRows[0];
+            const prevRaw = ((existing.rawAiResponse as any) || {}) as Record<string, any>;
+            const originalAiScore =
+              typeof prevRaw?.directorReview?.originalAiScore === "number"
+                ? prevRaw.directorReview.originalAiScore
+                : existing.performanceScore ?? null;
+
+            const normalizedAdjusted =
+              typeof body.adjustedScore === "number" && Number.isFinite(body.adjustedScore)
+                ? Math.max(0, Math.min(100, Math.round(body.adjustedScore)))
+                : null;
+
+            const trimmedComment = (body.comment || "").trim();
+            const trimmedRule = (body.learnedRule || trimmedComment).trim() || null;
+
+            const directorReview: AuditDirectorReview = {
+              verdict: body.verdict,
+              comment: trimmedComment,
+              learnedRule: trimmedRule,
+              adjustedScore: normalizedAdjusted,
+              originalAiScore,
+              reviewedByOperatorId: session.operator.id,
+              reviewedByOperatorName: session.operator.name,
+              reviewedAt: new Date().toISOString(),
+            };
+
+            const nextScore =
+              normalizedAdjusted !== null ? normalizedAdjusted : existing.performanceScore;
+            const nextRaw = {
+              ...prevRaw,
+              directorReview,
+            };
+
+            const shouldReaudit = Boolean(body.reauditWithAi);
+
+            await db
+              .update(aiConversationAudits)
+              .set({
+                performanceScore: nextScore,
+                rawAiResponse: nextRaw as any,
+                ...(shouldReaudit
+                  ? {
+                      status: "pending",
+                      errorMessage: null,
+                      leaseToken: null,
+                      leaseUntil: null,
+                    }
+                  : {}),
+              })
+              .where(
+                and(
+                  eq(aiConversationAudits.id, auditId),
+                  eq(aiConversationAudits.tenantId, tenantId),
+                ),
+              );
+
+            if (existing.operatorId) {
+              await AuditService.getInstance()
+                .recalculateOperatorMetrics(tenantId, existing.operatorId)
+                .catch(() => {});
+            }
+
+            if (shouldReaudit) {
+              AuditService.getInstance().triggerImmediateRun();
+            }
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                action: "submit_review",
+                auditId,
+                directorReview,
+                performanceScore: nextScore,
+                reauditTriggered: shouldReaudit,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+
+          // ── AÇÃO 2: REMOVER REVISÃO / REGRA APRENDIDA ────────────────────
+          if (action === "clear_review" && auditId) {
+            const existingRows = await db
+              .select({
+                id: aiConversationAudits.id,
+                operatorId: aiConversationAudits.operatorId,
+                performanceScore: aiConversationAudits.performanceScore,
+                rawAiResponse: aiConversationAudits.rawAiResponse,
+              })
+              .from(aiConversationAudits)
+              .where(
+                and(
+                  eq(aiConversationAudits.id, auditId),
+                  eq(aiConversationAudits.tenantId, tenantId),
+                  visibleAuditConversation,
+                ),
+              )
+              .limit(1);
+
+            if (existingRows.length > 0) {
+              const existing = existingRows[0];
+              const prevRaw = { ...(((existing.rawAiResponse as any) || {}) as Record<string, any>) };
+              const restoredScore =
+                typeof prevRaw?.directorReview?.originalAiScore === "number"
+                  ? prevRaw.directorReview.originalAiScore
+                  : existing.performanceScore;
+              delete prevRaw.directorReview;
+
+              await db
+                .update(aiConversationAudits)
+                .set({
+                  performanceScore: restoredScore,
+                  rawAiResponse: prevRaw as any,
+                })
+                .where(
+                  and(
+                    eq(aiConversationAudits.id, auditId),
+                    eq(aiConversationAudits.tenantId, tenantId),
+                  ),
+                );
+
+              if (existing.operatorId) {
+                await AuditService.getInstance()
+                  .recalculateOperatorMetrics(tenantId, existing.operatorId)
+                  .catch(() => {});
+              }
+            }
+
+            return new Response(
+              JSON.stringify({ success: true, action: "clear_review", auditId }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+
+          // ── AÇÃO 3: DESCARTAR ATENDIMENTO(S) DE TESTE ────────────────────
+          if (action === "dismiss_test") {
+            const targetIds = Array.from(
+              new Set([
+                ...(auditId ? [auditId] : []),
+                ...(Array.isArray(body.auditIds) ? body.auditIds : []),
+              ]),
+            ).filter(Boolean);
+
+            if (targetIds.length === 0) {
+              return new Response(
+                JSON.stringify({ error: "Nenhuma auditoria informada para descarte." }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+
+            const dismissedRows = await db
+              .update(aiConversationAudits)
+              .set({
+                status: "dismissed_test",
+                leaseToken: null,
+                leaseUntil: null,
+              })
+              .where(
+                and(
+                  eq(aiConversationAudits.tenantId, tenantId),
+                  inArray(aiConversationAudits.id, targetIds),
+                  visibleAuditConversation,
+                ),
+              )
+              .returning({
+                id: aiConversationAudits.id,
+                operatorId: aiConversationAudits.operatorId,
+              });
+
+            const affectedOpIds = Array.from(
+              new Set(dismissedRows.map((r) => r.operatorId).filter(Boolean) as string[]),
+            );
+            for (const opId of affectedOpIds) {
+              await AuditService.getInstance()
+                .recalculateOperatorMetrics(tenantId, opId)
+                .catch(() => {});
+            }
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                action: "dismiss_test",
+                dismissedCount: dismissedRows.length,
+                dismissedIds: dismissedRows.map((r) => r.id),
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+
+          // ── AÇÃO 4: LIMPAR EM LOTE TODOS OS ATENDIMENTOS DE TESTE DETECTADOS ──
+          if (action === "dismiss_detected_tests") {
+            const allActive = await db
+              .select({
+                id: aiConversationAudits.id,
+                conversationId: aiConversationAudits.conversationId,
+                operatorId: aiConversationAudits.operatorId,
+                contactName: aiConversationAudits.contactName,
+                summary: aiConversationAudits.summary,
+                weaknesses: aiConversationAudits.weaknesses,
+                status: aiConversationAudits.status,
+              })
+              .from(aiConversationAudits)
+              .where(
+                and(
+                  eq(aiConversationAudits.tenantId, tenantId),
+                  sql`${aiConversationAudits.status} != 'dismissed_test'`,
+                  visibleAuditConversation,
+                ),
+              );
+
+            const allOps = await db
+              .select({ id: operators.id, name: operators.name })
+              .from(operators)
+              .where(eq(operators.tenantId, tenantId));
+            const opNameById = new Map(allOps.map((o) => [o.id, o.name]));
+
+            const matchedIds: string[] = [];
+            const affectedOps = new Set<string>();
+
+            for (const a of allActive) {
+              const opName = a.operatorId ? opNameById.get(a.operatorId) ?? null : null;
+              if (
+                detectLikelyTestAudit({
+                  contactName: a.contactName,
+                  operatorName: opName,
+                  summary: a.summary,
+                  weaknesses: a.weaknesses,
+                })
+              ) {
+                matchedIds.push(a.id);
+                if (a.operatorId) affectedOps.add(a.operatorId);
+              }
+            }
+
+            if (matchedIds.length > 0) {
+              await db
+                .update(aiConversationAudits)
+                .set({
+                  status: "dismissed_test",
+                  leaseToken: null,
+                  leaseUntil: null,
+                })
+                .where(
+                  and(
+                    eq(aiConversationAudits.tenantId, tenantId),
+                    inArray(aiConversationAudits.id, matchedIds),
+                  ),
+                );
+
+              for (const opId of affectedOps) {
+                await AuditService.getInstance()
+                  .recalculateOperatorMetrics(tenantId, opId)
+                  .catch(() => {});
+              }
+            }
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                action: "dismiss_detected_tests",
+                dismissedCount: matchedIds.length,
+                dismissedIds: matchedIds,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
 
           if (action === "retry_all") {
             await db
@@ -1192,7 +1664,7 @@ export const Route = createFileRoute("/api/gestao/audits")({
           }
 
           return new Response(
-            JSON.stringify({ error: "Forneça auditId ou action='retry_all'" }),
+            JSON.stringify({ error: "Forneça auditId ou action válida." }),
             {
               status: 400,
               headers: { ...corsHeaders, "Content-Type": "application/json" },

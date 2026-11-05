@@ -301,6 +301,31 @@ export type AuditSlaMetrics = {
   agentMessageCount: number;
 };
 
+export type AuditDirectorReview = {
+  verdict: "approved" | "approved_with_caveats" | "rejected_wrong";
+  comment: string;
+  learnedRule?: string | null;
+  adjustedScore?: number | null;
+  originalAiScore?: number | null;
+  reviewedByOperatorId: string;
+  reviewedByOperatorName: string;
+  reviewedAt: string;
+};
+
+export type AuditLearnedRuleItem = {
+  auditId: string;
+  conversationId: string;
+  contactName: string | null;
+  operatorName: string | null;
+  verdict: "approved_with_caveats" | "rejected_wrong";
+  comment: string;
+  learnedRule: string;
+  originalAiScore: number | null;
+  adjustedScore: number | null;
+  reviewedByOperatorName: string;
+  reviewedAt: string;
+};
+
 export type AuditItem = {
   id: string;
   conversationId: string;
@@ -331,6 +356,8 @@ export type AuditItem = {
   deal?: (LiveDealSummary & { lossReason?: string | null; winReason?: string | null }) | null;
   slaMetrics?: AuditSlaMetrics;
   recentMessages?: LiveMessage[];
+  directorReview?: AuditDirectorReview | null;
+  isLikelyTest?: boolean;
   flagCount: number;
   status?: string;
   errorMessage?: string | null;
@@ -344,6 +371,8 @@ export type AuditStatusCounts = {
   processing: number;
   error: number;
   eligibleUnauditedCount: number;
+  dismissedTestCount?: number;
+  likelyTestCount?: number;
 };
 
 export type AuditOperatorRankingItem = {
@@ -388,6 +417,12 @@ export type AuditsExecutiveSummary = {
   wonDealsAuditedCount: number;
   lostDealsAuditedCount: number;
   avgPillarScores: AuditPillarScores;
+  reviewedCount?: number;
+  approvedCount?: number;
+  caveatsCount?: number;
+  rejectedCount?: number;
+  pendingReviewCount?: number;
+  learnedRulesCount?: number;
 };
 
 export type AuditsApiResponse = {
@@ -395,6 +430,7 @@ export type AuditsApiResponse = {
   statusCounts: AuditStatusCounts;
   summary: AuditsExecutiveSummary;
   operatorRanking: AuditOperatorRankingItem[];
+  learnedRules?: AuditLearnedRuleItem[];
 };
 
 // ── Mock: Visão Geral ─────────────────────────────────────────────────────────

@@ -450,6 +450,77 @@ export class AuditService {
   }
 
   /**
+   * Coleta as regras aprendidas e correções registradas pela Diretoria no tenant
+   * para calibrar continuamente as próximas avaliações da Vertex AI.
+   */
+  private async buildLearnedCalibrationContext(tenantId: string): Promise<string> {
+    try {
+      const rulesRes = await db.execute(sql`
+        SELECT
+          contact_name,
+          performance_score,
+          raw_ai_response->'directorReview'->>'verdict' AS verdict,
+          raw_ai_response->'directorReview'->>'comment' AS comment,
+          raw_ai_response->'directorReview'->>'learnedRule' AS learned_rule,
+          (raw_ai_response->'directorReview'->>'originalAiScore')::int AS original_score,
+          (raw_ai_response->'directorReview'->>'adjustedScore')::int AS adjusted_score,
+          raw_ai_response->'directorReview'->>'reviewedByOperatorName' AS reviewer_name
+        FROM ai_conversation_audits
+        WHERE tenant_id = ${tenantId}
+          AND status != 'dismissed_test'
+          AND raw_ai_response->'directorReview' IS NOT NULL
+          AND raw_ai_response->'directorReview'->>'verdict' IN ('rejected_wrong', 'approved_with_caveats')
+          AND COALESCE(TRIM(raw_ai_response->'directorReview'->>'comment'), '') <> ''
+        ORDER BY COALESCE(
+          (raw_ai_response->'directorReview'->>'reviewedAt')::timestamptz,
+          audited_at,
+          created_at
+        ) DESC
+        LIMIT 15
+      `);
+
+      const rows = extractRows<{
+        contact_name: string | null;
+        performance_score: number | null;
+        verdict: string;
+        comment: string;
+        learned_rule: string | null;
+        original_score: number | null;
+        adjusted_score: number | null;
+        reviewer_name: string | null;
+      }>(rulesRes);
+
+      if (rows.length === 0) return "";
+
+      const lines = rows.map((r, idx) => {
+        const typeLabel =
+          r.verdict === "rejected_wrong"
+            ? "CORREÇÃO DE ERRO DA IA"
+            : "RESSALVA DE CALIBRAÇÃO DA DIRETORIA";
+        const scoreNote =
+          r.original_score !== null &&
+          r.adjusted_score !== null &&
+          r.original_score !== r.adjusted_score
+            ? ` (Nota corrigida pela Diretoria de ${r.original_score} para ${r.adjusted_score}/100)`
+            : "";
+        const ruleText = (r.learned_rule || r.comment || "").trim();
+        return `${idx + 1}. [${typeLabel}${scoreNote} — Avaliador: ${r.reviewer_name || "Diretoria"}]: "${ruleText}"`;
+      });
+
+      return (
+        `\n## MEMÓRIA DE APRENDIZADO & CALIBRAÇÃO DA DIRETORIA (REGRAS APRENDIDAS)\n` +
+        `A Diretoria revisou auditorias anteriores e ensinou as seguintes diretrizes práticas de avaliação. ` +
+        `Você DEVE absorver essas regras e nunca repetir os erros apontados abaixo:\n` +
+        lines.join("\n") +
+        `\n`
+      );
+    } catch (e: any) {
+      console.warn("[AuditService] Aviso ao carregar regras aprendidas da Diretoria:", e?.message);
+      return "";
+    }
+  }
+
+  /**
    * Processa uma auditoria individual do início ao fim.
    */
   private async processAudit(
@@ -461,6 +532,19 @@ export class AuditService {
     leaseToken: string,
   ) {
     try {
+      // Verifica se já existe revisão/calibração da Diretoria nesta auditoria (para preservá-la e usá-la na reavaliação)
+      const existingAuditRows = await db
+        .select({ rawAiResponse: aiConversationAudits.rawAiResponse })
+        .from(aiConversationAudits)
+        .where(
+          and(
+            eq(aiConversationAudits.id, auditId),
+            eq(aiConversationAudits.tenantId, tenantId),
+          ),
+        )
+        .limit(1);
+      const existingDirectorReview = (existingAuditRows[0]?.rawAiResponse as any)?.directorReview ?? null;
+
       const resolved = await this.resolveConversationMetadata(
         tenantId,
         conversationId,
@@ -558,7 +642,7 @@ export class AuditService {
         })
         .join("\n");
 
-      // 4. Monta as métricas de SLA e Contexto CRM
+      // 4. Monta as métricas de SLA, Contexto CRM e Memória de Aprendizado da Diretoria
       const slaContext =
         avgResponseSec !== null
           ? `Tempo médio de resposta do consultor: ${Math.floor(avgResponseSec / 60)}min ${avgResponseSec % 60}s. ` +
@@ -566,22 +650,45 @@ export class AuditService {
             `Respostas acima do SLA de 15min: ${overdueCount}.`
           : "Métricas de SLA baseadas nos horários das mensagens da transcrição.";
 
-      const crmContext = await this.buildCrmContextForPrompt(
-        tenantId,
-        conversationId,
-        resolved.contactId,
-      );
+      const [crmContext, learnedCalibrationContext] = await Promise.all([
+        this.buildCrmContextForPrompt(tenantId, conversationId, resolved.contactId),
+        this.buildLearnedCalibrationContext(tenantId),
+      ]);
 
-      // 5. Monta o prompt completo parametrizado por tenant
-      const prompt = buildAuditPrompt(tenantId, transcript, slaContext, crmContext);
+      const specificDirectorInstruction =
+        existingDirectorReview && existingDirectorReview.comment
+          ? `\n## DIRETRIZ ESPECÍFICA DA DIRETORIA PARA ESTE ATENDIMENTO\n` +
+            `O Diretor (${existingDirectorReview.reviewedByOperatorName || "Diretoria"}) revisou a avaliação anterior deste atendimento ` +
+            `(${existingDirectorReview.verdict === "rejected_wrong" ? "apontando ERRO na avaliação anterior da IA" : "apontando RESSALVA importante"}) ` +
+            `e registrou a seguinte orientação obrigatória: "${existingDirectorReview.comment}".` +
+            (existingDirectorReview.adjustedScore !== null && existingDirectorReview.adjustedScore !== undefined
+              ? ` Nota de referência indicada pelo Diretor: ${existingDirectorReview.adjustedScore}/100.`
+              : "") +
+            ` Refaça o diagnóstico absorvendo fielmente o apontamento do Diretor.\n`
+          : "";
+
+      // 5. Monta o prompt completo parametrizado por tenant + memória de calibração
+      const prompt = buildAuditPrompt(
+        tenantId,
+        transcript,
+        slaContext,
+        crmContext,
+        learnedCalibrationContext + specificDirectorInstruction,
+      );
 
       // 6. Chama o Gemini passando o contexto de custo correto para o painel financeiro
       const result = await this.callGemini(prompt, tenantId, conversationId);
       if (!result) throw new Error("Vertex AI retornou resposta vazia ou inválida.");
 
+      const finalPerformanceScore =
+        existingDirectorReview?.adjustedScore !== null &&
+        existingDirectorReview?.adjustedScore !== undefined
+          ? clampScore(existingDirectorReview.adjustedScore, result.performanceScore)
+          : result.performanceScore;
+
       const hadLongGap = Boolean(result.hadLongResponseGap || overdueCount > 0);
       const pillarScores = computeFallbackPillarScores({
-        performanceScore: result.performanceScore,
+        performanceScore: finalPerformanceScore,
         hadLongResponseGap: hadLongGap,
         hadMissedObjection: Boolean(result.hadMissedObjection),
         hadRudeLanguage: Boolean(result.hadRudeLanguage),
@@ -589,10 +696,13 @@ export class AuditService {
         rawAiResponse: result,
       });
 
-      const enrichedRawResponse = {
+      const enrichedRawResponse: Record<string, any> = {
         ...result,
         pillarScores,
       };
+      if (existingDirectorReview) {
+        enrichedRawResponse.directorReview = existingDirectorReview;
+      }
 
       // 7. Salva o resultado
       const completed = await db
@@ -604,7 +714,7 @@ export class AuditService {
           leaseUntil: null,
           status: "done",
           errorMessage: null,
-          performanceScore: result.performanceScore,
+          performanceScore: finalPerformanceScore,
           clientSentiment: result.clientSentiment,
           hadLongResponseGap: hadLongGap,
           hadMissedObjection: Boolean(result.hadMissedObjection),
@@ -628,7 +738,7 @@ export class AuditService {
       if (!completed.length) return;
 
       console.log(
-        `[AuditService] ✓ Auditoria ${auditId} (${tenantId}) concluída — Score: ${result.performanceScore}/100`,
+        `[AuditService] ✓ Auditoria ${auditId} (${tenantId}) concluída — Score: ${finalPerformanceScore}/100`,
       );
 
       // 8. Atualiza métricas diárias do operador com cálculo real no banco
@@ -710,6 +820,15 @@ export class AuditService {
   }
 
   /**
+   * Método público para recalcular métricas do consultor imediatamente após
+   * ajuste de nota pela Diretoria ou descarte de atendimento de teste.
+   */
+  async recalculateOperatorMetrics(tenantId: string, operatorId: string | null) {
+    if (!operatorId) return;
+    await this.updateOperatorAuditMetrics(tenantId, operatorId);
+  }
+
+  /**
    * Recalcula com exatidão o score médio e os contadores de sentimento do operador no dia BRT
    * diretamente a partir das auditorias concluídas em `ai_conversation_audits`.
    */
@@ -741,8 +860,6 @@ export class AuditService {
       total_audited: number;
     }>(statsRes)[0];
 
-    if (!stats || stats.total_audited === 0) return;
-
     const existing = await db
       .select()
       .from(operatorDailyMetrics)
@@ -754,6 +871,27 @@ export class AuditService {
         ),
       )
       .limit(1);
+
+    if (!stats || stats.total_audited === 0) {
+      if (existing.length > 0) {
+        await db
+          .update(operatorDailyMetrics)
+          .set({
+            avgPerformanceScore: null,
+            satisfiedCount: 0,
+            neutralCount: 0,
+            frustratedCount: 0,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(operatorDailyMetrics.id, existing[0].id),
+              eq(operatorDailyMetrics.tenantId, tenantId),
+            ),
+          );
+      }
+      return;
+    }
 
     if (existing.length > 0) {
       await db
@@ -800,6 +938,7 @@ export class AuditService {
    * Enfileira uma conversa para auditoria de IA (suporta `tecfag` e `valem`).
    * Se já houver auditoria anterior com erro, ou se houver mensagens novas após `auditedAt`,
    * ou se `force: true`, re-enfileira para atualizar o diagnóstico.
+   * Nunca re-enfileira automaticamente atendimentos descartados como teste (`dismissed_test`).
    */
   async enqueueAudit(params: {
     tenantId: string;
@@ -836,6 +975,10 @@ export class AuditService {
 
     if (existing.length > 0) {
       const curr = existing[0];
+      if (curr.status === "dismissed_test" && !params.force) {
+        return { enqueued: false, auditId: curr.id };
+      }
+
       let shouldReaudit = Boolean(params.force) || curr.status === "error";
 
       if (!shouldReaudit && curr.status === "done" && curr.auditedAt) {
@@ -965,7 +1108,7 @@ export class AuditService {
           conversationId: row.conversation_id,
           operatorId: row.operator_id || params.operatorId || null,
           contactName: row.contact_name,
-          force: true,
+          force: false,
         });
       }
     } catch (e: any) {
@@ -976,7 +1119,7 @@ export class AuditService {
   /**
    * Varre conversas elegíveis do tenant (com diálogo real entre cliente e consultor >= 3 mensagens)
    * que ainda não possuem auditoria concluída (ou que receberam novas mensagens após a última auditoria)
-   * e as enfileira para processamento imediato.
+   * e as enfileira para processamento imediato, ignorando atendimentos descartados como teste.
    */
   async scanAndEnqueueEligibleConversations(
     tenantId: string,
@@ -1023,6 +1166,8 @@ export class AuditService {
         ON a.conversation_id = c.id AND a.tenant_id = c.tenant_id
       WHERE 1=1
         ${operatorFilterSql}
+        AND COALESCE(a.status, '') != 'dismissed_test'
+        AND LOWER(TRIM(COALESCE(ct.name, ''))) NOT IN ('teste', 'test', 'contato teste')
         AND (
           a.id IS NULL
           OR a.status = 'error'
@@ -1075,13 +1220,14 @@ function buildAuditPrompt(
   transcript: string,
   slaContext: string,
   crmContext: string,
+  calibrationContext = "",
 ): string {
   const playbook = getAuditPlaybook(tenantId);
   return `Você é um Diretor de Qualidade Comercial (QA) e Especialista em Vendas B2B.
 Sua missão é auditar com rigor técnico, justiça e visão executiva o atendimento comercial abaixo realizado via WhatsApp.
 
 ${playbook}
-
+${calibrationContext}
 ## DADOS DO ATENDIMENTO A ANALISAR
 
 ### Contexto da Negociação no CRM
@@ -1094,7 +1240,7 @@ ${slaContext}
 ${transcript}
 
 ## INSTRUÇÃO EXECUTIVA
-Analise o atendimento acima com base no Playbook da empresa, no contexto da negociação no CRM e nas métricas de SLA.
+Analise o atendimento acima com base no Playbook da empresa, nas regras aprendidas com o feedback da Diretoria (se presentes acima), no contexto da negociação no CRM e nas métricas de SLA.
 - Seja específico: cite comportamentos, perguntas, acertos ou omissões concretas da conversa ao apontar Pontos Fortes e Falhas.
 - Seja justo: avalie tanto a postura e técnica comercial do consultor quanto a receptividade do cliente.
 - Gere um "actionableInsight" direto para a Diretoria e uma "coachingMessageSuggestion" construtiva pronta para ser enviada como orientação interna ao consultor.

@@ -49,7 +49,9 @@ import {
   AlertOperatorBottleneck,
   AlertsExecutiveSummary,
   AlertCategoryTag,
+  AuditDirectorReview,
   AuditItem,
+  AuditLearnedRuleItem,
   AuditStatusCounts,
   AuditOperatorRankingItem,
   AuditsExecutiveSummary,
@@ -2259,7 +2261,10 @@ type AuditQualityFilter =
   | "no_followup"
   | "long_gap"
   | "missed_objection"
-  | "excellent";
+  | "excellent"
+  | "pending_review"
+  | "reviewed"
+  | "likely_test";
 
 type AuditSortOption =
   | "recent"
@@ -2366,14 +2371,17 @@ function AuditsTab({
     processing: 0,
     error: 0,
     eligibleUnauditedCount: 0,
+    dismissedTestCount: 0,
+    likelyTestCount: 0,
   });
   const [apiSummary, setApiSummary] = useState<AuditsExecutiveSummary | null>(null);
   const [operatorRanking, setOperatorRanking] = useState<AuditOperatorRankingItem[]>([]);
+  const [learnedRules, setLearnedRules] = useState<AuditLearnedRuleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<AuditItem | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
-  // ── Filtros Executivos ────────────────────────────────────────────────────
+  // ── Filtros Executivos & Layout Compacto ──────────────────────────────────
   const [periodFilter, setPeriodFilter] = useState<"all" | "today" | "7d" | "30d">("all");
   const [dateFilter, setDateFilter] = useState("");
   const [operatorIdFilter, setOperatorIdFilter] = useState("");
@@ -2381,6 +2389,8 @@ function AuditsTab({
   const [qualityFilter, setQualityFilter] = useState<AuditQualityFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<AuditSortOption>("recent");
+  const [compactTop, setCompactTop] = useState(false);
+  const [learnedDrawerOpen, setLearnedDrawerOpen] = useState(false);
 
   // ── Ações Executivas (Gaveta de Transcrição, Sussurro, CRM Modal e Scan) ──
   const [retrying, setRetrying] = useState(false);
@@ -2393,6 +2403,40 @@ function AuditsTab({
   const [loadingHistoryConvId, setLoadingHistoryConvId] = useState<string | null>(null);
   const [localWhispersByConv, setLocalWhispersByConv] = useState<Record<string, LiveMessage[]>>({});
   const [selectedDealModalId, setSelectedDealModalId] = useState<string | null>(null);
+
+  // ── Estado de Validação da Diretoria & Aprendizado da Máquina ─────────────
+  const [reviewVerdict, setReviewVerdict] = useState<
+    "approved" | "approved_with_caveats" | "rejected_wrong" | null
+  >(null);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewAdjustedScore, setReviewAdjustedScore] = useState<string>("");
+  const [savingReview, setSavingReview] = useState(false);
+  const [dismissingTestId, setDismissingTestId] = useState<string | null>(null);
+  const [dismissingAllTests, setDismissingAllTests] = useState(false);
+
+  // Sincroniza campos de revisão quando troca a auditoria selecionada
+  useEffect(() => {
+    if (!selected) {
+      setReviewVerdict(null);
+      setReviewComment("");
+      setReviewAdjustedScore("");
+      return;
+    }
+    if (selected.directorReview) {
+      setReviewVerdict(selected.directorReview.verdict);
+      setReviewComment(selected.directorReview.comment || "");
+      setReviewAdjustedScore(
+        selected.directorReview.adjustedScore !== null &&
+          selected.directorReview.adjustedScore !== undefined
+          ? String(selected.directorReview.adjustedScore)
+          : "",
+      );
+    } else {
+      setReviewVerdict(null);
+      setReviewComment("");
+      setReviewAdjustedScore("");
+    }
+  }, [selected?.id]);
 
   // ── Fetch principal com sumário executivo ─────────────────────────────────
   const fetchAudits = useCallback(
@@ -2422,10 +2466,13 @@ function AuditsTab({
             if (Array.isArray(payload.operatorRanking)) {
               setOperatorRanking(payload.operatorRanking);
             }
+            if (Array.isArray(payload.learnedRules)) {
+              setLearnedRules(payload.learnedRules);
+            }
             // Sincroniza item selecionado caso tenha atualizado
             setSelected((prev) => {
               if (!prev) return null;
-              return list.find((a) => a.id === prev.id) ?? prev;
+              return list.find((a) => a.id === prev.id) ?? null;
             });
           }
           setLastRefresh(new Date());
@@ -2493,6 +2540,175 @@ function AuditsTab({
     },
     [tenant, loadingHistoryConvId],
   );
+
+  // Salva Validação da Diretoria / Aprendizado da IA (e opcionalmente reavalia com IA)
+  const handleSubmitDirectorReview = useCallback(
+    async (params: {
+      auditId: string;
+      verdict: "approved" | "approved_with_caveats" | "rejected_wrong";
+      comment?: string;
+      adjustedScore?: number | null;
+      reauditWithAi?: boolean;
+    }) => {
+      if (
+        (params.verdict === "approved_with_caveats" ||
+          params.verdict === "rejected_wrong") &&
+        !(params.comment || "").trim()
+      ) {
+        toast.error(
+          params.verdict === "rejected_wrong"
+            ? "Explique brevemente o erro da IA para que ela aprenda e calibre as próximas avaliações."
+            : "Descreva a ressalva para registrar na memória de aprendizado da IA.",
+        );
+        return;
+      }
+
+      setSavingReview(true);
+      try {
+        const res = await fetch("/api/gestao/audits", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            action: "submit_review",
+            auditId: params.auditId,
+            verdict: params.verdict,
+            comment: (params.comment || "").trim(),
+            learnedRule: (params.comment || "").trim(),
+            adjustedScore: params.adjustedScore ?? null,
+            reauditWithAi: Boolean(params.reauditWithAi),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Não foi possível salvar a validação da Diretoria.");
+        }
+
+        if (params.reauditWithAi) {
+          toast.success(
+            "Aprendizado absorvido! A IA já está reavaliando este atendimento com base na sua correção.",
+          );
+        } else if (params.verdict === "approved") {
+          toast.success("Auditoria validada como correta pela Diretoria!");
+        } else if (params.verdict === "approved_with_caveats") {
+          toast.success(
+            "Ressalva registrada! A IA absorveu o apontamento para os próximos atendimentos.",
+          );
+        } else {
+          toast.success(
+            "Correção salva na memória da IA! As próximas auditorias já aplicarão essa regra.",
+          );
+        }
+
+        await fetchAudits(true);
+      } catch (err: any) {
+        toast.error(err.message || "Falha ao registrar validação da Diretoria.");
+      } finally {
+        setSavingReview(false);
+      }
+    },
+    [tenant, fetchAudits],
+  );
+
+  // Remove revisão / regra aprendida de uma auditoria
+  const handleClearDirectorReview = useCallback(
+    async (auditId: string) => {
+      setSavingReview(true);
+      try {
+        const res = await fetch("/api/gestao/audits", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            action: "clear_review",
+            auditId,
+          }),
+        });
+        if (res.ok) {
+          toast.info("Validação/regra removida da auditoria.");
+          setReviewVerdict(null);
+          setReviewComment("");
+          setReviewAdjustedScore("");
+          await fetchAudits(true);
+        }
+      } catch (e) {
+        console.error("[AuditsTab] Erro ao limpar revisão:", e);
+      } finally {
+        setSavingReview(false);
+      }
+    },
+    [tenant, fetchAudits],
+  );
+
+  // Descarta um atendimento de teste (individual)
+  const handleDismissTestAudit = useCallback(
+    async (auditId: string, contactName?: string | null, e?: React.MouseEvent) => {
+      if (e) e.stopPropagation();
+      setDismissingTestId(auditId);
+      try {
+        const res = await fetch("/api/gestao/audits", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            action: "dismiss_test",
+            auditId,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Não foi possível descartar o atendimento de teste.");
+        }
+        toast.success(
+          `Atendimento "${contactName || "Teste"}" removido das auditorias e métricas recalculadas!`,
+        );
+        if (selected?.id === auditId) {
+          setSelected(null);
+          if (onSelectAudit) onSelectAudit(null);
+        }
+        await fetchAudits(true);
+      } catch (err: any) {
+        toast.error(err.message || "Falha ao descartar atendimento de teste.");
+      } finally {
+        setDismissingTestId(null);
+      }
+    },
+    [tenant, selected?.id, onSelectAudit, fetchAudits],
+  );
+
+  // Limpa em lote todos os atendimentos detectados como teste
+  const handleDismissAllDetectedTests = useCallback(async () => {
+    setDismissingAllTests(true);
+    try {
+      const res = await fetch("/api/gestao/audits", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: tenant,
+          action: "dismiss_detected_tests",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Falha ao limpar atendimentos de teste.");
+      }
+      const count = Number(data.dismissedCount ?? 0);
+      if (count > 0) {
+        toast.success(
+          `${count} atendimento(s) de teste descartado(s) e scores dos consultores recalculados!`,
+        );
+        setSelected(null);
+        if (qualityFilter === "likely_test") setQualityFilter("all");
+      } else {
+        toast.info("Nenhum atendimento de teste pendente para remoção.");
+      }
+      await fetchAudits(false);
+    } catch (err: any) {
+      toast.error(err.message || "Falha ao remover atendimentos de teste.");
+    } finally {
+      setDismissingAllTests(false);
+    }
+  }, [tenant, qualityFilter, fetchAudits]);
 
   // Dispara varredura sob demanda de conversas elegíveis
   const handleScanAndEnqueue = useCallback(
@@ -2640,6 +2856,7 @@ function AuditsTab({
     const missedObj = done.filter((a) => a.hadMissedObjection).length;
     const noFollow = done.filter((a) => a.hadNoFollowUp).length;
     const rude = done.filter((a) => a.hadRudeLanguage).length;
+    const reviewed = done.filter((a) => Boolean(a.directorReview)).length;
     return {
       totalAudited: total,
       avgScore: total > 0 ? Math.round(scoreSum / total) : null,
@@ -2674,8 +2891,11 @@ function AuditsTab({
         objectionHandling: total > 0 ? Math.round(scoreSum / total) : 0,
         closingNextStep: total > 0 ? Math.round(scoreSum / total) : 0,
       },
+      reviewedCount: reviewed,
+      pendingReviewCount: Math.max(0, total - reviewed),
+      learnedRulesCount: learnedRules.length,
     };
-  }, [apiSummary, audits]);
+  }, [apiSummary, audits, learnedRules.length]);
 
   // Contadores para as pílulas de qualidade sobre a lista atual
   const qualityCounts = useMemo(() => {
@@ -2692,6 +2912,10 @@ function AuditsTab({
       excellent: audits.filter(
         (a) => a.performanceScore !== null && a.performanceScore >= 80,
       ).length,
+      pending_review: audits.filter((a) => a.status === "done" && !a.directorReview)
+        .length,
+      reviewed: audits.filter((a) => Boolean(a.directorReview)).length,
+      likely_test: audits.filter((a) => Boolean(a.isLikelyTest)).length,
     };
   }, [audits]);
 
@@ -2713,6 +2937,12 @@ function AuditsTab({
         if (!a.hadMissedObjection) return false;
       } else if (qualityFilter === "excellent") {
         if (a.performanceScore === null || a.performanceScore < 80) return false;
+      } else if (qualityFilter === "pending_review") {
+        if (a.directorReview) return false;
+      } else if (qualityFilter === "reviewed") {
+        if (!a.directorReview) return false;
+      } else if (qualityFilter === "likely_test") {
+        if (!a.isLikelyTest) return false;
       }
 
       if (q) {
@@ -2723,6 +2953,7 @@ function AuditsTab({
         const matchDeal = a.deal?.title?.toLowerCase().includes(q);
         const matchSummary = a.summary?.toLowerCase().includes(q);
         const matchInsight = a.actionableInsight?.toLowerCase().includes(q);
+        const matchReview = a.directorReview?.comment?.toLowerCase().includes(q);
         if (
           !matchContact &&
           !matchPhone &&
@@ -2730,7 +2961,8 @@ function AuditsTab({
           !matchOp &&
           !matchDeal &&
           !matchSummary &&
-          !matchInsight
+          !matchInsight &&
+          !matchReview
         ) {
           return false;
         }
@@ -2819,6 +3051,58 @@ function AuditsTab({
     );
   }
 
+  function renderDirectorReviewBadge(
+    review?: AuditDirectorReview | null,
+    compact = false,
+  ) {
+    if (!review) {
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded-md bg-muted/70 text-muted-foreground border border-border font-semibold ${
+            compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
+          }`}
+        >
+          <Clock className="h-2.5 w-2.5 shrink-0" />
+          <span>Pendente Validação</span>
+        </span>
+      );
+    }
+    if (review.verdict === "approved") {
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary border border-primary/25 font-extrabold ${
+            compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
+          }`}
+        >
+          <CheckCheck className="h-2.5 w-2.5 shrink-0" />
+          <span>Validado Diretoria</span>
+        </span>
+      );
+    }
+    if (review.verdict === "approved_with_caveats") {
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded-md bg-primary/15 text-primary border border-primary/30 font-extrabold ${
+            compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
+          }`}
+        >
+          <Sparkles className="h-2.5 w-2.5 shrink-0" />
+          <span>Ressalva Aprendida</span>
+        </span>
+      );
+    }
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded-md bg-primary text-primary-foreground font-extrabold ${
+          compact ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"
+        }`}
+      >
+        <Bot className="h-2.5 w-2.5 shrink-0" />
+        <span>IA Corrigida</span>
+      </span>
+    );
+  }
+
   function AuditStatusBadge({ status }: { status?: string }) {
     if (!status || status === "done") return null;
     if (status === "processing") {
@@ -2842,294 +3126,412 @@ function AuditsTab({
     );
   }
 
+  const isTopCompact = compactTop || Boolean(selected);
+  const detectedTestsCount = Math.max(
+    statusCounts.likelyTestCount ?? 0,
+    qualityCounts.likely_test,
+  );
+
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scrollbar-thin pr-1 space-y-3.5 pb-4">
-      {/* ── BLOCO 1: COCKPIT EXECUTIVO DE QUALIDADE DA DIRETORIA (4 KPIs) ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 shrink-0">
-        {/* KPI 1: Score Médio de Qualidade (QA) */}
-        <button
-          type="button"
-          onClick={() => {
-            setStatusFilter("done");
-            setQualityFilter((prev) => (prev === "critical" ? "all" : "critical"));
-          }}
-          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
-            qualityFilter === "critical"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-primary/40"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
-              Score Médio de Qualidade (QA)
-            </span>
-            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-              <ShieldCheck className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-2xl font-black text-foreground">
-              {summary.avgScore !== null ? `${summary.avgScore}/100` : "–"}
-            </span>
-            {summary.criticalCount > 0 && (
-              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary text-primary-foreground animate-pulse">
-                {summary.criticalCount} crítico{summary.criticalCount !== 1 ? "s" : ""} (&lt;60)
-              </span>
-            )}
-            {summary.excellentCount > 0 && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20">
-                {summary.excellentCount} excelente{summary.excellentCount !== 1 ? "s" : ""} (80+)
-              </span>
-            )}
-          </div>
-          <p className="text-[10px] text-muted-foreground truncate">
-            {summary.totalAudited > 0
-              ? `${summary.totalAudited} atendimento(s) auditado(s) · ${summary.attentionCount} em atenção (60–79)`
-              : statusCounts.pending > 0
-              ? `${statusCounts.pending} atendimento(s) em análise pela IA neste momento`
-              : "Clique em 'Auditar Atendimentos' para avaliar as conversas"}
-          </p>
-        </button>
+    <div className="flex flex-col flex-1 min-h-0 overflow-y-auto lg:overflow-hidden scrollbar-thin pr-0.5 gap-2.5 pb-1">
+      {/* ── BLOCO 1 & 2: INDICADORES DE TOPO (MODO COMPACTO OU EXPANDIDO) ── */}
+      {isTopCompact ? (
+        <div className="bg-card rounded-2xl border border-border shadow-soft px-3.5 py-2 flex items-center justify-between gap-3 flex-wrap shrink-0">
+          <div className="flex items-center gap-3 flex-wrap text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter("done");
+                setQualityFilter((prev) => (prev === "critical" ? "all" : "critical"));
+              }}
+              className="inline-flex items-center gap-1.5 font-bold text-foreground hover:text-primary transition cursor-pointer"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+              <span>Score QA:</span>
+              <strong className="font-black text-foreground">
+                {summary.avgScore !== null ? `${summary.avgScore}/100` : "–"}
+              </strong>
+              {summary.criticalCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded bg-primary text-primary-foreground text-[9px] font-extrabold">
+                  {summary.criticalCount} crít.
+                </span>
+              )}
+            </button>
 
-        {/* KPI 2: Sentimento & Experiência do Cliente */}
-        <button
-          type="button"
-          onClick={() => {
-            setStatusFilter("done");
-            setQualityFilter((prev) => (prev === "frustrated" ? "all" : "frustrated"));
-          }}
-          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
-            qualityFilter === "frustrated"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-primary/40"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
-              Sentimento dos Clientes
-            </span>
-            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-              <Smile className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-2xl font-black text-foreground">
-              {summary.satisfactionPct !== null ? `${summary.satisfactionPct}%` : "–"}
-            </span>
-            <span className="text-[10px] font-semibold text-muted-foreground">
-              de aprovação
-            </span>
-            {summary.frustratedCount > 0 && (
-              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary text-primary-foreground">
-                {summary.frustratedCount} frustrado{summary.frustratedCount !== 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
-          <p className="text-[10px] text-muted-foreground truncate">
-            Satisfeitos: <strong className="text-foreground">{summary.satisfiedCount}</strong> ·
-            Neutros: <strong className="text-foreground">{summary.neutralCount}</strong> ·
-            Frustrados: <strong className="text-foreground">{summary.frustratedCount}</strong>
-          </p>
-        </button>
+            <span className="text-border">|</span>
 
-        {/* KPI 3: Receita Auditada & Risco Comercial no CRM */}
-        <button
-          type="button"
-          onClick={() => {
-            setStatusFilter("done");
-            setSortBy((prev) => (prev === "deal_value" ? "recent" : "deal_value"));
-          }}
-          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
-            sortBy === "deal_value"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-primary/40"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
-              Receita Auditada & Risco CRM
-            </span>
-            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-              <Briefcase className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-xl font-black text-foreground truncate">
-              {summary.auditedPipelineValue.toLocaleString("pt-BR", {
-                style: "currency",
-                currency: "BRL",
-                maximumFractionDigits: 0,
-              })}
-            </span>
-            {summary.atRiskPipelineValue > 0 && (
-              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/25">
-                {summary.atRiskPipelineValue.toLocaleString("pt-BR", {
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter("done");
+                setQualityFilter((prev) => (prev === "frustrated" ? "all" : "frustrated"));
+              }}
+              className="inline-flex items-center gap-1.5 font-bold text-foreground hover:text-primary transition cursor-pointer"
+            >
+              <Smile className="h-3.5 w-3.5 text-primary" />
+              <span>Aprovação:</span>
+              <strong className="font-black text-foreground">
+                {summary.satisfactionPct !== null ? `${summary.satisfactionPct}%` : "–"}
+              </strong>
+              {summary.frustratedCount > 0 && (
+                <span className="text-[10px] text-primary font-extrabold">
+                  ({summary.frustratedCount} frustr.)
+                </span>
+              )}
+            </button>
+
+            <span className="text-border hidden sm:inline">|</span>
+
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-muted-foreground">
+              <Briefcase className="h-3.5 w-3.5 text-primary" />
+              <span>Pipeline Auditado:</span>
+              <strong className="text-foreground font-extrabold">
+                {summary.auditedPipelineValue.toLocaleString("pt-BR", {
                   style: "currency",
                   currency: "BRL",
                   maximumFractionDigits: 0,
-                })}{" "}
-                em risco
-              </span>
-            )}
-          </div>
-          <p className="text-[10px] text-muted-foreground truncate">
-            <strong className="text-foreground">{summary.atRiskDealsCount}</strong> negócio(s) com
-            alerta QA · Ganhas:{" "}
-            <strong className="text-foreground">{summary.wonDealsAuditedCount}</strong> · Perdidas:{" "}
-            <strong className="text-foreground">{summary.lostDealsAuditedCount}</strong>
-          </p>
-        </button>
+                })}
+              </strong>
+            </span>
 
-        {/* KPI 4: Raio-X de Falhas Operacionais (Top Ofensores) */}
-        <button
-          type="button"
-          onClick={() => {
-            setStatusFilter("done");
-            setQualityFilter((prev) => (prev === "with_flags" ? "all" : "with_flags"));
-          }}
-          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
-            qualityFilter === "with_flags"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-primary/40"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
-              Incidência de Falhas QA
-            </span>
-            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-2xl font-black text-foreground">
-              {summary.totalFlagsCount}
-            </span>
-            <span className="text-[10px] font-semibold text-muted-foreground">
-              apontamentos da IA
+            <span className="text-border hidden md:inline">|</span>
+
+            <span className="hidden md:inline-flex items-center gap-1.5 text-muted-foreground">
+              <Bot className="h-3.5 w-3.5 text-primary" />
+              <span>Validadas Diretoria:</span>
+              <strong className="text-foreground font-extrabold">
+                {summary.reviewedCount ?? 0}/{summary.totalAudited}
+              </strong>
             </span>
           </div>
-          <p className="text-[10px] text-muted-foreground truncate">
-            S/ Follow-up: <strong className="text-foreground">{summary.noFollowUpCount}</strong> ·
-            Demora: <strong className="text-foreground">{summary.longGapCount}</strong> · Objeção:{" "}
-            <strong className="text-foreground">{summary.missedObjectionCount}</strong> · Postura:{" "}
-            <strong className="text-foreground">{summary.rudeLanguageCount}</strong>
-          </p>
-        </button>
-      </div>
 
-      {/* ── BLOCO 2: FAIXA DE QUALIDADE POR CONSULTOR (CLICÁVEL) ──────────── */}
-      {operatorRanking.length > 0 && (
-        <div className="bg-card rounded-2xl border border-border shadow-soft px-4 py-3 shrink-0">
-          <div className="flex items-center justify-between gap-2 mb-2.5">
-            <div className="flex items-center gap-2">
-              <Users className="h-3.5 w-3.5 text-primary" />
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-foreground">
-                Qualidade & Incidência de Falhas por Consultor
-              </span>
-              <span className="text-[10px] text-muted-foreground hidden sm:inline">
-                (Ordenado por prioridade de atenção · Clique para filtrar)
-              </span>
-            </div>
-            {operatorIdFilter && (
-              <button
-                type="button"
-                onClick={() => setOperatorIdFilter("")}
-                className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
-              >
-                Limpar filtro de consultor
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
-            {operatorRanking.map((op) => {
-              const isSelected = operatorIdFilter === op.operatorId;
+          {/* Consultores em Pílulas Compactas + Botão Expandir KPIs */}
+          <div className="flex items-center gap-1.5 ml-auto overflow-x-auto scrollbar-none">
+            {operatorRanking.slice(0, 5).map((op) => {
+              const isOpSelected = operatorIdFilter === op.operatorId;
               return (
-                <SystemTooltip
+                <button
                   key={op.operatorId}
-                  content={`${op.operatorName} · Score Médio: ${op.avgScore}/100 · ${op.auditedCount} auditoria(s) · ${op.flagCount} falha(s) detectada(s)`}
+                  type="button"
+                  onClick={() =>
+                    setOperatorIdFilter((prev) => (prev === op.operatorId ? "" : op.operatorId))
+                  }
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer shrink-0 ${
+                    isOpSelected
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted/40 hover:bg-muted text-foreground border-border"
+                  }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOperatorIdFilter((prev) =>
-                        prev === op.operatorId ? "" : op.operatorId,
-                      )
-                    }
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition cursor-pointer shrink-0 ${
-                      isSelected
-                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                        : "bg-muted/30 hover:bg-muted/60 text-foreground border-border"
+                  <span className="truncate max-w-[90px]">{op.operatorName.split(" ")[0]}</span>
+                  <span
+                    className={`px-1 rounded text-[9px] font-black ${
+                      isOpSelected ? "bg-white/25 text-white" : "bg-primary/15 text-primary"
                     }`}
                   >
-                    <div className="relative shrink-0">
-                      <Avatar name={op.operatorName} avatar={op.operatorAvatar} size="sm" />
-                      <span
-                        className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card ${
-                          op.isOnline ? "bg-primary" : "bg-muted-foreground/45"
-                        }`}
-                      />
-                    </div>
-
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-extrabold truncate max-w-[125px]">
-                          {op.operatorName}
-                        </span>
-                        <span
-                          className={`text-[10px] font-black px-1.5 py-0.2 rounded-md ${
-                            isSelected
-                              ? "bg-white/25 text-white"
-                              : op.avgScore >= 75
-                              ? "bg-primary/15 text-primary"
-                              : "bg-muted text-foreground border border-border"
-                          }`}
-                        >
-                          {op.avgScore} pts
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-0.5 text-[10px]">
-                        <span
-                          className={
-                            isSelected ? "text-primary-foreground/90" : "text-muted-foreground"
-                          }
-                        >
-                          {op.auditedCount} aud.
-                        </span>
-                        {op.flagCount > 0 && (
-                          <span
-                            className={`font-extrabold ${
-                              isSelected ? "text-white" : "text-primary"
-                            }`}
-                          >
-                            · {op.flagCount} falha{op.flagCount !== 1 ? "s" : ""}
-                          </span>
-                        )}
-                        {op.frustratedCount > 0 && (
-                          <span
-                            className={`px-1 rounded text-[9px] font-extrabold ${
-                              isSelected
-                                ? "bg-white/25 text-white"
-                                : "bg-primary text-primary-foreground"
-                            }`}
-                          >
-                            {op.frustratedCount} frustr.
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                </SystemTooltip>
+                    {op.avgScore}
+                  </span>
+                </button>
               );
             })}
+
+            <button
+              type="button"
+              onClick={() => setCompactTop(false)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border border-border text-[10px] font-bold transition cursor-pointer shrink-0"
+            >
+              <ChevronDown className="h-3 w-3 text-primary" />
+              <span>Expandir KPIs</span>
+            </button>
           </div>
         </div>
+      ) : (
+        <>
+          {/* ── BLOCO 1: COCKPIT EXECUTIVO DE QUALIDADE DA DIRETORIA (4 KPIs) ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 shrink-0">
+            {/* KPI 1: Score Médio de Qualidade (QA) */}
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter("done");
+                setQualityFilter((prev) => (prev === "critical" ? "all" : "critical"));
+              }}
+              className={`text-left bg-card rounded-2xl p-3 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+                qualityFilter === "critical"
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/40"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                  Score Médio de Qualidade (QA)
+                </span>
+                <div className="h-6 w-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-xl font-black text-foreground">
+                  {summary.avgScore !== null ? `${summary.avgScore}/100` : "–"}
+                </span>
+                {summary.criticalCount > 0 && (
+                  <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary text-primary-foreground animate-pulse">
+                    {summary.criticalCount} crítico{summary.criticalCount !== 1 ? "s" : ""} (&lt;60)
+                  </span>
+                )}
+                {summary.excellentCount > 0 && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20">
+                    {summary.excellentCount} excelente{summary.excellentCount !== 1 ? "s" : ""} (80+)
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground truncate">
+                {summary.totalAudited > 0
+                  ? `${summary.totalAudited} auditado(s) · ${summary.reviewedCount ?? 0} validado(s) pela Diretoria`
+                  : statusCounts.pending > 0
+                  ? `${statusCounts.pending} atendimento(s) em análise pela IA neste momento`
+                  : "Clique em 'Auditar Atendimentos' para avaliar as conversas"}
+              </p>
+            </button>
+
+            {/* KPI 2: Sentimento & Experiência do Cliente */}
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter("done");
+                setQualityFilter((prev) => (prev === "frustrated" ? "all" : "frustrated"));
+              }}
+              className={`text-left bg-card rounded-2xl p-3 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+                qualityFilter === "frustrated"
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/40"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                  Sentimento dos Clientes
+                </span>
+                <div className="h-6 w-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <Smile className="h-3.5 w-3.5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-xl font-black text-foreground">
+                  {summary.satisfactionPct !== null ? `${summary.satisfactionPct}%` : "–"}
+                </span>
+                <span className="text-[10px] font-semibold text-muted-foreground">
+                  de aprovação
+                </span>
+                {summary.frustratedCount > 0 && (
+                  <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary text-primary-foreground">
+                    {summary.frustratedCount} frustrado{summary.frustratedCount !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground truncate">
+                Satisfeitos: <strong className="text-foreground">{summary.satisfiedCount}</strong> ·
+                Neutros: <strong className="text-foreground">{summary.neutralCount}</strong> ·
+                Frustrados: <strong className="text-foreground">{summary.frustratedCount}</strong>
+              </p>
+            </button>
+
+            {/* KPI 3: Receita Auditada & Risco Comercial no CRM */}
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter("done");
+                setSortBy((prev) => (prev === "deal_value" ? "recent" : "deal_value"));
+              }}
+              className={`text-left bg-card rounded-2xl p-3 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+                sortBy === "deal_value"
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/40"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                  Receita Auditada & Risco CRM
+                </span>
+                <div className="h-6 w-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <Briefcase className="h-3.5 w-3.5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-lg font-black text-foreground truncate">
+                  {summary.auditedPipelineValue.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                    maximumFractionDigits: 0,
+                  })}
+                </span>
+                {summary.atRiskPipelineValue > 0 && (
+                  <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/25">
+                    {summary.atRiskPipelineValue.toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                      maximumFractionDigits: 0,
+                    })}{" "}
+                    em risco
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground truncate">
+                <strong className="text-foreground">{summary.atRiskDealsCount}</strong> negócio(s) com
+                alerta QA · Ganhas:{" "}
+                <strong className="text-foreground">{summary.wonDealsAuditedCount}</strong> · Perdidas:{" "}
+                <strong className="text-foreground">{summary.lostDealsAuditedCount}</strong>
+              </p>
+            </button>
+
+            {/* KPI 4: Raio-X de Falhas Operacionais (Top Ofensores) */}
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter("done");
+                setQualityFilter((prev) => (prev === "with_flags" ? "all" : "with_flags"));
+              }}
+              className={`text-left bg-card rounded-2xl p-3 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+                qualityFilter === "with_flags"
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/40"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                  Incidência de Falhas QA
+                </span>
+                <div className="h-6 w-6 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                </div>
+              </div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-xl font-black text-foreground">
+                  {summary.totalFlagsCount}
+                </span>
+                <span className="text-[10px] font-semibold text-muted-foreground">
+                  apontamentos da IA
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground truncate">
+                S/ Follow-up: <strong className="text-foreground">{summary.noFollowUpCount}</strong> ·
+                Demora: <strong className="text-foreground">{summary.longGapCount}</strong> · Objeção:{" "}
+                <strong className="text-foreground">{summary.missedObjectionCount}</strong> · Postura:{" "}
+                <strong className="text-foreground">{summary.rudeLanguageCount}</strong>
+              </p>
+            </button>
+          </div>
+
+          {/* ── BLOCO 2: FAIXA DE QUALIDADE POR CONSULTOR (CLICÁVEL) ──────────── */}
+          {operatorRanking.length > 0 && (
+            <div className="bg-card rounded-2xl border border-border shadow-soft px-3.5 py-2.5 shrink-0">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <div className="flex items-center gap-2">
+                  <Users className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-foreground">
+                    Qualidade & Incidência de Falhas por Consultor
+                  </span>
+                  <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                    (Clique para filtrar)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {operatorIdFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setOperatorIdFilter("")}
+                      className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
+                    >
+                      Limpar filtro de consultor
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setCompactTop(true)}
+                    className="text-[10px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Recolher indicadores
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-0.5">
+                {operatorRanking.map((op) => {
+                  const isSelected = operatorIdFilter === op.operatorId;
+                  return (
+                    <SystemTooltip
+                      key={op.operatorId}
+                      content={`${op.operatorName} · Score Médio: ${op.avgScore}/100 · ${op.auditedCount} auditoria(s) · ${op.flagCount} falha(s) detectada(s)`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOperatorIdFilter((prev) =>
+                            prev === op.operatorId ? "" : op.operatorId,
+                          )
+                        }
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-left transition cursor-pointer shrink-0 ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                            : "bg-muted/30 hover:bg-muted/60 text-foreground border-border"
+                        }`}
+                      >
+                        <div className="relative shrink-0">
+                          <Avatar name={op.operatorName} avatar={op.operatorAvatar} size="sm" />
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-card ${
+                              op.isOnline ? "bg-primary" : "bg-muted-foreground/45"
+                            }`}
+                          />
+                        </div>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-extrabold truncate max-w-[115px]">
+                              {op.operatorName}
+                            </span>
+                            <span
+                              className={`text-[9px] font-black px-1.5 py-0.2 rounded-md ${
+                                isSelected
+                                  ? "bg-white/25 text-white"
+                                  : op.avgScore >= 75
+                                  ? "bg-primary/15 text-primary"
+                                  : "bg-muted text-foreground border border-border"
+                              }`}
+                            >
+                              {op.avgScore} pts
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 mt-0.5 text-[9px]">
+                            <span
+                              className={
+                                isSelected ? "text-primary-foreground/90" : "text-muted-foreground"
+                              }
+                            >
+                              {op.auditedCount} aud.
+                            </span>
+                            {op.flagCount > 0 && (
+                              <span
+                                className={`font-extrabold ${
+                                  isSelected ? "text-white" : "text-primary"
+                                }`}
+                              >
+                                · {op.flagCount} falha{op.flagCount !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    </SystemTooltip>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {/* ── BLOCO 3: BARRA DE COMANDO E FILTROS EXECUTIVOS ────────────────── */}
-      <div className="bg-card rounded-2xl border border-border shadow-soft p-3.5 space-y-3 shrink-0">
-        {/* Linha Superior: Status Tabs + Período Rápido + Data + Ações IA */}
+      {/* ── BLOCO 3: BARRA DE COMANDO, MEMÓRIA DA IA E FILTROS EXECUTIVOS ── */}
+      <div className="bg-card rounded-2xl border border-border shadow-soft px-3.5 py-2.5 space-y-2 shrink-0">
+        {/* Linha Superior: Status Tabs + Período Rápido + Data + Memória IA + Limpar Testes + Ações */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Abas de Status com Contadores Reais */}
           <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1 shrink-0">
@@ -3165,7 +3567,7 @@ function AuditsTab({
                     setStatusFilter(s.id);
                     setSelected(null);
                   }}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 ${
                     active
                       ? "bg-card shadow-sm text-foreground border border-border/60"
                       : "text-muted-foreground hover:text-foreground"
@@ -3212,7 +3614,7 @@ function AuditsTab({
                     setDateFilter("");
                     setPeriodFilter(p.id);
                   }}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  className={`px-2 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
                     active
                       ? "bg-primary text-primary-foreground shadow-xs"
                       : "text-muted-foreground hover:text-foreground"
@@ -3235,25 +3637,62 @@ function AuditsTab({
             />
           </div>
 
-          {/* Ações à Direita: Auditar Agora + Reprocessar + Atualizar */}
-          <div className="ml-auto flex items-center gap-2 flex-wrap">
-            {!loading && (
-              <span className="text-[10px] text-muted-foreground hidden xl:inline">
-                {filteredAudits.length} resultado{filteredAudits.length !== 1 ? "s" : ""}
-                {lastRefresh &&
-                  ` · ${lastRefresh.toLocaleTimeString("pt-BR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}`}
-              </span>
+          {/* Ações à Direita: Limpar Testes + Memória de Aprendizado IA + Auditar + Atualizar */}
+          <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+            {detectedTestsCount > 0 && (
+              <SystemTooltip
+                content={`Descartar ${detectedTestsCount} atendimento(s) identificado(s) como teste interno e recalcular imediatamente a média dos consultores`}
+              >
+                <button
+                  type="button"
+                  onClick={handleDismissAllDetectedTests}
+                  disabled={dismissingAllTests}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary bg-primary/10 hover:bg-primary/15 border border-primary/25 px-2.5 py-1.5 rounded-xl transition cursor-pointer disabled:opacity-50"
+                >
+                  {dismissingAllTests ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  <span>Limpar Testes ({detectedTestsCount})</span>
+                </button>
+              </SystemTooltip>
             )}
+
+            <SystemTooltip
+              content={`Ver regras e correções ensinadas pela Diretoria que a IA (${aiPersona.name}) aplica automaticamente nas auditorias`}
+            >
+              <button
+                type="button"
+                onClick={() => setLearnedDrawerOpen((o) => !o)}
+                className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-xl border transition cursor-pointer ${
+                  learnedDrawerOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/50 hover:bg-muted text-foreground border-border"
+                }`}
+              >
+                <Bot className="h-3.5 w-3.5 text-primary" />
+                <span>Memória da IA</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold ${
+                    learnedDrawerOpen
+                      ? "bg-white/25 text-white"
+                      : learnedRules.length > 0
+                      ? "bg-primary/15 text-primary"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {learnedRules.length}
+                </span>
+              </button>
+            </SystemTooltip>
 
             {statusFilter === "error" && audits.length > 0 && (
               <button
                 type="button"
                 onClick={retryAll}
                 disabled={retrying || loading}
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary hover:opacity-90 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-xl transition cursor-pointer disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary hover:opacity-90 bg-primary/10 border border-primary/20 px-2.5 py-1.5 rounded-xl transition cursor-pointer disabled:opacity-40"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${retrying ? "animate-spin" : ""}`} />
                 <span>Reprocessar Todos</span>
@@ -3299,13 +3738,120 @@ function AuditsTab({
           </div>
         </div>
 
-        {/* Linha Inferior: Pílulas de Filtro de Qualidade/Falha + Busca + Consultor + Ordenação */}
+        {/* Gaveta Expansível: Memória de Aprendizado & Calibração da Diretoria */}
+        <AnimatePresence>
+          {learnedDrawerOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="bg-muted/30 border border-border rounded-xl p-3 space-y-2 mt-1">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-foreground">
+                      Regras & Aprendizados Absorvidos pela IA ({learnedRules.length})
+                    </span>
+                    <span className="text-[10px] text-muted-foreground hidden md:inline">
+                      (Injetados automaticamente no prompt das próximas auditorias)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLearnedDrawerOpen(false)}
+                    className="text-[10px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+
+                {learnedRules.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">
+                    Nenhuma correção ou ressalva registrada ainda. Ao inspecionar qualquer relatório
+                    ao lado, você pode validar se a IA avaliou certo, apontar ressalvas ou corrigir
+                    erros para que a máquina aprenda continuamente.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-44 overflow-y-auto scrollbar-thin pr-1">
+                    {learnedRules.map((rule) => (
+                      <div
+                        key={rule.auditId}
+                        className="bg-card border border-border rounded-xl p-2.5 flex flex-col justify-between gap-1.5 text-xs"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${
+                              rule.verdict === "rejected_wrong"
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-primary/15 text-primary border border-primary/25"
+                            }`}
+                          >
+                            {rule.verdict === "rejected_wrong"
+                              ? "Correção de Erro da IA"
+                              : "Ressalva da Diretoria"}
+                          </span>
+                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            {rule.originalAiScore !== null &&
+                              rule.adjustedScore !== null &&
+                              rule.originalAiScore !== rule.adjustedScore && (
+                                <span className="font-bold text-foreground">
+                                  Nota: {rule.originalAiScore} → {rule.adjustedScore}
+                                </span>
+                              )}
+                            <button
+                              type="button"
+                              onClick={() => handleClearDirectorReview(rule.auditId)}
+                              className="text-muted-foreground hover:text-primary cursor-pointer"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-foreground font-medium leading-snug">
+                          &ldquo;{rule.learnedRule}&rdquo;
+                        </p>
+                        <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+                          <span>
+                            Caso: <strong className="text-foreground">{rule.contactName}</strong> ·
+                            Por {rule.reviewedByOperatorName}
+                          </span>
+                          <span>
+                            {new Date(rule.reviewedAt).toLocaleDateString("pt-BR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Linha Inferior: Pílulas de Filtro de Qualidade/Falha/Validação + Busca + Consultor + Ordenação */}
         {statusFilter === "done" && (
-          <div className="space-y-2.5 pt-2 border-t border-border/60">
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+          <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-border/60">
+            <div className="flex items-center gap-1 overflow-x-auto scrollbar-none pb-0.5 max-w-full">
               {(
                 [
                   { id: "all" as const, label: "Todas", count: qualityCounts.all, icon: Layers },
+                  {
+                    id: "pending_review" as const,
+                    label: "Aguardando Diretoria",
+                    count: qualityCounts.pending_review,
+                    icon: ClipboardCheck,
+                  },
+                  {
+                    id: "reviewed" as const,
+                    label: "Validadas / Calibradas",
+                    count: qualityCounts.reviewed,
+                    icon: CheckCheck,
+                  },
                   {
                     id: "critical" as const,
                     label: "Críticas (<60)",
@@ -3314,33 +3860,15 @@ function AuditsTab({
                   },
                   {
                     id: "frustrated" as const,
-                    label: "Cliente Frustrado",
+                    label: "Frustrado",
                     count: qualityCounts.frustrated,
                     icon: Frown,
                   },
                   {
                     id: "with_flags" as const,
-                    label: "Com Falhas QA",
+                    label: "Com Falhas",
                     count: qualityCounts.with_flags,
                     icon: AlertTriangle,
-                  },
-                  {
-                    id: "no_followup" as const,
-                    label: "Sem Follow-up",
-                    count: qualityCounts.no_followup,
-                    icon: Minus,
-                  },
-                  {
-                    id: "long_gap" as const,
-                    label: "Demora (>15m)",
-                    count: qualityCounts.long_gap,
-                    icon: Clock,
-                  },
-                  {
-                    id: "missed_objection" as const,
-                    label: "Objeção Ignorada",
-                    count: qualityCounts.missed_objection,
-                    icon: XCircle,
                   },
                   {
                     id: "excellent" as const,
@@ -3348,6 +3876,16 @@ function AuditsTab({
                     count: qualityCounts.excellent,
                     icon: CheckCircle2,
                   },
+                  ...(qualityCounts.likely_test > 0
+                    ? [
+                        {
+                          id: "likely_test" as const,
+                          label: "Suspeita de Teste",
+                          count: qualityCounts.likely_test,
+                          icon: FlaskConical,
+                        },
+                      ]
+                    : []),
                 ]
               ).map((pill) => {
                 const Icon = pill.icon;
@@ -3357,7 +3895,7 @@ function AuditsTab({
                     key={pill.id}
                     type="button"
                     onClick={() => setQualityFilter(pill.id)}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold transition cursor-pointer shrink-0 border ${
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl text-[10px] font-bold transition cursor-pointer shrink-0 border ${
                       active
                         ? "bg-primary text-primary-foreground border-primary shadow-xs"
                         : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border"
@@ -3366,7 +3904,7 @@ function AuditsTab({
                     <Icon className="h-3 w-3 shrink-0" />
                     <span>{pill.label}</span>
                     <span
-                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold ${
+                      className={`px-1.5 py-0.1 rounded-full text-[9px] font-extrabold ${
                         active
                           ? "bg-white/25 text-white"
                           : pill.count > 0
@@ -3381,21 +3919,21 @@ function AuditsTab({
               })}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative flex-1 min-w-[220px]">
-                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <div className="flex items-center gap-2 ml-auto flex-1 min-w-[260px] justify-end">
+              <div className="relative flex-1 max-w-xs min-w-[160px]">
+                <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
                 <input
                   type="text"
-                  placeholder="Buscar cliente, empresa, consultor, negociação, resumo ou insight da IA..."
+                  placeholder="Buscar cliente, consultor, resumo..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-muted/40 border border-border rounded-xl pl-8 pr-7 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  className="w-full bg-muted/40 border border-border rounded-xl pl-8 pr-6 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery("")}
-                    className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    className="absolute right-2 top-1.5 text-muted-foreground hover:text-foreground cursor-pointer"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -3403,7 +3941,7 @@ function AuditsTab({
               </div>
 
               {operatorSelectList.length > 0 && (
-                <div className="w-52 shrink-0">
+                <div className="w-44 shrink-0 hidden sm:block">
                   <LiveOperatorSelect
                     value={operatorIdFilter}
                     onChange={setOperatorIdFilter}
@@ -3418,7 +3956,7 @@ function AuditsTab({
         )}
       </div>
 
-      {/* ── BLOCO 4: CONTEÚDO PRINCIPAL (LISTA + COCKPIT OVERVIEW / DETALHE 360º) ── */}
+      {/* ── BLOCO 4: CONTEÚDO PRINCIPAL (ALTURA TOTAL ALINHADA SEM PAREDE INVISÍVEL) ── */}
       {loading && audits.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center py-16 gap-3 text-muted-foreground bg-card rounded-2xl border border-border">
           <RefreshCw className="h-6 w-6 animate-spin text-primary" />
@@ -3513,9 +4051,9 @@ function AuditsTab({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-[520px]">
-          {/* ── COLUNA ESQUERDA: LISTA DE AUDITORIAS 360º (4 colunas) ──────── */}
-          <div className="lg:col-span-4 flex flex-col gap-2.5 max-h-[720px] overflow-y-auto scrollbar-thin pr-1">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 flex-1 min-h-0">
+          {/* ── COLUNA ESQUERDA: LISTA DE AUDITORIAS 360º (ALTURA 100% ALINHADA) ── */}
+          <div className="lg:col-span-4 flex flex-col gap-2 lg:h-full min-h-0 overflow-y-auto scrollbar-thin pr-1">
             {filteredAudits.map((audit) => {
               const isSelected = selected?.id === audit.id;
               const isCritical =
@@ -3523,16 +4061,26 @@ function AuditsTab({
               const dealVal = Number(audit.deal?.value ?? 0);
 
               return (
-                <button
+                <div
                   key={audit.id}
-                  type="button"
                   onClick={() => {
                     setSelected(audit);
                     setInspectOpen(false);
                     setWhisperOpen(false);
                     if (onSelectAudit) onSelectAudit(audit.id);
                   }}
-                  className={`w-full text-left p-3.5 rounded-2xl border transition cursor-pointer flex flex-col gap-2 ${
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelected(audit);
+                      setInspectOpen(false);
+                      setWhisperOpen(false);
+                      if (onSelectAudit) onSelectAudit(audit.id);
+                    }
+                  }}
+                  className={`group w-full text-left p-3 rounded-2xl border transition cursor-pointer flex flex-col gap-1.5 shrink-0 ${
                     isSelected
                       ? "border-primary bg-primary/5 shadow-sm"
                       : isCritical
@@ -3541,16 +4089,23 @@ function AuditsTab({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <Avatar
                         name={audit.contactName || "Cliente"}
                         avatar={audit.contactAvatar}
                         size="sm"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-extrabold text-foreground truncate">
-                          {audit.contactName ?? "Cliente"}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-extrabold text-foreground truncate">
+                            {audit.contactName ?? "Cliente"}
+                          </p>
+                          {audit.isLikelyTest && (
+                            <span className="shrink-0 text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-primary/15 text-primary border border-primary/30">
+                              Teste?
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
                           <span>Consultor: {audit.operatorName}</span>
                           {audit.accountName && (
@@ -3560,15 +4115,17 @@ function AuditsTab({
                       </div>
                     </div>
 
-                    {audit.performanceScore !== null ? (
-                      <ScoreBadge score={audit.performanceScore} />
-                    ) : (
-                      <AuditStatusBadge status={audit.status} />
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {audit.performanceScore !== null ? (
+                        <ScoreBadge score={audit.performanceScore} />
+                      ) : (
+                        <AuditStatusBadge status={audit.status} />
+                      )}
+                    </div>
                   </div>
 
                   {audit.summary && (
-                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-snug">
                       {audit.summary}
                     </p>
                   )}
@@ -3576,6 +4133,9 @@ function AuditsTab({
                   <div className="flex items-center flex-wrap gap-1.5 pt-1 border-t border-border/50">
                     {audit.status === "done" &&
                       renderAuditSentimentBadge(audit.clientSentiment, true)}
+
+                    {audit.status === "done" &&
+                      renderDirectorReviewBadge(audit.directorReview, true)}
 
                     {audit.flagCount > 0 && (
                       <span className="text-[9px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-md border border-primary/20">
@@ -3593,26 +4153,45 @@ function AuditsTab({
                       </span>
                     )}
 
-                    {(audit.auditedAt || audit.createdAt) && (
-                      <span className="ml-auto text-[9px] text-muted-foreground font-medium">
-                        {new Date(
-                          (audit.auditedAt || audit.createdAt) as string,
-                        ).toLocaleString("pt-BR", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    )}
+                    <div className="ml-auto flex items-center gap-1.5">
+                      {(audit.auditedAt || audit.createdAt) && (
+                        <span className="text-[9px] text-muted-foreground font-medium">
+                          {new Date(
+                            (audit.auditedAt || audit.createdAt) as string,
+                          ).toLocaleString("pt-BR", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+
+                      <SystemTooltip content="Remover atendimento de teste (não contabilizar nas métricas)">
+                        <button
+                          type="button"
+                          onClick={(e) =>
+                            handleDismissTestAudit(audit.id, audit.contactName, e)
+                          }
+                          disabled={dismissingTestId === audit.id}
+                          className="opacity-70 group-hover:opacity-100 p-1 rounded-lg hover:bg-primary/15 text-muted-foreground hover:text-primary transition cursor-pointer"
+                        >
+                          {dismissingTestId === audit.id ? (
+                            <RefreshCw className="h-3 w-3 animate-spin text-primary" />
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                        </button>
+                      </SystemTooltip>
+                    </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
 
-          {/* ── COLUNA DIREITA: OVERVIEW DA DIRETORIA OU FICHA 360º (8 colunas) ── */}
-          <div className="lg:col-span-8 flex flex-col min-w-0">
+          {/* ── COLUNA DIREITA: OVERVIEW DA DIRETORIA OU FICHA 360º (ALTURA 100% ALINHADA) ── */}
+          <div className="lg:col-span-8 flex flex-col min-w-0 lg:h-full min-h-0 overflow-y-auto scrollbar-thin pr-1">
             {!selected ? (
               /* ── MODO 1: COCKPIT OVERVIEW ANALÍTICO DA DIRETORIA ──────── */
               <div className="bg-card rounded-2xl border border-border shadow-soft p-5 space-y-5 flex-1">
@@ -3821,10 +4400,10 @@ function AuditsTab({
                 key={selected.id}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-card rounded-2xl border border-border shadow-soft p-5 flex flex-col gap-4 flex-1"
+                className="bg-card rounded-2xl border border-border shadow-soft p-4 sm:p-5 flex flex-col gap-3.5 flex-1"
               >
-                {/* Barra de Topo: Voltar ao Overview + Reauditar */}
-                <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border">
+                {/* Barra de Topo: Voltar ao Overview + Descartar Teste + Reauditar */}
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-border flex-wrap">
                   <button
                     type="button"
                     onClick={() => {
@@ -3837,7 +4416,21 @@ function AuditsTab({
                     <span>Voltar ao Overview da Diretoria</span>
                   </button>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <SystemTooltip content="Remover este atendimento caso seja apenas um teste interno (recalcula o score do consultor)">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDismissTestAudit(selected.id, selected.contactName)
+                        }
+                        disabled={dismissingTestId === selected.id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/60 hover:bg-primary/10 text-muted-foreground hover:text-primary border border-border text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        <span>Descartar (Teste)</span>
+                      </button>
+                    </SystemTooltip>
+
                     <button
                       type="button"
                       onClick={() => retryAudit(selected.id, true)}
@@ -3851,8 +4444,8 @@ function AuditsTab({
                 </div>
 
                 {/* Cabeçalho 360º do Atendimento Auditado */}
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <Avatar
                       name={selected.contactName || "Cliente"}
                       avatar={selected.contactAvatar}
@@ -3870,6 +4463,7 @@ function AuditsTab({
                           </span>
                         )}
                         {renderAuditSentimentBadge(selected.clientSentiment)}
+                        {renderDirectorReviewBadge(selected.directorReview)}
                       </div>
                       <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground mt-1">
                         <span className="inline-flex items-center gap-1 font-semibold text-foreground">
@@ -3895,12 +4489,187 @@ function AuditsTab({
 
                   <div className="flex items-center gap-3">
                     {selected.performanceScore !== null ? (
-                      <ScoreGauge score={selected.performanceScore} size={96} />
+                      <ScoreGauge score={selected.performanceScore} size={86} />
                     ) : (
                       <AuditStatusBadge status={selected.status} />
                     )}
                   </div>
                 </div>
+
+                {/* ── BLOCO DE VALIDAÇÃO DA DIRETORIA & APRENDIZADO DA MÁQUINA ── */}
+                {selected.status === "done" && (
+                  <div className="bg-muted/25 border border-border rounded-2xl p-3.5 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Bot className="h-4 w-4 text-primary" />
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-foreground">
+                          Validação da Diretoria & Aprendizado da IA ({aiPersona.name})
+                        </span>
+                        {selected.directorReview && (
+                          <span className="text-[10px] text-muted-foreground">
+                            · Avaliado por{" "}
+                            <strong className="text-foreground">
+                              {selected.directorReview.reviewedByOperatorName}
+                            </strong>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 3 Botões de Veredito */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReviewVerdict("approved");
+                            handleSubmitDirectorReview({
+                              auditId: selected.id,
+                              verdict: "approved",
+                              comment: reviewComment,
+                              adjustedScore: null,
+                            });
+                          }}
+                          disabled={savingReview}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                            reviewVerdict === "approved"
+                              ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                              : "bg-card hover:bg-muted text-foreground border-border"
+                          }`}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span>IA Avaliou Certo</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setReviewVerdict("approved_with_caveats")}
+                          disabled={savingReview}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                            reviewVerdict === "approved_with_caveats"
+                              ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                              : "bg-card hover:bg-muted text-foreground border-border"
+                          }`}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          <span>Certo c/ Ressalvas</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setReviewVerdict("rejected_wrong")}
+                          disabled={savingReview}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                            reviewVerdict === "rejected_wrong"
+                              ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                              : "bg-card hover:bg-muted text-foreground border-border"
+                          }`}
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                          <span>IA Avaliou Errado (Ensinar IA)</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Formulário de Explicação / Calibração quando Ressalvas ou Erro é selecionado */}
+                    {(reviewVerdict === "approved_with_caveats" ||
+                      reviewVerdict === "rejected_wrong" ||
+                      Boolean(selected.directorReview?.comment)) && (
+                      <div className="space-y-2 pt-1.5 border-t border-border/60">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                          <div className="md:col-span-9">
+                            <label className="text-[10px] font-bold text-muted-foreground block mb-1">
+                              {reviewVerdict === "rejected_wrong"
+                                ? "Por que a IA avaliou errado? (A IA absorverá esta regra nas próximas avaliações):"
+                                : "Qual ressalva ou contexto comercial a IA deve considerar nas próximas vezes?"}
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={reviewComment}
+                              onChange={(e) => setReviewComment(e.target.value)}
+                              placeholder="Ex: O cliente já era recorrente da carteira e pediu retorno apenas no dia seguinte; não houve falha de SLA nem falta de qualificação..."
+                              className="w-full bg-card border border-border rounded-xl px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                            />
+                          </div>
+
+                          <div className="md:col-span-3 flex flex-col justify-between">
+                            <div>
+                              <label className="text-[10px] font-bold text-muted-foreground block mb-1">
+                                Corrigir Nota (0–100):
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={reviewAdjustedScore}
+                                onChange={(e) => setReviewAdjustedScore(e.target.value)}
+                                placeholder={`Atual: ${selected.performanceScore ?? 70}`}
+                                className="w-full bg-card border border-border rounded-xl px-3 py-1.5 text-xs font-bold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 flex-wrap">
+                          {selected.directorReview && (
+                            <button
+                              type="button"
+                              onClick={() => handleClearDirectorReview(selected.id)}
+                              disabled={savingReview}
+                              className="text-[11px] font-semibold text-muted-foreground hover:text-foreground px-2.5 py-1 rounded-lg cursor-pointer"
+                            >
+                              Limpar calibração
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSubmitDirectorReview({
+                                auditId: selected.id,
+                                verdict: reviewVerdict || "approved_with_caveats",
+                                comment: reviewComment,
+                                adjustedScore:
+                                  reviewAdjustedScore.trim() !== ""
+                                    ? Number(reviewAdjustedScore)
+                                    : null,
+                                reauditWithAi: false,
+                              })
+                            }
+                            disabled={savingReview}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-card hover:bg-muted text-foreground border border-border text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                          >
+                            <Check className="h-3.5 w-3.5 text-primary" />
+                            <span>Salvar Aprendizado</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSubmitDirectorReview({
+                                auditId: selected.id,
+                                verdict: reviewVerdict || "rejected_wrong",
+                                comment: reviewComment,
+                                adjustedScore:
+                                  reviewAdjustedScore.trim() !== ""
+                                    ? Number(reviewAdjustedScore)
+                                    : null,
+                                reauditWithAi: true,
+                              })
+                            }
+                            disabled={savingReview}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground hover:opacity-95 text-[11px] font-extrabold shadow-xs transition cursor-pointer disabled:opacity-50"
+                          >
+                            {savingReview ? (
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3.5 w-3.5" />
+                            )}
+                            <span>Salvar & Reavaliar Agora com IA</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Barra de Contexto Comercial (CRM Deal + Métricas Reais de SLA da Conversa) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 bg-muted/30 rounded-xl border border-border p-3">
