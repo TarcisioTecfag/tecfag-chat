@@ -18,13 +18,32 @@ import {
   Loader2, X, Filter, Coins, DollarSign, Cpu, Layers, Bot, Sparkles, ShieldCheck,
   Play, Volume2, FileText, Radio, ChevronDown, Globe,
   Smile, Meh, Frown, Briefcase, Building2, Lock, Send,
-  CornerUpLeft, Check, CheckCheck, LayoutDashboard, Flame, ArrowLeft
+  CornerUpLeft, Check, CheckCheck, LayoutDashboard, Flame, ArrowLeft,
+  ArrowRightLeft, RotateCcw, Image as ImageIcon, Video as VideoIcon,
+  Tag, Paperclip, PenTool, Timer, UserCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
-import { MOCK_LIVE, MOCK_OVERVIEW, MOCK_ALERTS, MOCK_AUDITS, LiveOperator, LiveConversation, LiveData, LiveMessage } from "@/lib/monitor-mock-data";
+import { DealDetailModal } from "@/components/crm/DealDetailModal";
+import {
+  MOCK_LIVE,
+  MOCK_OVERVIEW,
+  MOCK_ALERTS,
+  MOCK_AUDITS,
+  LiveOperator,
+  LiveConversation,
+  LiveData,
+  LiveMessage,
+  LivePipelineOption,
+  LiveTaskItem,
+  AlertItem,
+  AlertOperatorBottleneck,
+  AlertsExecutiveSummary,
+  AlertCategoryTag,
+} from "@/lib/monitor-mock-data";
+import { useNavigate } from "@tanstack/react-router";
 import { OperatorsRankingTab } from "./OperatorsRankingTab";
 import { SiteVisitorsTab } from "./SiteVisitorsTab";
 import { WhatsappLogo } from "./ChatList";
@@ -82,22 +101,6 @@ type OperatorMetric = {
   satisfiedPctLastWeek?: number;
   satisfiedPctLastMonth?: number;
   trafficLight: "green" | "yellow" | "red" | "gray";
-};
-
-type AlertItem = {
-  logId: string;
-  conversationId: string;
-  contactName: string;
-  contactPhone: string | null;
-  operatorName: string;
-  waitingMinutes: number;
-  waitingSeconds: number;
-  isOverdue: boolean;
-  isCritical: boolean;
-  alertType?: "sla" | "conflict";
-  lastMessagePreview?: string;
-  crmCardUrl?: string | null;
-  conversationStartedAt?: string;
 };
 
 type AuditItem = {
@@ -290,7 +293,7 @@ function WaitBadge({ minutes, isCritical }: { minutes: number; isCritical: boole
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold ${color}`}>
       <Clock className="h-3 w-3" />
-      {minutes < 60 ? `${minutes}min` : `${Math.floor(minutes / 60)}h${minutes % 60}m`}
+      {formatWaitDuration(minutes)}
     </span>
   );
 }
@@ -609,151 +612,1439 @@ export function OverviewTab({
   );
 }
 
-function AlertsTab({ alerts, loading }: { alerts: AlertItem[]; loading: boolean }) {
-  const { setActiveView, setSelectedChatId } = useChat();
+type AlertFilterCategory =
+  | "all"
+  | "critical"
+  | "warning"
+  | "queue"
+  | "conflict"
+  | "meta_window"
+  | "delivery";
 
-  if (loading) {
+type AlertSortMode =
+  | "severity"
+  | "wait_desc"
+  | "wait_asc"
+  | "deal_value"
+  | "meta_window";
+
+function AlertsSortSelect({
+  value,
+  onChange,
+}: {
+  value: AlertSortMode;
+  onChange: (v: AlertSortMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const options: { id: AlertSortMode; label: string }[] = [
+    { id: "severity", label: "Maior Criticidade (Padrão)" },
+    { id: "wait_desc", label: "Maior Tempo de Espera" },
+    { id: "wait_asc", label: "Espera Mais Recente" },
+    { id: "deal_value", label: "Maior Valor em Risco (R$)" },
+    { id: "meta_window", label: "Janela 24h Prestes a Expirar" },
+  ];
+
+  const activeLabel = options.find((o) => o.id === value)?.label || "Ordenar";
+
+  return (
+    <div ref={ref} className="relative min-w-[215px]">
+      <SystemTooltip content="Ordenar lista de alertas operacionais">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="w-full flex items-center gap-1.5 bg-card border border-border hover:border-primary/40 rounded-xl px-3 py-1.5 text-[11px] font-semibold text-foreground transition cursor-pointer"
+        >
+          <Filter className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span className="flex-1 text-left truncate">{activeLabel}</span>
+          <ChevronDown
+            className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+      </SystemTooltip>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 bg-card border border-border rounded-2xl shadow-xl py-1.5 min-w-[235px] w-full">
+          {options.map((opt) => {
+            const isActive = opt.id === value;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => {
+                  onChange(opt.id);
+                  setOpen(false);
+                }}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-left transition cursor-pointer ${
+                  isActive
+                    ? "bg-primary/10 text-primary font-bold"
+                    : "text-foreground hover:bg-muted/60"
+                }`}
+              >
+                <span className="truncate">{opt.label}</span>
+                {isActive && <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SUPERVISOR_ALERT_PRESETS = [
+  "⚡ Priorizar resposta imediata a este cliente (SLA estourado).",
+  "📞 Cliente em risco/atrito — entrar em contato ou ligar agora.",
+  "💼 Negociação ativa — atualizar retorno e próximo passo no CRM.",
+];
+
+function AlertsTab({
+  alerts,
+  summary,
+  operatorBottlenecks,
+  loading,
+  onRefresh,
+}: {
+  alerts: AlertItem[];
+  summary: AlertsExecutiveSummary | null;
+  operatorBottlenecks: AlertOperatorBottleneck[];
+  loading: boolean;
+  onRefresh?: () => void;
+}) {
+  const { tenant, setActiveView, setSelectedChatId } = useChat();
+  const navigate = useNavigate();
+
+  // Filtros e ordenação
+  const [categoryFilter, setCategoryFilter] = useState<AlertFilterCategory>("all");
+  const [selectedOperatorId, setSelectedOperatorId] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<AlertSortMode>("severity");
+
+  // Estados por card: Inspeção Inline da Conversa e Sussurro de Cobrança
+  const [expandedConvId, setExpandedConvId] = useState<string | null>(null);
+  const [whisperOpenConvId, setWhisperOpenConvId] = useState<string | null>(null);
+  const [whisperDraft, setWhisperDraft] = useState("");
+  const [sendingWhisperConvId, setSendingWhisperConvId] = useState<string | null>(null);
+  const [localWhispersByConv, setLocalWhispersByConv] = useState<Record<string, LiveMessage[]>>({});
+  const [fullHistoryByConv, setFullHistoryByConv] = useState<Record<string, LiveMessage[]>>({});
+  const [loadingHistoryConvId, setLoadingHistoryConvId] = useState<string | null>(null);
+
+  // Sumário calculado com fallback caso summary venha nulo (ex: modo demo)
+  const computedSummary = useMemo<AlertsExecutiveSummary>(() => {
+    if (summary) return summary;
+    const unanswered = alerts.filter((a) => a.isUnanswered !== false);
+    const maxWait = unanswered.reduce(
+      (m, a) => (a.waitingMinutes > m ? a.waitingMinutes : m),
+      0
+    );
+    const avgWait =
+      unanswered.length > 0
+        ? Math.round(
+            unanswered.reduce((acc, a) => acc + a.waitingMinutes, 0) / unanswered.length
+          )
+        : 0;
+    const seenDeals = new Set<string>();
+    let pipelineVal = 0;
+    for (const a of alerts) {
+      if (a.activeDeal?.status === "open" && !seenDeals.has(a.activeDeal.id)) {
+        seenDeals.add(a.activeDeal.id);
+        pipelineVal += Number(a.activeDeal.value || 0);
+      }
+    }
+    return {
+      totalAlerts: alerts.length,
+      criticalCount: alerts.filter((a) => a.isCritical).length,
+      overdueCount: alerts.filter(
+        (a) => a.alertTags?.includes("sla_critical") || a.isOverdue
+      ).length,
+      warningCount: alerts.filter(
+        (a) => a.alertTags?.includes("sla_warning") || (!a.isOverdue && a.waitingMinutes < 15)
+      ).length,
+      unassignedQueueCount: alerts.filter(
+        (a) => a.alertTags?.includes("unassigned_queue") || a.queueState === "fila"
+      ).length,
+      conflictRiskCount: alerts.filter(
+        (a) => a.alertTags?.includes("conflict_risk") || a.alertType === "conflict"
+      ).length,
+      metaWindowExpiringCount: alerts.filter((a) =>
+        a.alertTags?.includes("meta_window_expiring")
+      ).length,
+      deliveryFailureCount: alerts.filter(
+        (a) => a.alertTags?.includes("delivery_failed") || a.alertType === "delivery_failure"
+      ).length,
+      overdueTasksAlertsCount: alerts.filter((a) =>
+        a.alertTags?.includes("overdue_task")
+      ).length,
+      maxWaitMinutes: maxWait,
+      avgWaitMinutes: avgWait,
+      pipelineAtRiskValue: pipelineVal,
+      dealsAtRiskCount: seenDeals.size,
+      offlineOperatorsWithAlertsCount: 0,
+      slaCompliancePctToday: null,
+      slaCyclesTodayTotal: 0,
+      slaCyclesTodayWithinLimit: 0,
+    };
+  }, [summary, alerts]);
+
+  // Lista de gargalos por operador com fallback
+  const bottlenecks = useMemo<AlertOperatorBottleneck[]>(() => {
+    if (operatorBottlenecks && operatorBottlenecks.length > 0) return operatorBottlenecks;
+    const map = new Map<string, AlertOperatorBottleneck>();
+    for (const a of alerts) {
+      const key = a.operatorId || "__fila__";
+      const cur = map.get(key) || {
+        operatorId: key,
+        operatorName: a.operatorName || "Sem consultor",
+        operatorAvatar: a.operatorAvatar ?? null,
+        isOnline: Boolean(a.operatorIsOnline),
+        status: a.operatorStatus || "ausente",
+        totalAlerts: 0,
+        criticalCount: 0,
+        overdueCount: 0,
+        conflictCount: 0,
+        maxWaitMinutes: 0,
+        pipelineAtRiskValue: 0,
+      };
+      cur.totalAlerts += 1;
+      if (a.isCritical) cur.criticalCount += 1;
+      if (a.isOverdue) cur.overdueCount += 1;
+      if (a.alertType === "conflict" || a.alertTags?.includes("conflict_risk")) {
+        cur.conflictCount += 1;
+      }
+      if (a.waitingMinutes > cur.maxWaitMinutes) cur.maxWaitMinutes = a.waitingMinutes;
+      if (a.activeDeal?.value) cur.pipelineAtRiskValue += Number(a.activeDeal.value);
+      map.set(key, cur);
+    }
+    return Array.from(map.values()).sort((a, b) => b.totalAlerts - a.totalAlerts);
+  }, [operatorBottlenecks, alerts]);
+
+  // Contadores por pílula de categoria
+  const categoryCounts = useMemo(() => {
+    const hasTag = (a: AlertItem, tag: AlertCategoryTag) =>
+      Boolean(a.alertTags?.includes(tag));
+    return {
+      all: alerts.length,
+      critical: alerts.filter(
+        (a) => a.isCritical || a.isOverdue || hasTag(a, "sla_critical")
+      ).length,
+      warning: alerts.filter(
+        (a) => hasTag(a, "sla_warning") || (!a.isOverdue && a.waitingMinutes < 15)
+      ).length,
+      queue: alerts.filter(
+        (a) => hasTag(a, "unassigned_queue") || (!a.operatorId && a.queueState === "fila")
+      ).length,
+      conflict: alerts.filter(
+        (a) => hasTag(a, "conflict_risk") || a.alertType === "conflict"
+      ).length,
+      meta_window: alerts.filter(
+        (a) => hasTag(a, "meta_window_expiring") || a.alertType === "meta_window"
+      ).length,
+      delivery: alerts.filter(
+        (a) => hasTag(a, "delivery_failed") || a.alertType === "delivery_failure"
+      ).length,
+    };
+  }, [alerts]);
+
+  // Filtragem e Ordenação da lista
+  const filteredAlerts = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const hasTag = (a: AlertItem, tag: AlertCategoryTag) =>
+      Boolean(a.alertTags?.includes(tag));
+
+    const list = alerts.filter((a) => {
+      // Filtro de operador
+      if (selectedOperatorId) {
+        const itemOpKey = a.operatorId || "__fila__";
+        if (itemOpKey !== selectedOperatorId) return false;
+      }
+
+      // Filtro de categoria
+      if (categoryFilter === "critical") {
+        if (!(a.isCritical || a.isOverdue || hasTag(a, "sla_critical"))) return false;
+      } else if (categoryFilter === "warning") {
+        if (!(hasTag(a, "sla_warning") || (!a.isOverdue && a.waitingMinutes < 15)))
+          return false;
+      } else if (categoryFilter === "queue") {
+        if (!(hasTag(a, "unassigned_queue") || (!a.operatorId && a.queueState === "fila")))
+          return false;
+      } else if (categoryFilter === "conflict") {
+        if (!(hasTag(a, "conflict_risk") || a.alertType === "conflict")) return false;
+      } else if (categoryFilter === "meta_window") {
+        if (!(hasTag(a, "meta_window_expiring") || a.alertType === "meta_window"))
+          return false;
+      } else if (categoryFilter === "delivery") {
+        if (!(hasTag(a, "delivery_failed") || a.alertType === "delivery_failure"))
+          return false;
+      }
+
+      // Filtro de busca textual
+      if (q) {
+        const matchName = a.contactName?.toLowerCase().includes(q);
+        const matchPhone = a.contactPhone?.toLowerCase().includes(q);
+        const matchCompany = a.accountName?.toLowerCase().includes(q);
+        const matchDeal = a.activeDeal?.title?.toLowerCase().includes(q);
+        const matchOp = a.operatorName?.toLowerCase().includes(q);
+        const matchMsg = a.lastMessagePreview?.toLowerCase().includes(q);
+        const matchTranscript = a.lastMessageTranscription?.toLowerCase().includes(q);
+        if (
+          !matchName &&
+          !matchPhone &&
+          !matchCompany &&
+          !matchDeal &&
+          !matchOp &&
+          !matchMsg &&
+          !matchTranscript
+        ) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    return [...list].sort((a, b) => {
+      if (sortBy === "wait_desc") {
+        return b.waitingSeconds - a.waitingSeconds;
+      }
+      if (sortBy === "wait_asc") {
+        // Prioriza quem está esperando há menos tempo (alertas mais frescos do dia)
+        const aWait = a.waitingSeconds > 0 ? a.waitingSeconds : 99999999;
+        const bWait = b.waitingSeconds > 0 ? b.waitingSeconds : 99999999;
+        return aWait - bWait;
+      }
+      if (sortBy === "deal_value") {
+        const aVal = Number(a.activeDeal?.value || 0);
+        const bVal = Number(b.activeDeal?.value || 0);
+        if (bVal !== aVal) return bVal - aVal;
+        return b.waitingSeconds - a.waitingSeconds;
+      }
+      if (sortBy === "meta_window") {
+        const aRem = a.metaWindowRemainingMinutes ?? 99999;
+        const bRem = b.metaWindowRemainingMinutes ?? 99999;
+        if (aRem !== bRem) return aRem - bRem;
+        return b.waitingSeconds - a.waitingSeconds;
+      }
+      // "severity" (padrão)
+      if (a.isCritical !== b.isCritical) return a.isCritical ? -1 : 1;
+      const aConflict =
+        a.alertTags?.includes("conflict_risk") || a.alertType === "conflict" ? 1 : 0;
+      const bConflict =
+        b.alertTags?.includes("conflict_risk") || b.alertType === "conflict" ? 1 : 0;
+      if (aConflict !== bConflict) return bConflict - aConflict;
+      if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+      return b.waitingSeconds - a.waitingSeconds;
+    });
+  }, [alerts, selectedOperatorId, categoryFilter, searchQuery, sortBy]);
+
+  const handleLoadFullConversation = useCallback(
+    async (convId: string) => {
+      if (!convId || loadingHistoryConvId === convId) return;
+      setLoadingHistoryConvId(convId);
+      try {
+        const res = await fetch(
+          `/api/gestao/messages?tenantId=${tenant}&conversationId=${convId}`
+        );
+        if (res.ok) {
+          const msgs: LiveMessage[] = await res.json();
+          setFullHistoryByConv((prev) => ({ ...prev, [convId]: msgs }));
+        }
+      } catch (e) {
+        console.error("[AlertsTab] Erro ao carregar histórico completo:", e);
+      } finally {
+        setLoadingHistoryConvId(null);
+      }
+    },
+    [tenant, loadingHistoryConvId]
+  );
+
+  const handleSendAlertWhisper = useCallback(
+    async (convId: string, contentText: string) => {
+      const trimmed = contentText.trim();
+      if (!trimmed || sendingWhisperConvId) return;
+      setSendingWhisperConvId(convId);
+      try {
+        const res = await fetch("/api/gestao/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: convId,
+            content: trimmed,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Não foi possível enviar a orientação.");
+        }
+        const createdMsg: LiveMessage | undefined = data.message;
+        if (createdMsg) {
+          setLocalWhispersByConv((prev) => ({
+            ...prev,
+            [convId]: [...(prev[convId] || []), createdMsg],
+          }));
+        }
+        setWhisperDraft("");
+        toast.success("Orientação de supervisão enviada em tempo real ao consultor!");
+      } catch (err: any) {
+        toast.error(err.message || "Falha ao enviar orientação ao consultor.");
+      } finally {
+        setSendingWhisperConvId(null);
+      }
+    },
+    [sendingWhisperConvId]
+  );
+
+  if (loading && alerts.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground/40" />
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+        <RefreshCw className="h-6 w-6 animate-spin text-primary/50" />
+        <span className="text-xs font-semibold">
+          Auditando SLA, fila, conflitos, janela Meta e pipeline em risco...
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4 overflow-y-auto scrollbar-thin pr-1">
-      {alerts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center flex-1 py-20 text-muted-foreground gap-3">
-          <CheckCircle className="h-12 w-12 text-primary" />
-          <p className="font-semibold text-base">Tudo em dia!</p>
-          <p className="text-sm">Nenhum cliente aguardando resposta agora.</p>
+    <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scrollbar-thin pr-1 space-y-4 pb-4">
+      {/* ── BLOCO 1: COCKPIT EXECUTIVO DE RISCO OPERACIONAL (4 KPIs) ────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 shrink-0">
+        {/* KPI 1: Alertas Críticos & SLA Estourado */}
+        <button
+          type="button"
+          onClick={() =>
+            setCategoryFilter((prev) => (prev === "critical" ? "all" : "critical"))
+          }
+          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
+            categoryFilter === "critical"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              SLA Estourado & Críticos
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Bell
+                className={`h-4 w-4 ${
+                  computedSummary.criticalCount > 0 ? "animate-pulse" : ""
+                }`}
+              />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-2xl font-black text-foreground">
+              {categoryCounts.critical}
+            </span>
+            {computedSummary.criticalCount > 0 && (
+              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary text-primary-foreground animate-pulse">
+                {computedSummary.criticalCount} críticos
+              </span>
+            )}
+            {computedSummary.warningCount > 0 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground border border-border">
+                +{computedSummary.warningCount} em atenção
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            {computedSummary.maxWaitMinutes > 0
+              ? `Maior espera: ${formatWaitDuration(computedSummary.maxWaitMinutes)} · Média: ${formatWaitDuration(computedSummary.avgWaitMinutes)}`
+              : "Nenhum cliente com SLA estourado no momento"}
+          </p>
+        </button>
+
+        {/* KPI 2: Receita em Risco no Pipeline (R$) */}
+        <button
+          type="button"
+          onClick={() =>
+            setSortBy((prev) => (prev === "deal_value" ? "severity" : "deal_value"))
+          }
+          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
+            sortBy === "deal_value"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Receita em Risco no Pipeline
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Briefcase className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-xl font-black text-foreground truncate">
+              {computedSummary.pipelineAtRiskValue.toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+                maximumFractionDigits: 0,
+              })}
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            <strong className="text-foreground">{computedSummary.dealsAtRiskCount}</strong>{" "}
+            negociação(ões) aberta(s) com alerta ativo
+          </p>
+        </button>
+
+        {/* KPI 3: Riscos de Atrito, Fila Sem Consultor & Janela Meta */}
+        <button
+          type="button"
+          onClick={() =>
+            setCategoryFilter((prev) => (prev === "conflict" ? "all" : "conflict"))
+          }
+          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
+            categoryFilter === "conflict"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Atrito, Fila & Canal WhatsApp
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-2xl font-black text-foreground">
+              {computedSummary.conflictRiskCount +
+                computedSummary.unassignedQueueCount +
+                computedSummary.deliveryFailureCount}
+            </span>
+            <span className="text-[10px] font-semibold text-muted-foreground">
+              riscos operacionais
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground truncate">
+            Atrito:{" "}
+            <strong className="text-foreground">{computedSummary.conflictRiskCount}</strong> ·
+            Fila:{" "}
+            <strong className="text-foreground">
+              {computedSummary.unassignedQueueCount}
+            </strong>{" "}
+            · Janela 24h:{" "}
+            <strong className="text-foreground">
+              {computedSummary.metaWindowExpiringCount}
+            </strong>{" "}
+            · Falhas:{" "}
+            <strong className="text-foreground">
+              {computedSummary.deliveryFailureCount}
+            </strong>
+          </p>
+        </button>
+
+        {/* KPI 4: Conformidade SLA Hoje & Consultores Offline */}
+        <div className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col justify-between gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Conformidade SLA Hoje
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <ShieldCheck className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-2xl font-black text-foreground">
+              {computedSummary.slaCompliancePctToday !== null
+                ? `${computedSummary.slaCompliancePctToday}%`
+                : "100%"}
+            </span>
+            <span className="text-[10px] font-semibold text-muted-foreground">
+              dentro de 15m hoje
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            {computedSummary.offlineOperatorsWithAlertsCount > 0 ? (
+              <span className="text-primary font-bold">
+                ⚠️ {computedSummary.offlineOperatorsWithAlertsCount} consultor(es) offline com
+                cliente esperando
+              </span>
+            ) : computedSummary.slaCyclesTodayTotal > 0 ? (
+              `${computedSummary.slaCyclesTodayWithinLimit}/${computedSummary.slaCyclesTodayTotal} ciclos respondidos no prazo hoje`
+            ) : (
+              "Todos os consultores com alerta estão monitorados"
+            )}
+          </p>
         </div>
-      ) : (
-        alerts.map((alert) => {
-          const isConflict = alert.alertType === "conflict";
-          
-          return (
-            <div
-              key={alert.logId}
-              className={`bg-card rounded-2xl border shadow-soft p-5 flex flex-col gap-4 transition-all hover:border-muted-foreground/20 ${
-                alert.isCritical 
-                  ? "border-primary/40 bg-primary/5" 
-                  : isConflict 
-                  ? "border-border bg-muted/20" 
-                  : "border-border"
-              }`}
-            >
-              {/* Header: Status + Informações do Cliente + SLA */}
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <Avatar name={alert.contactName} size="md" />
-                  <div>
-                    <div className="flex items-center flex-wrap gap-2">
-                      <p className="text-sm font-bold text-foreground">{alert.contactName}</p>
-                      {alert.isCritical && (
-                        <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-md border border-primary/20">
-                          CRÍTICO
-                        </span>
-                      )}
-                      
-                      {/* Tipo de Alerta */}
-                      {isConflict ? (
-                        <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20 flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3 shrink-0" />
-                          Conflito Detectado (I.A.)
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-extrabold text-muted-foreground bg-muted px-2 py-0.5 rounded-full border border-border flex items-center gap-1">
-                          <Clock className="h-3 w-3 shrink-0" />
-                          Tempo de Resposta (SLA)
-                        </span>
+      </div>
+
+      {/* ── BLOCO 2: CONCENTRAÇÃO DE ALERTAS POR CONSULTOR (GARGALOS) ──────── */}
+      {bottlenecks.length > 0 && (
+        <div className="bg-card rounded-2xl border border-border shadow-soft px-4 py-3 shrink-0">
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-2">
+              <Users className="h-3.5 w-3.5 text-primary" />
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-foreground">
+                Concentração de Alertas por Consultor / Fila
+              </span>
+              <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                (Clique em um consultor para filtrar a lista abaixo)
+              </span>
+            </div>
+            {selectedOperatorId && (
+              <button
+                type="button"
+                onClick={() => setSelectedOperatorId("")}
+                className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
+              >
+                Limpar filtro de consultor
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
+            {bottlenecks.map((b) => {
+              const isSelected = selectedOperatorId === b.operatorId;
+              const isQueue = b.operatorId === "__fila__";
+              return (
+                <SystemTooltip
+                  key={b.operatorId}
+                  content={
+                    isQueue
+                      ? `${b.totalAlerts} cliente(s) aguardando captura na Fila Humana · Maior espera: ${formatWaitDuration(b.maxWaitMinutes)}`
+                      : `${b.operatorName} (${b.isOnline ? "Online agora" : "Offline"}) · ${b.totalAlerts} alerta(s) · Maior espera: ${formatWaitDuration(b.maxWaitMinutes)}`
+                  }
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedOperatorId((prev) =>
+                        prev === b.operatorId ? "" : b.operatorId
+                      )
+                    }
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition cursor-pointer shrink-0 ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-muted/30 hover:bg-muted/60 text-foreground border-border"
+                    }`}
+                  >
+                    <div className="relative shrink-0">
+                      <Avatar
+                        name={b.operatorName}
+                        avatar={b.operatorAvatar}
+                        size="sm"
+                      />
+                      {!isQueue && (
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card ${
+                            b.isOnline ? "bg-emerald-500" : "bg-muted-foreground/45"
+                          }`}
+                        />
                       )}
                     </div>
-                    {alert.contactPhone && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {alert.contactPhone}
-                      </p>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-extrabold truncate max-w-[130px]">
+                          {b.operatorName}
+                        </span>
+                        {!isQueue && !b.isOnline && (
+                          <span
+                            className={`text-[8px] font-extrabold px-1 py-0.2 rounded uppercase ${
+                              isSelected
+                                ? "bg-white/20 text-white"
+                                : "bg-muted text-muted-foreground border border-border"
+                            }`}
+                          >
+                            Offline
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5 text-[10px]">
+                        <span
+                          className={`font-extrabold ${
+                            isSelected ? "text-primary-foreground" : "text-primary"
+                          }`}
+                        >
+                          {b.totalAlerts} alerta{b.totalAlerts !== 1 ? "s" : ""}
+                        </span>
+                        {b.criticalCount > 0 && (
+                          <span
+                            className={`px-1 rounded text-[9px] font-extrabold ${
+                              isSelected
+                                ? "bg-white/25 text-white"
+                                : "bg-primary/15 text-primary"
+                            }`}
+                          >
+                            {b.criticalCount} crít.
+                          </span>
+                        )}
+                        {b.pipelineAtRiskValue > 0 && (
+                          <span
+                            className={`text-[9px] font-semibold ${
+                              isSelected
+                                ? "text-primary-foreground/85"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            ·{" "}
+                            {b.pipelineAtRiskValue.toLocaleString("pt-BR", {
+                              style: "currency",
+                              currency: "BRL",
+                              maximumFractionDigits: 0,
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                </SystemTooltip>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── BLOCO 3: BARRA DE FILTROS EXECUTIVOS, BUSCA E ORDENAÇÃO ────────── */}
+      <div className="bg-card rounded-2xl border border-border shadow-soft p-3.5 space-y-3 shrink-0">
+        {/* Pílulas de Categoria de Alerta */}
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+          {(
+            [
+              { id: "all", label: "Todos os Alertas", count: categoryCounts.all, icon: Layers },
+              {
+                id: "critical",
+                label: "SLA Estourado & Críticos",
+                count: categoryCounts.critical,
+                icon: Flame,
+              },
+              {
+                id: "warning",
+                label: "Em Atenção (5-14m)",
+                count: categoryCounts.warning,
+                icon: Clock,
+              },
+              {
+                id: "queue",
+                label: "Fila s/ Consultor",
+                count: categoryCounts.queue,
+                icon: Users,
+              },
+              {
+                id: "conflict",
+                label: "Atrito / Conflito",
+                count: categoryCounts.conflict,
+                icon: AlertTriangle,
+              },
+              {
+                id: "meta_window",
+                label: "Janela 24h Expirando",
+                count: categoryCounts.meta_window,
+                icon: ShieldCheck,
+              },
+              {
+                id: "delivery",
+                label: "Falha de Entrega",
+                count: categoryCounts.delivery,
+                icon: XCircle,
+              },
+            ] as const
+          ).map((pill) => {
+            const Icon = pill.icon;
+            const active = categoryFilter === pill.id;
+            return (
+              <button
+                key={pill.id}
+                type="button"
+                onClick={() => setCategoryFilter(pill.id)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition cursor-pointer shrink-0 border ${
+                  active
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span>{pill.label}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold ${
+                    active
+                      ? "bg-white/25 text-white"
+                      : pill.count > 0
+                      ? "bg-primary/15 text-primary"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {pill.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Busca + Filtro de Consultor + Ordenação */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="relative flex-1 min-w-[230px]">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Buscar cliente, telefone, empresa, negociação, consultor ou texto da mensagem..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-muted/40 border border-border rounded-xl pl-8 pr-7 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="w-52 shrink-0">
+            <LiveOperatorSelect
+              value={selectedOperatorId}
+              onChange={setSelectedOperatorId}
+              operators={bottlenecks.map((b) => ({
+                operatorId: b.operatorId,
+                operatorName: b.operatorName,
+                status: b.status,
+                isOnline: b.isOnline,
+                waitingReplyCount: b.totalAlerts,
+              }))}
+            />
+          </div>
+
+          <AlertsSortSelect value={sortBy} onChange={setSortBy} />
+
+          {onRefresh && (
+            <SystemTooltip content="Atualizar alertas agora">
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-bold text-foreground transition cursor-pointer shrink-0"
+              >
+                <RefreshCw className="h-3.5 w-3.5 text-primary" />
+                <span className="hidden md:inline">Atualizar</span>
+              </button>
+            </SystemTooltip>
+          )}
+        </div>
+      </div>
+
+      {/* ── BLOCO 4: LISTA DE CARDS 360º DE ALERTAS OPERACIONAIS ───────────── */}
+      {filteredAlerts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center flex-1 py-16 bg-card rounded-2xl border border-border text-muted-foreground gap-3">
+          <CheckCircle className="h-11 w-11 text-primary" />
+          <div className="text-center">
+            <p className="font-extrabold text-sm text-foreground">
+              {alerts.length === 0
+                ? "Operação em dia! Nenhum alerta ativo no momento."
+                : "Nenhum alerta encontrado para este filtro."}
+            </p>
+            <p className="text-xs mt-1">
+              {alerts.length === 0
+                ? "Todos os clientes ativos foram respondidos dentro do SLA e não há falhas pendentes."
+                : "Experimente limpar os filtros de categoria, consultor ou busca textual."}
+            </p>
+          </div>
+          {(categoryFilter !== "all" || selectedOperatorId || searchQuery) && (
+            <button
+              type="button"
+              onClick={() => {
+                setCategoryFilter("all");
+                setSelectedOperatorId("");
+                setSearchQuery("");
+              }}
+              className="text-xs font-bold text-primary hover:underline cursor-pointer mt-1"
+            >
+              Limpar todos os filtros ({alerts.length} alertas no total)
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3.5">
+          {filteredAlerts.map((alert) => {
+            const tags = alert.alertTags || [];
+            const isConflict =
+              tags.includes("conflict_risk") || alert.alertType === "conflict";
+            const isQueue =
+              tags.includes("unassigned_queue") ||
+              (!alert.operatorId && alert.queueState === "fila");
+            const isDeliveryFailed =
+              tags.includes("delivery_failed") || alert.alertType === "delivery_failure";
+            const isMetaExpiring =
+              tags.includes("meta_window_expiring") || alert.alertType === "meta_window";
+            const isOverdueTask =
+              tags.includes("overdue_task") || (alert.overdueTasksCount ?? 0) > 0;
+
+            const isExpanded = expandedConvId === alert.conversationId;
+            const isWhisperOpen = whisperOpenConvId === alert.conversationId;
+
+            const baseMessages =
+              fullHistoryByConv[alert.conversationId] || alert.recentMessages || [];
+            const extraWhispers = localWhispersByConv[alert.conversationId] || [];
+            const existingMsgIds = new Set(baseMessages.map((m) => m.id));
+            const combinedMessages = [
+              ...baseMessages,
+              ...extraWhispers.filter((m) => !existingMsgIds.has(m.id)),
+            ];
+
+            const translatedDeliveryError = alert.lastMessageError
+              ? formatMetaErrorMessagePt(
+                  alert.lastMessageError,
+                  alert.contactPhone || undefined
+                )
+              : null;
+
+            return (
+              <div
+                key={alert.logId}
+                className={`bg-card rounded-2xl border shadow-soft p-4 md:p-5 flex flex-col gap-3.5 transition-all ${
+                  alert.isCritical
+                    ? "border-primary/45 bg-primary/[0.03]"
+                    : isConflict || isDeliveryFailed
+                    ? "border-primary/30"
+                    : "border-border hover:border-muted-foreground/25"
+                }`}
+              >
+                {/* 1. Header do Card: Cliente, Empresa, Badges de Risco e Tempo de Espera */}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <Avatar
+                      name={alert.contactName}
+                      avatar={alert.contactAvatar}
+                      size="md"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        <span className="text-sm font-extrabold text-foreground truncate">
+                          {alert.contactName}
+                        </span>
+
+                        {alert.accountName && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-muted text-foreground border border-border truncate max-w-[210px]">
+                            <Building2 className="h-2.5 w-2.5 text-primary shrink-0" />
+                            {alert.accountName}
+                          </span>
+                        )}
+
+                        {alert.isCritical && (
+                          <span className="text-[10px] font-extrabold text-primary-foreground bg-primary px-2 py-0.5 rounded-md animate-pulse">
+                            CRÍTICO
+                          </span>
+                        )}
+
+                        {isConflict && (
+                          <span className="text-[10px] font-extrabold text-primary bg-primary/15 px-2 py-0.5 rounded-full border border-primary/30 inline-flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            Atrito / Reclamação
+                            {alert.conflictTriggerText
+                              ? ` ("${alert.conflictTriggerText}")`
+                              : ""}
+                          </span>
+                        )}
+
+                        {isQueue && (
+                          <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/25 inline-flex items-center gap-1">
+                            <Users className="h-3 w-3 shrink-0" />
+                            Na Fila Sem Consultor
+                          </span>
+                        )}
+
+                        {isDeliveryFailed && (
+                          <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/25 inline-flex items-center gap-1">
+                            <XCircle className="h-3 w-3 shrink-0" />
+                            Falha de Entrega ({alert.failedMessagesCount || 1})
+                          </span>
+                        )}
+
+                        {isMetaExpiring && alert.metaWindowRemainingMinutes && (
+                          <span className="text-[10px] font-extrabold text-foreground bg-muted px-2 py-0.5 rounded-full border border-border inline-flex items-center gap-1">
+                            <Clock className="h-3 w-3 text-primary shrink-0" />
+                            Janela 24h expira em{" "}
+                            {formatWaitDuration(alert.metaWindowRemainingMinutes)}
+                          </span>
+                        )}
+
+                        {!isConflict && !isQueue && !isDeliveryFailed && (
+                          <span className="text-[10px] font-extrabold text-muted-foreground bg-muted px-2 py-0.5 rounded-full border border-border inline-flex items-center gap-1">
+                            <Clock className="h-3 w-3 shrink-0" />
+                            {alert.isOverdue
+                              ? "SLA Estourado (≥ 15m)"
+                              : "Aguardando Retorno"}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground mt-1">
+                        {alert.contactPhone && (
+                          <span className="font-medium">
+                            {formatPhone(alert.contactPhone)}
+                          </span>
+                        )}
+                        {alert.conversationStartedAt && (
+                          <span>· Início: {alert.conversationStartedAt}</span>
+                        )}
+                        {alert.metaWindowOpen !== undefined && (
+                          <span>
+                            ·{" "}
+                            {alert.metaWindowOpen && alert.metaWindowRemainingMinutes
+                              ? `Janela Meta aberta (${formatWaitDuration(alert.metaWindowRemainingMinutes)} restantes)`
+                              : "Janela Meta 24h fechada (exige Template)"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Lado Direito: Consultor Responsável (com presença Online/Offline) + Badge de Espera */}
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    <SystemTooltip
+                      content={
+                        isQueue
+                          ? "Nenhum consultor capturou este atendimento ainda"
+                          : alert.operatorIsOnline
+                          ? `${alert.operatorName} está ONLINE agora no sistema`
+                          : `${alert.operatorName} está OFFLINE no momento — risco de demora no atendimento!`
+                      }
+                    >
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/50 border border-border text-xs">
+                        {!isQueue && (
+                          <span
+                            className={`h-2 w-2 rounded-full shrink-0 ${
+                              alert.operatorIsOnline
+                                ? "bg-emerald-500"
+                                : "bg-muted-foreground/45"
+                            }`}
+                          />
+                        )}
+                        <span className="text-[10px] text-muted-foreground font-semibold">
+                          Consultor:
+                        </span>
+                        <span className="font-extrabold text-foreground text-[11px]">
+                          {alert.operatorName}
+                        </span>
+                        {!isQueue && !alert.operatorIsOnline && (
+                          <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-primary/15 text-primary border border-primary/25 uppercase">
+                            Offline
+                          </span>
+                        )}
+                      </div>
+                    </SystemTooltip>
+
+                    {(alert.isUnanswered !== false || alert.waitingMinutes > 0) && (
+                      <WaitBadge
+                        minutes={alert.waitingMinutes}
+                        isCritical={alert.isCritical || alert.isOverdue}
+                      />
                     )}
                   </div>
                 </div>
-                
-                {/* Tempo de Espera */}
-                <WaitBadge minutes={alert.waitingMinutes} isCritical={alert.isCritical} />
-              </div>
 
-              {/* Informações Auxiliares (Operador e Início) */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground border-t border-line/50 pt-3">
-                <div className="flex items-center gap-1">
-                  <span className="font-semibold text-[10px] uppercase tracking-wider">Operador:</span>
-                  <span className="text-foreground font-medium">{alert.operatorName}</span>
-                </div>
-                {alert.conversationStartedAt && (
-                  <div className="flex items-center gap-1">
-                    <span className="font-semibold text-[10px] uppercase tracking-wider">Início:</span>
-                    <span className="text-foreground font-medium">{alert.conversationStartedAt}</span>
+                {/* 2. Barra de Contexto Comercial (Negociação Ativa no CRM & Tarefas) */}
+                {(alert.activeDeal || (alert.openTasksCount ?? 0) > 0) && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-muted/30 border border-border text-xs">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      {alert.activeDeal ? (
+                        <>
+                          <span className="inline-flex items-center gap-1 font-extrabold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-md">
+                            <Briefcase className="h-3 w-3 shrink-0" />
+                            <span className="truncate max-w-[260px]">
+                              {alert.activeDeal.title}
+                            </span>
+                          </span>
+                          {alert.activeDeal.value !== null &&
+                            alert.activeDeal.value > 0 && (
+                              <span className="font-black text-foreground bg-card border border-border px-2 py-0.5 rounded-md">
+                                {alert.activeDeal.value.toLocaleString("pt-BR", {
+                                  style: "currency",
+                                  currency: "BRL",
+                                })}
+                              </span>
+                            )}
+                          {(alert.activeDeal.pipelineName ||
+                            alert.activeDeal.stageName) && (
+                            <span className="text-[10px] font-semibold text-muted-foreground bg-card border border-border px-2 py-0.5 rounded-md">
+                              {[
+                                alert.activeDeal.pipelineName,
+                                alert.activeDeal.stageName,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">
+                          Atendimento com tarefa comercial vinculada
+                        </span>
+                      )}
+                    </div>
+
+                    {(alert.openTasksCount ?? 0) > 0 && (
+                      <SystemTooltip
+                        content={
+                          alert.nextTaskTitle
+                            ? `Próxima tarefa: ${alert.nextTaskTitle}`
+                            : "Tarefas abertas vinculadas a esta conversa"
+                        }
+                      >
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                            isOverdueTask
+                              ? "bg-primary/15 text-primary border-primary/30"
+                              : "bg-card text-foreground border-border"
+                          }`}
+                        >
+                          <ClipboardCheck className="h-3 w-3 shrink-0" />
+                          {alert.openTasksCount} tarefa(s)
+                          {(alert.overdueTasksCount ?? 0) > 0 &&
+                            ` · ${alert.overdueTasksCount} vencida(s)`}
+                        </span>
+                      </SystemTooltip>
+                    )}
                   </div>
                 )}
-              </div>
 
-              {/* Balão de Chat Simulado */}
-              {alert.lastMessagePreview && (
-                <div className="flex flex-col gap-1 mt-1">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground ml-2">Última Mensagem do Cliente</span>
-                  <div className={`rounded-xl p-3 text-sm relative max-w-[85%] border self-start ${
-                    isConflict 
-                      ? "bg-primary/5 text-foreground border-primary/20" 
-                      : "bg-muted/50 text-foreground border-border"
-                  }`}>
-                    {/* Seta do balão de chat (estilo WhatsApp) */}
-                    <div className={`absolute top-3 -left-[6px] w-3 h-3 rotate-45 border-l border-b ${
-                      isConflict 
-                        ? "bg-primary/5 border-primary/20" 
-                        : "bg-muted/50 border-border"
-                    }`} style={{ borderTopColor: 'transparent', borderRightColor: 'transparent' }} />
-                    <p className="font-medium relative z-10 break-words leading-relaxed select-text">
-                      "{alert.lastMessagePreview}"
-                    </p>
+                {/* 3. Última Mensagem / Áudio com Transcrição IA / Erro de Entrega */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[9px] font-extrabold uppercase tracking-wider text-muted-foreground ml-1">
+                    {alert.lastMessageSenderType === "agent"
+                      ? "Último Disparo do Atendimento"
+                      : "Última Mensagem do Cliente"}
+                  </span>
+
+                  <div
+                    className={`rounded-xl p-3 text-xs border ${
+                      isConflict || isDeliveryFailed
+                        ? "bg-primary/5 text-foreground border-primary/25"
+                        : "bg-muted/40 text-foreground border-border"
+                    }`}
+                  >
+                    {alert.lastMessageMediaType === "audio" &&
+                    alert.lastMessageMediaId ? (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Volume2 className="h-4 w-4 text-primary shrink-0" />
+                          <span className="text-[11px] font-bold text-foreground">
+                            Áudio enviado pelo cliente:
+                          </span>
+                          <AudioWithSpeed
+                            src={`${LIVE_BACKEND_URL}/api/baileys/media?messageId=${alert.lastMessageMediaId}`}
+                            audioClassName="h-7 w-52"
+                          />
+                        </div>
+                        {alert.lastMessageTranscription ? (
+                          <div className="rounded-lg bg-card/90 border border-border px-3 py-2 text-[11px] leading-relaxed">
+                            <span className="text-[9px] font-extrabold uppercase tracking-wider text-primary block mb-0.5">
+                              Transcrição Automática (Vertex AI):
+                            </span>
+                            <p className="italic text-foreground break-words">
+                              "{alert.lastMessageTranscription}"
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground italic">
+                            Ouça o áudio diretamente no player acima ou abra a conversa.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="font-medium break-words leading-relaxed select-text">
+                        "{alert.lastMessagePreview || "Aguardando retorno do atendimento..."}"
+                      </p>
+                    )}
+
+                    {translatedDeliveryError && (
+                      <div className="mt-2 rounded-lg bg-primary/10 border border-primary/25 p-2.5 flex items-start gap-2 text-[11px]">
+                        <AlertTriangle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <span className="font-extrabold text-primary block">
+                            Diagnóstico da Falha de Entrega no WhatsApp:
+                          </span>
+                          <span className="text-foreground/90 block mt-0.5">
+                            {translatedDeliveryError}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
 
-              {/* Ações */}
-              <div className="flex items-center gap-2 mt-2 border-t border-line/50 pt-3">
-                <button
-                  onClick={() => {
-                    setActiveView("chat");
-                    setSelectedChatId(alert.conversationId);
-                  }}
-                  className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 px-4 py-2 rounded-xl transition shadow-sm hover:shadow-soft"
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  Abrir Conversa
-                </button>
-                
-                {alert.crmCardUrl ? (
-                  <a
-                    href={alert.crmCardUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-foreground bg-secondary hover:bg-secondary-hover border border-border px-4 py-2 rounded-xl transition"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Ver no CRM (RD)
-                  </a>
-                ) : (
-                  <button
-                    disabled
-                    title="Nenhum card do CRM vinculado a este contato"
-                    className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-muted-foreground bg-muted cursor-not-allowed border border-line px-4 py-2 rounded-xl opacity-60"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    CRM Indisponível
-                  </button>
-                )}
+                {/* 4. Gaveta Expansível: Inspeção Rápida da Conversa Inline */}
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="rounded-2xl border border-border bg-muted/15 p-3.5 space-y-2.5 mt-1">
+                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-line">
+                          <div className="flex items-center gap-2">
+                            <Eye className="h-3.5 w-3.5 text-primary" />
+                            <span className="text-xs font-extrabold text-foreground">
+                              Inspeção Rápida do Histórico ({combinedMessages.length}{" "}
+                              mensagens)
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {!fullHistoryByConv[alert.conversationId] && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleLoadFullConversation(alert.conversationId)
+                                }
+                                disabled={
+                                  loadingHistoryConvId === alert.conversationId
+                                }
+                                className="text-[10px] font-bold text-primary hover:underline cursor-pointer disabled:opacity-50"
+                              >
+                                {loadingHistoryConvId === alert.conversationId
+                                  ? "Carregando histórico..."
+                                  : "Carregar histórico completo"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setExpandedConvId(null)}
+                              className="text-[10px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                            >
+                              Fechar
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="max-h-72 overflow-y-auto scrollbar-thin space-y-2 pr-1">
+                          {combinedMessages.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-6">
+                              Nenhuma mensagem disponível para visualização rápida.
+                            </p>
+                          ) : (
+                            combinedMessages.map((m, idx) => {
+                              const prevMsg =
+                                idx > 0 ? combinedMessages[idx - 1] : null;
+                              const showDateSep =
+                                getMessageDateKey(m.sentAt) !==
+                                getMessageDateKey(prevMsg?.sentAt);
+                              const dateLabel = showDateSep
+                                ? formatMessageDateSeparator(m.sentAt)
+                                : null;
+
+                              return (
+                                <React.Fragment key={m.id}>
+                                  {dateLabel && (
+                                    <div className="flex justify-center my-1.5">
+                                      <span className="px-2.5 py-0.5 rounded-full bg-card border border-border text-[9px] font-bold text-muted-foreground">
+                                        {dateLabel}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <LiveMessageBubble
+                                    msg={m}
+                                    isAgent={
+                                      m.senderType === "agent" ||
+                                      m.senderType === "bot"
+                                    }
+                                    contactPhone={alert.contactPhone || undefined}
+                                  />
+                                </React.Fragment>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* 5. Gaveta Expansível: Cobrar / Orientar Consultor (Sussurro Interno 1-Clique) */}
+                <AnimatePresence>
+                  {isWhisperOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="rounded-2xl border border-primary/30 bg-primary/5 p-3.5 space-y-2.5 mt-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-xs font-extrabold text-primary">
+                            <Lock className="h-3.5 w-3.5 shrink-0" />
+                            <span>
+                              Enviar Orientação / Cobrança Interna para{" "}
+                              {alert.operatorName}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">
+                            Invisível para o cliente · Aparece em destaque no chat do
+                            consultor
+                          </span>
+                        </div>
+
+                        {/* Pílulas de 1 clique */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {SUPERVISOR_ALERT_PRESETS.map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              disabled={sendingWhisperConvId === alert.conversationId}
+                              onClick={() =>
+                                handleSendAlertWhisper(alert.conversationId, preset)
+                              }
+                              className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-card hover:bg-primary hover:text-primary-foreground text-foreground border border-border transition cursor-pointer disabled:opacity-50"
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Campo livre de sussurro */}
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void handleSendAlertWhisper(
+                              alert.conversationId,
+                              whisperDraft
+                            );
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <input
+                            type="text"
+                            placeholder={`Escreva uma orientação direta para ${alert.operatorName}...`}
+                            value={whisperDraft}
+                            onChange={(e) => setWhisperDraft(e.target.value)}
+                            className="flex-1 bg-card border border-border rounded-xl px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                          <button
+                            type="submit"
+                            disabled={
+                              !whisperDraft.trim() ||
+                              sendingWhisperConvId === alert.conversationId
+                            }
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition cursor-pointer disabled:opacity-50 shrink-0"
+                          >
+                            {sendingWhisperConvId === alert.conversationId ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Send className="h-3.5 w-3.5" />
+                            )}
+                            Enviar Sussurro
+                          </button>
+                        </form>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* 6. Rodapé de Ações Executivas */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-line/60">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedChatId(alert.conversationId);
+                        setActiveView("chat");
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 px-3.5 py-2 rounded-xl transition shadow-xs cursor-pointer"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      Abrir no Chat
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedConvId((prev) =>
+                          prev === alert.conversationId ? null : alert.conversationId
+                        )
+                      }
+                      className={`inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl border transition cursor-pointer ${
+                        isExpanded
+                          ? "bg-primary/10 text-primary border-primary/30"
+                          : "bg-card hover:bg-muted text-foreground border-border"
+                      }`}
+                    >
+                      <Eye className="h-3.5 w-3.5 text-primary" />
+                      {isExpanded ? "Ocultar Conversa" : "Espiar Conversa"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWhisperOpenConvId((prev) =>
+                          prev === alert.conversationId ? null : alert.conversationId
+                        );
+                        setWhisperDraft("");
+                      }}
+                      className={`inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl border transition cursor-pointer ${
+                        isWhisperOpen
+                          ? "bg-primary/15 text-primary border-primary/35"
+                          : "bg-card hover:bg-muted text-foreground border-border"
+                      }`}
+                    >
+                      <Lock className="h-3.5 w-3.5 text-primary" />
+                      Cobrar / Orientar Consultor
+                    </button>
+                  </div>
+
+                  {/* Botão CRM Nativo (ou link externo RD fallback) com SystemTooltip */}
+                  <div className="flex items-center gap-2">
+                    {alert.activeDeal ? (
+                      <SystemTooltip
+                        content={`Abrir negociação "${alert.activeDeal.title}" no CRM`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate({
+                              to: "/crm/deals/$dealId",
+                              params: { dealId: alert.activeDeal!.id },
+                              search: { from: "crm" },
+                            })
+                          }
+                          className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-foreground bg-muted/60 hover:bg-muted border border-border px-3.5 py-2 rounded-xl transition cursor-pointer"
+                        >
+                          <Briefcase className="h-3.5 w-3.5 text-primary" />
+                          Ver Negociação no CRM
+                        </button>
+                      </SystemTooltip>
+                    ) : alert.crmCardUrl ? (
+                      <SystemTooltip content="Abrir card vinculado no CRM externo">
+                        <a
+                          href={alert.crmCardUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-foreground bg-muted/60 hover:bg-muted border border-border px-3.5 py-2 rounded-xl transition"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 text-primary" />
+                          Ver no CRM
+                        </a>
+                      </SystemTooltip>
+                    ) : (
+                      <SystemTooltip content="Nenhuma negociação ativa vinculada a este atendimento no CRM">
+                        <span className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-muted-foreground bg-muted/40 border border-border px-3 py-2 rounded-xl opacity-65 select-none">
+                          <Briefcase className="h-3.5 w-3.5" />
+                          Sem Card no CRM
+                        </span>
+                      </SystemTooltip>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          );
-        })
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -1711,10 +3002,15 @@ function formatLiveMessagePreview(raw?: string | null): string {
 
 function formatWaitDuration(minutes: number): string {
   if (minutes < 1) return "< 1m";
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (minutes < 60) return `${minutes}min`;
+  if (minutes < 1440) {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  const d = Math.floor(minutes / 1440);
+  const h = Math.floor((minutes % 1440) / 60);
+  return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }
 
 function formatMessageDateSeparator(isoStr?: string): string | null {
@@ -5621,6 +6917,8 @@ export function MonitorView() {
   const { canAccessMonitorTab } = usePermissions();
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [alertsSummary, setAlertsSummary] = useState<AlertsExecutiveSummary | null>(null);
+  const [alertBottlenecks, setAlertBottlenecks] = useState<AlertOperatorBottleneck[]>([]);
   const [audits, setAudits] = useState<AuditItem[]>([]);
   const [loadingAlerts, setLoadingAlerts] = useState(true);
   const [loadingAudits, setLoadingAudits] = useState(true);
@@ -5679,11 +6977,22 @@ export function MonitorView() {
     try {
       const [ovRes, alRes, auRes] = await Promise.all([
         fetch(`/api/gestao/overview?tenantId=${tenant}`),
-        fetch(`/api/gestao/alerts?tenantId=${tenant}`),
+        fetch(`/api/gestao/alerts?tenantId=${tenant}&summary=1`),
         fetch(`/api/gestao/audits?tenantId=${tenant}&limit=50`),
       ]);
       if (ovRes.ok) setOverview(await ovRes.json());
-      if (alRes.ok) setAlerts(await alRes.json());
+      if (alRes.ok) {
+        const alData = await alRes.json();
+        if (Array.isArray(alData)) {
+          setAlerts(alData);
+        } else if (alData && typeof alData === "object") {
+          setAlerts(Array.isArray(alData.alerts) ? alData.alerts : []);
+          setAlertsSummary(alData.summary ?? null);
+          setAlertBottlenecks(
+            Array.isArray(alData.operatorBottlenecks) ? alData.operatorBottlenecks : []
+          );
+        }
+      }
       if (auRes.ok) setAudits(await auRes.json());
       setLastRefresh(new Date());
     } catch (e) {
@@ -5781,7 +7090,13 @@ export function MonitorView() {
               <LiveTab demoMode={DEMO_MODE} />
             )}
             {activeTab === "alerts" && (
-              <AlertsTab alerts={alerts} loading={loadingAlerts} />
+              <AlertsTab
+                alerts={alerts}
+                summary={alertsSummary}
+                operatorBottlenecks={alertBottlenecks}
+                loading={loadingAlerts}
+                onRefresh={fetchData}
+              />
             )}
             {activeTab === "operators" && (
               <OperatorsRankingTab 

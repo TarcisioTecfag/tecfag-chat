@@ -36,9 +36,27 @@ export type LiveDealSummary = {
   title: string;
   value: number | null;
   status: string;
+  pipelineId?: string | null;
   pipelineName: string | null;
+  stageId?: string | null;
   stageName: string | null;
   rating?: number;
+};
+
+export type LiveTaskItem = {
+  id: string;
+  title: string;
+  dueDate?: string | null;
+  type?: string | null;
+  isOverdue: boolean;
+  dealTitle?: string | null;
+};
+
+export type LivePipelineOption = {
+  id: string;
+  name: string;
+  count: number;
+  totalValue: number;
 };
 
 export type LiveActivityCategory =
@@ -50,6 +68,7 @@ export type LiveActivityCategory =
 
 export type LiveConversation = {
   id: string;
+  contactId?: string | null;
   contactName: string;
   contactPhone: string;
   contactEmail?: string | null;
@@ -71,6 +90,7 @@ export type LiveConversation = {
   openTasksCount?: number;
   overdueTasksCount?: number;
   nextTaskTitle?: string | null;
+  tasks?: LiveTaskItem[];
   failedMessagesCount?: number;
   operatorId?: string | null;
   operatorName?: string | null;
@@ -85,6 +105,10 @@ export type LiveOperator = {
   isOnline?: boolean;
   lastSeenAt?: string | null;
   usageSecondsToday?: number;
+  sentMessagesToday?: number;
+  avgResponseMinutesToday?: number | null;
+  failedDeliveriesCount?: number;
+  expiringWindowCount?: number;
   waitingReplyCount?: number;
   criticalWaitCount?: number;
   activeTodayCount?: number;
@@ -109,6 +133,10 @@ export type LiveSummary = {
   avgWaitMinutes: number;
   activePipelineValue: number;
   openDealsInLiveCount: number;
+  failedDeliveriesCount: number;
+  expiringWindowsCount: number;
+  overdueTasksConversationsCount: number;
+  totalSentMessagesToday: number;
 };
 
 export type LiveData = {
@@ -116,6 +144,7 @@ export type LiveData = {
   unassigned: LiveConversation[];   // Na fila sem operador
   automation: LiveConversation[];   // Com Valentina/Fagner (automação)
   summary?: LiveSummary;
+  pipelines?: LivePipelineOption[];
 };
 
 
@@ -153,20 +182,107 @@ export type OperatorMetric = {
   trafficLight: "green" | "yellow" | "red";
 };
 
+export type AlertCategoryTag =
+  | "sla_critical"
+  | "sla_warning"
+  | "unassigned_queue"
+  | "conflict_risk"
+  | "meta_window_expiring"
+  | "delivery_failed"
+  | "overdue_task";
+
+export type AlertPrimaryType =
+  | "sla"
+  | "conflict"
+  | "queue"
+  | "meta_window"
+  | "delivery_failure"
+  | "overdue_task";
+
 export type AlertItem = {
   logId: string;
   conversationId: string;
   contactName: string;
   contactPhone: string | null;
+  contactEmail?: string | null;
+  contactAvatar?: string | null;
+  accountName?: string | null;
+  accountDocument?: string | null;
+  operatorId?: string | null;
   operatorName: string;
+  operatorAvatar?: string | null;
+  operatorIsOnline?: boolean;
+  operatorStatus?: "disponivel" | "ocupado" | "ausente";
+  operatorLastSeenAt?: string | null;
+  queueState?: string;
   waitingMinutes: number;
   waitingSeconds: number;
+  clientMessageAt?: string | null;
   isOverdue: boolean;
   isCritical: boolean;
-  alertType?: "sla" | "conflict";
+  isUnanswered?: boolean;
+  alertType?: AlertPrimaryType;
+  alertTags?: AlertCategoryTag[];
+  conflictTriggerText?: string | null;
   lastMessagePreview?: string;
+  lastMessageRaw?: string | null;
+  lastMessageMediaType?: string | null;
+  lastMessageMediaId?: string | null;
+  lastMessageTranscription?: string | null;
+  lastMessageSenderType?: "client" | "agent" | "bot" | "system";
+  lastMessageStatus?: string | null;
+  lastMessageError?: string | null;
+  failedMessagesCount?: number;
+  metaWindowOpen?: boolean;
+  metaWindowRemainingMinutes?: number | null;
+  activeDeal?: LiveDealSummary | null;
   crmCardUrl?: string | null;
+  openTasksCount?: number;
+  overdueTasksCount?: number;
+  nextTaskTitle?: string | null;
+  clientSentiment?: string | null;
   conversationStartedAt?: string;
+  recentMessages?: LiveMessage[];
+};
+
+export type AlertOperatorBottleneck = {
+  operatorId: string;
+  operatorName: string;
+  operatorAvatar?: string | null;
+  isOnline: boolean;
+  status: "disponivel" | "ocupado" | "ausente";
+  totalAlerts: number;
+  criticalCount: number;
+  overdueCount: number;
+  conflictCount: number;
+  maxWaitMinutes: number;
+  pipelineAtRiskValue: number;
+};
+
+export type AlertsExecutiveSummary = {
+  totalAlerts: number;
+  criticalCount: number;
+  overdueCount: number;
+  warningCount: number;
+  unassignedQueueCount: number;
+  conflictRiskCount: number;
+  metaWindowExpiringCount: number;
+  deliveryFailureCount: number;
+  overdueTasksAlertsCount: number;
+  maxWaitMinutes: number;
+  avgWaitMinutes: number;
+  pipelineAtRiskValue: number;
+  dealsAtRiskCount: number;
+  offlineOperatorsWithAlertsCount: number;
+  slaCompliancePctToday: number | null;
+  slaCyclesTodayTotal: number;
+  slaCyclesTodayWithinLimit: number;
+};
+
+export type AlertsApiResponse = {
+  alerts: AlertItem[];
+  summary: AlertsExecutiveSummary;
+  operatorBottlenecks: AlertOperatorBottleneck[];
 };
 
 export type AuditItem = {

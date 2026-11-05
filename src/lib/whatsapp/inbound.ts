@@ -21,6 +21,7 @@ import { normalizeCanonicalPhone, buildPhoneSearchTerms } from "../utils";
 import { sendPushToOperator } from "../push-notifications";
 import { checkAndSendOperatorStatusAutoReply } from "./status-auto-reply";
 import { setAttendanceActor } from "../attendance-events";
+import { SlaEngine } from "../sla-engine";
 import crypto from "node:crypto";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -157,6 +158,17 @@ export class InboundProcessor {
           contactId: conv.contactId,
           incomingMessageTime: inbound.timestamp,
         }).catch(() => {});
+
+        // ── Abre ou atualiza ciclo de SLA unificado (Meta / Universal) ──
+        if (conv.queueState !== "finalizados") {
+          void SlaEngine.getInstance().openClientSlaCycle({
+            tenantId,
+            conversationId: conv.id,
+            clientMessageId: result.messageId,
+            clientMessageAt: msg?.sentAt ? new Date(msg.sentAt) : inbound.timestamp,
+            operatorId: conv.operatorId ?? null,
+          });
+        }
 
         // ── Transcrição automática de áudios recebidos do cliente (Meta / Universal) ──
         if (inbound.media?.mediaType === "audio" && inbound.media?.dataBuffer) {

@@ -8,6 +8,7 @@ import { auditService } from "../../../lib/audit-service";
 import { requireSession } from "../../../lib/auth-session";
 import { getAiPersona } from "../../../lib/ai-persona";
 import { recordCommercialTransfer } from "../../../lib/commercial/tma";
+import { SlaEngine } from "../../../lib/sla-engine";
 import { SdrDebouncer } from "../../../lib/valentina/sdr-debouncer";
 import { requireConversationAccess, requireConversationSendAccess, hasWhatsappConnectionAccess } from "../../../lib/access-control/conversation-access";
 import { loadOperatorAccess } from "../../../lib/access-control/operator-context";
@@ -348,6 +349,13 @@ export const Route = createFileRoute("/api/chats/update-queue")({
           const finalOperatorId = operatorId !== undefined ? operatorId : updatedConv.operatorId ?? null;
           const finalSectorId = sectorId !== undefined ? sectorId : updatedConv.sectorId ?? null;
           const finalWalletOperatorId = queueState === "meus" && finalOperatorId ? finalOperatorId : undefined;
+
+          void SlaEngine.getInstance().syncConversationQueueChange({
+            tenantId: session.tenantId,
+            conversationId,
+            queueState,
+            operatorId: finalOperatorId,
+          });
 
           SessionManager.getInstance().notifyPublic(session.tenantId, {
             type: "queue_update",

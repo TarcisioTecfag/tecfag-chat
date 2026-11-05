@@ -1662,61 +1662,24 @@ export class SessionManager {
             }).catch((err) => console.error("[Push] Erro ao enviar notificação no Baileys:", err));
           }
 
-          // Cliente enviou: abre um novo ciclo de SLA
-          await db.insert(responseTimeLogs).values({
-            id: `sla-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          // Cliente enviou: abre ou atualiza ciclo de SLA unificado (sem duplicar linhas abertas)
+          await SlaEngine.getInstance().openClientSlaCycle({
             tenantId,
             conversationId: convId,
-            operatorId: null,
             clientMessageId: messageId,
             clientMessageAt: now,
-            overdueThresholdSeconds: 900, // 15 minutos
+            operatorId: targetOperatorId ?? null,
           });
         } else if (finalSenderType === "agent") {
-          // Operador respondeu: fecha o ciclo SLA mais recente pendente
-          const openLog = await db
-            .select()
-            .from(responseTimeLogs)
-            .where(
-              and(
-                eq(responseTimeLogs.tenantId, tenantId),
-                eq(responseTimeLogs.conversationId, convId),
-                isNull(responseTimeLogs.agentResponseId)
-              )
-            )
-            .orderBy(desc(responseTimeLogs.clientMessageAt))
-            .limit(1);
-
-          if (openLog.length > 0) {
-            const log = openLog[0];
-            const deltaSeconds = Math.floor((now.getTime() - new Date(log.clientMessageAt).getTime()) / 1000);
-            await db
-              .update(responseTimeLogs)
-              .set({ agentResponseId: messageId, agentResponseAt: now, responseTimeSeconds: deltaSeconds })
-              .where(
-                and(
-                  eq(responseTimeLogs.id, log.id),
-                  eq(responseTimeLogs.tenantId, tenantId)
-                )
-              );
-
-            // Atualiza métricas diárias do operador associado à conversa
-            const convRow = await db
-              .select({ operatorId: conversations.operatorId })
-              .from(conversations)
-              .where(
-                and(
-                  eq(conversations.id, convId),
-                  eq(conversations.tenantId, tenantId)
-                )
-              )
-              .limit(1);
-
-            if (!this.connectionId && convRow[0]?.operatorId) {
-              SlaEngine.getInstance().updateResponseMetrics(
-                tenantId, convRow[0].operatorId, deltaSeconds
-              ).catch((e: any) => console.warn("[SlaEngine/Baileys] Erro ao atualizar métricas:", e?.message));
-            }
+          // Operador respondeu: fecha todos os ciclos de SLA abertos da conversa
+          if (!this.connectionId) {
+            await SlaEngine.getInstance().closeOpenSlaCycles({
+              tenantId,
+              conversationId: convId,
+              agentResponseId: messageId,
+              agentResponseAt: now,
+              operatorId: targetOperatorId ?? null,
+            });
           }
         }
       } catch (slaErr: any) {

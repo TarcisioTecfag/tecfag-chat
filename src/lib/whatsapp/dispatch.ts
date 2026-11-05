@@ -8,6 +8,7 @@ import { restoreOutbound } from "./envelope";
 import { replayPendingMetaStatuses } from "./meta-status";
 import { resetMetaTypingThrottle } from "./meta-presence";
 import { recordCommercialFirstResponse } from "../commercial/tma";
+import { SlaEngine } from "../sla-engine";
 import { SessionManager } from "../baileys/session-manager";
 import type { UniversalOutboundResult } from "./types";
 import { resolveConversationConnection } from "./connections";
@@ -172,6 +173,15 @@ export async function dispatchStored(
           .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conv.id)));
         if (payload.operatorId)
           await recordCommercialFirstResponse(tenantId, conv.id, payload.operatorId, msg.id);
+        if (msg.senderType === "agent" && !msg.isInternalNote) {
+          await SlaEngine.getInstance().closeOpenSlaCycles({
+            tenantId,
+            conversationId: conv.id,
+            agentResponseId: msg.id,
+            agentResponseAt: new Date(),
+            operatorId: payload.operatorId || conv.operatorId || null,
+          });
+        }
       } catch {
         console.error("[Outbound] Envio confirmado; efeitos auxiliares precisam de reconciliação.");
       }

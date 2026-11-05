@@ -22,9 +22,9 @@ import {
   channelConfigs,
   conversations,
   aiConversationAudits,
-  aiReports
+  aiReports,
 } from "../db/schema";
-import { eq, isNull, and, sql, gte, desc } from "drizzle-orm";
+import { eq, isNull, and, sql, gte, desc, asc } from "drizzle-orm";
 
 // Helper para obter a semana em formato YYYY-WNN
 function getWeekString(d: Date) {
@@ -32,7 +32,7 @@ function getWeekString(d: Date) {
   const dayNum = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  const weekNo = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
@@ -114,8 +114,8 @@ export class SlaEngine {
       .from(responseTimeLogs)
       .where(
         and(
-          isNull(responseTimeLogs.agentResponseId),    // Ainda sem resposta
-          eq(responseTimeLogs.isOverdue, false),        // Ainda não marcado como overdue
+          isNull(responseTimeLogs.agentResponseId), // Ainda sem resposta
+          eq(responseTimeLogs.isOverdue, false), // Ainda não marcado como overdue
           // Verifica: (now - clientMessageAt) > overdueThresholdSeconds
           sql`EXTRACT(EPOCH FROM (NOW() - ${responseTimeLogs.clientMessageAt})) > ${responseTimeLogs.overdueThresholdSeconds}`
         )
@@ -126,20 +126,246 @@ export class SlaEngine {
     console.log(`[SlaEngine] ${pendingLogs.length} ciclo(s) SLA marcado(s) como overdue.`);
 
     for (const log of pendingLogs) {
+      const [conv] = await db
+        .select({
+          operatorId: conversations.operatorId,
+          queueState: conversations.queueState,
+        })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.id, log.conversationId),
+            eq(conversations.tenantId, log.tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!conv || conv.queueState === "finalizados") {
+        await db
+          .update(responseTimeLogs)
+          .set({
+            agentResponseId: "closed_by_finalization",
+            agentResponseAt: now,
+            responseTimeSeconds: 0,
+          })
+          .where(and(eq(responseTimeLogs.id, log.id), eq(responseTimeLogs.tenantId, log.tenantId)));
+        continue;
+      }
+
+      const effectiveOperatorId = log.operatorId || conv.operatorId || null;
+
       // Marca como overdue
       await db
         .update(responseTimeLogs)
         .set({
           isOverdue: true,
           overdueNotifiedAt: now,
+          ...(effectiveOperatorId && !log.operatorId ? { operatorId: effectiveOperatorId } : {}),
         })
-        .where(eq(responseTimeLogs.id, log.id));
+        .where(and(eq(responseTimeLogs.id, log.id), eq(responseTimeLogs.tenantId, log.tenantId)));
 
       // Atualiza o overdueCount nas métricas diárias do operador (se houver um atribuído)
-      if (log.operatorId) {
+      if (effectiveOperatorId) {
         const today = now.toISOString().split("T")[0];
-        await this.incrementOperatorOverdue(log.tenantId, log.operatorId, today);
+        await this.incrementOperatorOverdue(log.tenantId, effectiveOperatorId, today);
       }
+    }
+  }
+
+  /**
+   * Abre um ciclo de SLA para a mensagem do cliente, se ainda não houver um ciclo aberto
+   * na mesma conversa (evita criar múltiplos ciclos zumbis quando o cliente manda várias
+   * mensagens seguidas antes da resposta do operador).
+   */
+  async openClientSlaCycle(params: {
+    tenantId: string;
+    conversationId: string;
+    clientMessageId: string;
+    clientMessageAt?: Date;
+    operatorId?: string | null;
+    overdueThresholdSeconds?: number;
+  }) {
+    const {
+      tenantId,
+      conversationId,
+      clientMessageId,
+      clientMessageAt = new Date(),
+      operatorId = null,
+      overdueThresholdSeconds = 900,
+    } = params;
+
+    try {
+      const existingOpen = await db
+        .select({
+          id: responseTimeLogs.id,
+          operatorId: responseTimeLogs.operatorId,
+        })
+        .from(responseTimeLogs)
+        .where(
+          and(
+            eq(responseTimeLogs.tenantId, tenantId),
+            eq(responseTimeLogs.conversationId, conversationId),
+            isNull(responseTimeLogs.agentResponseId)
+          )
+        )
+        .orderBy(asc(responseTimeLogs.clientMessageAt))
+        .limit(1);
+
+      if (existingOpen.length > 0) {
+        if (operatorId && !existingOpen[0].operatorId) {
+          await db
+            .update(responseTimeLogs)
+            .set({ operatorId })
+            .where(
+              and(
+                eq(responseTimeLogs.id, existingOpen[0].id),
+                eq(responseTimeLogs.tenantId, tenantId)
+              )
+            );
+        }
+        return existingOpen[0].id;
+      }
+
+      const id = `sla-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      await db.insert(responseTimeLogs).values({
+        id,
+        tenantId,
+        conversationId,
+        operatorId: operatorId ?? null,
+        clientMessageId,
+        clientMessageAt,
+        overdueThresholdSeconds,
+      });
+      return id;
+    } catch (e: any) {
+      console.warn("[SlaEngine] Erro ao abrir ciclo SLA:", e?.message);
+      return null;
+    }
+  }
+
+  /**
+   * Fecha TODOS os ciclos SLA abertos de uma conversa quando o operador responde,
+   * calculando o tempo de resposta a partir da primeira mensagem não respondida da sequência
+   * e atualizando as métricas diárias do operador.
+   */
+  async closeOpenSlaCycles(params: {
+    tenantId: string;
+    conversationId: string;
+    agentResponseId: string;
+    agentResponseAt?: Date;
+    operatorId?: string | null;
+  }) {
+    const {
+      tenantId,
+      conversationId,
+      agentResponseId,
+      agentResponseAt = new Date(),
+      operatorId = null,
+    } = params;
+
+    try {
+      const openLogs = await db
+        .select()
+        .from(responseTimeLogs)
+        .where(
+          and(
+            eq(responseTimeLogs.tenantId, tenantId),
+            eq(responseTimeLogs.conversationId, conversationId),
+            isNull(responseTimeLogs.agentResponseId)
+          )
+        )
+        .orderBy(asc(responseTimeLogs.clientMessageAt));
+
+      if (openLogs.length === 0) return;
+
+      const earliest = openLogs[0];
+      const deltaSeconds = Math.max(
+        0,
+        Math.floor(
+          (agentResponseAt.getTime() - new Date(earliest.clientMessageAt).getTime()) / 1000
+        )
+      );
+
+      let effectiveOperatorId = operatorId || earliest.operatorId || null;
+      if (!effectiveOperatorId) {
+        const [conv] = await db
+          .select({ operatorId: conversations.operatorId })
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.id, conversationId),
+              eq(conversations.tenantId, tenantId)
+            )
+          )
+          .limit(1);
+        effectiveOperatorId = conv?.operatorId ?? null;
+      }
+
+      await db
+        .update(responseTimeLogs)
+        .set({
+          agentResponseId,
+          agentResponseAt,
+          responseTimeSeconds: deltaSeconds,
+          ...(effectiveOperatorId ? { operatorId: effectiveOperatorId } : {}),
+        })
+        .where(
+          and(
+            eq(responseTimeLogs.tenantId, tenantId),
+            eq(responseTimeLogs.conversationId, conversationId),
+            isNull(responseTimeLogs.agentResponseId)
+          )
+        );
+
+      if (effectiveOperatorId) {
+        await this.updateResponseMetrics(tenantId, effectiveOperatorId, deltaSeconds);
+      }
+    } catch (e: any) {
+      console.warn("[SlaEngine] Erro ao fechar ciclo(s) SLA:", e?.message);
+    }
+  }
+
+  /**
+   * Sincroniza ciclos SLA abertos quando a conversa muda de fila/operador ou é finalizada.
+   */
+  async syncConversationQueueChange(params: {
+    tenantId: string;
+    conversationId: string;
+    queueState: string;
+    operatorId?: string | null;
+  }) {
+    const { tenantId, conversationId, queueState, operatorId = null } = params;
+    try {
+      if (queueState === "finalizados") {
+        const now = new Date();
+        await db
+          .update(responseTimeLogs)
+          .set({
+            agentResponseId: "closed_by_finalization",
+            agentResponseAt: now,
+            responseTimeSeconds: 0,
+          })
+          .where(
+            and(
+              eq(responseTimeLogs.tenantId, tenantId),
+              eq(responseTimeLogs.conversationId, conversationId),
+              isNull(responseTimeLogs.agentResponseId)
+            )
+          );
+      } else if (queueState === "meus" && operatorId) {
+        await db
+          .update(responseTimeLogs)
+          .set({ operatorId })
+          .where(
+            and(
+              eq(responseTimeLogs.tenantId, tenantId),
+              eq(responseTimeLogs.conversationId, conversationId),
+              isNull(responseTimeLogs.agentResponseId)
+            )
+          );
+      }
+    } catch (e: any) {
+      console.warn("[SlaEngine] Erro ao sincronizar fila no SLA:", e?.message);
     }
   }
 
@@ -181,7 +407,9 @@ export class SlaEngine {
           });
 
           if (!exists) {
-            console.log(`[SlaEngine] Iniciando geração de Relatório Diário para o tenant: ${t.id} (${todayStr})`);
+            console.log(
+              `[SlaEngine] Iniciando geração de Relatório Diário para o tenant: ${t.id} (${todayStr})`
+            );
             await this.generateAndSendReport(t.id, "daily", todayStr, config);
           }
         }
@@ -199,7 +427,9 @@ export class SlaEngine {
           });
 
           if (!exists) {
-            console.log(`[SlaEngine] Iniciando geração de Relatório Semanal para o tenant: ${t.id} (${weekStr})`);
+            console.log(
+              `[SlaEngine] Iniciando geração de Relatório Semanal para o tenant: ${t.id} (${weekStr})`
+            );
             await this.generateAndSendReport(t.id, "weekly", weekStr, config);
           }
         }
@@ -212,16 +442,26 @@ export class SlaEngine {
    * e envia por e-mail (SMTP) e/ou WhatsApp (Baileys/Meta) para múltiplos destinatários.
    * Se config.reportRequiresApproval=true, apenas salva o rascunho sem enviar.
    */
-  private async generateAndSendReport(tenantId: string, type: "daily" | "weekly", period: string, config: any) {
+  private async generateAndSendReport(
+    tenantId: string,
+    type: "daily" | "weekly",
+    period: string,
+    config: any
+  ) {
     try {
-      const { buildStoredReport, buildMarkdownFromStoredReport } = await import("./report-builder");
+      const { buildStoredReport } = await import("./report-builder");
       const { ReportDispatcher } = await import("./report-dispatcher");
 
       const now = new Date();
       console.log(`[SlaEngine] Construindo relatório v2 (${type}) para ${tenantId}...`);
 
       // ── Constrói o StoredReport completo via Report Builder ──
-      const { storedReport, markdown: markdownReport } = await buildStoredReport(tenantId, type, period, now);
+      const { storedReport, markdown: markdownReport } = await buildStoredReport(
+        tenantId,
+        type,
+        period,
+        now
+      );
 
       // ── Salvar o relatório na tabela aiReports (v2 — com JSON rico) ──
       const reportId = storedReport.id;
@@ -258,7 +498,9 @@ export class SlaEngine {
 
       // ── Disparo: só envia se NÃO exigir aprovação humana ──
       if (config.reportRequiresApproval) {
-        console.log(`[SlaEngine] Modo aprovacão ativo: relatório ${reportId} aguardando aprovação humana. Envio suspenso.`);
+        console.log(
+          `[SlaEngine] Modo aprovacão ativo: relatório ${reportId} aguardando aprovação humana. Envio suspenso.`
+        );
         return;
       }
 
@@ -266,7 +508,9 @@ export class SlaEngine {
       const dispatchResult = await ReportDispatcher.dispatch(tenantId, storedReport, markdownReport);
 
       if (dispatchResult.whatsappSent.length > 0) {
-        console.log(`[SlaEngine] ✓ WhatsApp enviado para: ${dispatchResult.whatsappSent.join(", ")}`);
+        console.log(
+          `[SlaEngine] ✓ WhatsApp enviado para: ${dispatchResult.whatsappSent.join(", ")}`
+        );
       }
       if (dispatchResult.emailSent.length > 0) {
         console.log(`[SlaEngine] ✓ E-mail enviado para: ${dispatchResult.emailSent.join(", ")}`);
@@ -282,7 +526,6 @@ export class SlaEngine {
       if (dispatchResult.whatsappSent.length > 0 || dispatchResult.emailSent.length > 0) {
         await ReportDispatcher.markAsEnviado(reportId, tenantId);
       }
-
     } catch (e: any) {
       console.error("[SlaEngine] Erro fatal no gerador de relatório v2:", e.message);
     }
@@ -312,7 +555,12 @@ export class SlaEngine {
           overdueCount: (existing[0].overdueCount ?? 0) + 1,
           updatedAt: new Date(),
         })
-        .where(and(eq(operatorDailyMetrics.id, existing[0].id), eq(operatorDailyMetrics.tenantId, tenantId)));
+        .where(
+          and(
+            eq(operatorDailyMetrics.id, existing[0].id),
+            eq(operatorDailyMetrics.tenantId, tenantId)
+          )
+        );
     } else {
       // Busca o nome do operador para desnormalizar
       const op = await db
@@ -371,7 +619,12 @@ export class SlaEngine {
           totalConversations: prevTotal + 1,
           updatedAt: new Date(),
         })
-        .where(and(eq(operatorDailyMetrics.id, existing[0].id), eq(operatorDailyMetrics.tenantId, tenantId)));
+        .where(
+          and(
+            eq(operatorDailyMetrics.id, existing[0].id),
+            eq(operatorDailyMetrics.tenantId, tenantId)
+          )
+        );
     } else {
       const op = await db
         .select({ name: operators.name })
@@ -384,7 +637,7 @@ export class SlaEngine {
         tenantId,
         operatorId,
         operatorName: op[0]?.name ?? "Desconhecido",
-        date: today,
+        date,
         totalConversations: 1,
         avgResponseTimeSeconds: responseTimeSeconds,
         maxResponseTimeSeconds: responseTimeSeconds,
