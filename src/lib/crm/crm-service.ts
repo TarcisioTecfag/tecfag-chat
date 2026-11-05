@@ -4808,7 +4808,20 @@ export class CrmService {
         );
       }
 
-      if (statusChanged) await enqueueRdCommercial(tx, tenantId, updated, current.status);
+      if (statusChanged) {
+        await enqueueRdCommercial(tx, tenantId, updated, current.status);
+        if (effectiveNewStatus === "won" || effectiveNewStatus === "lost") {
+          import("../audit-service")
+            .then(({ auditService }) =>
+              auditService.enqueueDealConversationsForAudit({
+                tenantId,
+                dealId,
+                operatorId: updated.operatorId || operatorId,
+              }),
+            )
+            .catch(() => {});
+        }
+      }
       return updated;
     });
   }

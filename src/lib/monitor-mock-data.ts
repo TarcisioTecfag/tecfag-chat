@@ -285,11 +285,35 @@ export type AlertsApiResponse = {
   operatorBottlenecks: AlertOperatorBottleneck[];
 };
 
+export type AuditPillarScores = {
+  agility: number;
+  qualification: number;
+  objectionHandling: number;
+  closingNextStep: number;
+};
+
+export type AuditSlaMetrics = {
+  avgResponseSeconds: number | null;
+  maxResponseSeconds: number | null;
+  overdueCyclesCount: number;
+  messageCount: number;
+  clientMessageCount: number;
+  agentMessageCount: number;
+};
+
 export type AuditItem = {
   id: string;
   conversationId: string;
+  operatorId?: string | null;
+  contactId?: string | null;
   contactName: string | null;
+  contactPhone?: string | null;
+  contactAvatar?: string | null;
+  accountId?: string | null;
+  accountName?: string | null;
+  queueState?: string;
   operatorName: string;
+  operatorAvatar?: string | null;
   performanceScore: number | null;
   clientSentiment: string | null;
   hadLongResponseGap: boolean;
@@ -300,8 +324,77 @@ export type AuditItem = {
   strengths: string | null;
   weaknesses: string | null;
   actionableInsight: string | null;
+  coachingMessageSuggestion?: string | null;
+  pillarScores?: AuditPillarScores;
+  detectedStage?: string | null;
+  commercialRiskLevel?: "baixo" | "medio" | "alto" | "critico";
+  deal?: (LiveDealSummary & { lossReason?: string | null; winReason?: string | null }) | null;
+  slaMetrics?: AuditSlaMetrics;
+  recentMessages?: LiveMessage[];
   flagCount: number;
+  status?: string;
+  errorMessage?: string | null;
   auditedAt: string | null;
+  createdAt?: string | null;
+};
+
+export type AuditStatusCounts = {
+  done: number;
+  pending: number;
+  processing: number;
+  error: number;
+  eligibleUnauditedCount: number;
+};
+
+export type AuditOperatorRankingItem = {
+  operatorId: string;
+  operatorName: string;
+  operatorAvatar: string | null;
+  isOnline: boolean;
+  auditedCount: number;
+  avgScore: number;
+  criticalCount: number;
+  excellentCount: number;
+  satisfiedCount: number;
+  frustratedCount: number;
+  flagCount: number;
+  longGapCount: number;
+  missedObjectionCount: number;
+  noFollowUpCount: number;
+  rudeLanguageCount: number;
+  pipelineValue: number;
+  atRiskValue: number;
+};
+
+export type AuditsExecutiveSummary = {
+  totalAudited: number;
+  avgScore: number | null;
+  excellentCount: number;
+  attentionCount: number;
+  criticalCount: number;
+  satisfiedCount: number;
+  neutralCount: number;
+  frustratedCount: number;
+  satisfactionPct: number | null;
+  totalFlagsCount: number;
+  longGapCount: number;
+  missedObjectionCount: number;
+  noFollowUpCount: number;
+  rudeLanguageCount: number;
+  topFailureLabel: string;
+  auditedPipelineValue: number;
+  atRiskPipelineValue: number;
+  atRiskDealsCount: number;
+  wonDealsAuditedCount: number;
+  lostDealsAuditedCount: number;
+  avgPillarScores: AuditPillarScores;
+};
+
+export type AuditsApiResponse = {
+  audits: AuditItem[];
+  statusCounts: AuditStatusCounts;
+  summary: AuditsExecutiveSummary;
+  operatorRanking: AuditOperatorRankingItem[];
 };
 
 // ── Mock: Visão Geral ─────────────────────────────────────────────────────────
@@ -852,3 +945,296 @@ export const MOCK_LIVE: LiveOperator[] = [
     ],
   },
 ];
+
+// ── Tipos & Mock: Tarefas Globais da Operação (Diretoria) ──────────────────────
+
+export type GlobalTaskAssignedOperator = {
+  id: string;
+  name: string;
+  email: string | null;
+  avatar: string | null;
+};
+
+export type GlobalTaskItem = {
+  id: string;
+  name: string;
+  type: string;
+  status: "pending" | "done";
+  dueDate: string | null;
+  completedAt?: string | null;
+  description: string | null;
+  createdAt: string | null;
+  deal: {
+    id: string;
+    name: string | null;
+    value?: string | number | null;
+    numericValue?: number | null;
+    status?: "open" | "won" | "lost";
+    pipelineId?: string | null;
+    pipelineName?: string | null;
+    stageId?: string | null;
+    stageName?: string | null;
+  } | null;
+  client: {
+    name: string | null;
+    phone: string | null;
+    companyName?: string | null;
+    accountId?: string | null;
+  };
+  chatContactId: string | null;
+  chatConversationId: string | null;
+  source?: "kanban";
+  operatorId: string | null;
+  operatorName: string;
+  operatorEmail: string | null;
+  operatorAvatar: string | null;
+  operatorIsOnline?: boolean;
+  assignedOperatorId?: string | null;
+  assignedOperatorIds?: string[];
+  assignedOperatorName?: string | null;
+  assignedOperatorNames?: string[];
+  assignedOperators?: GlobalTaskAssignedOperator[];
+  isShared?: boolean;
+  creatorOperatorId?: string | null;
+  creatorOperatorName?: string | null;
+  dealOperatorId?: string | null;
+  dealOwnerName?: string | null;
+  lastMessagePreview?: string | null;
+  lastMessageSenderType?: "client" | "agent" | "bot" | "system" | null;
+  lastMessageSentAt?: string | null;
+  lastMessageMediaType?: string | null;
+  lastMessageMediaId?: string | null;
+  lastMessageTranscription?: string | null;
+  recentMessages?: LiveMessage[];
+};
+
+export type GlobalTaskOperatorBreakdown = {
+  operatorId: string;
+  operatorName: string;
+  operatorEmail: string | null;
+  operatorAvatar: string | null;
+  isOnline: boolean;
+  presenceLabel: string;
+  overdueCount: number;
+  overdueValueAtRisk: number;
+  todayTotal: number;
+  todayDone: number;
+  todayPending: number;
+  upcoming7dCount: number;
+  totalPending: number;
+  totalDone: number;
+  openDealsCount: number;
+  openDealsWithoutTaskCount: number;
+  executionRatePct: number;
+};
+
+export type GlobalTasksExecutiveSummary = {
+  totalTasks: number;
+  pendingTasksCount: number;
+  completedTasksCount: number;
+  overdueTasksCount: number;
+  overdueOpenDealsTasksCount: number;
+  overduePipelineValueAtRisk: number;
+  avgOverdueHours: number;
+  todayTotalCount: number;
+  todayCompletedCount: number;
+  todayPendingCount: number;
+  todayOverdueCount: number;
+  todayExecutionRatePct: number;
+  upcoming7dCount: number;
+  consultantsWithoutFutureTasksCount: number;
+  openDealsCount: number;
+  openDealsWithoutTasksCount: number;
+  byType: {
+    call: number;
+    whatsapp: number;
+    meeting: number;
+    visit: number;
+    email: number;
+    lunch: number;
+    task: number;
+  };
+};
+
+export type GlobalTasksApiResponse = {
+  tasks: GlobalTaskItem[];
+  summary: GlobalTasksExecutiveSummary;
+  operatorBreakdown: GlobalTaskOperatorBreakdown[];
+  pipelines: Array<{ id: string; name: string }>;
+  operators: Array<{
+    id: string;
+    name: string;
+    email: string | null;
+    avatar: string | null;
+    isOnline: boolean;
+  }>;
+};
+
+export const MOCK_GLOBAL_TASKS_RESPONSE: GlobalTasksApiResponse = {
+  tasks: [
+    {
+      id: "gtask-001",
+      name: "Retornar proposta técnica da Envasadora Automática",
+      type: "call",
+      status: "pending",
+      dueDate: new Date(Date.now() - 4 * 3600_000).toISOString(),
+      completedAt: null,
+      description: "Cliente pediu revisão do prazo de entrega e condição em 12x.",
+      createdAt: new Date(Date.now() - 48 * 3600_000).toISOString(),
+      deal: {
+        id: "deal-mock-1",
+        name: "Envasadora Industrial 4 Bicos Inox",
+        value: 84500,
+        numericValue: 84500,
+        status: "open",
+        pipelineId: "pipe-maq",
+        pipelineName: "Funil Máquinas",
+        stageId: "stg-prop",
+        stageName: "Proposta Enviada",
+      },
+      client: {
+        name: "Roberto Almeida",
+        phone: "5511984567231",
+        companyName: "Almeida Alimentos Ltda",
+        accountId: "acc-mock-1",
+      },
+      chatContactId: "cont-mock-1",
+      chatConversationId: "lconv-003",
+      source: "kanban",
+      operatorId: "op-mock-2",
+      operatorName: "Ana Paula",
+      operatorEmail: "anapaula@tecfag.com.br",
+      operatorAvatar: null,
+      operatorIsOnline: true,
+      assignedOperatorId: "op-mock-2",
+      assignedOperatorIds: ["op-mock-2"],
+      assignedOperators: [
+        { id: "op-mock-2", name: "Ana Paula", email: "anapaula@tecfag.com.br", avatar: null },
+      ],
+      isShared: false,
+      creatorOperatorId: "op-mock-1",
+      creatorOperatorName: "Faggner Silva",
+      lastMessagePreview: "Faz mais de 20 minutos que enviei a mensagem...",
+      lastMessageSenderType: "client",
+      recentMessages: [
+        { id: "m1", sender: "client", text: "Bom dia, conseguiu ver a condição com a diretoria?", time: "09:40" },
+        { id: "m2", sender: "agent", text: "Estou validando com o financeiro e já te ligo, Roberto!", time: "09:55" },
+      ],
+    },
+    {
+      id: "gtask-002",
+      name: "Reunião de fechamento Seladora Contínua",
+      type: "meeting",
+      status: "pending",
+      dueDate: new Date(Date.now() + 2 * 3600_000).toISOString(),
+      completedAt: null,
+      description: "Apresentar comparativo de produtividade com vídeo técnico.",
+      createdAt: new Date(Date.now() - 24 * 3600_000).toISOString(),
+      deal: {
+        id: "deal-mock-2",
+        name: "Seladora Contínua c/ Datador",
+        value: 18900,
+        numericValue: 18900,
+        status: "open",
+        pipelineId: "pipe-maq",
+        pipelineName: "Funil Máquinas",
+        stageId: "stg-neg",
+        stageName: "Em Negociação",
+      },
+      client: {
+        name: "Lucas Ferreira",
+        phone: "5511984567231",
+        companyName: "Ferreira Embalagens",
+        accountId: "acc-mock-2",
+      },
+      chatContactId: "cont-mock-2",
+      chatConversationId: "lconv-001",
+      source: "kanban",
+      operatorId: "op-mock-1",
+      operatorName: "Faggner Silva",
+      operatorEmail: "faggner@tecfag.com.br",
+      operatorAvatar: null,
+      operatorIsOnline: true,
+      assignedOperatorId: "op-mock-1",
+      assignedOperatorIds: ["op-mock-1"],
+      assignedOperators: [
+        { id: "op-mock-1", name: "Faggner Silva", email: "faggner@tecfag.com.br", avatar: null },
+      ],
+      isShared: false,
+      lastMessagePreview: "Perfeito! Aguardo a proposta então.",
+      lastMessageSenderType: "client",
+    },
+  ],
+  summary: {
+    totalTasks: 2,
+    pendingTasksCount: 2,
+    completedTasksCount: 0,
+    overdueTasksCount: 1,
+    overdueOpenDealsTasksCount: 1,
+    overduePipelineValueAtRisk: 84500,
+    avgOverdueHours: 4,
+    todayTotalCount: 2,
+    todayCompletedCount: 0,
+    todayPendingCount: 2,
+    todayOverdueCount: 1,
+    todayExecutionRatePct: 0,
+    upcoming7dCount: 1,
+    consultantsWithoutFutureTasksCount: 1,
+    openDealsCount: 12,
+    openDealsWithoutTasksCount: 3,
+    byType: {
+      call: 1,
+      whatsapp: 0,
+      meeting: 1,
+      visit: 0,
+      email: 0,
+      lunch: 0,
+      task: 0,
+    },
+  },
+  operatorBreakdown: [
+    {
+      operatorId: "op-mock-2",
+      operatorName: "Ana Paula",
+      operatorEmail: "anapaula@tecfag.com.br",
+      operatorAvatar: null,
+      isOnline: true,
+      presenceLabel: "ONLINE",
+      overdueCount: 1,
+      overdueValueAtRisk: 84500,
+      todayTotal: 1,
+      todayDone: 0,
+      todayPending: 1,
+      upcoming7dCount: 0,
+      totalPending: 1,
+      totalDone: 0,
+      openDealsCount: 6,
+      openDealsWithoutTaskCount: 2,
+      executionRatePct: 0,
+    },
+    {
+      operatorId: "op-mock-1",
+      operatorName: "Faggner Silva",
+      operatorEmail: "faggner@tecfag.com.br",
+      operatorAvatar: null,
+      isOnline: true,
+      presenceLabel: "ONLINE",
+      overdueCount: 0,
+      overdueValueAtRisk: 0,
+      todayTotal: 1,
+      todayDone: 0,
+      todayPending: 1,
+      upcoming7dCount: 1,
+      totalPending: 1,
+      totalDone: 0,
+      openDealsCount: 6,
+      openDealsWithoutTaskCount: 1,
+      executionRatePct: 0,
+    },
+  ],
+  pipelines: [{ id: "pipe-maq", name: "Funil Máquinas" }],
+  operators: [
+    { id: "op-mock-1", name: "Faggner Silva", email: "faggner@tecfag.com.br", avatar: null, isOnline: true },
+    { id: "op-mock-2", name: "Ana Paula", email: "anapaula@tecfag.com.br", avatar: null, isOnline: true },
+  ],
+};

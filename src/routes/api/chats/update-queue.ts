@@ -403,13 +403,14 @@ export const Route = createFileRoute("/api/chats/update-queue")({
               .catch((err) => console.warn("[update-queue] Falha ao enviar aviso IA de transferência:", err));
           }
 
-          // 8. Se a conversa foi finalizada, enfileira auditoria de IA (apenas Valem no MVP)
-          if (queueState === "finalizados" && session.tenantId === "valem") {
+          // 8. Se a conversa foi finalizada, enfileira auditoria de IA (suporta valem e tecfag)
+          if (queueState === "finalizados") {
             auditService.enqueueAudit({
               tenantId: session.tenantId,
               conversationId,
-              operatorId: finalOperatorId,
+              operatorId: finalOperatorId || conv.operatorId || session.operator.id,
               contactName: null,
+              force: true,
             }).catch((err) =>
               console.error("[update-queue] Erro ao enfileirar auditoria:", err)
             );

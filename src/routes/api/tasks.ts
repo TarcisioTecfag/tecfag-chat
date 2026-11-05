@@ -6,6 +6,7 @@ import {
   crmDealActivities,
   crmDeals,
   crmDealContacts,
+  crmPipelines,
   crmStages,
   crmAccounts,
   operators,
@@ -125,8 +126,10 @@ export async function getNativeKanbanTasks(
         dealId: crmDealActivities.dealId,
         dealTitle: crmDeals.title,
         dealValue: crmDeals.value,
+        dealStatus: crmDeals.status,
         dealOperatorId: crmDeals.operatorId,
         pipelineId: crmDeals.pipelineId,
+        pipelineName: crmPipelines.name,
         stageId: crmDeals.stageId,
         stageName: crmStages.name,
         contactId: crmDealContacts.contactId,
@@ -152,6 +155,7 @@ export async function getNativeKanbanTasks(
       })
       .from(crmDealActivities)
       .innerJoin(crmDeals, and(eq(crmDealActivities.dealId, crmDeals.id), eq(crmDeals.tenantId, tenantId)))
+      .leftJoin(crmPipelines, and(eq(crmDeals.pipelineId, crmPipelines.id), eq(crmPipelines.tenantId, tenantId)))
       .leftJoin(crmStages, eq(crmDeals.stageId, crmStages.id))
       .leftJoin(
         crmDealContacts,
@@ -223,7 +227,8 @@ export async function getNativeKanbanTasks(
   }
 
   return uniqueRows.map((r) => {
-    const clientName = r.contactName || r.accountTradeName || r.accountName || null;
+    const companyName = r.accountTradeName || r.accountName || null;
+    const clientName = r.contactName || companyName || null;
     const clientPhone = r.contactPhone || r.accountPhone || null;
     const resolvedConvId = r.conversationId || (r.contactId ? contactToConvMap.get(r.contactId) || null : null);
 
@@ -234,9 +239,16 @@ export async function getNativeKanbanTasks(
         ? [r.assignedOperatorId]
         : [];
     const uniqueAssignedIds = Array.from(new Set(rawAssignedIds));
-    const resolvedAssignedNames = uniqueAssignedIds
-      .map((id) => operatorsById.get(id)?.name)
-      .filter(Boolean) as string[];
+    const resolvedAssignedOperators = uniqueAssignedIds
+      .map((id) => operatorsById.get(id))
+      .filter((op): op is NonNullable<typeof op> => Boolean(op))
+      .map((op) => ({
+        id: op.id,
+        name: op.name,
+        email: op.email || null,
+        avatar: op.avatar || null,
+      }));
+    const resolvedAssignedNames = resolvedAssignedOperators.map((op) => op.name);
     const combinedAssignedName =
       resolvedAssignedNames.length > 0
         ? resolvedAssignedNames.join(", ")
@@ -247,6 +259,25 @@ export async function getNativeKanbanTasks(
       combinedAssignedName || r.creatorOperatorName || r.dealOwnerName || "Sem operador";
     const effectiveOperatorEmail = r.assignedOperatorEmail || r.creatorOperatorEmail || r.dealOwnerEmail || null;
     const effectiveOperatorAvatar = r.assignedOperatorAvatar || r.creatorOperatorAvatar || r.dealOwnerAvatar || null;
+
+    const assignedOperatorsList =
+      resolvedAssignedOperators.length > 0
+        ? resolvedAssignedOperators
+        : effectiveOperatorId
+        ? [
+            {
+              id: effectiveOperatorId,
+              name: effectiveOperatorName,
+              email: effectiveOperatorEmail,
+              avatar: effectiveOperatorAvatar,
+            },
+          ]
+        : [];
+
+    const parsedNumericValue =
+      r.dealValue !== null && r.dealValue !== undefined && !Number.isNaN(Number(r.dealValue))
+        ? Number(r.dealValue)
+        : null;
 
     return {
       id: r.id,
@@ -261,13 +292,18 @@ export async function getNativeKanbanTasks(
         id: r.dealId,
         name: r.dealTitle,
         value: r.dealValue,
+        numericValue: parsedNumericValue,
+        status: (r.dealStatus || "open") as "open" | "won" | "lost",
         pipelineId: r.pipelineId,
+        pipelineName: r.pipelineName || null,
         stageId: r.stageId,
         stageName: r.stageName,
       },
       client: {
         name: clientName,
         phone: clientPhone,
+        companyName,
+        accountId: r.accountId || null,
       },
       chatContactId: r.contactId || null,
       chatConversationId: resolvedConvId,
@@ -285,10 +321,12 @@ export async function getNativeKanbanTasks(
           : [],
       assignedOperatorName: combinedAssignedName,
       assignedOperatorNames: resolvedAssignedNames,
+      assignedOperators: assignedOperatorsList,
       isShared: uniqueAssignedIds.length > 1,
       creatorOperatorId: r.creatorOperatorId || null,
       creatorOperatorName: r.creatorOperatorName || null,
       dealOperatorId: r.dealOperatorId || null,
+      dealOwnerName: r.dealOwnerName || null,
     };
   });
 }

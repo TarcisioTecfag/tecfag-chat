@@ -20,18 +20,25 @@ import {
   Smile, Meh, Frown, Briefcase, Building2, Lock, Send,
   CornerUpLeft, Check, CheckCheck, LayoutDashboard, Flame, ArrowLeft,
   ArrowRightLeft, RotateCcw, Image as ImageIcon, Video as VideoIcon,
-  Tag, Paperclip, PenTool, Timer, UserCheck
+  Tag, Paperclip, PenTool, Timer, UserCheck,
+  Utensils, MapPin, Columns3, ListTodo, Pencil, Trash2, Ban, CalendarClock, Plus
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getAiPersona } from "@/lib/ai-persona";
 import { formatMetaErrorMessagePt } from "@/lib/whatsapp/meta-template-common";
 import { DealDetailModal } from "@/components/crm/DealDetailModal";
+import { CreateTaskModal, type EditingTaskData } from "@/components/crm/CreateTaskModal";
+import { CrmDatePicker } from "@/components/crm/CrmDatePicker";
+import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   MOCK_LIVE,
   MOCK_OVERVIEW,
   MOCK_ALERTS,
   MOCK_AUDITS,
+  MOCK_GLOBAL_TASKS_RESPONSE,
   LiveOperator,
   LiveConversation,
   LiveData,
@@ -42,6 +49,13 @@ import {
   AlertOperatorBottleneck,
   AlertsExecutiveSummary,
   AlertCategoryTag,
+  AuditItem,
+  AuditStatusCounts,
+  AuditOperatorRankingItem,
+  AuditsExecutiveSummary,
+  GlobalTaskItem,
+  GlobalTaskOperatorBreakdown,
+  GlobalTasksExecutiveSummary,
 } from "@/lib/monitor-mock-data";
 import { useNavigate } from "@tanstack/react-router";
 import { OperatorsRankingTab } from "./OperatorsRankingTab";
@@ -101,28 +115,6 @@ type OperatorMetric = {
   satisfiedPctLastWeek?: number;
   satisfiedPctLastMonth?: number;
   trafficLight: "green" | "yellow" | "red" | "gray";
-};
-
-type AuditItem = {
-  id: string;
-  conversationId: string;
-  operatorId: string | null;
-  contactName: string | null;
-  operatorName: string;
-  performanceScore: number | null;
-  clientSentiment: string | null;
-  hadLongResponseGap: boolean;
-  hadMissedObjection: boolean;
-  hadRudeLanguage: boolean;
-  hadNoFollowUp: boolean;
-  summary: string | null;
-  strengths: string | null;
-  weaknesses: string | null;
-  actionableInsight: string | null;
-  flagCount: number;
-  auditedAt: string | null;
-  status: string;
-  errorMessage?: string | null;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -2259,73 +2251,311 @@ function OperatorsTab({
   );
 }
 
-function AuditsTab({ 
-  selectedAuditId, 
+type AuditQualityFilter =
+  | "all"
+  | "critical"
+  | "frustrated"
+  | "with_flags"
+  | "no_followup"
+  | "long_gap"
+  | "missed_objection"
+  | "excellent";
+
+type AuditSortOption =
+  | "recent"
+  | "score_asc"
+  | "score_desc"
+  | "deal_value"
+  | "flags_desc";
+
+function AuditsSortSelect({
+  value,
+  onChange,
+}: {
+  value: AuditSortOption;
+  onChange: (v: AuditSortOption) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const options: { id: AuditSortOption; label: string }[] = [
+    { id: "recent", label: "Mais recentes" },
+    { id: "score_asc", label: "Menor Score (Críticos 1º)" },
+    { id: "score_desc", label: "Maior Score (Exemplares 1º)" },
+    { id: "deal_value", label: "Maior Valor no CRM (R$)" },
+    { id: "flags_desc", label: "Mais Falhas Detectadas" },
+  ];
+
+  const current = options.find((o) => o.id === value) ?? options[0];
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 bg-muted/50 hover:bg-muted border border-border rounded-xl px-3 py-1.5 text-[11px] font-bold text-foreground transition cursor-pointer"
+      >
+        <Filter className="h-3.5 w-3.5 text-primary shrink-0" />
+        <span className="truncate max-w-[165px]">{current.label}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 w-56 bg-card border border-border rounded-2xl shadow-xl p-1.5 space-y-0.5">
+          {options.map((opt) => {
+            const active = opt.id === value;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => {
+                  onChange(opt.id);
+                  setOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-xs font-semibold transition cursor-pointer ${
+                  active
+                    ? "bg-primary/10 text-primary font-extrabold"
+                    : "text-foreground hover:bg-muted"
+                }`}
+              >
+                <span>{opt.label}</span>
+                {active && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatSecondsDuration(sec: number | null | undefined): string {
+  if (sec === null || sec === undefined || sec <= 0) return "–";
+  const mins = Math.floor(sec / 60);
+  const rem = sec % 60;
+  if (mins === 0) return `${rem}s`;
+  if (mins < 60) return `${mins}m ${String(rem).padStart(2, "0")}s`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hrs}h ${remMins}m`;
+}
+
+function AuditsTab({
+  selectedAuditId,
   onSelectAudit,
   operators = [],
-}: { 
+}: {
   selectedAuditId?: string | null;
   onSelectAudit?: (id: string | null) => void;
   operators?: OperatorMetric[];
 }) {
   const { tenant } = useChat();
+  const aiPersona = getAiPersona(tenant);
   const [audits, setAudits] = useState<AuditItem[]>([]);
+  const [statusCounts, setStatusCounts] = useState<AuditStatusCounts>({
+    done: 0,
+    pending: 0,
+    processing: 0,
+    error: 0,
+    eligibleUnauditedCount: 0,
+  });
+  const [apiSummary, setApiSummary] = useState<AuditsExecutiveSummary | null>(null);
+  const [operatorRanking, setOperatorRanking] = useState<AuditOperatorRankingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<AuditItem | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
-  // ── Filtros ───────────────────────────────────────────────────────────────
+  // ── Filtros Executivos ────────────────────────────────────────────────────
+  const [periodFilter, setPeriodFilter] = useState<"all" | "today" | "7d" | "30d">("all");
   const [dateFilter, setDateFilter] = useState("");
   const [operatorIdFilter, setOperatorIdFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"done" | "pending" | "error">("done");
+  const [qualityFilter, setQualityFilter] = useState<AuditQualityFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<AuditSortOption>("recent");
 
-  // ── Fetch próprio ─────────────────────────────────────────────────────────
-  const fetchAudits = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ tenantId: tenant, limit: "50" });
-      if (dateFilter) params.set("date", dateFilter);
-      if (operatorIdFilter) params.set("operatorId", operatorIdFilter);
-      params.set("status", statusFilter);
-      // Quando filtrando por pendentes/erros, remove restrição de setor Comercial
-      if (statusFilter !== "done") params.set("includeAll", "true");
+  // ── Ações Executivas (Gaveta de Transcrição, Sussurro, CRM Modal e Scan) ──
+  const [retrying, setRetrying] = useState(false);
+  const [scanningEligible, setScanningEligible] = useState(false);
+  const [inspectOpen, setInspectOpen] = useState(false);
+  const [whisperOpen, setWhisperOpen] = useState(false);
+  const [whisperDraft, setWhisperDraft] = useState("");
+  const [sendingWhisper, setSendingWhisper] = useState(false);
+  const [fullHistoryByConv, setFullHistoryByConv] = useState<Record<string, LiveMessage[]>>({});
+  const [loadingHistoryConvId, setLoadingHistoryConvId] = useState<string | null>(null);
+  const [localWhispersByConv, setLocalWhispersByConv] = useState<Record<string, LiveMessage[]>>({});
+  const [selectedDealModalId, setSelectedDealModalId] = useState<string | null>(null);
 
-      const res = await fetch(`/api/gestao/audits?${params.toString()}`);
-      if (res.ok) {
-        const data: AuditItem[] = await res.json();
-        setAudits(data);
-        setLastRefresh(new Date());
+  // ── Fetch principal com sumário executivo ─────────────────────────────────
+  const fetchAudits = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      try {
+        const params = new URLSearchParams({
+          tenantId: tenant,
+          limit: "100",
+          summary: "1",
+          status: statusFilter,
+          period: periodFilter,
+        });
+        if (dateFilter) params.set("date", dateFilter);
+        if (operatorIdFilter) params.set("operatorId", operatorIdFilter);
+
+        const res = await fetch(`/api/gestao/audits?${params.toString()}`);
+        if (res.ok) {
+          const payload = await res.json();
+          if (Array.isArray(payload)) {
+            setAudits(payload);
+          } else if (payload && typeof payload === "object") {
+            const list: AuditItem[] = Array.isArray(payload.audits) ? payload.audits : [];
+            setAudits(list);
+            if (payload.statusCounts) setStatusCounts(payload.statusCounts);
+            if (payload.summary) setApiSummary(payload.summary);
+            if (Array.isArray(payload.operatorRanking)) {
+              setOperatorRanking(payload.operatorRanking);
+            }
+            // Sincroniza item selecionado caso tenha atualizado
+            setSelected((prev) => {
+              if (!prev) return null;
+              return list.find((a) => a.id === prev.id) ?? prev;
+            });
+          }
+          setLastRefresh(new Date());
+        }
+      } catch (e) {
+        console.error("[AuditsTab] Erro ao buscar auditorias:", e);
+      } finally {
+        if (!silent) setLoading(false);
       }
-    } catch (e) {
-      console.error("[AuditsTab] Erro ao buscar auditorias:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, dateFilter, operatorIdFilter, statusFilter]);
+    },
+    [tenant, dateFilter, periodFilter, operatorIdFilter, statusFilter],
+  );
 
   useEffect(() => {
     fetchAudits();
   }, [fetchAudits]);
 
-  // ── Reprocessamento de auditorias com erro ────────────────────────
-  const [retrying, setRetrying] = useState(false);
+  // Auto-refresh rápido enquanto houver auditorias em processamento/fila
+  useEffect(() => {
+    if (statusCounts.pending <= 0 && !scanningEligible) return;
+    const timer = setInterval(() => {
+      fetchAudits(true);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [statusCounts.pending, scanningEligible, fetchAudits]);
 
-  const retryAudit = useCallback(async (auditId: string) => {
-    setRetrying(true);
-    try {
-      await fetch("/api/gestao/audits", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId: tenant, auditId }),
-      });
-      setSelected(null);
-      setTimeout(fetchAudits, 800);
-    } catch (e) {
-      console.error("[AuditsTab] Erro ao reprocessar auditoria:", e);
-    } finally {
-      setRetrying(false);
+  // Quando selectedAuditId chega via navegação do OperatorsTab -> abre detalhe
+  useEffect(() => {
+    if (selectedAuditId && audits.length > 0) {
+      const found = audits.find((a) => a.id === selectedAuditId);
+      if (found) setSelected(found);
     }
-  }, [tenant, fetchAudits]);
+  }, [selectedAuditId, audits]);
+
+  // Carrega histórico completo da conversa quando o diretor abre "Espiar Conversa"
+  const handleLoadFullConversation = useCallback(
+    async (convId: string) => {
+      if (!convId || loadingHistoryConvId === convId) return;
+      setLoadingHistoryConvId(convId);
+      try {
+        const res = await fetch(
+          `/api/gestao/messages?tenantId=${tenant}&conversationId=${convId}`,
+        );
+        if (res.ok) {
+          const msgs: LiveMessage[] = await res.json();
+          setFullHistoryByConv((prev) => ({ ...prev, [convId]: msgs }));
+        }
+      } catch (e) {
+        console.error("[AuditsTab] Erro ao carregar histórico da conversa:", e);
+      } finally {
+        setLoadingHistoryConvId(null);
+      }
+    },
+    [tenant, loadingHistoryConvId],
+  );
+
+  // Dispara varredura sob demanda de conversas elegíveis
+  const handleScanAndEnqueue = useCallback(
+    async (forceReaudit = false) => {
+      setScanningEligible(true);
+      try {
+        const res = await fetch("/api/gestao/audits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            action: "scan_and_audit",
+            operatorId: operatorIdFilter || undefined,
+            limit: 15,
+            force: forceReaudit,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Não foi possível enfileirar auditorias.");
+        }
+        const enq = Number(data.enqueuedCount ?? 0);
+        const pend = Number(data.pendingTotal ?? 0);
+        if (enq > 0) {
+          toast.success(
+            `${enq} atendimento(s) enfileirado(s) para auditoria imediata pela Vertex AI!`,
+          );
+          if (audits.length === 0) {
+            setStatusFilter("pending");
+          }
+        } else if (pend > 0) {
+          toast.info(
+            `Já existem ${pend} auditoria(s) na fila sendo processadas pela Vertex AI.`,
+          );
+        } else {
+          toast.info(
+            "Todos os atendimentos recentes com diálogo ativo já estão auditados.",
+          );
+        }
+        setTimeout(() => fetchAudits(false), 600);
+      } catch (err: any) {
+        toast.error(err.message || "Falha ao disparar auditoria de atendimentos.");
+      } finally {
+        setScanningEligible(false);
+      }
+    },
+    [tenant, operatorIdFilter, audits.length, fetchAudits],
+  );
+
+  // Reprocessa ou reaudita uma auditoria específica
+  const retryAudit = useCallback(
+    async (auditId: string, force = false) => {
+      setRetrying(true);
+      try {
+        const res = await fetch("/api/gestao/audits", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tenantId: tenant, auditId, force }),
+        });
+        if (res.ok) {
+          toast.success(
+            force
+              ? "Conversa enviada para nova auditoria da IA!"
+              : "Auditoria reenviada para fila de processamento!",
+          );
+        }
+        setTimeout(() => fetchAudits(false), 700);
+      } catch (e) {
+        console.error("[AuditsTab] Erro ao reprocessar auditoria:", e);
+      } finally {
+        setRetrying(false);
+      }
+    },
+    [tenant, fetchAudits],
+  );
 
   const retryAll = useCallback(async () => {
     setRetrying(true);
@@ -2335,8 +2565,9 @@ function AuditsTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenantId: tenant, action: "retry_all" }),
       });
+      toast.success("Todas as auditorias com erro foram reenviadas para processamento!");
       setSelected(null);
-      setTimeout(fetchAudits, 800);
+      setTimeout(() => fetchAudits(false), 800);
     } catch (e) {
       console.error("[AuditsTab] Erro ao reprocessar todas:", e);
     } finally {
@@ -2344,361 +2575,1779 @@ function AuditsTab({
     }
   }, [tenant, fetchAudits]);
 
-  // Quando selectedAuditId chega via navegação do OperatorsTab → abre detalhe
-  useEffect(() => {
-    if (selectedAuditId && audits.length > 0) {
-      const found = audits.find((a) => a.id === selectedAuditId);
-      if (found) setSelected(found);
-    }
-  }, [selectedAuditId, audits]);
+  // Envia orientação interna (Sussurro do Supervisor) para a conversa auditada
+  const handleSendAuditWhisper = useCallback(
+    async (convId: string, contentText: string) => {
+      const trimmed = contentText.trim();
+      if (!trimmed || sendingWhisper) return;
+      setSendingWhisper(true);
+      try {
+        const res = await fetch("/api/gestao/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: convId,
+            content: trimmed,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Não foi possível enviar a orientação.");
+        }
+        const createdMsg: LiveMessage | undefined = data.message;
+        if (createdMsg) {
+          setLocalWhispersByConv((prev) => ({
+            ...prev,
+            [convId]: [...(prev[convId] || []), createdMsg],
+          }));
+        }
+        setWhisperDraft("");
+        toast.success("Orientação de auditoria enviada em tempo real ao consultor!");
+      } catch (err: any) {
+        toast.error(err.message || "Falha ao enviar orientação ao consultor.");
+      } finally {
+        setSendingWhisper(false);
+      }
+    },
+    [sendingWhisper],
+  );
 
-  function renderAuditSentiment(sentiment?: string | null) {
-    if (sentiment === "satisfeito") return <Smile className="h-3.5 w-3.5 text-primary" />;
-    if (sentiment === "frustrado") return <Frown className="h-3.5 w-3.5 text-muted-foreground" />;
-    if (sentiment === "neutro") return <Meh className="h-3.5 w-3.5 text-muted-foreground" />;
-    return <span className="text-xs text-muted-foreground">–</span>;
+  // Sumário executivo consolidado (usa apiSummary ou calcula localmente como fallback)
+  const summary = useMemo<AuditsExecutiveSummary>(() => {
+    if (apiSummary) return apiSummary;
+    const done = audits.filter((a) => a.performanceScore !== null);
+    const total = done.length;
+    const scoreSum = done.reduce((s, a) => s + (a.performanceScore ?? 0), 0);
+    const satisfied = done.filter((a) => a.clientSentiment === "satisfeito").length;
+    const frustrated = done.filter((a) => a.clientSentiment === "frustrado").length;
+    const neutral = total - satisfied - frustrated;
+    const longGap = done.filter((a) => a.hadLongResponseGap).length;
+    const missedObj = done.filter((a) => a.hadMissedObjection).length;
+    const noFollow = done.filter((a) => a.hadNoFollowUp).length;
+    const rude = done.filter((a) => a.hadRudeLanguage).length;
+    return {
+      totalAudited: total,
+      avgScore: total > 0 ? Math.round(scoreSum / total) : null,
+      excellentCount: done.filter((a) => (a.performanceScore ?? 0) >= 80).length,
+      attentionCount: done.filter(
+        (a) => (a.performanceScore ?? 0) >= 60 && (a.performanceScore ?? 0) < 80,
+      ).length,
+      criticalCount: done.filter((a) => (a.performanceScore ?? 0) < 60).length,
+      satisfiedCount: satisfied,
+      neutralCount: neutral,
+      frustratedCount: frustrated,
+      satisfactionPct: total > 0 ? Math.round((satisfied / total) * 100) : null,
+      totalFlagsCount: longGap + missedObj + noFollow + rude,
+      longGapCount: longGap,
+      missedObjectionCount: missedObj,
+      noFollowUpCount: noFollow,
+      rudeLanguageCount: rude,
+      topFailureLabel:
+        noFollow > 0
+          ? `Sem próximo passo (${noFollow})`
+          : longGap > 0
+          ? `Demora >15m (${longGap})`
+          : "Nenhuma falha crítica",
+      auditedPipelineValue: 0,
+      atRiskPipelineValue: 0,
+      atRiskDealsCount: 0,
+      wonDealsAuditedCount: 0,
+      lostDealsAuditedCount: 0,
+      avgPillarScores: {
+        agility: total > 0 ? Math.round(scoreSum / total) : 0,
+        qualification: total > 0 ? Math.round(scoreSum / total) : 0,
+        objectionHandling: total > 0 ? Math.round(scoreSum / total) : 0,
+        closingNextStep: total > 0 ? Math.round(scoreSum / total) : 0,
+      },
+    };
+  }, [apiSummary, audits]);
+
+  // Contadores para as pílulas de qualidade sobre a lista atual
+  const qualityCounts = useMemo(() => {
+    return {
+      all: audits.length,
+      critical: audits.filter(
+        (a) => a.performanceScore !== null && a.performanceScore < 60,
+      ).length,
+      frustrated: audits.filter((a) => a.clientSentiment === "frustrado").length,
+      with_flags: audits.filter((a) => a.flagCount > 0).length,
+      no_followup: audits.filter((a) => a.hadNoFollowUp).length,
+      long_gap: audits.filter((a) => a.hadLongResponseGap).length,
+      missed_objection: audits.filter((a) => a.hadMissedObjection).length,
+      excellent: audits.filter(
+        (a) => a.performanceScore !== null && a.performanceScore >= 80,
+      ).length,
+    };
+  }, [audits]);
+
+  // Lista filtrada e ordenada
+  const filteredAudits = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const list = audits.filter((a) => {
+      if (qualityFilter === "critical") {
+        if (a.performanceScore === null || a.performanceScore >= 60) return false;
+      } else if (qualityFilter === "frustrated") {
+        if (a.clientSentiment !== "frustrado") return false;
+      } else if (qualityFilter === "with_flags") {
+        if (a.flagCount <= 0) return false;
+      } else if (qualityFilter === "no_followup") {
+        if (!a.hadNoFollowUp) return false;
+      } else if (qualityFilter === "long_gap") {
+        if (!a.hadLongResponseGap) return false;
+      } else if (qualityFilter === "missed_objection") {
+        if (!a.hadMissedObjection) return false;
+      } else if (qualityFilter === "excellent") {
+        if (a.performanceScore === null || a.performanceScore < 80) return false;
+      }
+
+      if (q) {
+        const matchContact = a.contactName?.toLowerCase().includes(q);
+        const matchPhone = a.contactPhone?.toLowerCase().includes(q);
+        const matchAccount = a.accountName?.toLowerCase().includes(q);
+        const matchOp = a.operatorName?.toLowerCase().includes(q);
+        const matchDeal = a.deal?.title?.toLowerCase().includes(q);
+        const matchSummary = a.summary?.toLowerCase().includes(q);
+        const matchInsight = a.actionableInsight?.toLowerCase().includes(q);
+        if (
+          !matchContact &&
+          !matchPhone &&
+          !matchAccount &&
+          !matchOp &&
+          !matchDeal &&
+          !matchSummary &&
+          !matchInsight
+        ) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    return [...list].sort((a, b) => {
+      if (sortBy === "score_asc") {
+        const sa = a.performanceScore ?? 999;
+        const sb = b.performanceScore ?? 999;
+        if (sa !== sb) return sa - sb;
+      } else if (sortBy === "score_desc") {
+        const sa = a.performanceScore ?? -1;
+        const sb = b.performanceScore ?? -1;
+        if (sb !== sa) return sb - sa;
+      } else if (sortBy === "deal_value") {
+        const va = Number(a.deal?.value ?? 0);
+        const vb = Number(b.deal?.value ?? 0);
+        if (vb !== va) return vb - va;
+      } else if (sortBy === "flags_desc") {
+        if (b.flagCount !== a.flagCount) return b.flagCount - a.flagCount;
+        const sa = a.performanceScore ?? 999;
+        const sb = b.performanceScore ?? 999;
+        if (sa !== sb) return sa - sb;
+      }
+      const ta = a.auditedAt ? new Date(a.auditedAt).getTime() : 0;
+      const tb = b.auditedAt ? new Date(b.auditedAt).getTime() : 0;
+      return tb - ta;
+    });
+  }, [audits, qualityFilter, searchQuery, sortBy]);
+
+  // Operadores disponíveis para o dropdown de filtro
+  const operatorSelectList = useMemo(() => {
+    if (operatorRanking.length > 0) {
+      return operatorRanking.map((r) => ({
+        operatorId: r.operatorId,
+        operatorName: r.operatorName,
+        status: r.isOnline ? "disponivel" : "ausente",
+        isOnline: r.isOnline,
+        waitingReplyCount: r.flagCount,
+      }));
+    }
+    return operators.map((o) => ({
+      operatorId: o.operatorId,
+      operatorName: o.operatorName,
+      status: o.status,
+    }));
+  }, [operatorRanking, operators]);
+
+  function renderAuditSentimentBadge(sentiment?: string | null, compact = false) {
+    if (sentiment === "satisfeito") {
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary border border-primary/20 font-bold ${
+            compact ? "px-1.5 py-0.5 text-[9px]" : "px-2.5 py-0.5 text-[10px]"
+          }`}
+        >
+          <Smile className="h-3 w-3 shrink-0" />
+          <span>Satisfeito</span>
+        </span>
+      );
+    }
+    if (sentiment === "frustrado") {
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground font-extrabold ${
+            compact ? "px-1.5 py-0.5 text-[9px]" : "px-2.5 py-0.5 text-[10px]"
+          }`}
+        >
+          <Frown className="h-3 w-3 shrink-0" />
+          <span>Frustrado</span>
+        </span>
+      );
+    }
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded-full bg-muted text-muted-foreground border border-border font-semibold ${
+          compact ? "px-1.5 py-0.5 text-[9px]" : "px-2.5 py-0.5 text-[10px]"
+        }`}
+      >
+        <Meh className="h-3 w-3 shrink-0" />
+        <span>Neutro</span>
+      </span>
+    );
   }
 
-  // ── Badge de status para auditorias não concluídas ────────────────────────
-  function AuditStatusBadge({ status }: { status: string }) {
-    if (status === "done") return null;
-    if (status === "processing") return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-[10px] font-extrabold">
-        <Cpu className="h-3 w-3 animate-pulse" /> Processando
-      </span>
-    );
-    if (status === "pending") return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border text-[10px] font-extrabold">
-        <Clock className="h-3 w-3" /> Pendente
-      </span>
-    );
+  function AuditStatusBadge({ status }: { status?: string }) {
+    if (!status || status === "done") return null;
+    if (status === "processing") {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-[10px] font-extrabold">
+          <Cpu className="h-3 w-3 animate-pulse" /> Processando IA
+        </span>
+      );
+    }
+    if (status === "pending") {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border text-[10px] font-extrabold">
+          <Clock className="h-3 w-3" /> Na Fila
+        </span>
+      );
+    }
     return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted/60 text-foreground border border-border text-[10px] font-extrabold">
-        <XCircle className="h-3 w-3" /> Erro
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 text-foreground border border-border text-[10px] font-extrabold">
+        <XCircle className="h-3 w-3 text-primary" /> Erro
       </span>
     );
   }
 
   return (
-    <div className="flex flex-col h-full gap-3 overflow-hidden">
-
-      {/* ── Toolbar de Filtros ─────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 shrink-0 flex-wrap pb-1 border-b border-line">
-
-        {/* Tabs de Status */}
-        <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1 shrink-0">
-          {(["done", "pending", "error"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                statusFilter === s
-                  ? "bg-card shadow-sm text-foreground border border-border/50"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "done" ? (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                  <span>Concluídas</span>
-                </>
-              ) : s === "pending" ? (
-                <>
-                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Pendentes</span>
-                </>
-              ) : (
-                <>
-                  <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Com Erro</span>
-                </>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Date Picker */}
-        <div className="w-36 shrink-0">
-          <LiveDatePicker value={dateFilter} onChange={setDateFilter} />
-        </div>
-
-        {/* Operator Dropdown (só aparece se houver operadores) */}
-        {operators.length > 0 && (
-          <LiveOperatorSelect
-            value={operatorIdFilter}
-            onChange={setOperatorIdFilter}
-            operators={operators as any}
-          />
-        )}
-
-        {/* Chips de filtros ativos */}
-        {(dateFilter || operatorIdFilter) && (
-          <div className="flex items-center gap-1">
-            {dateFilter && (
-              <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
-                {new Date(dateFilter + "T12:00:00").toLocaleDateString("pt-BR")}
-                <button onClick={() => setDateFilter("")} className="cursor-pointer">
-                  <X className="h-2.5 w-2.5" />
-                </button>
+    <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scrollbar-thin pr-1 space-y-3.5 pb-4">
+      {/* ── BLOCO 1: COCKPIT EXECUTIVO DE QUALIDADE DA DIRETORIA (4 KPIs) ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 shrink-0">
+        {/* KPI 1: Score Médio de Qualidade (QA) */}
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter("done");
+            setQualityFilter((prev) => (prev === "critical" ? "all" : "critical"));
+          }}
+          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
+            qualityFilter === "critical"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Score Médio de Qualidade (QA)
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <ShieldCheck className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-2xl font-black text-foreground">
+              {summary.avgScore !== null ? `${summary.avgScore}/100` : "–"}
+            </span>
+            {summary.criticalCount > 0 && (
+              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary text-primary-foreground animate-pulse">
+                {summary.criticalCount} crítico{summary.criticalCount !== 1 ? "s" : ""} (&lt;60)
               </span>
             )}
-            {operatorIdFilter && (
-              <span className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
-                {operators.find((o) => o.operatorId === operatorIdFilter)?.operatorName ?? "Operador"}
-                <button onClick={() => setOperatorIdFilter("")} className="cursor-pointer">
-                  <X className="h-2.5 w-2.5" />
-                </button>
+            {summary.excellentCount > 0 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20">
+                {summary.excellentCount} excelente{summary.excellentCount !== 1 ? "s" : ""} (80+)
               </span>
             )}
           </div>
-        )}
+          <p className="text-[10px] text-muted-foreground truncate">
+            {summary.totalAudited > 0
+              ? `${summary.totalAudited} atendimento(s) auditado(s) · ${summary.attentionCount} em atenção (60–79)`
+              : statusCounts.pending > 0
+              ? `${statusCounts.pending} atendimento(s) em análise pela IA neste momento`
+              : "Clique em 'Auditar Atendimentos' para avaliar as conversas"}
+          </p>
+        </button>
 
-        {/* Refresh + contador */}
-        <div className="ml-auto flex items-center gap-2">
-          {!loading && (
-            <span className="text-[10px] text-muted-foreground">
-              {audits.length} resultado{audits.length !== 1 ? "s" : ""}
-              {lastRefresh && ` · ${lastRefresh.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
+        {/* KPI 2: Sentimento & Experiência do Cliente */}
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter("done");
+            setQualityFilter((prev) => (prev === "frustrated" ? "all" : "frustrated"));
+          }}
+          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
+            qualityFilter === "frustrated"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Sentimento dos Clientes
             </span>
-          )}
-          {/* Botão Reprocessar Todos (apenas na aba Com Erro e com resultados) */}
-          {statusFilter === "error" && audits.length > 0 && (
-            <button
-              onClick={retryAll}
-              disabled={retrying || loading}
-              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary hover:opacity-90 bg-primary/10 border border-primary/20 px-2.5 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-40"
-            >
-              {retrying
-                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                : <Activity className="h-3.5 w-3.5" />
-              }
-              Reprocessar Todos
-            </button>
-          )}
-          <button
-            onClick={fetchAudits}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted px-2.5 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-40"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
-          </button>
-        </div>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Smile className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-2xl font-black text-foreground">
+              {summary.satisfactionPct !== null ? `${summary.satisfactionPct}%` : "–"}
+            </span>
+            <span className="text-[10px] font-semibold text-muted-foreground">
+              de aprovação
+            </span>
+            {summary.frustratedCount > 0 && (
+              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary text-primary-foreground">
+                {summary.frustratedCount} frustrado{summary.frustratedCount !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground truncate">
+            Satisfeitos: <strong className="text-foreground">{summary.satisfiedCount}</strong> ·
+            Neutros: <strong className="text-foreground">{summary.neutralCount}</strong> ·
+            Frustrados: <strong className="text-foreground">{summary.frustratedCount}</strong>
+          </p>
+        </button>
+
+        {/* KPI 3: Receita Auditada & Risco Comercial no CRM */}
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter("done");
+            setSortBy((prev) => (prev === "deal_value" ? "recent" : "deal_value"));
+          }}
+          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
+            sortBy === "deal_value"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Receita Auditada & Risco CRM
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <Briefcase className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-xl font-black text-foreground truncate">
+              {summary.auditedPipelineValue.toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+                maximumFractionDigits: 0,
+              })}
+            </span>
+            {summary.atRiskPipelineValue > 0 && (
+              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/25">
+                {summary.atRiskPipelineValue.toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                  maximumFractionDigits: 0,
+                })}{" "}
+                em risco
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground truncate">
+            <strong className="text-foreground">{summary.atRiskDealsCount}</strong> negócio(s) com
+            alerta QA · Ganhas:{" "}
+            <strong className="text-foreground">{summary.wonDealsAuditedCount}</strong> · Perdidas:{" "}
+            <strong className="text-foreground">{summary.lostDealsAuditedCount}</strong>
+          </p>
+        </button>
+
+        {/* KPI 4: Raio-X de Falhas Operacionais (Top Ofensores) */}
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter("done");
+            setQualityFilter((prev) => (prev === "with_flags" ? "all" : "with_flags"));
+          }}
+          className={`text-left bg-card rounded-2xl p-4 border shadow-soft transition cursor-pointer flex flex-col justify-between gap-2 ${
+            qualityFilter === "with_flags"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Incidência de Falhas QA
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-2xl font-black text-foreground">
+              {summary.totalFlagsCount}
+            </span>
+            <span className="text-[10px] font-semibold text-muted-foreground">
+              apontamentos da IA
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground truncate">
+            S/ Follow-up: <strong className="text-foreground">{summary.noFollowUpCount}</strong> ·
+            Demora: <strong className="text-foreground">{summary.longGapCount}</strong> · Objeção:{" "}
+            <strong className="text-foreground">{summary.missedObjectionCount}</strong> · Postura:{" "}
+            <strong className="text-foreground">{summary.rudeLanguageCount}</strong>
+          </p>
+        </button>
       </div>
 
-      {/* ── Conteúdo ──────────────────────────────────────────────────────── */}
-      {loading ? (
-        <div className="flex flex-1 items-center justify-center">
-          <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground/40" />
-        </div>
-      ) : audits.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
-          <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-            <Zap className="h-8 w-8 text-primary/50" />
-          </div>
-          <div className="text-center max-w-sm">
-            <p className="font-bold text-foreground mb-1">Nenhuma auditoria ainda</p>
-            <p className="text-sm">
-              {statusFilter === "done"
-                ? "As auditorias aparecem automaticamente quando atendimentos são finalizados."
-                : statusFilter === "pending"
-                ? "Nenhum atendimento aguardando processamento no momento."
-                : "Nenhum erro de processamento encontrado."}
-            </p>
-            {(dateFilter || operatorIdFilter) && (
+      {/* ── BLOCO 2: FAIXA DE QUALIDADE POR CONSULTOR (CLICÁVEL) ──────────── */}
+      {operatorRanking.length > 0 && (
+        <div className="bg-card rounded-2xl border border-border shadow-soft px-4 py-3 shrink-0">
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-2">
+              <Users className="h-3.5 w-3.5 text-primary" />
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-foreground">
+                Qualidade & Incidência de Falhas por Consultor
+              </span>
+              <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                (Ordenado por prioridade de atenção · Clique para filtrar)
+              </span>
+            </div>
+            {operatorIdFilter && (
               <button
-                onClick={() => { setDateFilter(""); setOperatorIdFilter(""); }}
-                className="mt-3 text-xs text-primary font-semibold underline cursor-pointer hover:opacity-75 transition"
+                type="button"
+                onClick={() => setOperatorIdFilter("")}
+                className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
               >
-                Limpar filtros
+                Limpar filtro de consultor
               </button>
             )}
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
+            {operatorRanking.map((op) => {
+              const isSelected = operatorIdFilter === op.operatorId;
+              return (
+                <SystemTooltip
+                  key={op.operatorId}
+                  content={`${op.operatorName} · Score Médio: ${op.avgScore}/100 · ${op.auditedCount} auditoria(s) · ${op.flagCount} falha(s) detectada(s)`}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOperatorIdFilter((prev) =>
+                        prev === op.operatorId ? "" : op.operatorId,
+                      )
+                    }
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition cursor-pointer shrink-0 ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-muted/30 hover:bg-muted/60 text-foreground border-border"
+                    }`}
+                  >
+                    <div className="relative shrink-0">
+                      <Avatar name={op.operatorName} avatar={op.operatorAvatar} size="sm" />
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card ${
+                          op.isOnline ? "bg-primary" : "bg-muted-foreground/45"
+                        }`}
+                      />
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-extrabold truncate max-w-[125px]">
+                          {op.operatorName}
+                        </span>
+                        <span
+                          className={`text-[10px] font-black px-1.5 py-0.2 rounded-md ${
+                            isSelected
+                              ? "bg-white/25 text-white"
+                              : op.avgScore >= 75
+                              ? "bg-primary/15 text-primary"
+                              : "bg-muted text-foreground border border-border"
+                          }`}
+                        >
+                          {op.avgScore} pts
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5 text-[10px]">
+                        <span
+                          className={
+                            isSelected ? "text-primary-foreground/90" : "text-muted-foreground"
+                          }
+                        >
+                          {op.auditedCount} aud.
+                        </span>
+                        {op.flagCount > 0 && (
+                          <span
+                            className={`font-extrabold ${
+                              isSelected ? "text-white" : "text-primary"
+                            }`}
+                          >
+                            · {op.flagCount} falha{op.flagCount !== 1 ? "s" : ""}
+                          </span>
+                        )}
+                        {op.frustratedCount > 0 && (
+                          <span
+                            className={`px-1 rounded text-[9px] font-extrabold ${
+                              isSelected
+                                ? "bg-white/25 text-white"
+                                : "bg-primary text-primary-foreground"
+                            }`}
+                          >
+                            {op.frustratedCount} frustr.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                </SystemTooltip>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── BLOCO 3: BARRA DE COMANDO E FILTROS EXECUTIVOS ────────────────── */}
+      <div className="bg-card rounded-2xl border border-border shadow-soft p-3.5 space-y-3 shrink-0">
+        {/* Linha Superior: Status Tabs + Período Rápido + Data + Ações IA */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Abas de Status com Contadores Reais */}
+          <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1 shrink-0">
+            {(
+              [
+                {
+                  id: "done" as const,
+                  label: "Concluídas",
+                  count: statusCounts.done,
+                  icon: CheckCircle2,
+                },
+                {
+                  id: "pending" as const,
+                  label: statusCounts.processing > 0 ? "Processando IA" : "Na Fila",
+                  count: statusCounts.pending,
+                  icon: statusCounts.processing > 0 ? Cpu : Clock,
+                },
+                {
+                  id: "error" as const,
+                  label: "Com Erro",
+                  count: statusCounts.error,
+                  icon: XCircle,
+                },
+              ]
+            ).map((s) => {
+              const Icon = s.icon;
+              const active = statusFilter === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(s.id);
+                    setSelected(null);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                    active
+                      ? "bg-card shadow-sm text-foreground border border-border/60"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon
+                    className={`h-3.5 w-3.5 ${
+                      active || s.id === "done" ? "text-primary" : "text-muted-foreground"
+                    } ${s.id === "pending" && statusCounts.processing > 0 ? "animate-spin" : ""}`}
+                  />
+                  <span>{s.label}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold ${
+                      active
+                        ? "bg-primary/15 text-primary"
+                        : s.count > 0
+                        ? "bg-muted text-foreground"
+                        : "bg-muted/60 text-muted-foreground"
+                    }`}
+                  >
+                    {s.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Seletor de Período Rápido */}
+          <div className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 shrink-0">
+            {(
+              [
+                { id: "all" as const, label: "Tudo" },
+                { id: "today" as const, label: "Hoje" },
+                { id: "7d" as const, label: "7 dias" },
+                { id: "30d" as const, label: "30 dias" },
+              ]
+            ).map((p) => {
+              const active = !dateFilter && periodFilter === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setDateFilter("");
+                    setPeriodFilter(p.id);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                    active
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Date Picker Específico */}
+          <div className="w-36 shrink-0">
+            <LiveDatePicker
+              value={dateFilter}
+              onChange={(val) => {
+                setDateFilter(val);
+                if (val) setPeriodFilter("all");
+              }}
+            />
+          </div>
+
+          {/* Ações à Direita: Auditar Agora + Reprocessar + Atualizar */}
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            {!loading && (
+              <span className="text-[10px] text-muted-foreground hidden xl:inline">
+                {filteredAudits.length} resultado{filteredAudits.length !== 1 ? "s" : ""}
+                {lastRefresh &&
+                  ` · ${lastRefresh.toLocaleTimeString("pt-BR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`}
+              </span>
+            )}
+
+            {statusFilter === "error" && audits.length > 0 && (
+              <button
+                type="button"
+                onClick={retryAll}
+                disabled={retrying || loading}
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-primary hover:opacity-90 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-xl transition cursor-pointer disabled:opacity-40"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${retrying ? "animate-spin" : ""}`} />
+                <span>Reprocessar Todos</span>
+              </button>
+            )}
+
+            <SystemTooltip
+              content={
+                statusCounts.eligibleUnauditedCount > 0
+                  ? `Existem ${statusCounts.eligibleUnauditedCount} atendimento(s) com diálogo real prontos para serem auditados pela IA (${aiPersona.name})`
+                  : `Verificar e auditar novos atendimentos da operação com ${aiPersona.name} IA`
+              }
+            >
+              <button
+                type="button"
+                onClick={() => handleScanAndEnqueue(false)}
+                disabled={scanningEligible}
+                className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-primary-foreground bg-primary hover:opacity-95 px-3 py-1.5 rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50"
+              >
+                {scanningEligible ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                <span>Auditar Atendimentos</span>
+                {statusCounts.eligibleUnauditedCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-white/25 text-white text-[9px] font-black">
+                    +{statusCounts.eligibleUnauditedCount}
+                  </span>
+                )}
+              </button>
+            </SystemTooltip>
+
+            <button
+              type="button"
+              onClick={() => fetchAudits(false)}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-foreground bg-muted/50 hover:bg-muted border border-border px-2.5 py-1.5 rounded-xl transition cursor-pointer disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 text-primary ${loading ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">Atualizar</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Linha Inferior: Pílulas de Filtro de Qualidade/Falha + Busca + Consultor + Ordenação */}
+        {statusFilter === "done" && (
+          <div className="space-y-2.5 pt-2 border-t border-border/60">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+              {(
+                [
+                  { id: "all" as const, label: "Todas", count: qualityCounts.all, icon: Layers },
+                  {
+                    id: "critical" as const,
+                    label: "Críticas (<60)",
+                    count: qualityCounts.critical,
+                    icon: Flame,
+                  },
+                  {
+                    id: "frustrated" as const,
+                    label: "Cliente Frustrado",
+                    count: qualityCounts.frustrated,
+                    icon: Frown,
+                  },
+                  {
+                    id: "with_flags" as const,
+                    label: "Com Falhas QA",
+                    count: qualityCounts.with_flags,
+                    icon: AlertTriangle,
+                  },
+                  {
+                    id: "no_followup" as const,
+                    label: "Sem Follow-up",
+                    count: qualityCounts.no_followup,
+                    icon: Minus,
+                  },
+                  {
+                    id: "long_gap" as const,
+                    label: "Demora (>15m)",
+                    count: qualityCounts.long_gap,
+                    icon: Clock,
+                  },
+                  {
+                    id: "missed_objection" as const,
+                    label: "Objeção Ignorada",
+                    count: qualityCounts.missed_objection,
+                    icon: XCircle,
+                  },
+                  {
+                    id: "excellent" as const,
+                    label: "Excelentes (80+)",
+                    count: qualityCounts.excellent,
+                    icon: CheckCircle2,
+                  },
+                ]
+              ).map((pill) => {
+                const Icon = pill.icon;
+                const active = qualityFilter === pill.id;
+                return (
+                  <button
+                    key={pill.id}
+                    type="button"
+                    onClick={() => setQualityFilter(pill.id)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold transition cursor-pointer shrink-0 border ${
+                      active
+                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                        : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border"
+                    }`}
+                  >
+                    <Icon className="h-3 w-3 shrink-0" />
+                    <span>{pill.label}</span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold ${
+                        active
+                          ? "bg-white/25 text-white"
+                          : pill.count > 0
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {pill.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Buscar cliente, empresa, consultor, negociação, resumo ou insight da IA..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-muted/40 border border-border rounded-xl pl-8 pr-7 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {operatorSelectList.length > 0 && (
+                <div className="w-52 shrink-0">
+                  <LiveOperatorSelect
+                    value={operatorIdFilter}
+                    onChange={setOperatorIdFilter}
+                    operators={operatorSelectList as any}
+                  />
+                </div>
+              )}
+
+              <AuditsSortSelect value={sortBy} onChange={setSortBy} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── BLOCO 4: CONTEÚDO PRINCIPAL (LISTA + COCKPIT OVERVIEW / DETALHE 360º) ── */}
+      {loading && audits.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center py-16 gap-3 text-muted-foreground bg-card rounded-2xl border border-border">
+          <RefreshCw className="h-6 w-6 animate-spin text-primary" />
+          <span className="text-xs font-semibold">
+            Carregando auditorias de qualidade e cruzando negociações do CRM...
+          </span>
+        </div>
+      ) : filteredAudits.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center py-14 px-4 gap-4 text-muted-foreground bg-card rounded-2xl border border-border">
+          <div className="h-14 w-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+            {statusCounts.pending > 0 ? (
+              <Cpu className="h-7 w-7 text-primary animate-pulse" />
+            ) : (
+              <Zap className="h-7 w-7 text-primary" />
+            )}
+          </div>
+          <div className="text-center max-w-md space-y-1.5">
+            <p className="font-extrabold text-foreground text-sm">
+              {statusFilter === "done" && statusCounts.pending > 0
+                ? `A Vertex AI está processando ${statusCounts.pending} auditoria(s) neste instante`
+                : statusFilter === "done" && statusCounts.eligibleUnauditedCount > 0
+                ? `${statusCounts.eligibleUnauditedCount} atendimento(s) prontos para auditoria imediata`
+                : statusFilter === "done"
+                ? "Nenhuma auditoria encontrada para os filtros atuais"
+                : statusFilter === "pending"
+                ? "Nenhum atendimento aguardando processamento na fila"
+                : "Nenhum erro de processamento encontrado"}
+            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {statusFilter === "done" && statusCounts.pending > 0
+                ? "Os diagnósticos de qualidade, score por pilar e insights para a Diretoria aparecerão aqui automaticamente assim que concluídos."
+                : statusFilter === "done" && statusCounts.eligibleUnauditedCount > 0
+                ? "Clique no botão abaixo para auditar imediatamente os atendimentos recentes com diálogo entre cliente e consultor."
+                : statusFilter === "done"
+                ? "As auditorias são geradas automaticamente ao finalizar atendimentos, ao fechar negócios (Venda/Perda) no CRM ou sob demanda."
+                : statusFilter === "pending"
+                ? "Você pode enviar novos atendimentos recentes para análise clicando em 'Auditar Atendimentos'."
+                : "Todas as auditorias da fila foram processadas sem falhas."}
+            </p>
+
+            <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
+              {statusFilter === "done" && statusCounts.pending > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("pending")}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground border border-border text-xs font-bold transition cursor-pointer"
+                >
+                  <Clock className="h-3.5 w-3.5 text-primary" />
+                  <span>Ver Fila de Processamento ({statusCounts.pending})</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handleScanAndEnqueue(false)}
+                disabled={scanningEligible}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-95 text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50"
+              >
+                {scanningEligible ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                <span>
+                  {statusCounts.eligibleUnauditedCount > 0
+                    ? `Auditar ${statusCounts.eligibleUnauditedCount} Atendimento(s) Agora`
+                    : "Buscar & Auditar Atendimentos Recentes"}
+                </span>
+              </button>
+
+              {(dateFilter ||
+                periodFilter !== "all" ||
+                operatorIdFilter ||
+                qualityFilter !== "all" ||
+                searchQuery) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFilter("");
+                    setPeriodFilter("all");
+                    setOperatorIdFilter("");
+                    setQualityFilter("all");
+                    setSearchQuery("");
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-muted/50 hover:bg-muted text-primary text-xs font-bold transition cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Limpar filtros</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       ) : (
-        <div className="flex gap-4 flex-1 overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-[520px]">
+          {/* ── COLUNA ESQUERDA: LISTA DE AUDITORIAS 360º (4 colunas) ──────── */}
+          <div className="lg:col-span-4 flex flex-col gap-2.5 max-h-[720px] overflow-y-auto scrollbar-thin pr-1">
+            {filteredAudits.map((audit) => {
+              const isSelected = selected?.id === audit.id;
+              const isCritical =
+                audit.performanceScore !== null && audit.performanceScore < 60;
+              const dealVal = Number(audit.deal?.value ?? 0);
 
-          {/* Lista de auditorias */}
-          <div className="w-64 shrink-0 flex flex-col gap-2 overflow-y-auto scrollbar-thin pr-1">
-            {audits.map((audit) => (
-              <button
-                key={audit.id}
-                onClick={() => {
-                  setSelected(audit);
-                  if (onSelectAudit) onSelectAudit(audit.id);
-                }}
-                className={`w-full text-left p-3.5 rounded-2xl border transition cursor-pointer ${
-                  selected?.id === audit.id
-                    ? "border-primary bg-primary/5"
-                    : "border-border bg-card hover:bg-muted/50"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-foreground truncate max-w-[110px]">
-                    {audit.contactName ?? "Desconhecido"}
-                  </span>
-                  {audit.performanceScore !== null
-                    ? <ScoreBadge score={audit.performanceScore} />
-                    : <AuditStatusBadge status={audit.status} />
-                  }
-                </div>
-                <p className="text-[10px] text-muted-foreground truncate">{audit.operatorName}</p>
-                <div className="flex items-center gap-1 mt-2">
-                  <span className="text-sm">{renderAuditSentiment(audit.clientSentiment)}</span>
-                  {audit.flagCount > 0 && (
-                    <span className="text-[10px] font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded-md border border-border">
-                      {audit.flagCount} falha{audit.flagCount > 1 ? "s" : ""}
-                    </span>
+              return (
+                <button
+                  key={audit.id}
+                  type="button"
+                  onClick={() => {
+                    setSelected(audit);
+                    setInspectOpen(false);
+                    setWhisperOpen(false);
+                    if (onSelectAudit) onSelectAudit(audit.id);
+                  }}
+                  className={`w-full text-left p-3.5 rounded-2xl border transition cursor-pointer flex flex-col gap-2 ${
+                    isSelected
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : isCritical
+                      ? "border-primary/35 bg-card hover:bg-muted/40"
+                      : "border-border bg-card hover:bg-muted/40"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <Avatar
+                        name={audit.contactName || "Cliente"}
+                        avatar={audit.contactAvatar}
+                        size="sm"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-extrabold text-foreground truncate">
+                          {audit.contactName ?? "Cliente"}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
+                          <span>Consultor: {audit.operatorName}</span>
+                          {audit.accountName && (
+                            <span className="truncate">· {audit.accountName}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {audit.performanceScore !== null ? (
+                      <ScoreBadge score={audit.performanceScore} />
+                    ) : (
+                      <AuditStatusBadge status={audit.status} />
+                    )}
+                  </div>
+
+                  {audit.summary && (
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                      {audit.summary}
+                    </p>
                   )}
-                  {audit.auditedAt && (
-                    <span className="ml-auto text-[10px] text-muted-foreground">
-                      {new Date(audit.auditedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
-                    </span>
-                  )}
-                </div>
-              </button>
-            ))}
+
+                  <div className="flex items-center flex-wrap gap-1.5 pt-1 border-t border-border/50">
+                    {audit.status === "done" &&
+                      renderAuditSentimentBadge(audit.clientSentiment, true)}
+
+                    {audit.flagCount > 0 && (
+                      <span className="text-[9px] font-extrabold text-primary bg-primary/10 px-1.5 py-0.5 rounded-md border border-primary/20">
+                        {audit.flagCount} falha{audit.flagCount > 1 ? "s" : ""}
+                      </span>
+                    )}
+
+                    {dealVal > 0 && (
+                      <span className="text-[9px] font-bold text-foreground bg-muted px-1.5 py-0.5 rounded-md border border-border">
+                        {dealVal.toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                          maximumFractionDigits: 0,
+                        })}
+                      </span>
+                    )}
+
+                    {(audit.auditedAt || audit.createdAt) && (
+                      <span className="ml-auto text-[9px] text-muted-foreground font-medium">
+                        {new Date(
+                          (audit.auditedAt || audit.createdAt) as string,
+                        ).toLocaleString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Painel de Detalhe */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {/* ── COLUNA DIREITA: OVERVIEW DA DIRETORIA OU FICHA 360º (8 colunas) ── */}
+          <div className="lg:col-span-8 flex flex-col min-w-0">
             {!selected ? (
-              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                Selecione uma auditoria para ver o detalhe
+              /* ── MODO 1: COCKPIT OVERVIEW ANALÍTICO DA DIRETORIA ──────── */
+              <div className="bg-card rounded-2xl border border-border shadow-soft p-5 space-y-5 flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border">
+                  <div>
+                    <h2 className="text-sm font-extrabold text-foreground flex items-center gap-2">
+                      <LayoutDashboard className="h-4 w-4 text-primary" />
+                      <span>Visão Geral Executiva de Qualidade Comercial (QA)</span>
+                    </h2>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Diagnóstico consolidado dos 4 pilares comerciais, atendimentos que exigem
+                      intervenção imediata e exemplos de excelência.
+                    </p>
+                  </div>
+                  {filteredAudits.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelected(filteredAudits[0])}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/15 text-primary border border-primary/20 text-[11px] font-extrabold transition cursor-pointer"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      <span>Inspecionar 1ª Auditoria</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* 1. Desempenho Médio da Equipe nos 4 Pilares do Playbook */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                      Desempenho da Operação por Pilar do Playbook
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Ofensor principal:{" "}
+                      <strong className="text-primary">{summary.topFailureLabel}</strong>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {(
+                      [
+                        {
+                          label: "Agilidade & SLA",
+                          score: summary.avgPillarScores.agility,
+                          failText: `${summary.longGapCount} c/ demora >15m`,
+                          icon: Timer,
+                        },
+                        {
+                          label: "Qualificação Técnica",
+                          score: summary.avgPillarScores.qualification,
+                          failText: `${summary.rudeLanguageCount} falha(s) postura`,
+                          icon: Sparkles,
+                        },
+                        {
+                          label: "Gestão de Objeções",
+                          score: summary.avgPillarScores.objectionHandling,
+                          failText: `${summary.missedObjectionCount} objeção(ões) ignorada(s)`,
+                          icon: ShieldCheck,
+                        },
+                        {
+                          label: "Fechamento & Follow-up",
+                          score: summary.avgPillarScores.closingNextStep,
+                          failText: `${summary.noFollowUpCount} sem próximo passo`,
+                          icon: CheckCircle2,
+                        },
+                      ] as const
+                    ).map((p) => {
+                      const PIcon = p.icon;
+                      return (
+                        <div
+                          key={p.label}
+                          className="bg-muted/30 rounded-xl border border-border p-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
+                              <PIcon className="h-3.5 w-3.5 text-primary" />
+                              {p.label}
+                            </span>
+                            <span className="text-xs font-black text-foreground">
+                              {p.score}/100
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-primary transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.max(0, p.score))}%` }}
+                            />
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">{p.failText}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. Radar Duplo: Prioridades de Intervenção vs. Atendimentos Exemplares */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Coluna A: Prioridades de Intervenção da Diretoria */}
+                  <div className="bg-muted/20 rounded-2xl border border-border p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        <span>Prioridades de Intervenção (Críticos / Falhas)</span>
+                      </span>
+                    </div>
+                    {filteredAudits
+                      .filter(
+                        (a) =>
+                          (a.performanceScore !== null && a.performanceScore < 70) ||
+                          a.clientSentiment === "frustrado" ||
+                          a.flagCount > 0,
+                      )
+                      .sort(
+                        (a, b) =>
+                          (a.performanceScore ?? 100) - (b.performanceScore ?? 100),
+                      )
+                      .slice(0, 4)
+                      .map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setSelected(item)}
+                          className="w-full text-left p-2.5 rounded-xl bg-card hover:bg-muted/60 border border-border transition cursor-pointer flex flex-col gap-1"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-extrabold text-foreground truncate">
+                              {item.contactName} ·{" "}
+                              <span className="font-semibold text-muted-foreground">
+                                {item.operatorName}
+                              </span>
+                            </span>
+                            <ScoreBadge score={item.performanceScore} />
+                          </div>
+                          {item.actionableInsight && (
+                            <p className="text-[10px] text-primary font-semibold line-clamp-2">
+                              {item.actionableInsight}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                    {filteredAudits.filter(
+                      (a) =>
+                        (a.performanceScore !== null && a.performanceScore < 70) ||
+                        a.clientSentiment === "frustrado" ||
+                        a.flagCount > 0,
+                    ).length === 0 && (
+                      <p className="text-xs text-muted-foreground py-4 text-center">
+                        Nenhum atendimento crítico ou com falha registrado neste recorte.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Coluna B: Atendimentos Exemplares (Benchmarks de Treinamento) */}
+                  <div className="bg-muted/20 rounded-2xl border border-border p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                        <span>Destaques de Excelência (Score 80+)</span>
+                      </span>
+                    </div>
+                    {filteredAudits
+                      .filter(
+                        (a) => a.performanceScore !== null && a.performanceScore >= 80,
+                      )
+                      .sort(
+                        (a, b) =>
+                          (b.performanceScore ?? 0) - (a.performanceScore ?? 0),
+                      )
+                      .slice(0, 4)
+                      .map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setSelected(item)}
+                          className="w-full text-left p-2.5 rounded-xl bg-card hover:bg-muted/60 border border-border transition cursor-pointer flex flex-col gap-1"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-extrabold text-foreground truncate">
+                              {item.contactName} ·{" "}
+                              <span className="font-semibold text-muted-foreground">
+                                {item.operatorName}
+                              </span>
+                            </span>
+                            <ScoreBadge score={item.performanceScore} />
+                          </div>
+                          {item.strengths && (
+                            <p className="text-[10px] text-muted-foreground line-clamp-2">
+                              {item.strengths}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                    {filteredAudits.filter(
+                      (a) => a.performanceScore !== null && a.performanceScore >= 80,
+                    ).length === 0 && (
+                      <p className="text-xs text-muted-foreground py-4 text-center">
+                        Nenhum atendimento com score acima de 80 neste filtro.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             ) : (
+              /* ── MODO 2: FICHA DE AUDITORIA 360º SELECIONADA ─────────── */
               <motion.div
                 key={selected.id}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col gap-4"
+                className="bg-card rounded-2xl border border-border shadow-soft p-5 flex flex-col gap-4 flex-1"
               >
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-extrabold text-foreground text-base">
-                      {selected.contactName ?? "Desconhecido"}
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      Atendente: {selected.operatorName}
-                      {selected.auditedAt && ` · ${new Date(selected.auditedAt).toLocaleDateString("pt-BR")}`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span>{renderAuditSentiment(selected.clientSentiment)}</span>
-                    {selected.performanceScore !== null
-                      ? <ScoreBadge score={selected.performanceScore} />
-                      : <AuditStatusBadge status={selected.status} />
-                    }
+                {/* Barra de Topo: Voltar ao Overview + Reauditar */}
+                <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelected(null);
+                      if (onSelectAudit) onSelectAudit(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition cursor-pointer"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5 text-primary" />
+                    <span>Voltar ao Overview da Diretoria</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => retryAudit(selected.id, true)}
+                      disabled={retrying}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/60 hover:bg-muted text-foreground border border-border text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                    >
+                      <RotateCcw className={`h-3 w-3 text-primary ${retrying ? "animate-spin" : ""}`} />
+                      <span>Reauditar com IA</span>
+                    </button>
                   </div>
                 </div>
+
+                {/* Cabeçalho 360º do Atendimento Auditado */}
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <Avatar
+                      name={selected.contactName || "Cliente"}
+                      avatar={selected.contactAvatar}
+                      size="lg"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="font-extrabold text-foreground text-base truncate">
+                          {selected.contactName ?? "Cliente"}
+                        </h2>
+                        {selected.accountName && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-muted text-foreground border border-border">
+                            <Building2 className="h-3 w-3 text-primary" />
+                            {selected.accountName}
+                          </span>
+                        )}
+                        {renderAuditSentimentBadge(selected.clientSentiment)}
+                      </div>
+                      <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground mt-1">
+                        <span className="inline-flex items-center gap-1 font-semibold text-foreground">
+                          <UserCheck className="h-3.5 w-3.5 text-primary" />
+                          {selected.operatorName}
+                        </span>
+                        {selected.contactPhone && <span>· {selected.contactPhone}</span>}
+                        {selected.auditedAt && (
+                          <span>
+                            · Auditado em{" "}
+                            {new Date(selected.auditedAt).toLocaleString("pt-BR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {selected.performanceScore !== null ? (
+                      <ScoreGauge score={selected.performanceScore} size={96} />
+                    ) : (
+                      <AuditStatusBadge status={selected.status} />
+                    )}
+                  </div>
+                </div>
+
+                {/* Barra de Contexto Comercial (CRM Deal + Métricas Reais de SLA da Conversa) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 bg-muted/30 rounded-xl border border-border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                        Negociação Vinculada no CRM
+                      </span>
+                      {selected.deal ? (
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span className="text-xs font-extrabold text-foreground truncate max-w-[180px]">
+                            {selected.deal.title}
+                          </span>
+                          <span className="text-xs font-black text-primary">
+                            {Number(selected.deal.value ?? 0).toLocaleString("pt-BR", {
+                              style: "currency",
+                              currency: "BRL",
+                            })}
+                          </span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-card border border-border text-muted-foreground uppercase">
+                            {selected.deal.status === "won"
+                              ? "Venda Ganha"
+                              : selected.deal.status === "lost"
+                              ? "Perdida"
+                              : "Em Aberto"}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Sem negociação vinculada
+                        </span>
+                      )}
+                    </div>
+                    {selected.deal && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDealModalId(selected.deal!.id)}
+                        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-card hover:bg-muted text-foreground border border-border text-[10px] font-bold transition cursor-pointer"
+                      >
+                        <ExternalLink className="h-3 w-3 text-primary" />
+                        <span>Abrir CRM</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 md:border-l md:border-border md:pl-3">
+                    <div>
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                        TMA da Conversa
+                      </span>
+                      <span className="text-xs font-bold text-foreground">
+                        {formatSecondsDuration(selected.slaMetrics?.avgResponseSeconds)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                        Maior Espera
+                      </span>
+                      <span className="text-xs font-bold text-foreground">
+                        {formatSecondsDuration(selected.slaMetrics?.maxResponseSeconds)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+                        Volume do Diálogo
+                      </span>
+                      <span className="text-xs font-bold text-foreground">
+                        {selected.slaMetrics?.messageCount ?? 0} msgs (
+                        {selected.slaMetrics?.clientMessageCount ?? 0} cli /{" "}
+                        {selected.slaMetrics?.agentMessageCount ?? 0} cons)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Barra de Ações Diretas da Diretoria (Espiar Transcrição + Sussurro ao Consultor) */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !inspectOpen;
+                      setInspectOpen(next);
+                      if (next && !fullHistoryByConv[selected.conversationId]) {
+                        handleLoadFullConversation(selected.conversationId);
+                      }
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      inspectOpen
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted/50 hover:bg-muted text-foreground border-border"
+                    }`}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span>
+                      {inspectOpen
+                        ? "Ocultar Conversa Auditada"
+                        : `Espiar Conversa Auditada (${
+                            selected.slaMetrics?.messageCount ||
+                            selected.recentMessages?.length ||
+                            0
+                          } msgs)`}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setWhisperOpen((o) => !o)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      whisperOpen
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-primary/10 hover:bg-primary/15 text-primary border-primary/25"
+                    }`}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    <span>Orientar / Cobrar Consultor (Sussurro)</span>
+                  </button>
+                </div>
+
+                {/* Gaveta 1: Sussurro / Orientação de Coaching em 1 Clique */}
+                <AnimatePresence>
+                  {whisperOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="bg-primary/5 border border-primary/25 rounded-2xl p-3.5 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            <span>
+                              Enviar Orientação Interna para {selected.operatorName} (Invisível para o
+                              cliente)
+                            </span>
+                          </span>
+                        </div>
+
+                        {/* Presets de 1 Clique baseados no diagnóstico da IA */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {selected.coachingMessageSuggestion && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSendAuditWhisper(
+                                  selected.conversationId,
+                                  selected.coachingMessageSuggestion!,
+                                )
+                              }
+                              disabled={sendingWhisper}
+                              className="text-left text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition cursor-pointer disabled:opacity-50"
+                            >
+                              Enviar Sugestão IA: &ldquo;
+                              {selected.coachingMessageSuggestion.slice(0, 85)}
+                              {selected.coachingMessageSuggestion.length > 85 ? "..." : ""}&rdquo;
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSendAuditWhisper(
+                                selected.conversationId,
+                                `Atenção neste atendimento (${selected.contactName}): retome o contato com o cliente e defina um próximo passo claro no CRM hoje.`,
+                              )
+                            }
+                            disabled={sendingWhisper}
+                            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-xl bg-card hover:bg-muted text-foreground border border-border transition cursor-pointer disabled:opacity-50"
+                          >
+                            Cobrar Follow-up / Próximo Passo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSendAuditWhisper(
+                                selected.conversationId,
+                                `Parabéns pela condução técnica e agilidade neste atendimento com ${selected.contactName}! Excelente referência comercial.`,
+                              )
+                            }
+                            disabled={sendingWhisper}
+                            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-xl bg-card hover:bg-muted text-foreground border border-border transition cursor-pointer disabled:opacity-50"
+                          >
+                            Elogiar Condução Comercial
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={whisperDraft}
+                            onChange={(e) => setWhisperDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && whisperDraft.trim()) {
+                                handleSendAuditWhisper(selected.conversationId, whisperDraft);
+                              }
+                            }}
+                            placeholder={`Escrever orientação personalizada para ${selected.operatorName}...`}
+                            className="flex-1 bg-card border border-border rounded-xl px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSendAuditWhisper(selected.conversationId, whisperDraft)
+                            }
+                            disabled={!whisperDraft.trim() || sendingWhisper}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-extrabold hover:opacity-90 transition cursor-pointer disabled:opacity-40"
+                          >
+                            {sendingWhisper ? (
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Send className="h-3.5 w-3.5" />
+                            )}
+                            <span>Enviar</span>
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Gaveta 2: Inspeção da Transcrição Completa e Áudios da Conversa */}
+                <AnimatePresence>
+                  {inspectOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="bg-muted/30 border border-border rounded-2xl p-3.5 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                            <Eye className="h-3.5 w-3.5 text-primary" />
+                            <span>Transcrição Real & Áudios do Atendimento Auditado</span>
+                          </span>
+                          {loadingHistoryConvId === selected.conversationId && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <RefreshCw className="h-3 w-3 animate-spin text-primary" />
+                              Sincronizando histórico completo...
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="max-h-80 overflow-y-auto scrollbar-thin space-y-2 pr-1">
+                          {(() => {
+                            const baseMsgs =
+                              fullHistoryByConv[selected.conversationId] ||
+                              selected.recentMessages ||
+                              [];
+                            const extraWhispers =
+                              localWhispersByConv[selected.conversationId] || [];
+                            const existingIds = new Set(baseMsgs.map((m) => m.id));
+                            const allMsgs = [
+                              ...baseMsgs,
+                              ...extraWhispers.filter((m) => !existingIds.has(m.id)),
+                            ];
+                            if (allMsgs.length === 0) {
+                              return (
+                                <p className="text-xs text-muted-foreground py-4 text-center">
+                                  Nenhuma mensagem encontrada para esta conversa.
+                                </p>
+                              );
+                            }
+                            return allMsgs.map((m) => {
+                              const isAgent =
+                                m.senderType === "agent" ||
+                                m.senderType === "bot" ||
+                                m.sender === "agent";
+                              return (
+                                <div
+                                  key={m.id}
+                                  className={`flex ${
+                                    m.senderType === "system"
+                                      ? "justify-center"
+                                      : isAgent
+                                      ? "justify-end"
+                                      : "justify-start"
+                                  }`}
+                                >
+                                  <LiveMessageBubble
+                                    msg={m}
+                                    isAgent={isAgent}
+                                    contactPhone={selected.contactPhone || undefined}
+                                  />
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* Estados de Pendente / Processando / Erro */}
                 {(selected.status === "pending" || selected.status === "processing") && (
                   <div className="bg-muted/50 border border-border rounded-2xl p-4 flex items-center gap-3">
-                    <RefreshCw className={`h-5 w-5 text-primary shrink-0 ${selected.status === "processing" ? "animate-spin" : ""}`} />
+                    <RefreshCw
+                      className={`h-5 w-5 text-primary shrink-0 ${
+                        selected.status === "processing" ? "animate-spin" : ""
+                      }`}
+                    />
                     <div>
                       <p className="text-sm font-semibold text-foreground">
-                        {selected.status === "processing" ? "Processando agora..." : "Aguardando processamento"}
+                        {selected.status === "processing"
+                          ? "A Vertex AI está auditando este atendimento agora..."
+                          : "Atendimento na fila para auditoria imediata"}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {selected.status === "processing"
-                          ? "A Vertex AI está analisando este atendimento. Atualize em alguns instantes."
-                          : "A IA irá analisar este atendimento no próximo ciclo (a cada 5 minutos)."}
+                        A página será atualizada automaticamente assim que a nota e os insights
+                        forem gerados.
                       </p>
                     </div>
                   </div>
                 )}
+
                 {selected.status === "error" && (
                   <div className="bg-muted/40 border border-border rounded-2xl p-4 flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-1 flex items-center gap-1">
                         <AlertTriangle className="h-3 w-3" />
-                        <span>Erro no processamento</span>
+                        <span>Motivo da não conclusão</span>
                       </p>
-                      <p className="text-sm text-foreground break-words">{selected.errorMessage ?? "Erro desconhecido durante a auditoria."}</p>
+                      <p className="text-sm text-foreground break-words">
+                        {selected.errorMessage ?? "Erro desconhecido durante a auditoria."}
+                      </p>
                     </div>
                     <button
-                      onClick={() => retryAudit(selected.id)}
+                      type="button"
+                      onClick={() => retryAudit(selected.id, true)}
                       disabled={retrying}
                       className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-bold text-primary-foreground bg-primary hover:opacity-90 px-3 py-1.5 rounded-lg transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
                     >
-                      {retrying
-                        ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        : <Activity className="h-3.5 w-3.5" />
-                      }
-                      Reprocessar
+                      <RefreshCw className={`h-3.5 w-3.5 ${retrying ? "animate-spin" : ""}`} />
+                      <span>Reprocessar</span>
                     </button>
                   </div>
                 )}
 
-                {/* Insight Acionável */}
+                {/* Insight Acionável para a Diretoria */}
                 {selected.actionableInsight && (
                   <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-1 flex items-center gap-1">
-                      <Zap className="h-3 w-3" />
-                      <span>Insight da IA para agir agora</span>
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-1 flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5" />
+                      <span>Recomendação Executiva da IA para Agir Hoje</span>
                     </p>
-                    <p className="text-sm font-semibold text-foreground">{selected.actionableInsight}</p>
+                    <p className="text-sm font-bold text-foreground leading-relaxed">
+                      {selected.actionableInsight}
+                    </p>
                   </div>
                 )}
 
-                {/* Flags de Problemas */}
-                {selected.flagCount > 0 && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {selected.hadLongResponseGap && (
-                      <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-xl px-3 py-2">
-                        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs font-semibold text-foreground">Demora excessiva</span>
+                {/* Notas dos 4 Pilares Avaliados + Checklist de Falhas */}
+                {selected.pillarScores && selected.status === "done" && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {(
+                      [
+                        {
+                          label: "Agilidade / SLA",
+                          score: selected.pillarScores.agility,
+                          failed: selected.hadLongResponseGap,
+                          failLabel: "Demora > 15m",
+                          okLabel: "Dentro do SLA",
+                        },
+                        {
+                          label: "Qualificação & Postura",
+                          score: selected.pillarScores.qualification,
+                          failed: selected.hadRudeLanguage,
+                          failLabel: "Postura inadequada",
+                          okLabel: "Postura adequada",
+                        },
+                        {
+                          label: "Gestão de Objeções",
+                          score: selected.pillarScores.objectionHandling,
+                          failed: selected.hadMissedObjection,
+                          failLabel: "Objeção ignorada",
+                          okLabel: "Dúvidas atendidas",
+                        },
+                        {
+                          label: "Fechamento / Follow-up",
+                          score: selected.pillarScores.closingNextStep,
+                          failed: selected.hadNoFollowUp,
+                          failLabel: "Sem próximo passo",
+                          okLabel: "Próximo passo claro",
+                        },
+                      ] as const
+                    ).map((pil) => (
+                      <div
+                        key={pil.label}
+                        className={`rounded-xl border p-3 space-y-1.5 ${
+                          pil.failed
+                            ? "bg-primary/5 border-primary/30"
+                            : "bg-muted/30 border-border"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-muted-foreground truncate">
+                            {pil.label}
+                          </span>
+                          <span className="text-xs font-black text-foreground">
+                            {pil.score}
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, Math.max(0, pil.score))}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] font-bold">
+                          {pil.failed ? (
+                            <>
+                              <AlertTriangle className="h-3 w-3 text-primary shrink-0" />
+                              <span className="text-primary truncate">{pil.failLabel}</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
+                              <span className="text-muted-foreground truncate">
+                                {pil.okLabel}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    )}
-                    {selected.hadMissedObjection && (
-                      <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-xl px-3 py-2">
-                        <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs font-semibold text-foreground">Objeção ignorada</span>
-                      </div>
-                    )}
-                    {selected.hadRudeLanguage && (
-                      <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-xl px-3 py-2">
-                        <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs font-semibold text-foreground">Linguagem inadequada</span>
-                      </div>
-                    )}
-                    {selected.hadNoFollowUp && (
-                      <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-xl px-3 py-2">
-                        <Minus className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs font-semibold text-foreground">Sem próximo passo</span>
-                      </div>
-                    )}
+                    ))}
                   </div>
                 )}
 
-                {/* Resumo */}
+                {/* Resumo Executivo */}
                 {selected.summary && (
                   <div className="bg-card border border-border rounded-2xl p-4">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground mb-2">Resumo</p>
-                    <p className="text-sm text-foreground leading-relaxed">{selected.summary}</p>
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground mb-1.5">
+                      Resumo Executivo do Atendimento
+                    </p>
+                    <p className="text-xs sm:text-sm text-foreground leading-relaxed">
+                      {selected.summary}
+                    </p>
                   </div>
                 )}
 
-                {/* Pontos Fortes e Fracos */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* Pontos Fortes e Falhas Detalhadas */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {selected.strengths && (
                     <div className="bg-primary/5 border border-primary/15 rounded-2xl p-4">
-                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-2 flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3 text-primary" />
-                        <span>Pontos Fortes</span>
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-primary mb-2 flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                        <span>Pontos Fortes (Acertos Específicos)</span>
                       </p>
-                      <p className="text-xs text-foreground/80 leading-relaxed">{selected.strengths}</p>
+                      <p className="text-xs text-foreground/90 leading-relaxed">
+                        {selected.strengths}
+                      </p>
                     </div>
                   )}
                   {selected.weaknesses && (
                     <div className="bg-muted/40 border border-border rounded-2xl p-4">
-                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-foreground mb-2 flex items-center gap-1">
-                        <XCircle className="h-3 w-3 text-muted-foreground" />
-                        <span>Falhas</span>
+                      <p className="text-[10px] font-extrabold uppercase tracking-wider text-foreground mb-2 flex items-center gap-1.5">
+                        <XCircle className="h-3.5 w-3.5 text-primary" />
+                        <span>Falhas & Oportunidades Perdidas</span>
                       </p>
-                      <p className="text-xs text-muted-foreground leading-relaxed">{selected.weaknesses}</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {selected.weaknesses}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -2706,6 +4355,15 @@ function AuditsTab({
             )}
           </div>
         </div>
+      )}
+
+      {/* Modal Nativo de Negociação do CRM */}
+      {selectedDealModalId && (
+        <DealDetailModal
+          dealId={selectedDealModalId}
+          onClose={() => setSelectedDealModalId(null)}
+          onDealUpdated={() => fetchAudits(true)}
+        />
       )}
     </div>
   );
