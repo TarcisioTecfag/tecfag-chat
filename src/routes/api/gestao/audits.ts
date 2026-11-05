@@ -163,27 +163,27 @@ export const Route = createFileRoute("/api/gestao/audits")({
           // Filtro temporal em fuso BRT (-03:00) usando COALESCE(audited_at, created_at)
           const timeFilters: any[] = [];
           if (date) {
-            const dayStart = new Date(`${date}T00:00:00.000-03:00`);
-            const dayEnd = new Date(`${date}T23:59:59.999-03:00`);
+            const dayStartIso = new Date(`${date}T00:00:00.000-03:00`).toISOString();
+            const dayEndIso = new Date(`${date}T23:59:59.999-03:00`).toISOString();
             timeFilters.push(
-              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) >= ${dayStart}`,
-              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) <= ${dayEnd}`,
+              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) >= ${dayStartIso}::timestamptz`,
+              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) <= ${dayEndIso}::timestamptz`,
             );
           } else if (period === "today") {
             const todayBrt = getBrtDateKey(new Date());
-            const dayStart = new Date(`${todayBrt}T00:00:00.000-03:00`);
+            const dayStartIso = new Date(`${todayBrt}T00:00:00.000-03:00`).toISOString();
             timeFilters.push(
-              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) >= ${dayStart}`,
+              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) >= ${dayStartIso}::timestamptz`,
             );
           } else if (period === "7d") {
-            const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
             timeFilters.push(
-              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) >= ${since}`,
+              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) >= ${sinceIso}::timestamptz`,
             );
           } else if (period === "30d") {
-            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+            const sinceIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
             timeFilters.push(
-              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) >= ${since}`,
+              sql`COALESCE(${aiConversationAudits.auditedAt}, ${aiConversationAudits.createdAt}) >= ${sinceIso}::timestamptz`,
             );
           }
 
@@ -338,42 +338,28 @@ export const Route = createFileRoute("/api/gestao/audits")({
               name: operators.name,
               avatar: operators.avatar,
               status: operators.status,
-              lastActivityAt: operators.lastActivityAt,
+              isOnline: operators.isOnline,
+              lastSeenAt: operators.lastSeenAt,
+              usageDate: operators.usageDate,
+              usageSecondsToday: operators.usageSecondsToday,
             })
             .from(operators)
             .where(eq(operators.tenantId, tenantId));
-
-          const presenceMap = await computeOperatorPresenceSnapshot(
-            tenantId,
-            allOps.map((o) => ({
-              id: o.id,
-              status: o.status,
-              lastActivityAt: o.lastActivityAt,
-            })),
-          );
 
           const operatorMap = new Map<
             string,
             { name: string; avatar: string | null; isOnline: boolean }
           >();
           for (const op of allOps) {
-            const pres = presenceMap.get(op.id);
+            const pres = computeOperatorPresenceSnapshot(op, tenantId, session.operator.id);
             operatorMap.set(op.id, {
               name: op.name,
               avatar: op.avatar ?? null,
-              isOnline: pres?.isOnline ?? false,
+              isOnline: pres.isOnline,
             });
           }
 
           // Hidrata negociações (CRM deals) vinculadas às conversas ou contatos em lote
-          const allContactIds = [
-            ...new Set(
-              Array.from(convMetaMap.values())
-                .map((m) => m.contactId)
-                .filter(Boolean),
-            ),
-          ] as string[];
-
           const dealByConvMap = new Map<
             string,
             LiveDealSummary & { lossReason?: string | null; winReason?: string | null }
@@ -388,44 +374,60 @@ export const Route = createFileRoute("/api/gestao/audits")({
               allConvIds.map((id) => sql`${id}`),
               sql`, `,
             );
-            const contactFilterSql =
-              allContactIds.length > 0
-                ? sql`OR d.contact_id IN (${sql.join(
-                    allContactIds.map((id) => sql`${id}`),
-                    sql`, `,
-                  )})`
-                : sql``;
 
-            const dealsRes = await db.execute(sql`
-              SELECT
-                d.id,
-                d.title,
-                d.amount,
-                d.status,
-                d.contact_id,
-                d.loss_reason,
-                d.win_reason,
-                p.name AS pipeline_name,
-                s.name AS stage_name,
-                cd.conversation_id
-              FROM crm_deals d
-              LEFT JOIN crm_pipelines p
-                ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
-              LEFT JOIN crm_pipeline_stages s
-                ON s.id = d.stage_id AND s.tenant_id = d.tenant_id
-              LEFT JOIN conversation_deals cd
-                ON cd.deal_id = d.id
-               AND cd.tenant_id = d.tenant_id
-               AND cd.conversation_id IN (${convIdSqlList})
-              WHERE d.tenant_id = ${tenantId}
-                AND (
-                  cd.conversation_id IS NOT NULL
-                  ${contactFilterSql}
-                )
-              ORDER BY
-                CASE d.status WHEN 'open' THEN 0 WHEN 'won' THEN 1 WHEN 'lost' THEN 2 ELSE 3 END,
-                d.updated_at DESC
-            `);
+            const dealsRes = await db
+              .execute(sql`
+                SELECT DISTINCT ON (conv_id)
+                  conv_id AS conversation_id,
+                  d.id,
+                  d.title,
+                  d.value,
+                  d.status,
+                  d.loss_reason,
+                  p.name AS pipeline_name,
+                  s.name AS stage_name
+                FROM (
+                  SELECT c.id AS conv_id, cdc.current_deal_id AS deal_id, 1 AS priority
+                  FROM conversations c
+                  INNER JOIN conversation_deal_contexts cdc
+                    ON cdc.conversation_id = c.id AND cdc.tenant_id = ${tenantId}
+                  WHERE c.tenant_id = ${tenantId}
+                    AND c.id IN (${convIdSqlList})
+                    AND cdc.current_deal_id IS NOT NULL
+
+                  UNION ALL
+
+                  SELECT ccd.conversation_id AS conv_id, ccd.deal_id AS deal_id, 2 AS priority
+                  FROM crm_conversation_deals ccd
+                  WHERE ccd.tenant_id = ${tenantId}
+                    AND ccd.conversation_id IN (${convIdSqlList})
+                    AND ccd.is_active = true
+
+                  UNION ALL
+
+                  SELECT c.id AS conv_id, dc.deal_id AS deal_id, 3 AS priority
+                  FROM conversations c
+                  INNER JOIN crm_deal_contacts dc
+                    ON dc.contact_id = c.contact_id AND dc.tenant_id = ${tenantId}
+                  WHERE c.tenant_id = ${tenantId}
+                    AND c.id IN (${convIdSqlList})
+                ) links
+                INNER JOIN crm_deals d
+                  ON d.id = links.deal_id AND d.tenant_id = ${tenantId}
+                LEFT JOIN crm_pipelines p
+                  ON p.id = d.pipeline_id AND p.tenant_id = ${tenantId}
+                LEFT JOIN crm_stages s
+                  ON s.id = d.stage_id AND s.tenant_id = ${tenantId}
+                ORDER BY
+                  conv_id,
+                  CASE d.status WHEN 'open' THEN 0 WHEN 'won' THEN 1 WHEN 'lost' THEN 2 ELSE 3 END ASC,
+                  links.priority ASC,
+                  d.updated_at DESC
+              `)
+              .catch((err) => {
+                console.warn("[gestao/audits] Aviso ao hidratar deals:", err?.message);
+                return [];
+              });
 
             for (const row of extractRows<any>(dealsRes)) {
               const summaryObj: LiveDealSummary & {
@@ -434,18 +436,15 @@ export const Route = createFileRoute("/api/gestao/audits")({
               } = {
                 id: row.id,
                 title: row.title || "Negociação",
-                value: Number(row.amount ?? 0),
+                value: row.value !== null && row.value !== undefined ? Number(row.value) : null,
                 status: row.status || "open",
                 pipelineName: row.pipeline_name ?? null,
                 stageName: row.stage_name ?? null,
                 lossReason: row.loss_reason ?? null,
-                winReason: row.win_reason ?? null,
+                winReason: null,
               };
               if (row.conversation_id && !dealByConvMap.has(row.conversation_id)) {
                 dealByConvMap.set(row.conversation_id, summaryObj);
-              }
-              if (row.contact_id && !dealByContactMap.has(row.contact_id)) {
-                dealByContactMap.set(row.contact_id, summaryObj);
               }
             }
           }

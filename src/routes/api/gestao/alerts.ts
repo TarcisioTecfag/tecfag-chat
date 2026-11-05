@@ -819,7 +819,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
           let slaCyclesTodayTotal = 0;
           let slaCyclesTodayWithinLimit = 0;
           try {
-            const todayStartBrt = new Date(`${todayBrt}T00:00:00.000-03:00`);
+            const todayStartBrtIso = new Date(`${todayBrt}T00:00:00.000-03:00`).toISOString();
             const slaStatsResult = await db.execute(sql`
               SELECT
                 COUNT(*)::int AS "total",
@@ -835,7 +835,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
                 )::int AS "withinLimit"
               FROM response_time_logs
               WHERE tenant_id = ${tenantId}
-                AND client_message_at >= ${todayStartBrt}
+                AND client_message_at >= ${todayStartBrtIso}::timestamptz
             `);
             const statRow = extractRows(slaStatsResult)[0];
             if (statRow) {

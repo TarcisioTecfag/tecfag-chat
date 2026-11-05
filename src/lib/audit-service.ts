@@ -114,7 +114,21 @@ export class AuditService {
 
     console.log("[AuditService] Iniciando job de auditoria (intervalo: 3min)...");
 
-    this.triggerImmediateRun();
+    // Libera eventuais auditorias que ficaram em 'processing' de um container anterior
+    void db
+      .update(aiConversationAudits)
+      .set({
+        status: "pending",
+        leaseToken: null,
+        leaseUntil: null,
+      })
+      .where(eq(aiConversationAudits.status, "processing"))
+      .then(() => {
+        this.triggerImmediateRun();
+      })
+      .catch(() => {
+        this.triggerImmediateRun();
+      });
 
     this.jobInterval = setInterval(
       () => {
@@ -197,13 +211,23 @@ export class AuditService {
           .from(aiConversationAudits)
           .where(and(eq(aiConversationAudits.tenantId, tenantId), eligible))
           .orderBy(aiConversationAudits.createdAt)
-          .limit(5);
+          .limit(6);
 
         if (pending.length === 0) {
           continue;
         }
 
+        if (pending.length >= 6) {
+          // Há mais itens na fila: agenda próximo lote contínuo ao término deste
+          this.pendingImmediateRun = true;
+        }
+
         console.log(`[AuditService] Processando ${pending.length} auditoria(s) no tenant ${tenantId}...`);
+
+        const claimedAudits: Array<{
+          audit: (typeof pending)[number];
+          token: string;
+        }> = [];
 
         for (const audit of pending) {
           const token = crypto.randomUUID();
@@ -212,7 +236,7 @@ export class AuditService {
             .set({
               status: "processing",
               leaseToken: token,
-              leaseUntil: new Date(Date.now() + 10 * 60_000),
+              leaseUntil: new Date(Date.now() + 2 * 60_000),
             })
             .where(
               and(
@@ -223,13 +247,24 @@ export class AuditService {
             )
             .returning({ id: aiConversationAudits.id });
           if (!claimed) continue;
-          await this.processAudit(
-            audit.id,
-            audit.conversationId,
-            audit.tenantId,
-            audit.operatorId,
-            audit.contactName,
-            token,
+          claimedAudits.push({ audit, token });
+        }
+
+        // Processa em sub-lotes paralelos de até 3 auditorias simultâneas
+        const CONCURRENCY = 3;
+        for (let i = 0; i < claimedAudits.length; i += CONCURRENCY) {
+          const chunk = claimedAudits.slice(i, i + CONCURRENCY);
+          await Promise.all(
+            chunk.map(({ audit, token }) =>
+              this.processAudit(
+                audit.id,
+                audit.conversationId,
+                audit.tenantId,
+                audit.operatorId,
+                audit.contactName,
+                token,
+              ),
+            ),
           );
         }
       }
@@ -326,32 +361,47 @@ export class AuditService {
     contactId: string | null,
   ): Promise<string> {
     try {
+      const contactClause = contactId
+        ? sql`OR EXISTS (
+            SELECT 1 FROM crm_deal_contacts dc
+            WHERE dc.tenant_id = d.tenant_id
+              AND dc.deal_id = d.id
+              AND dc.contact_id = ${contactId}
+          )`
+        : sql``;
+
       const dealRes = await db.execute(sql`
         SELECT
           d.title,
-          d.amount,
+          d.value,
           d.status,
           d.loss_reason,
-          d.win_reason,
           p.name AS pipeline_name,
           s.name AS stage_name,
           acc.name AS account_name
         FROM crm_deals d
         LEFT JOIN crm_pipelines p
           ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
-        LEFT JOIN crm_pipeline_stages s
+        LEFT JOIN crm_stages s
           ON s.id = d.stage_id AND s.tenant_id = d.tenant_id
         LEFT JOIN crm_accounts acc
           ON acc.id = d.account_id AND acc.tenant_id = d.tenant_id
         WHERE d.tenant_id = ${tenantId}
           AND (
             EXISTS (
-              SELECT 1 FROM conversation_deals cd
-              WHERE cd.tenant_id = d.tenant_id
-                AND cd.conversation_id = ${conversationId}
-                AND cd.deal_id = d.id
+              SELECT 1 FROM conversation_deal_contexts cdc
+              WHERE cdc.tenant_id = d.tenant_id
+                AND cdc.conversation_id = ${conversationId}
+                AND cdc.current_deal_id = d.id
             )
-            OR (${contactId}::text IS NOT NULL AND d.contact_id = ${contactId})
+            OR EXISTS (
+              SELECT 1 FROM crm_conversation_deals ccd
+              WHERE ccd.tenant_id = d.tenant_id
+                AND ccd.conversation_id = ${conversationId}
+                AND ccd.deal_id = d.id
+                AND ccd.is_active = true
+            )
+            ${contactClause}
           )
         ORDER BY
           CASE d.status WHEN 'open' THEN 0 WHEN 'won' THEN 1 WHEN 'lost' THEN 2 ELSE 3 END,
@@ -361,10 +411,9 @@ export class AuditService {
 
       const rows = extractRows<{
         title: string;
-        amount: string | number | null;
+        value: string | number | null;
         status: string;
         loss_reason: string | null;
-        win_reason: string | null;
         pipeline_name: string | null;
         stage_name: string | null;
         account_name: string | null;
@@ -376,14 +425,14 @@ export class AuditService {
 
       return rows
         .map((d, idx) => {
-          const amountNum = Number(d.amount ?? 0);
+          const amountNum = Number(d.value ?? 0);
           const amountFmt =
             amountNum > 0
               ? amountNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
               : "Valor ainda não preenchido";
           const statusPt =
             d.status === "won"
-              ? `VENDA GANHA${d.win_reason ? ` (${d.win_reason})` : ""}`
+              ? "VENDA GANHA"
               : d.status === "lost"
               ? `NEGOCIAÇÃO PERDIDA${d.loss_reason ? ` (Motivo: ${d.loss_reason})` : ""}`
               : d.status === "paused"
@@ -584,7 +633,12 @@ export class AuditService {
 
       // 8. Atualiza métricas diárias do operador com cálculo real no banco
       if (operatorId) {
-        await this.updateOperatorAuditMetrics(tenantId, operatorId);
+        await this.updateOperatorAuditMetrics(tenantId, operatorId).catch((metricErr: any) =>
+          console.warn(
+            `[AuditService] Aviso ao atualizar métricas diárias (${operatorId}):`,
+            metricErr?.message,
+          ),
+        );
       }
     } catch (e: any) {
       console.error(`[AuditService] Erro ao processar auditoria ${auditId}:`, e?.message);
@@ -661,8 +715,8 @@ export class AuditService {
    */
   private async updateOperatorAuditMetrics(tenantId: string, operatorId: string) {
     const todayBrt = getBrtDateKey(new Date());
-    const dayStart = new Date(`${todayBrt}T00:00:00.000-03:00`);
-    const dayEnd = new Date(`${todayBrt}T23:59:59.999-03:00`);
+    const dayStartIso = new Date(`${todayBrt}T00:00:00.000-03:00`).toISOString();
+    const dayEndIso = new Date(`${todayBrt}T23:59:59.999-03:00`).toISOString();
 
     const statsRes = await db.execute(sql`
       SELECT
@@ -675,8 +729,8 @@ export class AuditService {
       WHERE tenant_id = ${tenantId}
         AND operator_id = ${operatorId}
         AND status = 'done'
-        AND audited_at >= ${dayStart}
-        AND audited_at <= ${dayEnd}
+        AND audited_at >= ${dayStartIso}::timestamptz
+        AND audited_at <= ${dayEndIso}::timestamptz
     `);
 
     const stats = extractRows<{
@@ -786,6 +840,10 @@ export class AuditService {
 
       if (!shouldReaudit && curr.status === "done" && curr.auditedAt) {
         // Verifica se houve novas mensagens reais após a última auditoria
+        const auditedAtIso =
+          curr.auditedAt instanceof Date
+            ? curr.auditedAt.toISOString()
+            : new Date(curr.auditedAt).toISOString();
         const newerMsgRes = await db.execute(sql`
           SELECT COUNT(*)::int AS cnt
           FROM messages m
@@ -793,7 +851,7 @@ export class AuditService {
             AND m.conversation_id = ${params.conversationId}
             AND m.is_internal_note = false
             AND m.sender_type IN ('client', 'agent')
-            AND m.sent_at > ${curr.auditedAt}
+            AND m.sent_at > ${auditedAtIso}::timestamptz
         `);
         const newerCount = Number(extractRows<{ cnt: number }>(newerMsgRes)[0]?.cnt ?? 0);
         if (newerCount >= 2) {
@@ -864,16 +922,23 @@ export class AuditService {
         WHERE c.tenant_id = ${params.tenantId}
           AND (
             EXISTS (
-              SELECT 1 FROM conversation_deals cd
-              WHERE cd.tenant_id = c.tenant_id
-                AND cd.conversation_id = c.id
-                AND cd.deal_id = ${params.dealId}
+              SELECT 1 FROM conversation_deal_contexts cdc
+              WHERE cdc.tenant_id = c.tenant_id
+                AND cdc.conversation_id = c.id
+                AND cdc.current_deal_id = ${params.dealId}
             )
             OR EXISTS (
-              SELECT 1 FROM crm_deals d
-              WHERE d.tenant_id = c.tenant_id
-                AND d.id = ${params.dealId}
-                AND d.contact_id = c.contact_id
+              SELECT 1 FROM crm_conversation_deals ccd
+              WHERE ccd.tenant_id = c.tenant_id
+                AND ccd.conversation_id = c.id
+                AND ccd.deal_id = ${params.dealId}
+                AND ccd.is_active = true
+            )
+            OR EXISTS (
+              SELECT 1 FROM crm_deal_contacts dc
+              WHERE dc.tenant_id = c.tenant_id
+                AND dc.deal_id = ${params.dealId}
+                AND dc.contact_id = c.contact_id
             )
           )
           AND (
