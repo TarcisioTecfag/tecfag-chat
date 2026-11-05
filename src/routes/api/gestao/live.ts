@@ -1,15 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { operators, conversations, contacts, crmAccounts } from "../../../db/schema";
+import { operators, conversations, contacts, crmAccounts, messages } from "../../../db/schema";
 import { eq, and, ne, desc, gte, lte, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
-import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
+import { conversationReadCondition, requireConversationAccess } from "../../../lib/access-control/conversation-access";
 import { computeOperatorPresenceSnapshot, getBrtDateKey } from "../../../lib/operator-presence";
-import type { LiveActivityCategory, LiveDealSummary } from "../../../lib/monitor-mock-data";
+import type {
+  LiveActivityCategory,
+  LiveDealSummary,
+  LivePipelineOption,
+  LiveTaskItem,
+} from "../../../lib/monitor-mock-data";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, PATCH, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -207,7 +212,12 @@ export const Route = createFileRoute("/api/gestao/live")({
           const dealByConvMap = new Map<string, LiveDealSummary>();
           const tasksByConvMap = new Map<
             string,
-            { openCount: number; overdueCount: number; nextTitle: string | null }
+            {
+              openCount: number;
+              overdueCount: number;
+              nextTitle: string | null;
+              items: LiveTaskItem[];
+            }
           >();
 
           if (allRelevantIds.length > 0) {
@@ -226,7 +236,9 @@ export const Route = createFileRoute("/api/gestao/live")({
                   d.value AS "value",
                   d.status AS "status",
                   d.rating AS "rating",
+                  d.pipeline_id AS "pipelineId",
                   p.name AS "pipelineName",
+                  d.stage_id AS "stageId",
                   s.name AS "stageName"
                 FROM (
                   SELECT c.id AS conv_id, cdc.current_deal_id AS deal_id, 1 AS priority
@@ -273,7 +285,9 @@ export const Route = createFileRoute("/api/gestao/live")({
                   title: row.title,
                   value: row.value !== null && row.value !== undefined ? Number(row.value) : null,
                   status: row.status || "open",
+                  pipelineId: row.pipelineId || null,
                   pipelineName: row.pipelineName || null,
+                  stageId: row.stageId || null,
                   stageName: row.stageName || null,
                   rating: Number(row.rating || 0),
                 });
@@ -282,26 +296,75 @@ export const Route = createFileRoute("/api/gestao/live")({
               console.warn("[gestao/live] Falha não-crítica ao buscar deals ativos:", dealErr?.message);
             }
 
-            // Busca tarefas abertas vinculadas à conversa
+            // Busca tarefas abertas vinculadas à conversa ou à negociação ativa (crm_deal_activities + tasks)
             try {
-              const taskRowsResult = await db.execute(sql`
+              const taskItemsResult = await db.execute(sql`
                 SELECT
                   t.chat_conversation_id AS "conversationId",
-                  COUNT(*)::int AS "openCount",
-                  COUNT(*) FILTER (WHERE t.due_date IS NOT NULL AND t.due_date < NOW())::int AS "overdueCount",
-                  (ARRAY_AGG(t.name ORDER BY t.due_date ASC NULLS LAST))[1] AS "nextTitle"
+                  t.id AS "id",
+                  t.name AS "title",
+                  t.type AS "type",
+                  t.due_date AS "dueDate",
+                  t.deal_name AS "dealTitle"
                 FROM tasks t
                 WHERE t.tenant_id = ${tenantId}
                   AND t.chat_conversation_id IN (${idParams})
                   AND t.status NOT IN ('done', 'completed', 'cancelled')
-                GROUP BY t.chat_conversation_id
+
+                UNION ALL
+
+                SELECT
+                  cda.conversation_id AS "conversationId",
+                  cda.id AS "id",
+                  cda.title AS "title",
+                  cda.type AS "type",
+                  cda.due_date AS "dueDate",
+                  NULL AS "dealTitle"
+                FROM crm_deal_activities cda
+                WHERE cda.tenant_id = ${tenantId}
+                  AND cda.conversation_id IN (${idParams})
+                  AND cda.status = 'pending'
+                  AND cda.type NOT IN ('note', 'system_event')
               `);
 
-              for (const row of extractRows(taskRowsResult)) {
-                tasksByConvMap.set(row.conversationId, {
-                  openCount: Number(row.openCount || 0),
-                  overdueCount: Number(row.overdueCount || 0),
-                  nextTitle: row.nextTitle || null,
+              const rawTaskRows = extractRows(taskItemsResult);
+              const groupedTasks = new Map<string, Map<string, LiveTaskItem>>();
+
+              for (const r of rawTaskRows) {
+                const cid = r.conversationId;
+                if (!cid) continue;
+                if (!groupedTasks.has(cid)) {
+                  groupedTasks.set(cid, new Map());
+                }
+                const dueIso = r.dueDate
+                  ? r.dueDate instanceof Date
+                    ? r.dueDate.toISOString()
+                    : String(r.dueDate)
+                  : null;
+                const dueMs = dueIso ? new Date(dueIso).getTime() : NaN;
+                const isOverdue = !Number.isNaN(dueMs) && dueMs < now.getTime();
+                groupedTasks.get(cid)!.set(String(r.id), {
+                  id: String(r.id),
+                  title: String(r.title || "Tarefa"),
+                  type: r.type ? String(r.type) : "task",
+                  dueDate: dueIso,
+                  isOverdue,
+                  dealTitle: r.dealTitle || dealByConvMap.get(cid)?.title || null,
+                });
+              }
+
+              for (const [cid, taskMap] of groupedTasks.entries()) {
+                const items = Array.from(taskMap.values()).sort((a, b) => {
+                  const ta = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                  const tb = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                  return ta - tb;
+                });
+                const overdueCount = items.filter((i) => i.isOverdue).length;
+                tasksByConvMap.set(cid, {
+                  openCount: items.length,
+                  overdueCount,
+                  nextTitle: items[0]?.title ?? null,
+                  items: items.slice(0, 8),
                 });
               }
             } catch (taskErr: any) {
@@ -404,6 +467,7 @@ export const Route = createFileRoute("/api/gestao/live")({
 
             return {
               id: c.id,
+              contactId: c.contactId || null,
               contactName: c.contactName || "Cliente sem Nome",
               contactPhone: c.contactPhone || "",
               contactEmail: c.contactEmail || null,
@@ -432,6 +496,7 @@ export const Route = createFileRoute("/api/gestao/live")({
               openTasksCount: taskSummary?.openCount ?? 0,
               overdueTasksCount: taskSummary?.overdueCount ?? 0,
               nextTaskTitle: taskSummary?.nextTitle ?? null,
+              tasks: taskSummary?.items ?? [],
               failedMessagesCount,
               operatorId: c.operatorId || null,
               operatorName: opRecord?.name || null,
@@ -468,7 +533,7 @@ export const Route = createFileRoute("/api/gestao/live")({
             );
           };
 
-          // 8. Montar resposta por operador com métricas reais
+          // 8. Montar resposta por operador com métricas reais + produtividade do dia
           const buildOperatorPayload = (
             opId: string,
             opName: string,
@@ -507,6 +572,61 @@ export const Route = createFileRoute("/api/gestao/live")({
               return sum;
             }, 0);
 
+            const failedDeliveriesCount = builtConvs.filter(
+              (c) => (c.failedMessagesCount ?? 0) > 0
+            ).length;
+            const expiringWindowCount = builtConvs.filter(
+              (c) =>
+                c.metaWindowOpen &&
+                c.metaWindowRemainingMinutes !== null &&
+                c.metaWindowRemainingMinutes !== undefined &&
+                c.metaWindowRemainingMinutes <= 120
+            ).length;
+
+            // Produtividade do dia: mensagens enviadas hoje e TMR real do dia
+            let sentMessagesToday = 0;
+            const responseDeltasMinutes: number[] = [];
+
+            for (const conv of builtConvs) {
+              const realMsgs = conv.messages.filter(
+                (m) => !m.isInternalNote && m.senderType !== "system"
+              );
+              let pendingClientMs: number | null = null;
+              for (const m of realMsgs) {
+                const sentDate = m.sentAt ? new Date(m.sentAt) : null;
+                if (!sentDate || Number.isNaN(sentDate.getTime())) continue;
+                const isMsgToday = getBrtDateKey(sentDate) === todayBrt;
+
+                if (m.senderType === "client") {
+                  if (pendingClientMs === null) {
+                    pendingClientMs = sentDate.getTime();
+                  }
+                } else if (m.senderType === "agent") {
+                  if (isMsgToday) {
+                    sentMessagesToday += 1;
+                    if (pendingClientMs !== null && sentDate.getTime() >= pendingClientMs) {
+                      const diffMin = (sentDate.getTime() - pendingClientMs) / 60000;
+                      if (diffMin <= 240) {
+                        responseDeltasMinutes.push(diffMin);
+                      }
+                    }
+                  }
+                  pendingClientMs = null;
+                }
+              }
+            }
+
+            const avgResponseMinutesToday =
+              responseDeltasMinutes.length > 0
+                ? Math.max(
+                    1,
+                    Math.round(
+                      responseDeltasMinutes.reduce((a, b) => a + b, 0) /
+                        responseDeltasMinutes.length
+                    )
+                  )
+                : null;
+
             return {
               operatorId: opId,
               operatorName: opName,
@@ -515,6 +635,10 @@ export const Route = createFileRoute("/api/gestao/live")({
               isOnline: presence.isOnline,
               lastSeenAt: presence.lastSeenAt,
               usageSecondsToday: presence.usageSecondsToday,
+              sentMessagesToday,
+              avgResponseMinutesToday,
+              failedDeliveriesCount,
+              expiringWindowCount,
               waitingReplyCount,
               criticalWaitCount,
               activeTodayCount,
@@ -594,8 +718,13 @@ export const Route = createFileRoute("/api/gestao/live")({
             .map(buildLiveConv)
             .sort(sortConversationsByPriority);
 
-          // 9. Consolidar Summary Executivo para o Cockpit da Diretoria
+          // 9. Consolidar Summary Executivo e Funis para o Cockpit da Diretoria
           const allBuiltOperatorConvs = operatorResult.flatMap((o) => o.conversations);
+          const allLiveConvs = [
+            ...allBuiltOperatorConvs,
+            ...unassignedResult,
+            ...automationResult,
+          ];
           const allUnanswered = [
             ...allBuiltOperatorConvs.filter((c) => c.isUnanswered),
             ...unassignedResult,
@@ -615,7 +744,24 @@ export const Route = createFileRoute("/api/gestao/live")({
           const seenDealIds = new Set<string>();
           let activePipelineValue = 0;
           let openDealsInLiveCount = 0;
-          for (const c of [...allBuiltOperatorConvs, ...unassignedResult, ...automationResult]) {
+          const pipelineAggMap = new Map<string, LivePipelineOption>();
+
+          for (const c of allLiveConvs) {
+            if (c.activeDeal && c.activeDeal.pipelineName) {
+              const pKey = c.activeDeal.pipelineId || c.activeDeal.pipelineName;
+              const existing = pipelineAggMap.get(pKey) || {
+                id: pKey,
+                name: c.activeDeal.pipelineName,
+                count: 0,
+                totalValue: 0,
+              };
+              existing.count += 1;
+              if (c.activeDeal.value) {
+                existing.totalValue += Number(c.activeDeal.value);
+              }
+              pipelineAggMap.set(pKey, existing);
+            }
+
             if (
               c.activeDeal &&
               c.activeDeal.status === "open" &&
@@ -628,6 +774,28 @@ export const Route = createFileRoute("/api/gestao/live")({
               }
             }
           }
+
+          const pipelines = Array.from(pipelineAggMap.values()).sort(
+            (a, b) => b.count - a.count
+          );
+
+          const failedDeliveriesCount = allLiveConvs.filter(
+            (c) => (c.failedMessagesCount ?? 0) > 0
+          ).length;
+          const expiringWindowsCount = allLiveConvs.filter(
+            (c) =>
+              c.metaWindowOpen &&
+              c.metaWindowRemainingMinutes !== null &&
+              c.metaWindowRemainingMinutes !== undefined &&
+              c.metaWindowRemainingMinutes <= 120
+          ).length;
+          const overdueTasksConversationsCount = allLiveConvs.filter(
+            (c) => (c.overdueTasksCount ?? 0) > 0
+          ).length;
+          const totalSentMessagesToday = operatorResult.reduce(
+            (acc, op) => acc + (op.sentMessagesToday ?? 0),
+            0
+          );
 
           const summary = {
             totalOperators: operatorResult.length,
@@ -651,6 +819,10 @@ export const Route = createFileRoute("/api/gestao/live")({
             avgWaitMinutes,
             activePipelineValue,
             openDealsInLiveCount,
+            failedDeliveriesCount,
+            expiringWindowsCount,
+            overdueTasksConversationsCount,
+            totalSentMessagesToday,
           };
 
           return new Response(
@@ -659,6 +831,7 @@ export const Route = createFileRoute("/api/gestao/live")({
               unassigned: unassignedResult,
               automation: automationResult,
               summary,
+              pipelines,
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
@@ -668,6 +841,213 @@ export const Route = createFileRoute("/api/gestao/live")({
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
+        }
+      },
+
+      // PATCH /api/gestao/live — Intervenção Direta da Supervisão Ao Vivo (Transferir / Atribuir / Devolver à Fila / Finalizar)
+      PATCH: async ({ request }) => {
+        const auth = await requireSession(request);
+        if ("response" in auth) return auth.response;
+        const { session } = auth;
+        const tenantId = session.tenantId;
+
+        if (
+          session.permissions?.views?.monitor !== true ||
+          session.permissions?.monitor?.canAccessLive !== true
+        ) {
+          return new Response(
+            JSON.stringify({
+              error: "Permissão insuficiente para intervir na operação ao vivo.",
+              code: "FORBIDDEN",
+            }),
+            { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        try {
+          const body = await request.json().catch(() => ({}));
+          const conversationId = String(body.conversationId || "").trim();
+          const action = String(body.action || "").trim() as
+            | "transfer"
+            | "return_to_queue"
+            | "close";
+          const targetOperatorId = body.targetOperatorId
+            ? String(body.targetOperatorId).trim()
+            : null;
+
+          if (
+            !conversationId ||
+            !["transfer", "return_to_queue", "close"].includes(action)
+          ) {
+            return new Response(
+              JSON.stringify({ error: "Parâmetros de intervenção inválidos." }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          const denied = await requireConversationAccess(session, conversationId);
+          if (denied) return denied;
+
+          const [conv] = await db
+            .select()
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.id, conversationId),
+                eq(conversations.tenantId, tenantId)
+              )
+            )
+            .limit(1);
+
+          if (!conv) {
+            return new Response(
+              JSON.stringify({ error: "Conversa não encontrada para este tenant." }),
+              { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          const now = new Date();
+          let newQueueState = conv.queueState;
+          let newOperatorId: string | null = conv.operatorId;
+          let targetOpName: string | null = null;
+          let systemEventText = "";
+
+          if (action === "transfer") {
+            if (!targetOperatorId) {
+              return new Response(
+                JSON.stringify({ error: "Selecione o consultor de destino." }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
+            const [targetOp] = await db
+              .select({ id: operators.id, name: operators.name })
+              .from(operators)
+              .where(
+                and(
+                  eq(operators.id, targetOperatorId),
+                  eq(operators.tenantId, tenantId)
+                )
+              )
+              .limit(1);
+
+            if (!targetOp) {
+              return new Response(
+                JSON.stringify({ error: "Consultor de destino não encontrado." }),
+                { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
+
+            newQueueState = "meus";
+            newOperatorId = targetOp.id;
+            targetOpName = targetOp.name;
+            systemEventText = `Atendimento atribuído para ${targetOp.name} pela Supervisão (${session.operator.name}).`;
+          } else if (action === "return_to_queue") {
+            newQueueState = "fila";
+            newOperatorId = null;
+            systemEventText = `Atendimento devolvido para a fila pela Supervisão (${session.operator.name}).`;
+          } else if (action === "close") {
+            newQueueState = "finalizados";
+            systemEventText = `Atendimento finalizado pela Supervisão (${session.operator.name}).`;
+          }
+
+          const sysMsgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+          await db.transaction(async (tx) => {
+            await tx
+              .update(conversations)
+              .set({
+                queueState: newQueueState,
+                operatorId: newOperatorId,
+                version: sql`${conversations.version} + 1`,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(conversations.id, conversationId),
+                  eq(conversations.tenantId, tenantId)
+                )
+              );
+
+            await tx.insert(messages).values({
+              id: sysMsgId,
+              tenantId,
+              conversationId,
+              senderType: "system",
+              senderName: "Sistema",
+              content: systemEventText,
+              isInternalNote: false,
+              provider: "internal",
+              direction: "outbound",
+              status: "accepted",
+              metaDetails: {
+                supervisorIntervention: action,
+                attendanceActor: {
+                  name: session.operator.name,
+                  operatorId: session.operator.id,
+                  role: session.operator.role,
+                },
+              },
+              sentAt: now,
+              updatedAt: now,
+            });
+          });
+
+          try {
+            const { SessionManager } = await import("../../../lib/baileys/session-manager");
+            SessionManager.getInstance().notifyPublic(tenantId, {
+              type: "queue_update",
+              conversationId,
+              queueState: newQueueState,
+              operatorId: newOperatorId,
+              sectorId: conv.sectorId,
+              responsibleName: targetOpName || undefined,
+              version: (conv.version || 1) + 1,
+            });
+            SessionManager.getInstance().notifyPublic(tenantId, {
+              type: "message",
+              message: {
+                id: sysMsgId,
+                conversationId,
+                senderType: "system",
+                senderName: "Sistema",
+                content: systemEventText,
+                isInternalNote: false,
+                sentAt: now.toISOString(),
+                status: "accepted",
+              },
+            });
+          } catch (sseErr: any) {
+            console.warn("[gestao/live PATCH] Falha não-crítica ao emitir SSE:", sseErr?.message);
+          }
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              action,
+              conversationId,
+              queueState: newQueueState,
+              operatorId: newOperatorId,
+              operatorName: targetOpName,
+              systemMessage: {
+                id: sysMsgId,
+                conversationId,
+                senderType: "system",
+                senderName: "Sistema",
+                content: systemEventText,
+                sentAt: now.toISOString(),
+                isInternalNote: false,
+                status: "accepted",
+              },
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        } catch (e: any) {
+          console.error("[gestao/live PATCH] Erro na intervenção de supervisão:", e);
+          return new Response(
+            JSON.stringify({ error: e.message || "Erro interno ao executar ação." }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
       },
     },
