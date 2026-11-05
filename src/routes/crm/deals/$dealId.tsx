@@ -142,6 +142,14 @@ function DealPage() {
         onClose={goBack}
         onDealUpdated={() => {}}
         onOpenConversation={openConversation}
+        onOpenDeal={(targetDealId) => {
+          if (!targetDealId || targetDealId === dealId) return;
+          navigate({
+            to: "/crm/deals/$dealId",
+            params: { dealId: targetDealId },
+            search: { from },
+          });
+        }}
         pipelineStages={stages}
         operatorsMap={operatorsMap}
         operators={operators}

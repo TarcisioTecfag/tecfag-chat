@@ -126,5 +126,24 @@ describe("CRM Deal Modal, Contact/Account Drawers & Chat Sync", () => {
     expect(dealConversationsRouteSource).toContain("if (body?.ensure === true && !body?.conversationId)");
     expect(contactConversationsRouteSource).toContain("syncConversationWithDeals(");
   });
+
+  it("wires onOpenDeal and handleOpenRelatedDeal in DealDetailModal so the Negociações tab renders without ReferenceError", () => {
+    const dealModalSource = fs.readFileSync(
+      path.join(rootDir, "src/components/crm/DealDetailModal.tsx"),
+      "utf-8"
+    );
+    const dealRouteSource = fs.readFileSync(
+      path.join(rootDir, "src/routes/crm/deals/$dealId.tsx"),
+      "utf-8"
+    );
+
+    expect(dealModalSource).toContain("onOpenDeal?: (dealId: string) => void;");
+    expect(dealModalSource).toContain("const handleOpenRelatedDeal = React.useCallback(");
+    expect(dealModalSource).toContain("onOpenDeal={handleOpenRelatedDeal}");
+    expect(dealModalSource).not.toContain("onOpenDeal={onOpenDeal}");
+    expect(dealModalSource).toContain('onClick={() => setActiveTab("conversations")}');
+    expect(dealModalSource).not.toContain('onClick={() => setActiveTab("chat")}');
+    expect(dealRouteSource).toContain("onOpenDeal={(targetDealId) => {");
+  });
 });
 

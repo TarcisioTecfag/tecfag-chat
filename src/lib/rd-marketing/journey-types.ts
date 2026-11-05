@@ -11,6 +11,19 @@ export type JourneyEvent = RdEventView & {
   receivedAt?: string;
   deals: { id: string; title: string }[];
 };
+export type RelatedDeal = {
+  id: string;
+  title: string;
+  status: string;
+  value: string | null;
+  currency: string;
+  pipelineName: string | null;
+  stageName: string | null;
+  operatorName: string | null;
+  createdAt: string;
+  isLinked?: boolean;
+};
+
 export type RdJourney = {
   contactId: string;
   contactName: string;
@@ -19,15 +32,5 @@ export type RdJourney = {
   cached: boolean;
   pages: RdEventPage[];
   events: JourneyEvent[];
-  relatedDeals?: {
-    id: string;
-    title: string;
-    status: string;
-    value: string | null;
-    currency: string;
-    pipelineName: string | null;
-    stageName: string | null;
-    operatorName: string | null;
-    createdAt: string;
-  }[];
+  relatedDeals?: RelatedDeal[];
 };

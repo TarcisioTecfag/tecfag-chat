@@ -669,16 +669,20 @@ function getAccountNameScaleStyle(name?: string | null): React.CSSProperties {
 
 interface DealDetailModalProps {
   dealId: string | null;
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
-  onDealUpdated: (updatedDeal?: any) => void;
-  onOpenConversation: (conversationId: string) => void;
-  pipelineStages: Array<{ id: string; name: string; orderIndex: number }>;
-  operatorsMap: Map<string, string>;
+  onDealUpdated?: (updatedDeal?: any) => void;
+  onOpenConversation?: (conversationId: string) => void;
+  onOpenDeal?: (dealId: string) => void;
+  pipelineStages?: Array<{ id: string; name: string; orderIndex: number }>;
+  operatorsMap?: Map<string, string> | Record<string, string>;
   operators?: Array<{ id: string; name: string; avatar?: string | null }>;
   backLabel?: string;
   preferredContactId?: string;
 }
+
+const EMPTY_PIPELINE_STAGES: Array<{ id: string; name: string; orderIndex: number }> = [];
+const NOOP_CALLBACK = () => {};
 
 function getTaskTypeMeta(type?: string | null) {
   switch ((type || "").toLowerCase()) {
@@ -705,12 +709,13 @@ function getTaskTypeMeta(type?: string | null) {
 
 export function DealDetailModal({
   dealId,
-  isOpen,
+  isOpen = true,
   onClose,
-  onDealUpdated,
-  onOpenConversation,
-  pipelineStages,
-  operatorsMap,
+  onDealUpdated = NOOP_CALLBACK,
+  onOpenConversation = NOOP_CALLBACK,
+  onOpenDeal,
+  pipelineStages = EMPTY_PIPELINE_STAGES,
+  operatorsMap: propOperatorsMap,
   operators: propOperators,
   backLabel,
   preferredContactId,
@@ -739,6 +744,24 @@ export function DealDetailModal({
     }
     return Array.from(merged.values());
   }, [chatContext?.operators, propOperators]);
+
+  const operatorsMap = React.useMemo(() => {
+    if (propOperatorsMap instanceof Map && propOperatorsMap.size > 0) {
+      return propOperatorsMap;
+    }
+    const map = new Map<string, string>();
+    if (propOperatorsMap && !(propOperatorsMap instanceof Map)) {
+      for (const [id, name] of Object.entries(propOperatorsMap)) {
+        if (id && name) map.set(id, String(name));
+      }
+    }
+    for (const op of operators) {
+      if (op?.id && op?.name && !map.has(op.id)) {
+        map.set(op.id, String(op.name));
+      }
+    }
+    return map;
+  }, [propOperatorsMap, operators]);
 
   const initialCachedDeal = getCachedDealDetailSync(dealId)?.deal || null;
   const dealPreview = getDealPreviewSync(dealId);
@@ -2416,6 +2439,21 @@ export function DealDetailModal({
     onOpenConversation(conversationId);
   };
 
+  // Abrir outra negociação vinculada (Aba Negociações / Empresa / Eventos RD)
+  const handleOpenRelatedDeal = React.useCallback(
+    (targetDealId: string) => {
+      if (!targetDealId || targetDealId === (deal?.id || dealId)) return;
+      if (onOpenDeal) {
+        onOpenDeal(targetDealId);
+        return;
+      }
+      if (typeof window !== "undefined") {
+        window.location.assign(`/crm/deals/${encodeURIComponent(targetDealId)}?from=crm`);
+      }
+    },
+    [onOpenDeal, deal?.id, dealId],
+  );
+
   // Remover evidência comercial
   const handleRemoveEvidence = async (evidenceId: string) => {
     if (!dealId) return;
@@ -2498,6 +2536,15 @@ export function DealDetailModal({
       isNote?: boolean;
       source: "conversas" | "crm" | "marketing";
       marketingEvent?: JourneyEvent;
+      conversationWindow24h?: {
+        conversationId: string | null;
+        messagesCount: number;
+        mediaCount: number;
+        windowStartAt: string | null;
+        windowEndAt: string | null;
+        lastMessagePreview: string | null;
+        actors: string[];
+      } | null;
     }> = [];
 
     // 1. Eventos de auditoria
@@ -2801,6 +2848,8 @@ export function DealDetailModal({
       return true;
     });
   }, [unifiedTimeline, historySourceFilter, historyFilter]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="crm-deal-detail bg-card h-full flex flex-col overflow-hidden">
@@ -3976,7 +4025,7 @@ export function DealDetailModal({
                         deal?.contacts?.[0]?.name ||
                         undefined
                       }
-                      onOpenDeal={onOpenDeal}
+                      onOpenDeal={handleOpenRelatedDeal}
                     />
                   </div>
                 )}
@@ -5942,7 +5991,7 @@ export function DealDetailModal({
                                   <button
                                     key={tab.key}
                                     type="button"
-                                    onClick={() => setFilesCategoryFilter(tab.key)}
+                                    onClick={() => setFilesCategoryFilter(tab.key as typeof filesCategoryFilter)}
                                     className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-colors cursor-pointer ${
                                       active
                                         ? "bg-primary text-primary-foreground shadow-2xs"
@@ -6728,7 +6777,21 @@ export function DealDetailModal({
                                 {/* Corpo do balão / Descrição */}
                                 {item.marketingEvent && <div className="mt-2 pl-9 space-y-2">
                                   {item.marketingEvent.links.map((url: string)=><a key={url} href={url} target="_blank" rel="noopener noreferrer" className="block text-xs text-primary break-all">{url}</a>)}
-                                  {item.marketingEvent.deals.map((link: { id: string; title: string })=><a key={link.id} href={`/crm/deals/${encodeURIComponent(link.id)}`} className="block text-xs font-semibold text-primary">{link.id === dealId ? "Esta negociação" : "Abrir negociação"}: {link.title}</a>)}
+                                  {item.marketingEvent.deals.map((link: { id: string; title: string })=>(
+                                    <a
+                                      key={link.id}
+                                      href={`/crm/deals/${encodeURIComponent(link.id)}`}
+                                      onClick={(e) => {
+                                        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                                          e.preventDefault();
+                                          if (link.id !== dealId) handleOpenRelatedDeal(link.id);
+                                        }
+                                      }}
+                                      className="block text-xs font-semibold text-primary"
+                                    >
+                                      {link.id === dealId ? "Esta negociação" : "Abrir negociação"}: {link.title}
+                                    </a>
+                                  ))}
                                   <details className="text-xs"><summary className="cursor-pointer text-primary">Detalhes da conversão/evento</summary><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-[11px] mt-2">{JSON.stringify(item.marketingEvent.webhookRaw ? { evento: item.marketingEvent.raw, avisoRecebido: item.marketingEvent.webhookRaw } : item.marketingEvent.raw, null, 2)}</pre></details>
                                 </div>}
                                 {item.conversationWindow24h ? (
@@ -6754,7 +6817,7 @@ export function DealDetailModal({
                                       </div>
                                       <button
                                         type="button"
-                                        onClick={() => setActiveTab("chat")}
+                                        onClick={() => setActiveTab("conversations")}
                                         className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
                                       >
                                         <span>Abrir na aba Conversas</span>
@@ -6808,9 +6871,7 @@ export function DealDetailModal({
           onAccountUpdated={() => loadDealDetail(true)}
           onOpenDeal={(targetDealId) => {
             setIsAccountDetailOpen(false);
-            if (targetDealId && targetDealId !== deal.id && typeof window !== "undefined") {
-              window.location.assign(`/crm/deals/${targetDealId}?from=crm`);
-            }
+            handleOpenRelatedDeal(targetDealId);
           }}
           onOpenChat={(convId) => {
             setIsAccountDetailOpen(false);

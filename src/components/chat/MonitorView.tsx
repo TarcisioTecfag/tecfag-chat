@@ -4376,8 +4376,10 @@ function AuditsTab({
       {selectedDealModalId && (
         <DealDetailModal
           dealId={selectedDealModalId}
+          isOpen={Boolean(selectedDealModalId)}
           onClose={() => setSelectedDealModalId(null)}
           onDealUpdated={() => fetchAudits(true)}
+          onOpenDeal={(targetDealId) => setSelectedDealModalId(targetDealId)}
         />
       )}
     </div>
@@ -6622,6 +6624,7 @@ function LiveTab({ demoMode }: { demoMode: boolean }) {
           setInspectDealId(null);
           setSelectedConvId(convId);
         }}
+        onOpenDeal={(targetDealId) => setInspectDealId(targetDealId)}
         pipelineStages={[]}
         operatorsMap={operatorsMapForDeal}
         operators={operatorsListForDeal}

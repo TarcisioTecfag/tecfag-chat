@@ -3711,7 +3711,10 @@ export class CrmService {
     let contactDeals: any[] = [];
     let savedRdJourneyContactIds: string[] = [];
     try {
-      const participantIdsSet = new Set(mappedContacts.map((c) => c.contactId).filter(Boolean));
+      const participantIdsSet = new Set([
+        ...mappedContacts.map((c) => c.contactId).filter(Boolean),
+        ...mappedConversations.map((c: any) => c.contactId).filter(Boolean),
+      ]);
       if (deal.accountId) {
         const accountContacts = await db
           .select({ id: contacts.id })
