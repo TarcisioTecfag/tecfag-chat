@@ -79,6 +79,7 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
             date: new Date(r.sentAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }),
             sentAtISO: r.sentAt.toISOString(),
             side: r.direction === "inbound" || r.senderType === "client" ? "in" : "out",
+            senderType: r.senderType,
             isInternalNote: r.isInternalNote,
             status: r.status,
             provider: r.provider,

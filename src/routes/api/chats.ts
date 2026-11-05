@@ -6,6 +6,7 @@ import { rdRequest, getCachedUsers } from "../../lib/rdCrmService";
 import { requireSession } from "../../lib/auth-session";
 import { getAiPersona } from "../../lib/ai-persona";
 import { readReactions } from "../../lib/whatsapp/meta-reactions";
+import { SessionManager } from "../../lib/baileys/session-manager";
 import { conversationReadCondition, requireConversationWriteAccess } from "../../lib/access-control/conversation-access";
 import { conversationReadRules } from "../../lib/access-control/conversation-policy";
 import { getDealContext, recordConversationAction, assertDealContextVersion, DealContextError, findActiveGraceDeal } from "../../lib/crm/conversation-deal-context";
@@ -226,6 +227,32 @@ export const Route = createFileRoute("/api/chats")({
           });
           if (!stored) return Response.json({ error: "O responsável pelo atendimento mudou. Atualize a conversa.", code: "FORBIDDEN" }, { status: 403 });
 
+          try {
+            SessionManager.getInstance().notifyPublic(session.tenantId, {
+              type: "message",
+              message: {
+                id: msgId,
+                conversationId,
+                contactId: conv.contactId,
+                whatsappConnectionId: conv.whatsappConnectionId,
+                senderType: (senderType || "agent") as any,
+                senderName: senderName || session.operator.name,
+                content,
+                isInternalNote: !!isInternalNote,
+                sentAt: now,
+                status: "accepted",
+                clientMessageId: body.clientMessageId || undefined,
+                quotedMessageId: quotedMessageId ?? null,
+                quotedMessageSender: quotedMessageSender ?? null,
+                quotedMessageContent: quotedMessageContent ?? null,
+                queue: conv.queueState,
+                operatorId: conv.operatorId,
+              },
+            });
+          } catch (sseErr) {
+            console.warn("[api/chats POST] Nota salva, falha ao emitir SSE:", sseErr);
+          }
+
           // Integração externa usa exclusivamente o ID RD do card validado no servidor.
           if (isInternalNote && selectedRdDealId) {
             (async () => {
@@ -403,7 +430,7 @@ export const Route = createFileRoute("/api/chats")({
             mediaInterpretation: messages.mediaInterpretation,
             sentAt: messages.sentAt,
           };
-          const recentPerConversation = requestedConversationId || includeRecent ? 30 : 1;
+          const recentPerConversation = requestedConversationId || includeRecent ? 30 : 5;
           const latestMessage = db.select(messageFields).from(messages)
             .where(and(eq(messages.tenantId, session.tenantId), eq(messages.conversationId, conversations.id)))
             .orderBy(desc(messages.sentAt), desc(messages.id))
@@ -451,6 +478,32 @@ export const Route = createFileRoute("/api/chats")({
           const aiPersona = getAiPersona(session.tenantId);
           const aiName = `${aiPersona.name} IA`;
 
+          const isAutoDealNote = (text?: string | null) =>
+            /^(?:\[(?:Sistema|Nota)\]\s*)?Negociaç(?:ão|ões) (?:atual|deste atendimento|criada neste atendimento|vinculada)/i.test(
+              (text || "").trim(),
+            );
+
+          const selectPreviewRawMessage = (list: any[]) => {
+            if (!Array.isArray(list) || list.length === 0) return undefined;
+            for (let i = list.length - 1; i >= 0; i--) {
+              const candidate = list[i];
+              if (
+                !isAutoDealNote(candidate?.content) &&
+                candidate?.senderType !== "system" &&
+                candidate?.senderName !== "Sistema"
+              ) {
+                return candidate;
+              }
+            }
+            for (let i = list.length - 1; i >= 0; i--) {
+              const candidate = list[i];
+              if (!isAutoDealNote(candidate?.content)) {
+                return candidate;
+              }
+            }
+            return list[list.length - 1];
+          };
+
           // 4. Montar a lista formatada de retorno
           const chatList = rows.map((row) => {
             const convMsgs = (messagesByConv.get(row.conversation.id) || [])
@@ -475,6 +528,14 @@ export const Route = createFileRoute("/api/chats")({
 
             const clientIso = lastClientTimeByConv.get(row.conversation.id);
             const fallbackIso = row.conversation.lastMessageTime.toISOString();
+            const previewRawMsg = selectPreviewRawMessage(convMsgs);
+            const rawPreviewDate = previewRawMsg?.sentAt
+              ? new Date(previewRawMsg.sentAt)
+              : new Date(row.conversation.lastMessageTime);
+            const effectivePreviewDate = !isNaN(rawPreviewDate.getTime())
+              ? rawPreviewDate
+              : new Date(row.conversation.lastMessageTime);
+            const effectivePreviewIso = effectivePreviewDate.toISOString();
             const cf = ((row.contact.customFields || {}) as Record<string, any>) || {};
             const siteVisitorId =
               typeof cf.siteVisitorId === "string" && cf.siteVisitorId
@@ -528,12 +589,13 @@ export const Route = createFileRoute("/api/chats")({
                 ? row.conversation.unreadCount
                 : 0,
               version: row.conversation.version || 1, // Concorrência otimista (Entrega C)
-              lastMessageTime: new Date(clientIso || row.conversation.lastMessageTime).toLocaleTimeString("pt-BR", {
+              lastMessageTime: effectivePreviewDate.toLocaleTimeString("pt-BR", {
                 hour: "2-digit",
                 minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
               }),
-              lastMessageAtISO: clientIso || fallbackIso,
-              lastClientMessageAtISO: clientIso || fallbackIso,
+              lastMessageAtISO: effectivePreviewIso || fallbackIso,
+              lastClientMessageAtISO: clientIso || effectivePreviewIso || fallbackIso,
               messages: convMsgs.map((m) => ({
                 id: m.id,
                 author: m.senderType === "client" ? row.contact.name : m.senderName,

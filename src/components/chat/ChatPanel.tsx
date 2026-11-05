@@ -1170,6 +1170,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     valentinaResetAt,
     resetValentinaChat,
     toggleReaction,
+    syncConversationMessages,
   } = useChat();
 
   const connectionsState = useWhatsappConnections(tenant);
@@ -1581,6 +1582,9 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         })
         .then((data) => {
           if (controller.signal.aborted) return;
+          if (Array.isArray(data?.messages) && data.messages.length > 0) {
+            syncConversationMessages(chatId, data.messages as Message[]);
+          }
           setHistory((current) => {
             if (current?.chatId !== chatId) return { chatId, messages: data.messages, nextCursor: data.nextCursor };
             const byId = new Map(current.messages.map((message) => [message.id, message]));

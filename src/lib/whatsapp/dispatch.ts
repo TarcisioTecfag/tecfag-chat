@@ -169,8 +169,33 @@ export async function dispatchStored(
         }
         await db
           .update(conversations)
-          .set({ lastMessageTime: new Date(), updatedAt: new Date() })
+          .set({ lastMessageTime: msg.sentAt || new Date(), updatedAt: new Date() })
           .where(and(eq(conversations.tenantId, tenantId), eq(conversations.id, conv.id)));
+        try {
+          SessionManager.getInstance().notifyPublic(tenantId, {
+            type: "message",
+            message: {
+              id: msg.id,
+              conversationId: conv.id,
+              contactId: conv.contactId,
+              whatsappConnectionId: conv.whatsappConnectionId,
+              senderType: msg.senderType as any,
+              senderName: msg.senderName,
+              content: msg.content,
+              isInternalNote: msg.isInternalNote,
+              sentAt: msg.sentAt,
+              status: "accepted",
+              provider: msg.provider,
+              clientMessageId: msg.idempotencyKey || undefined,
+              quotedMessageId: msg.quotedMessageId,
+              quotedMessageSender: msg.quotedMessageSender,
+              quotedMessageContent: msg.quotedMessageContent,
+              queue: conv.queueState,
+              operatorId: conv.operatorId,
+              walletOperatorId: contact.walletOperatorId,
+            },
+          } as any);
+        } catch {}
         if (payload.operatorId)
           await recordCommercialFirstResponse(tenantId, conv.id, payload.operatorId, msg.id);
         if (msg.senderType === "agent" && !msg.isInternalNote) {

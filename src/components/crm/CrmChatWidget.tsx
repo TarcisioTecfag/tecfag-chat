@@ -116,8 +116,23 @@ export function isAutoDealContextSystemNote(msg?: Message | string | null): bool
   );
 }
 
+export function isSystemLogMessage(msg?: Message | null): boolean {
+  if (!msg) return false;
+  return (
+    msg.senderType === "system" ||
+    msg.sender === "system" ||
+    msg.author === "Sistema"
+  );
+}
+
 export function getConversationPreviewMessage(messages?: Message[] | null): Message | undefined {
   if (!Array.isArray(messages) || messages.length === 0) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const candidate = messages[i];
+    if (!isAutoDealContextSystemNote(candidate) && !isSystemLogMessage(candidate)) {
+      return candidate;
+    }
+  }
   for (let i = messages.length - 1; i >= 0; i--) {
     const candidate = messages[i];
     if (!isAutoDealContextSystemNote(candidate)) {
@@ -125,6 +140,32 @@ export function getConversationPreviewMessage(messages?: Message[] | null): Mess
     }
   }
   return messages[messages.length - 1];
+}
+
+export function formatBrtTimeHHMM(value?: string | Date | null): string | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  });
+}
+
+export function getConversationPreviewTime(
+  conversation: Pick<Conversation, "lastMessageTime" | "lastMessageAtISO" | "messages"> & { time?: string },
+  previewMsg?: Message,
+): string {
+  const targetMsg = previewMsg ?? getConversationPreviewMessage(conversation.messages);
+  if (targetMsg) {
+    const fromIso = formatBrtTimeHHMM(targetMsg.sentAtISO || (targetMsg as any).sentAt);
+    if (fromIso) return fromIso;
+    if (targetMsg.time && /^\d{2}:\d{2}$/.test(targetMsg.time)) return targetMsg.time;
+  }
+  const fromConvIso = formatBrtTimeHHMM(conversation.lastMessageAtISO);
+  if (fromConvIso) return fromConvIso;
+  return conversation.time || conversation.lastMessageTime || "";
 }
 
 export function getVigosPhoneLink(phone?: string | null): string {
@@ -4342,7 +4383,7 @@ export function CrmChatWidget() {
                                     {conversation.name}
                                   </span>
                                   <span className="shrink-0 text-[10px] text-muted-foreground font-medium">
-                                    {conversation.lastMessageTime}
+                                    {getConversationPreviewTime(conversation, last)}
                                   </span>
                                 </div>
 

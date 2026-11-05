@@ -15,7 +15,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useOptionalOnboarding } from "@/hooks/useOnboarding";
 import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
-import { getConversationPreviewMessage } from "@/components/crm/CrmChatWidget";
+import { getConversationPreviewMessage, getConversationPreviewTime } from "@/components/crm/CrmChatWidget";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -656,7 +656,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1">
                           <span className="truncate text-xs font-bold text-foreground">{c.name}</span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{(c as any).time || c.lastMessageTime}</span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{getConversationPreviewTime(c, lastMsg)}</span>
                         </div>
                         <div className="flex items-center justify-between mt-0.5">
                           <p className="truncate text-[10px] text-muted-foreground pr-2 flex items-center gap-1">

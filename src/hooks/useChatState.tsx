@@ -267,6 +267,7 @@ type ChatContextType = {
     queueState: QueueType;
   }>;
   refreshConversations: (conversationId?: string) => Promise<void>;
+  syncConversationMessages: (conversationId: string, loadedMessages: Message[]) => void;
   loadConversationPage: (
     queue: QueueType,
     cursor?: { before: string; beforeId: string; beforeQueue: "active" | "finalizados" },
@@ -3116,8 +3117,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const optimisticMessageId = shouldSendReal && text.trim() && !attachments?.length && !metaTemplate
       ? `pending-${clientMessageId}` : null;
     if (optimisticMessageId) {
-      const pendingTime = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
       const optTime = buildMonotonicMessageTime(currentChat.messages);
+      const pendingTime = optTime.time;
       const nowIso = optTime.sentAtISO;
       setConversations((previous) =>
         previous.map((chat) =>
@@ -3125,6 +3126,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? {
                 ...chat,
                 lastMessageTime: pendingTime,
+                lastMessageAtISO: nowIso,
                 messages: [
                   ...chat.messages,
                   {
@@ -3320,11 +3322,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-
     const latestCurrentChat = conversationsRef.current.find((c) => c.id === targetChatId) || currentChat;
     const baseExistingMsgs = (latestCurrentChat?.messages || []).filter((m) => m.id !== optimisticMessageId);
     const resolvedTextStamp = buildMonotonicMessageTime(baseExistingMsgs, sentTextSentAtISO);
+    const now = resolvedTextStamp.time;
 
     // Mensagem de texto (só adiciona se tiver conteúdo)
     const messagesToAdd: Message[] = [];
@@ -3338,7 +3339,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clientMessageId,
         author: isInternalNote ? operatorProfile.name : "Você",
         text: metaTemplate ? sentRenderedText || `[Template Meta: ${metaTemplate.name}]` : text,
-        time: now,
+        time: resolvedTextStamp.time,
         sentAtISO: resolvedTextStamp.sentAtISO,
         date: resolvedTextStamp.date,
         side: "out",
@@ -3375,7 +3376,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           clientMessageId: `${clientMessageId}-att-${i}`,
           author: "Você",
           text: mediaText,
-          time: now,
+          time: attStamp.time,
           sentAtISO: attStamp.sentAtISO,
           date: attStamp.date,
           side: "out",
@@ -3388,6 +3389,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       });
     }
+
+    const latestAddedStamp = messagesToAdd.at(-1);
+    const finalLastTime = latestAddedStamp?.time || now;
+    const finalLastIso = latestAddedStamp?.sentAtISO || resolvedTextStamp.sentAtISO;
 
     setConversations((prev) =>
       prev.map((c) => {
@@ -3404,7 +3409,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 status: sentTextStatus || "sent",
                 sentAtISO: resolvedTextStamp.sentAtISO,
                 time: resolvedTextStamp.time,
-        date: resolvedTextStamp.date,
+                date: resolvedTextStamp.date,
                 provider: sentProvider,
               };
             }
@@ -3413,11 +3418,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (optimisticUpdated) {
             const extraMessages = messagesToAdd.filter(
-              (msg) => msg.id !== sentTextMessageId && !updatedMessages.some((m) => m.id === msg.id)
+              (msg) =>
+                msg.id !== sentTextMessageId &&
+                !updatedMessages.some(
+                  (m) => m.id === msg.id || (msg.clientMessageId && m.clientMessageId === msg.clientMessageId),
+                ),
             );
             return {
               ...c,
-              lastMessageTime: now,
+              lastMessageTime: finalLastTime,
+              lastMessageAtISO: finalLastIso,
               messages: extraMessages.length > 0 ? [...updatedMessages, ...extraMessages] : updatedMessages,
             };
           }
@@ -3427,10 +3437,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : c.messages;
           return {
             ...c,
-            lastMessageTime: now,
+            lastMessageTime: finalLastTime,
+            lastMessageAtISO: finalLastIso,
             messages: [
               ...existingMessages,
-              ...messagesToAdd.filter((message) => !existingMessages.some((existing) => existing.id === message.id)),
+              ...messagesToAdd.filter(
+                (message) =>
+                  !existingMessages.some(
+                    (existing) =>
+                      existing.id === message.id ||
+                      (message.clientMessageId && existing.clientMessageId === message.clientMessageId),
+                  ),
+              ),
             ],
           };
         }
@@ -3617,7 +3635,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             id: `sys-${Date.now()}`,
             author: "Sistema",
             text: textLog,
-            time: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            time: new Date().toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
+            }),
             side: "out",
             isInternalNote: true,
           };
@@ -3681,7 +3703,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logSystemEvent = async (chatId: string, eventText: string) => {
-    const now = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const now = new Date().toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Sao_Paulo",
+    });
     const systemMsg: Message = {
       id: `sys-${Date.now()}`,
       author: "Sistema",
@@ -3924,6 +3950,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             time: new Date().toLocaleTimeString("pt-BR", {
               hour: "2-digit",
               minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
             }),
             side: "out",
             isInternalNote: true,
@@ -4049,6 +4076,60 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ];
     });
   };
+
+  const syncConversationMessages = useCallback(
+    (conversationId: string, loadedMessages: Message[]) => {
+      if (!conversationId || conversationId === "valentina" || !Array.isArray(loadedMessages) || loadedMessages.length === 0) {
+        return;
+      }
+      setConversations((previous) =>
+        previous.map((item) => {
+          if (item.id !== conversationId) return item;
+          const merged = mergeRecentMessages(item.messages, loadedMessages);
+          const isAutoDeal = (m?: Message) =>
+            Boolean(
+              m &&
+                /^(?:\[(?:Sistema|Nota)\]\s*)?Negociaç(?:ão|ões) (?:atual|deste atendimento|criada neste atendimento|vinculada)/i.test(
+                  (m.text || "").trim(),
+                ),
+            );
+          const isSys = (m?: Message) =>
+            Boolean(m && (m.senderType === "system" || m.author === "Sistema"));
+          let previewMsg: Message | undefined;
+          for (let i = merged.length - 1; i >= 0; i--) {
+            if (!isAutoDeal(merged[i]) && !isSys(merged[i])) {
+              previewMsg = merged[i];
+              break;
+            }
+          }
+          if (!previewMsg) {
+            for (let i = merged.length - 1; i >= 0; i--) {
+              if (!isAutoDeal(merged[i])) {
+                previewMsg = merged[i];
+                break;
+              }
+            }
+          }
+          if (!previewMsg) previewMsg = merged.at(-1);
+          const nextIso = previewMsg?.sentAtISO || item.lastMessageAtISO;
+          const nextTime = nextIso
+            ? new Date(nextIso).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
+              })
+            : previewMsg?.time || item.lastMessageTime;
+          return {
+            ...item,
+            messages: merged,
+            lastMessageTime: nextTime,
+            lastMessageAtISO: nextIso || item.lastMessageAtISO,
+          };
+        }),
+      );
+    },
+    [setConversations],
+  );
 
   const loadConversationPage = async (
     queue: QueueType,
@@ -4495,7 +4576,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setConversations((prev) => {
             const exists = prev.some((c) => c.id === message.conversationId);
             const sentAtIso = message.sentAt ? new Date(message.sentAt).toISOString() : new Date().toISOString();
-            const timeStr = new Date(sentAtIso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+            const timeStr = new Date(sentAtIso).toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
+            });
             const isClientMsg = message.senderType === "client";
             const incomingMsg: Message = {
             id: message.id,
@@ -4561,10 +4646,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         )
                       : [...c.messages, { ...incomingMsg, ...buildMonotonicMessageTime(c.messages, sentAtIso) }];
 
+                  const isSystemMsg = incomingMsg.senderType === "system" || incomingMsg.author === "Sistema";
+                  const shouldUpdatePreviewTime = !isSystemMsg || !c.lastMessageTime;
+
                   return {
                   ...c,
-                  lastMessageTime: isClientMsg ? timeStr : c.lastMessageTime || timeStr,
-                  lastMessageAtISO: isClientMsg ? sentAtIso : c.lastMessageAtISO || sentAtIso,
+                  lastMessageTime: shouldUpdatePreviewTime ? timeStr : c.lastMessageTime,
+                  lastMessageAtISO: shouldUpdatePreviewTime ? sentAtIso : c.lastMessageAtISO || sentAtIso,
                   lastClientMessageAtISO: isClientMsg ? sentAtIso : c.lastClientMessageAtISO,
                   unreadCount: newUnread,
                   messages: updatedList,
@@ -5440,6 +5528,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateContactWallet,
         createContact,
         refreshConversations,
+        syncConversationMessages,
         loadConversationPage,
         markAsRead,
         markAsUnread,
