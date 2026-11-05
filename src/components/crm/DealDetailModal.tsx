@@ -72,6 +72,7 @@ import { CrmDatePicker } from "./CrmDatePicker";
 import { SystemDateTimePicker } from "@/components/ui/system-date-time-picker";
 import { ContactCustomFieldsCard } from "./ContactCustomFieldsCard";
 import { DealEmailTab } from "./DealEmailTab";
+import { DealFreightQuoteTab } from "./DealFreightQuoteTab";
 import { CatalogSelect } from "./CatalogSelect";
 import { useRdMarketingJourney } from "@/hooks/useRdMarketingJourney";
 import { RdMarketingJourneyControls, ContactDealsList } from "./RdMarketingJourneyControls";
@@ -768,8 +769,10 @@ export function DealDetailModal({
   }, [deal?.id, deal?.customFields]);
 
   const [activeTab, setActiveTab] = useState<
-    "history" | "tasks" | "conversations" | "evidence" | "deals" | "products" | "files" | "questionnaires" | "emails"
+    "history" | "tasks" | "conversations" | "evidence" | "deals" | "freight" | "products" | "files" | "questionnaires" | "emails"
   >("history");
+  const [freightQuotesCount, setFreightQuotesCount] = useState(0);
+  const isTecfagTenant = (chatContext?.tenant || deal?.tenantId) === "tecfag";
   const [devFeatureModal, setDevFeatureModal] = useState<string | null>(null);
   const [celebrationData, setCelebrationData] = useState<SaleCelebrationData | null>(null);
 
@@ -1515,7 +1518,7 @@ export function DealDetailModal({
   }, [isOpen, dealId]);
 
   useEffect(() => {
-    if (isOpen && activeTab === "products") void loadCatalog();
+    if (isOpen && (activeTab === "products" || activeTab === "freight")) void loadCatalog();
   }, [isOpen, activeTab]);
 
   // Manipulação de Produto do Catálogo
@@ -3922,10 +3925,46 @@ export function DealDetailModal({
                     </span>
                   )}
                 </button>
+                {isTecfagTenant && (
+                  <SystemTooltip content="Cotar frete na Intelipost informando os dados da máquina e o endereço de entrega">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("freight")}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs transition-colors cursor-pointer whitespace-nowrap border-b-2 ${
+                        activeTab === "freight"
+                          ? "border-primary text-primary font-bold"
+                          : "border-transparent text-muted-foreground hover:text-foreground hover:border-border font-medium"
+                      }`}
+                    >
+                      <span>Cotação de Frete</span>
+                      {freightQuotesCount > 0 && (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.2 text-[10px] font-bold text-primary">
+                          {freightQuotesCount}
+                        </span>
+                      )}
+                    </button>
+                  </SystemTooltip>
+                )}
               </div>
 
               {/* Conteúdo da Aba */}
               <div className="crm-deal-tab-content flex-1 min-h-0 p-5 overflow-y-auto scrollbar-none">
+                {/* ABA COTAÇÃO DE FRETE INTELIPOST (TECFAG) */}
+                {activeTab === "freight" && isTecfagTenant && (
+                  <DealFreightQuoteTab
+                    dealId={deal?.id || dealId || ""}
+                    deal={deal}
+                    catalogProducts={catalogProducts}
+                    onQuotesCountChange={setFreightQuotesCount}
+                    onQuoteSavedToTimeline={() => {
+                      if (dealId) {
+                        invalidateDealCache(dealId);
+                        void loadDealDetail(true);
+                      }
+                    }}
+                  />
+                )}
+
                 {/* ABA NEGOCIAÇÕES VINCULADAS AO CONTATO */}
                 {activeTab === "deals" && (
                   <div className="space-y-4 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">

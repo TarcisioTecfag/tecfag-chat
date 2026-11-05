@@ -5,11 +5,12 @@ import { useTabNavigation } from "@/hooks/useTabNavigation";
 import { 
   Check, RefreshCw, Key, Shield, Smartphone, QrCode, AlertCircle, Save, Mail, 
   FileText, Link, ExternalLink, CheckCircle2, Loader2, PhoneCall, Clock, 
-  MessageSquare, ShieldAlert, Calendar, Sparkles, Send, Bell, Globe, Copy
+  MessageSquare, ShieldAlert, Calendar, Sparkles, Send, Bell, Globe, Copy, Truck
 } from "lucide-react";
 import { ConfiguracaoTab as VoiceConfigTab } from "@/components/voice/ConfiguracaoTab";
 import { LiveChatSettingsTab } from "./LiveChatSettingsTab";
 import { McpSettingsTab } from "./McpSettingsTab";
+import { IntelipostSettingsTab } from "./IntelipostSettingsTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
 import { PipelineSettingsModal } from "@/components/crm/PipelineSettingsModal";
@@ -25,8 +26,8 @@ import { SystemTooltip } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
 import { getInitialTabFromUrl, parseAppRoute, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 
-type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat" | "mcp";
-const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat", "mcp"];
+type SettingsTab = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat" | "mcp" | "intelipost";
+const SETTINGS_TABS: readonly SettingsTab[] = ["whatsapp", "voz", "rd", "crm", "email", "livechat", "mcp", "intelipost"];
 
 export function SettingsView() {
   const {
@@ -490,13 +491,18 @@ export function SettingsView() {
     { id: "voz" as const, label: `Voz & Telefonia (${aiPersona.name})`, icon: PhoneCall },
     { id: "rd" as const, label: "RD Station", icon: Link },
     { id: "crm" as const, label: "Configurações do CRM", icon: FileText },
+    ...(tenant === "tecfag"
+      ? [{ id: "intelipost" as const, label: "Intelipost (Frete)", icon: Truck }]
+      : []),
     { id: "email" as const, label: "E-mail & Automações", icon: Mail },
     { id: "livechat" as const, label: "Live Chat (Site)", icon: Globe },
     { id: "mcp" as const, label: "Conector MCP (Claude / IA)", icon: Sparkles },
   ];
 
   const allowedTabs = allTabs.filter((t) =>
-    t.id === "mcp" ? canAccessView("settings") : canAccessSettingsTab(t.id),
+    t.id === "mcp" || t.id === "intelipost"
+      ? canAccessView("settings")
+      : canAccessSettingsTab(t.id),
   );
   const allowedTabIds = useMemo(() => allowedTabs.map((t) => t.id), [allowedTabs]);
 
@@ -1546,6 +1552,9 @@ export function SettingsView() {
 
         {/* ABA 6: CONECTOR MCP (CLAUDE / IA) */}
         {activeTab === "mcp" && <McpSettingsTab />}
+
+        {/* ABA 7: INTELIPOST (COTAÇÃO DE FRETE) */}
+        {activeTab === "intelipost" && <IntelipostSettingsTab />}
       </div>
       <CustomFieldsSettingsModal
         isOpen={customFieldsOpen}

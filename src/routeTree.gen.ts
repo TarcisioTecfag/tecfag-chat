@@ -70,6 +70,7 @@ import { Route as ApiSettingsReportsRouteImport } from './routes/api/settings/re
 import { Route as ApiSettingsRdMarketingRouteImport } from './routes/api/settings/rd-marketing'
 import { Route as ApiSettingsRdCrmRouteImport } from './routes/api/settings/rd-crm'
 import { Route as ApiSettingsMcpRouteImport } from './routes/api/settings/mcp'
+import { Route as ApiSettingsIntelipostRouteImport } from './routes/api/settings/intelipost'
 import { Route as ApiPlatformAccessRouteImport } from './routes/api/platform/access'
 import { Route as ApiOperatorsProfileRouteImport } from './routes/api/operators/profile'
 import { Route as ApiOperatorsOnboardingRouteImport } from './routes/api/operators/onboarding'
@@ -179,6 +180,7 @@ import { Route as ApiCrmDealsDealIdRdMarketingRouteImport } from './routes/api/c
 import { Route as ApiCrmDealsDealIdQuestionnairesRouteImport } from './routes/api/crm/deals/$dealId/questionnaires'
 import { Route as ApiCrmDealsDealIdProposalsRouteImport } from './routes/api/crm/deals/$dealId/proposals'
 import { Route as ApiCrmDealsDealIdProductsRouteImport } from './routes/api/crm/deals/$dealId/products'
+import { Route as ApiCrmDealsDealIdFreightQuotesRouteImport } from './routes/api/crm/deals/$dealId/freight-quotes'
 import { Route as ApiCrmDealsDealIdFilesRouteImport } from './routes/api/crm/deals/$dealId/files'
 import { Route as ApiCrmDealsDealIdEvidenceRouteImport } from './routes/api/crm/deals/$dealId/evidence'
 import { Route as ApiCrmDealsDealIdEmailsRouteImport } from './routes/api/crm/deals/$dealId/emails'
@@ -502,6 +504,11 @@ const ApiSettingsRdCrmRoute = ApiSettingsRdCrmRouteImport.update({
 const ApiSettingsMcpRoute = ApiSettingsMcpRouteImport.update({
   id: '/api/settings/mcp',
   path: '/api/settings/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsIntelipostRoute = ApiSettingsIntelipostRouteImport.update({
+  id: '/api/settings/intelipost',
+  path: '/api/settings/intelipost',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPlatformAccessRoute = ApiPlatformAccessRouteImport.update({
@@ -1085,6 +1092,12 @@ const ApiCrmDealsDealIdProductsRoute =
     path: '/products',
     getParentRoute: () => ApiCrmDealsDealIdRoute,
   } as any)
+const ApiCrmDealsDealIdFreightQuotesRoute =
+  ApiCrmDealsDealIdFreightQuotesRouteImport.update({
+    id: '/freight-quotes',
+    path: '/freight-quotes',
+    getParentRoute: () => ApiCrmDealsDealIdRoute,
+  } as any)
 const ApiCrmDealsDealIdFilesRoute = ApiCrmDealsDealIdFilesRouteImport.update({
   id: '/files',
   path: '/files',
@@ -1262,6 +1275,7 @@ export interface FileRoutesByFullPath {
   '/api/operators/onboarding': typeof ApiOperatorsOnboardingRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
+  '/api/settings/intelipost': typeof ApiSettingsIntelipostRoute
   '/api/settings/mcp': typeof ApiSettingsMcpRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRouteWithChildren
@@ -1328,6 +1342,7 @@ export interface FileRoutesByFullPath {
   '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRouteWithChildren
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
   '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRouteWithChildren
+  '/api/crm/deals/$dealId/freight-quotes': typeof ApiCrmDealsDealIdFreightQuotesRoute
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
@@ -1446,6 +1461,7 @@ export interface FileRoutesByTo {
   '/api/operators/onboarding': typeof ApiOperatorsOnboardingRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
+  '/api/settings/intelipost': typeof ApiSettingsIntelipostRoute
   '/api/settings/mcp': typeof ApiSettingsMcpRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRouteWithChildren
@@ -1512,6 +1528,7 @@ export interface FileRoutesByTo {
   '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRouteWithChildren
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
   '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRouteWithChildren
+  '/api/crm/deals/$dealId/freight-quotes': typeof ApiCrmDealsDealIdFreightQuotesRoute
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
@@ -1631,6 +1648,7 @@ export interface FileRoutesById {
   '/api/operators/onboarding': typeof ApiOperatorsOnboardingRoute
   '/api/operators/profile': typeof ApiOperatorsProfileRoute
   '/api/platform/access': typeof ApiPlatformAccessRoute
+  '/api/settings/intelipost': typeof ApiSettingsIntelipostRoute
   '/api/settings/mcp': typeof ApiSettingsMcpRoute
   '/api/settings/rd-crm': typeof ApiSettingsRdCrmRouteWithChildren
   '/api/settings/rd-marketing': typeof ApiSettingsRdMarketingRouteWithChildren
@@ -1697,6 +1715,7 @@ export interface FileRoutesById {
   '/api/crm/deals/$dealId/emails': typeof ApiCrmDealsDealIdEmailsRouteWithChildren
   '/api/crm/deals/$dealId/evidence': typeof ApiCrmDealsDealIdEvidenceRoute
   '/api/crm/deals/$dealId/files': typeof ApiCrmDealsDealIdFilesRouteWithChildren
+  '/api/crm/deals/$dealId/freight-quotes': typeof ApiCrmDealsDealIdFreightQuotesRoute
   '/api/crm/deals/$dealId/products': typeof ApiCrmDealsDealIdProductsRoute
   '/api/crm/deals/$dealId/proposals': typeof ApiCrmDealsDealIdProposalsRoute
   '/api/crm/deals/$dealId/questionnaires': typeof ApiCrmDealsDealIdQuestionnairesRoute
@@ -1817,6 +1836,7 @@ export interface FileRouteTypes {
     | '/api/operators/onboarding'
     | '/api/operators/profile'
     | '/api/platform/access'
+    | '/api/settings/intelipost'
     | '/api/settings/mcp'
     | '/api/settings/rd-crm'
     | '/api/settings/rd-marketing'
@@ -1883,6 +1903,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
     | '/api/crm/deals/$dealId/files'
+    | '/api/crm/deals/$dealId/freight-quotes'
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
     | '/api/crm/deals/$dealId/questionnaires'
@@ -2001,6 +2022,7 @@ export interface FileRouteTypes {
     | '/api/operators/onboarding'
     | '/api/operators/profile'
     | '/api/platform/access'
+    | '/api/settings/intelipost'
     | '/api/settings/mcp'
     | '/api/settings/rd-crm'
     | '/api/settings/rd-marketing'
@@ -2067,6 +2089,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
     | '/api/crm/deals/$dealId/files'
+    | '/api/crm/deals/$dealId/freight-quotes'
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
     | '/api/crm/deals/$dealId/questionnaires'
@@ -2185,6 +2208,7 @@ export interface FileRouteTypes {
     | '/api/operators/onboarding'
     | '/api/operators/profile'
     | '/api/platform/access'
+    | '/api/settings/intelipost'
     | '/api/settings/mcp'
     | '/api/settings/rd-crm'
     | '/api/settings/rd-marketing'
@@ -2251,6 +2275,7 @@ export interface FileRouteTypes {
     | '/api/crm/deals/$dealId/emails'
     | '/api/crm/deals/$dealId/evidence'
     | '/api/crm/deals/$dealId/files'
+    | '/api/crm/deals/$dealId/freight-quotes'
     | '/api/crm/deals/$dealId/products'
     | '/api/crm/deals/$dealId/proposals'
     | '/api/crm/deals/$dealId/questionnaires'
@@ -2358,6 +2383,7 @@ export interface RootRouteChildren {
   ApiLivechatVisitorsRoute: typeof ApiLivechatVisitorsRoute
   ApiLivechatVtexConfigRoute: typeof ApiLivechatVtexConfigRoute
   ApiPlatformAccessRoute: typeof ApiPlatformAccessRoute
+  ApiSettingsIntelipostRoute: typeof ApiSettingsIntelipostRoute
   ApiSettingsMcpRoute: typeof ApiSettingsMcpRoute
   ApiSettingsRdCrmRoute: typeof ApiSettingsRdCrmRouteWithChildren
   ApiSettingsRdMarketingRoute: typeof ApiSettingsRdMarketingRouteWithChildren
@@ -2820,6 +2846,13 @@ declare module '@tanstack/react-router' {
       path: '/api/settings/mcp'
       fullPath: '/api/settings/mcp'
       preLoaderRoute: typeof ApiSettingsMcpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings/intelipost': {
+      id: '/api/settings/intelipost'
+      path: '/api/settings/intelipost'
+      fullPath: '/api/settings/intelipost'
+      preLoaderRoute: typeof ApiSettingsIntelipostRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/platform/access': {
@@ -3585,6 +3618,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCrmDealsDealIdProductsRouteImport
       parentRoute: typeof ApiCrmDealsDealIdRoute
     }
+    '/api/crm/deals/$dealId/freight-quotes': {
+      id: '/api/crm/deals/$dealId/freight-quotes'
+      path: '/freight-quotes'
+      fullPath: '/api/crm/deals/$dealId/freight-quotes'
+      preLoaderRoute: typeof ApiCrmDealsDealIdFreightQuotesRouteImport
+      parentRoute: typeof ApiCrmDealsDealIdRoute
+    }
     '/api/crm/deals/$dealId/files': {
       id: '/api/crm/deals/$dealId/files'
       path: '/files'
@@ -3894,6 +3934,7 @@ interface ApiCrmDealsDealIdRouteChildren {
   ApiCrmDealsDealIdEmailsRoute: typeof ApiCrmDealsDealIdEmailsRouteWithChildren
   ApiCrmDealsDealIdEvidenceRoute: typeof ApiCrmDealsDealIdEvidenceRoute
   ApiCrmDealsDealIdFilesRoute: typeof ApiCrmDealsDealIdFilesRouteWithChildren
+  ApiCrmDealsDealIdFreightQuotesRoute: typeof ApiCrmDealsDealIdFreightQuotesRoute
   ApiCrmDealsDealIdProductsRoute: typeof ApiCrmDealsDealIdProductsRoute
   ApiCrmDealsDealIdProposalsRoute: typeof ApiCrmDealsDealIdProposalsRoute
   ApiCrmDealsDealIdQuestionnairesRoute: typeof ApiCrmDealsDealIdQuestionnairesRoute
@@ -3909,6 +3950,7 @@ const ApiCrmDealsDealIdRouteChildren: ApiCrmDealsDealIdRouteChildren = {
   ApiCrmDealsDealIdEmailsRoute: ApiCrmDealsDealIdEmailsRouteWithChildren,
   ApiCrmDealsDealIdEvidenceRoute: ApiCrmDealsDealIdEvidenceRoute,
   ApiCrmDealsDealIdFilesRoute: ApiCrmDealsDealIdFilesRouteWithChildren,
+  ApiCrmDealsDealIdFreightQuotesRoute: ApiCrmDealsDealIdFreightQuotesRoute,
   ApiCrmDealsDealIdProductsRoute: ApiCrmDealsDealIdProductsRoute,
   ApiCrmDealsDealIdProposalsRoute: ApiCrmDealsDealIdProposalsRoute,
   ApiCrmDealsDealIdQuestionnairesRoute: ApiCrmDealsDealIdQuestionnairesRoute,
@@ -4117,6 +4159,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLivechatVisitorsRoute: ApiLivechatVisitorsRoute,
   ApiLivechatVtexConfigRoute: ApiLivechatVtexConfigRoute,
   ApiPlatformAccessRoute: ApiPlatformAccessRoute,
+  ApiSettingsIntelipostRoute: ApiSettingsIntelipostRoute,
   ApiSettingsMcpRoute: ApiSettingsMcpRoute,
   ApiSettingsRdCrmRoute: ApiSettingsRdCrmRouteWithChildren,
   ApiSettingsRdMarketingRoute: ApiSettingsRdMarketingRouteWithChildren,
