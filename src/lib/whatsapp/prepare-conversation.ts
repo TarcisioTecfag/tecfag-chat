@@ -16,7 +16,7 @@ import {
   requireConversationAccess,
 } from "../access-control/conversation-access";
 import { conversationReadRules } from "../access-control/conversation-policy";
-import { lockContactDeals } from "../crm/deal-associations";
+import { ensureLinkedDeviceConversationDeal, lockContactDeals } from "../crm/deal-associations";
 import { setAttendanceActor } from "../attendance-events";
 import { conversationConnectionCondition } from "./connections";
 import { multiConnectionEnabled } from "./connection-policy";
@@ -208,6 +208,16 @@ export async function prepareWhatsappConversation(
           contactId: current.contactId,
         })
         .onConflictDoNothing();
+    if (typeof ensureLinkedDeviceConversationDeal === "function") {
+      await ensureLinkedDeviceConversationDeal(tx, {
+        tenantId,
+        conversationId: target.id,
+        contactId: current.contactId,
+        connectionId: input.connectionId,
+        operatorId: session.operator.id,
+        operatorName: session.operator.name,
+      });
+    }
     await tx.insert(crmActionHistory).values({
       id: randomUUID(),
       tenantId,

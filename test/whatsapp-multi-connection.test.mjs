@@ -1861,3 +1861,199 @@ test("WhatsApp call logs (voice/video, connected/missed/rejected) are normalized
   assert.equal(rejectedCall.outcome, "rejected");
   assert.match(rejectedCall.text, /Ligação de voz recusada/);
 });
+
+test("linked Baileys phone auto-creates current deal only when contact has no deal, reuses existing deal without duplication, and logs calls into currentDealId", async () => {
+  for (const table of [
+    schema.crmAccounts,
+    schema.crmPipelines,
+    schema.crmStages,
+    schema.crmDeals,
+    schema.crmDealContacts,
+    schema.crmConversationDeals,
+    schema.conversationDealContexts,
+    schema.crmDealActivities,
+    schema.crmDealEvents,
+  ]) {
+    const config = pg.getTableConfig(table);
+    const columns = config.columns.map((c) => {
+      const type = c.getSQLType();
+      const defaultValue = type.includes("timestamp")
+        ? " DEFAULT now()"
+        : type === "integer"
+          ? " DEFAULT 0"
+          : type === "boolean"
+            ? " DEFAULT false"
+            : type === "jsonb"
+              ? " DEFAULT '{}'::jsonb"
+              : "";
+      const pk = c.name === "id" || (config.name === "conversation_deal_contexts" && c.name === "conversation_id");
+      return `"${c.name}" ${type}${pk ? " PRIMARY KEY" : defaultValue}`;
+    });
+    await client.exec(`CREATE TABLE IF NOT EXISTS "${config.name}" (${columns.join(",")})`);
+  }
+
+  const contactDealsQuery = loadAccessSource("src/lib/crm/contact-deals-query.ts", {
+    "../../db/schema": schema,
+    "drizzle-orm": orm,
+  });
+  const dealAssociations = loadAccessSource("src/lib/crm/deal-associations.ts", {
+    "../../db/schema": schema,
+    "drizzle-orm": orm,
+    "./contact-deals-query": contactDealsQuery,
+  });
+
+  // 1. Contato novo no WhatsApp Baileys (sem negociação prévia): cria automaticamente 1 negociação e marca como atual
+  await db.insert(schema.contacts).values({
+    id: "new-baileys-lead",
+    tenantId: tenant,
+    name: "Carlos Novo Lead",
+    phone: "5511977771111",
+    mainChannel: "whatsapp",
+  });
+  await db.insert(schema.conversations).values({
+    id: "conv-new-baileys",
+    tenantId: tenant,
+    contactId: "new-baileys-lead",
+    whatsappConnectionId: "number-1",
+    queueState: "meus",
+    operatorId: "seller-a",
+  });
+
+  const firstOutcome = await dealAssociations.ensureLinkedDeviceConversationDeal(db, {
+    tenantId: tenant,
+    conversationId: "conv-new-baileys",
+    contactId: "new-baileys-lead",
+    contactName: "Carlos Novo Lead",
+    contactPhone: "5511977771111",
+    connectionId: "number-1",
+    operatorId: "seller-a",
+    operatorName: "seller-a",
+    isHistorical: false,
+    isFromMe: true,
+    messageId: "msg-baileys-1",
+  });
+
+  assert.equal(firstOutcome.createdNew, true);
+  assert.ok(firstOutcome.currentDealId);
+
+  const [createdDeal] = await db
+    .select()
+    .from(schema.crmDeals)
+    .where(orm.eq(schema.crmDeals.id, firstOutcome.currentDealId));
+  assert.equal(createdDeal.title, "Carlos Novo Lead");
+  assert.equal(createdDeal.operatorId, "seller-a");
+  assert.equal(createdDeal.status, "open");
+  assert.equal(createdDeal.source, "WhatsApp Celular Vinculado");
+
+  const [ctxNew] = await db
+    .select()
+    .from(schema.conversationDealContexts)
+    .where(orm.eq(schema.conversationDealContexts.conversationId, "conv-new-baileys"));
+  assert.equal(ctxNew.currentDealId, firstOutcome.currentDealId);
+
+  // 2. Segunda mensagem/ligação na mesma conversa: NÃO duplica negociação e registra ligação na negociação atual
+  const callOutcome = await dealAssociations.ensureLinkedDeviceConversationDeal(db, {
+    tenantId: tenant,
+    conversationId: "conv-new-baileys",
+    contactId: "new-baileys-lead",
+    contactName: "Carlos Novo Lead",
+    contactPhone: "5511977771111",
+    connectionId: "number-1",
+    operatorId: "seller-a",
+    operatorName: "seller-a",
+    isHistorical: false,
+    isFromMe: true,
+    messageId: "call-baileys-1",
+    callDetails: {
+      isVideo: false,
+      outcome: "connected",
+      durationSecs: 125,
+      text: "📞 Ligação de voz realizada — atendida (02m 05s)",
+    },
+  });
+
+  assert.equal(callOutcome.createdNew, false);
+  assert.equal(callOutcome.currentDealId, firstOutcome.currentDealId);
+  assert.ok(callOutcome.callActivityId);
+
+  const allDealsForNewLead = await db
+    .select()
+    .from(schema.crmDealContacts)
+    .where(orm.eq(schema.crmDealContacts.contactId, "new-baileys-lead"));
+  assert.equal(allDealsForNewLead.length, 1);
+
+  const [callActivity] = await db
+    .select()
+    .from(schema.crmDealActivities)
+    .where(orm.eq(schema.crmDealActivities.id, callOutcome.callActivityId));
+  assert.equal(callActivity.dealId, firstOutcome.currentDealId);
+  assert.equal(callActivity.type, "call");
+  assert.equal(callActivity.status, "completed");
+  assert.match(callActivity.title, /02m 05s/);
+
+  // 3. Contato que JÁ possui negociação (ex: criado manualmente ou vindo da Meta Oficial "official" -> "personal-a"):
+  //    NÃO cria nova negociação; herda e vincula a negociação existente como atual no Baileys
+  await db.insert(schema.crmDeals).values({
+    id: "deal-meta-existing",
+    tenantId: tenant,
+    title: "Maria - Negociação Meta Oficial",
+    pipelineId: createdDeal.pipelineId,
+    stageId: createdDeal.stageId,
+    status: "open",
+    operatorId: "seller-a",
+    source: "Meta Oficial",
+  });
+  await db.insert(schema.crmDealContacts).values({
+    id: "dc-meta-existing",
+    tenantId: tenant,
+    dealId: "deal-meta-existing",
+    contactId: "customer",
+    role: "buyer",
+    isPrimary: true,
+  });
+  await db.insert(schema.crmConversationDeals).values({
+    id: "cd-meta-existing",
+    tenantId: tenant,
+    conversationId: "official",
+    dealId: "deal-meta-existing",
+    origin: "chat",
+    isActive: true,
+  });
+  await db.insert(schema.conversationDealContexts).values({
+    tenantId: tenant,
+    conversationId: "official",
+    currentDealId: "deal-meta-existing",
+    selectionRequired: true,
+    version: 1,
+  });
+
+  const migratedOutcome = await dealAssociations.ensureLinkedDeviceConversationDeal(db, {
+    tenantId: tenant,
+    conversationId: "personal-a",
+    contactId: "customer",
+    contactName: "Maria",
+    contactPhone: "5511999990000",
+    connectionId: "number-1",
+    operatorId: "seller-a",
+    operatorName: "seller-a",
+    isHistorical: false,
+    isFromMe: true,
+    messageId: "msg-personal-a-1",
+  });
+
+  assert.equal(migratedOutcome.createdNew, false);
+  assert.equal(migratedOutcome.currentDealId, "deal-meta-existing");
+
+  const [ctxPersonalA] = await db
+    .select()
+    .from(schema.conversationDealContexts)
+    .where(orm.eq(schema.conversationDealContexts.conversationId, "personal-a"));
+  assert.equal(ctxPersonalA.currentDealId, "deal-meta-existing");
+
+  const customerDealLinks = await db
+    .select()
+    .from(schema.crmDealContacts)
+    .where(orm.eq(schema.crmDealContacts.contactId, "customer"));
+  assert.equal(customerDealLinks.length, 1);
+  assert.equal(customerDealLinks[0].dealId, "deal-meta-existing");
+});

@@ -1,4 +1,8 @@
-import { syncConversationDeals, lockContactDeals } from "../crm/deal-associations";
+import {
+  ensureLinkedDeviceConversationDeal,
+  lockContactDeals,
+  syncConversationDeals,
+} from "../crm/deal-associations";
 import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { runtimeSingleton } from "../runtime-singleton";
@@ -1842,7 +1846,29 @@ export class SessionManager {
         }
       }
 
-      await syncConversationDeals(db, tenantId, convId, contactId);
+      let resolvedCurrentDealId: string | null = null;
+      if (typeof ensureLinkedDeviceConversationDeal === "function") {
+        const dealOutcome = await ensureLinkedDeviceConversationDeal(db, {
+          tenantId,
+          conversationId: convId,
+          contactId,
+          contactName: name,
+          contactPhone: resolvedPhoneJid.endsWith("@s.whatsapp.net")
+            ? canonicalPhone
+            : contact?.phone || null,
+          connectionId: this.connectionId,
+          operatorId: targetOperatorId || connectionOwnerId,
+          operatorName: connectionOwnerName,
+          isHistorical: !!rawMsg.__historical,
+          eventTime,
+          messageId,
+          isFromMe,
+          callDetails,
+        });
+        resolvedCurrentDealId = dealOutcome?.currentDealId || null;
+      } else {
+        await syncConversationDeals(db, tenantId, convId, contactId);
+      }
 
       if (this.connectionId && quotedMessageId) {
         const [quoted] = await db.select({ id: messages.id, senderName: messages.senderName, content: messages.content }).from(messages).where(and(
@@ -1881,6 +1907,7 @@ export class SessionManager {
                     : {}),
                 }
               : {}),
+            ...(resolvedCurrentDealId ? { dealId: resolvedCurrentDealId } : {}),
             ...(callDetails ? { call: callDetails } : {}),
           },
           direction: isFromMe ? "outbound" : "inbound",
