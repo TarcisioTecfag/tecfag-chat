@@ -1,10 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useChat } from "@/hooks/useChatState";
 import { Login } from "@/components/chat/Login";
-import { DealDetailModal } from "@/components/crm/DealDetailModal";
 import { fetchPipelinesCached, getCachedPipelinesSync } from "@/lib/crm/deal-prefetch";
+import { lazyWithRetry } from "@/lib/lazy-retry";
+
+const DealDetailModal = lazyWithRetry(
+  () => import("@/components/crm/DealDetailModal"),
+  "DealDetailModal",
+);
 
 export const Route = createFileRoute("/crm/deals/$dealId")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -135,26 +140,34 @@ function DealPage() {
         paddingBottom: "var(--safe-bottom, env(safe-area-inset-bottom, 0px))",
       }}
     >
-      <DealDetailModal
-        isOpen
-        dealId={dealId}
-        preferredContactId={from === "chat" ? activeChat?.contactId : undefined}
-        onClose={goBack}
-        onDealUpdated={() => {}}
-        onOpenConversation={openConversation}
-        onOpenDeal={(targetDealId) => {
-          if (!targetDealId || targetDealId === dealId) return;
-          navigate({
-            to: "/crm/deals/$dealId",
-            params: { dealId: targetDealId },
-            search: { from },
-          });
-        }}
-        pipelineStages={stages}
-        operatorsMap={operatorsMap}
-        operators={operators}
-        backLabel={from === "chat" ? "Voltar ao atendimento" : "Voltar ao CRM"}
-      />
+      <Suspense
+        fallback={
+          <div className="fixed inset-0 flex h-full w-full items-center justify-center bg-background">
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
+          </div>
+        }
+      >
+        <DealDetailModal
+          isOpen
+          dealId={dealId}
+          preferredContactId={from === "chat" ? activeChat?.contactId : undefined}
+          onClose={goBack}
+          onDealUpdated={() => {}}
+          onOpenConversation={openConversation}
+          onOpenDeal={(targetDealId) => {
+            if (!targetDealId || targetDealId === dealId) return;
+            navigate({
+              to: "/crm/deals/$dealId",
+              params: { dealId: targetDealId },
+              search: { from },
+            });
+          }}
+          pipelineStages={stages}
+          operatorsMap={operatorsMap}
+          operators={operators}
+          backLabel={from === "chat" ? "Voltar ao atendimento" : "Voltar ao CRM"}
+        />
+      </Suspense>
     </main>
   );
 }

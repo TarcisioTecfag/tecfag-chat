@@ -1,5 +1,9 @@
 import { lazy, type ComponentType } from "react";
-import { isMissingAssetError, reloadForMissingAsset } from "./asset-recovery";
+import {
+  isAssetRecoveryInProgress,
+  isMissingAssetError,
+  reloadForMissingAsset,
+} from "./asset-recovery";
 
 /**
  * Utilitário de lazy loading com retry automático e auto-reload para chunks desatualizados pós-deploy.
@@ -14,6 +18,12 @@ export function lazyWithRetry(factory: () => Promise<Record<string, unknown>>, e
   return lazy(async () => {
     try {
       const module = await factory();
+      if (!module || typeof module !== "object") {
+        if (reloadForMissingAsset() || isAssetRecoveryInProgress()) {
+          return new Promise<never>(() => {});
+        }
+        throw new Error(`Failed to fetch dynamically imported module (${exportName})`);
+      }
       const component = module[exportName] ?? module.default;
       if (!component) {
         throw new Error(`Componente ${exportName} não encontrado no módulo.`);
@@ -22,7 +32,7 @@ export function lazyWithRetry(factory: () => Promise<Record<string, unknown>>, e
     } catch (error) {
       console.warn("[lazyWithRetry] Falha ao importar módulo dinâmico:", error);
 
-      if (isMissingAssetError(error) && reloadForMissingAsset()) {
+      if (isMissingAssetError(error) && (reloadForMissingAsset() || isAssetRecoveryInProgress())) {
         // Mantém o Suspense até a navegação. Se a tentativa já ocorreu, o erro
         // segue para a boundary, que oferece uma recarga manual.
         return new Promise<never>(() => {});

@@ -29,6 +29,7 @@ import {
   isMissingAssetError,
   reloadForMissingAsset,
 } from "@/lib/asset-recovery";
+import { lazyWithRetry } from "@/lib/lazy-retry";
 
 import { shouldShowMiniChatWidget } from "@/lib/widget-visibility";
 import { isAppShellPath, isKnownStandalonePath } from "@/lib/app-routes";
@@ -205,8 +206,9 @@ function installUiFreezeGuard() {
 
 installUiFreezeGuard();
 
-const CrmChatWidget = lazy(() =>
-  import("@/components/crm/CrmChatWidget").then((module) => ({ default: module.CrmChatWidget })),
+const CrmChatWidget = lazyWithRetry(
+  () => import("@/components/crm/CrmChatWidget"),
+  "CrmChatWidget",
 );
 
 function PersistentAppShell() {
@@ -343,7 +345,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
           <button
             onClick={() => {
               if (typeof window !== "undefined") {
-                window.location.reload();
+                reloadForMissingAsset(true);
                 return;
               }
               router.invalidate();
