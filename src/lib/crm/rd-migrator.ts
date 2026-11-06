@@ -828,7 +828,7 @@ export class RdCrmMigrator {
                   let localContactId: string | null = null;
 
                   for (const rdPhoneItem of rawRdPhones) {
-                    const matched = await findContactByAnyPhone(tenantId, rdPhoneItem.phone);
+                    const matched = await findContactByAnyPhone(db, tenantId, rdPhoneItem.phone);
                     if (matched) {
                       localContactId = matched.contact.id;
                       report.contacts.skippedAlreadyExists++;
@@ -878,7 +878,7 @@ export class RdCrmMigrator {
                   // Sincroniza todos os telefones do contato vindos do RD (preservando os já existentes)
                   if (localContactId && rawRdPhones.length > 0) {
                     try {
-                      const existingPhones = await getContactPhonesList(tenantId, localContactId);
+                      const existingPhones = await getContactPhonesList(db, tenantId, localContactId);
                       const mergedInputs = [
                         ...existingPhones.map((ep) => ({
                           id: ep.id,
@@ -896,7 +896,7 @@ export class RdCrmMigrator {
                           hasWhatsapp: true,
                         })),
                       ];
-                      await syncContactPhones(tenantId, localContactId, mergedInputs);
+                      await syncContactPhones(db, tenantId, localContactId, mergedInputs);
                     } catch (syncPhoneErr: any) {
                       console.warn("[RdCrmMigrator] Falha ao sincronizar telefones múltiplos do contato:", syncPhoneErr?.message);
                     }

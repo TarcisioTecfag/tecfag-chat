@@ -80,7 +80,8 @@ export async function getContactPhonesMap(
   }>,
 ): Promise<Map<string, ContactPhoneItem[]>> {
   const map = new Map<string, ContactPhoneItem[]>();
-  const uniqueIds = Array.from(new Set(contactIds.filter(Boolean)));
+  const safeIds = Array.isArray(contactIds) ? contactIds : [];
+  const uniqueIds = Array.from(new Set(safeIds.filter(Boolean)));
   if (uniqueIds.length === 0) return map;
 
   try {

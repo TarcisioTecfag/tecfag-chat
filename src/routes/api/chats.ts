@@ -456,7 +456,12 @@ export const Route = createFileRoute("/api/chats")({
                 ),
               )
               .groupBy(messages.conversationId),
-            getContactPhonesMap(session.tenantId, contactIds),
+            getContactPhonesMap(
+              db,
+              session.tenantId,
+              contactIds,
+              rows.map((r) => r.contact),
+            ),
           ]);
 
           const lastClientTimeByConv = new Map<string, string>();
