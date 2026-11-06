@@ -19,6 +19,71 @@ const META_GRAPH_VERSION = "v21.0";
 const META_BASE_URL = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 const META_BSUID_BASE_URL = "https://graph.facebook.com/v25.0";
 
+function parseMetaMessagingTier(rawTier: unknown): {
+  tierCode: string | null;
+  tierLabel: string;
+  dailyLimit: number | null;
+  meetsCallingMinimum: boolean | null;
+} {
+  const code = typeof rawTier === "string" ? rawTier.trim().toUpperCase() : "";
+  if (!code) {
+    return {
+      tierCode: null,
+      tierLabel: "Não informado pela API",
+      dailyLimit: null,
+      meetsCallingMinimum: null,
+    };
+  }
+
+  const map: Record<string, { label: string; limit: number }> = {
+    TIER_50: { label: "50 conversas / 24h (Iniciante)", limit: 50 },
+    TIER_250: { label: "250 conversas / 24h (Padrão Inicial)", limit: 250 },
+    TIER_1K: { label: "1.000 conversas / 24h", limit: 1000 },
+    TIER_2K: { label: "2.000 conversas / 24h (Mínimo para Ligações)", limit: 2000 },
+    TIER_10K: { label: "10.000 conversas / 24h", limit: 10000 },
+    TIER_100K: { label: "100.000 conversas / 24h", limit: 100000 },
+    TIER_UNLIMITED: { label: "Ilimitado", limit: 1000000 },
+    STANDARD: { label: "Padrão (250 / 24h)", limit: 250 },
+  };
+
+  if (map[code]) {
+    return {
+      tierCode: code,
+      tierLabel: map[code].label,
+      dailyLimit: map[code].limit,
+      meetsCallingMinimum: map[code].limit >= 2000,
+    };
+  }
+
+  const numMatch = code.match(/(\d+)\s*K\b/i);
+  if (numMatch) {
+    const limit = Number(numMatch[1]) * 1000;
+    return {
+      tierCode: code,
+      tierLabel: `${limit.toLocaleString("pt-BR")} conversas / 24h`,
+      dailyLimit: limit,
+      meetsCallingMinimum: limit >= 2000,
+    };
+  }
+
+  const rawNum = Number(code.replace(/\D/g, ""));
+  if (Number.isFinite(rawNum) && rawNum > 0) {
+    return {
+      tierCode: code,
+      tierLabel: `${rawNum.toLocaleString("pt-BR")} conversas / 24h`,
+      dailyLimit: rawNum,
+      meetsCallingMinimum: rawNum >= 2000,
+    };
+  }
+
+  return {
+    tierCode: code,
+    tierLabel: code,
+    dailyLimit: null,
+    meetsCallingMinimum: null,
+  };
+}
+
 export class MetaAdapter implements WhatsAppAdapter {
   readonly provider = "meta" as const;
 
@@ -659,7 +724,7 @@ export class MetaAdapter implements WhatsAppAdapter {
       }
 
       const res = await fetch(
-        `${META_BASE_URL}/${phoneNumberId}?fields=verified_name,display_phone_number,quality_rating,code_verification_status`,
+        `${META_BASE_URL}/${phoneNumberId}?fields=verified_name,display_phone_number,quality_rating,code_verification_status,messaging_limit_tier`,
         {
           headers: { Authorization: `Bearer ${accessToken}` },
         },
@@ -674,6 +739,10 @@ export class MetaAdapter implements WhatsAppAdapter {
         };
       }
 
+      const tierInfo = parseMetaMessagingTier(
+        data.whatsapp_business_manager_messaging_limit || data.messaging_limit_tier,
+      );
+
       return {
         valid: true,
         details: {
@@ -681,12 +750,271 @@ export class MetaAdapter implements WhatsAppAdapter {
           phoneNumber: data.display_phone_number,
           qualityRating: data.quality_rating,
           verificationStatus: data.code_verification_status,
+          messagingTierCode: tierInfo.tierCode,
+          messagingTierLabel: tierInfo.tierLabel,
         },
       };
     } catch (err: any) {
       return {
         valid: false,
         error: err.message || "Erro de conexão com a Graph API da Meta",
+      };
+    }
+  }
+
+  /**
+   * Verifica na Graph API da Meta se o número e o portfólio já atendem aos requisitos
+   * da WhatsApp Business Calling API (Tier >= 2.000 conversas/24h e status de `/settings`).
+   */
+  async checkCallingEligibility(
+    tenantId: string,
+    customConfig?: Partial<ChannelSettings>,
+  ): Promise<{
+    valid: boolean;
+    eligible: boolean;
+    callingEnabled: boolean;
+    summaryMessage: string;
+    error?: string;
+    details?: {
+      phoneNumberId: string;
+      verifiedName: string;
+      phoneNumber: string;
+      qualityRating: string;
+      platformType: string | null;
+      accountMode: string | null;
+      tierCode: string | null;
+      tierLabel: string;
+      dailyLimit: number | null;
+      meetsCallingMinimum: boolean | null;
+      callingStatus: string | null;
+      callIconVisibility: string | null;
+      callbackPermissionStatus: string | null;
+      settingsReachable: boolean;
+      settingsError: string | null;
+      settingsErrorCode: number | null;
+    };
+  }> {
+    try {
+      const [stored] = await db.select().from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
+      const phoneNumberId = (customConfig?.metaPhoneNumberId || stored?.metaPhoneNumberId || "").trim();
+      const accessToken = (customConfig?.metaAccessToken || stored?.metaAccessToken || "").trim();
+
+      if (!phoneNumberId || !accessToken) {
+        return {
+          valid: false,
+          eligible: false,
+          callingEnabled: false,
+          summaryMessage: "Phone Number ID e Access Token são obrigatórios para verificar ligações.",
+          error: "Phone Number ID e Access Token são obrigatórios para verificar ligações.",
+        };
+      }
+
+      // 1. Consulta metadados e tier de limite do número (com fallback caso algum campo novo não exista na versão)
+      const fieldAttempts = [
+        "id,verified_name,display_phone_number,quality_rating,code_verification_status,messaging_limit_tier,whatsapp_business_manager_messaging_limit,platform_type,account_mode",
+        "id,verified_name,display_phone_number,quality_rating,code_verification_status,messaging_limit_tier,platform_type,account_mode",
+        "id,verified_name,display_phone_number,quality_rating,code_verification_status",
+      ];
+
+      let phoneData: any = null;
+      let lastPhoneError = "";
+      for (const fields of fieldAttempts) {
+        const res = await fetch(`${META_BASE_URL}/${encodeURIComponent(phoneNumberId)}?fields=${fields}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(15000),
+        });
+        const parsed = await res.json().catch(() => ({}));
+        if (res.ok) {
+          phoneData = parsed;
+          break;
+        }
+        lastPhoneError = parsed?.error?.message || `HTTP ${res.status}`;
+        // Se for erro de token (190) ou permissão (10/200), não adianta tentar menos campos
+        if (parsed?.error?.code === 190 || res.status === 401 || res.status === 403) {
+          break;
+        }
+      }
+
+      if (!phoneData) {
+        return {
+          valid: false,
+          eligible: false,
+          callingEnabled: false,
+          summaryMessage: `Falha ao consultar número na Meta: ${lastPhoneError}`,
+          error: lastPhoneError,
+        };
+      }
+
+      const rawTier =
+        phoneData.whatsapp_business_manager_messaging_limit ||
+        phoneData.messaging_limit_tier ||
+        null;
+      const tierInfo = parseMetaMessagingTier(rawTier);
+
+      // 2. Consulta o endpoint `/settings` do número para inspecionar o objeto `calling`
+      let callingSettings: any = null;
+      let settingsReachable = false;
+      let settingsError: string | null = null;
+      let settingsErrorCode: number | null = null;
+
+      try {
+        const settingsRes = await fetch(`${META_BASE_URL}/${encodeURIComponent(phoneNumberId)}/settings`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(15000),
+        });
+        const settingsJson = await settingsRes.json().catch(() => ({}));
+        if (settingsRes.ok) {
+          settingsReachable = true;
+          callingSettings =
+            settingsJson?.calling ||
+            (Array.isArray(settingsJson?.data) ? settingsJson.data[0]?.calling : null) ||
+            null;
+        } else {
+          settingsError =
+            settingsJson?.error?.error_user_msg ||
+            settingsJson?.error?.message ||
+            `HTTP ${settingsRes.status}`;
+          settingsErrorCode = settingsJson?.error?.code ?? null;
+        }
+      } catch (e: any) {
+        settingsError = e?.message || "Falha de rede ao consultar /settings";
+      }
+
+      const callingStatus: string | null = callingSettings?.status
+        ? String(callingSettings.status).toUpperCase()
+        : null;
+      const callIconVisibility: string | null = callingSettings?.call_icon_visibility || null;
+      const callbackPermissionStatus: string | null = callingSettings?.callback_permission_status || null;
+
+      const callingEnabled = callingStatus === "ENABLED";
+      const eligible =
+        callingEnabled ||
+        tierInfo.meetsCallingMinimum === true ||
+        (callingStatus !== null && tierInfo.meetsCallingMinimum !== false);
+
+      let summaryMessage = "";
+      if (callingEnabled) {
+        summaryMessage = `Ligações nativas JÁ ATIVAS neste número (${phoneData.display_phone_number || phoneNumberId})! Nível atual: ${tierInfo.tierLabel}.`;
+      } else if (tierInfo.meetsCallingMinimum === true) {
+        summaryMessage = `Número ELEGÍVEL para Ligações Meta (${tierInfo.tierLabel})! O recurso de voz está atualmente ${callingStatus || "DESATIVADO"} — você já pode ativá-lo.`;
+      } else if (tierInfo.meetsCallingMinimum === false) {
+        summaryMessage = `Ainda não liberado pela Meta: o número está no limite de ${tierInfo.tierLabel}, e a Meta exige o nível mínimo de 2.000 conversas / 24h (TIER_2K) para liberar ligações por API.`;
+      } else if (settingsReachable && callingStatus) {
+        summaryMessage = `Endpoint de ligações acessível na Meta (status atual: ${callingStatus}).`;
+      } else {
+        summaryMessage = `Número validado (${phoneData.display_phone_number || phoneNumberId}), mas a API ainda não retornou liberação de chamadas (${settingsError || tierInfo.tierLabel}).`;
+      }
+
+      return {
+        valid: true,
+        eligible,
+        callingEnabled,
+        summaryMessage,
+        details: {
+          phoneNumberId,
+          verifiedName: phoneData.verified_name || "Meta Cloud",
+          phoneNumber: phoneData.display_phone_number || "",
+          qualityRating: phoneData.quality_rating || "UNKNOWN",
+          platformType: phoneData.platform_type || null,
+          accountMode: phoneData.account_mode || null,
+          tierCode: tierInfo.tierCode,
+          tierLabel: tierInfo.tierLabel,
+          dailyLimit: tierInfo.dailyLimit,
+          meetsCallingMinimum: tierInfo.meetsCallingMinimum,
+          callingStatus,
+          callIconVisibility,
+          callbackPermissionStatus,
+          settingsReachable,
+          settingsError,
+          settingsErrorCode,
+        },
+      };
+    } catch (err: any) {
+      return {
+        valid: false,
+        eligible: false,
+        callingEnabled: false,
+        summaryMessage: err.message || "Erro ao consultar elegibilidade de ligações na Meta",
+        error: err.message || "Erro ao consultar elegibilidade de ligações na Meta",
+      };
+    }
+  }
+
+  /**
+   * Ativa ou desativa a configuração de chamadas nativas (`calling.status = "ENABLED" | "DISABLED"`)
+   * diretamente no endpoint `POST /{PHONE_NUMBER_ID}/settings` da Meta Cloud API.
+   */
+  async setCallingStatus(
+    tenantId: string,
+    enable: boolean,
+    customConfig?: Partial<ChannelSettings>,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+    metaCode?: number;
+    eligibility?: Awaited<ReturnType<MetaAdapter["checkCallingEligibility"]>>;
+  }> {
+    try {
+      const [stored] = await db.select().from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId));
+      const phoneNumberId = (customConfig?.metaPhoneNumberId || stored?.metaPhoneNumberId || "").trim();
+      const accessToken = (customConfig?.metaAccessToken || stored?.metaAccessToken || "").trim();
+
+      if (!phoneNumberId || !accessToken) {
+        return {
+          success: false,
+          message: "Phone Number ID e Access Token são obrigatórios.",
+          error: "Phone Number ID e Access Token são obrigatórios.",
+        };
+      }
+
+      const payload = {
+        calling: {
+          status: enable ? "ENABLED" : "DISABLED",
+          call_icon_visibility: "DEFAULT",
+          callback_permission_status: "ENABLED",
+        },
+      };
+
+      const res = await fetch(`${META_BASE_URL}/${encodeURIComponent(phoneNumberId)}/settings`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const rawMsg =
+          data?.error?.error_user_msg ||
+          data?.error?.error_data?.details ||
+          data?.error?.message ||
+          `HTTP ${res.status}`;
+        const code = data?.error?.code;
+        return {
+          success: false,
+          message: `A Meta recusou a ativação de chamadas neste momento: ${rawMsg}${code ? ` (Código Meta #${code})` : ""}`,
+          error: rawMsg,
+          metaCode: code,
+        };
+      }
+
+      const eligibility = await this.checkCallingEligibility(tenantId, customConfig);
+      return {
+        success: true,
+        message: enable
+          ? "Ligações nativas (WhatsApp Calling API) ativadas com sucesso no número!"
+          : "Ligações nativas desativadas no número.",
+        eligibility,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err?.message || "Falha de comunicação ao configurar chamadas na Meta.",
+        error: err?.message,
       };
     }
   }

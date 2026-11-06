@@ -141,6 +141,25 @@ export const Route = createFileRoute("/api/settings/whatsapp/actions")({
             });
           }
 
+          // ── AÇÃO 2.1: Verificar Elegibilidade de Ligações Meta (Calling API) ─
+          if (action === "check_calling_eligibility") {
+            const result = await metaAdapter.checkCallingEligibility(session.tenantId, customConfig);
+            return new Response(JSON.stringify(result), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          // ── AÇÃO 2.2: Ativar / Desativar Ligações Nativas na Meta (/settings) ─
+          if (action === "set_calling_status") {
+            const enable = body.enable !== false;
+            const result = await metaAdapter.setCallingStatus(session.tenantId, enable, customConfig);
+            return new Response(JSON.stringify(result), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
           // ── AÇÃO 3: Desconectar ──────────────────────────────────────────────
           if (action === "disconnect") {
             if (config.activeProvider === "baileys") {

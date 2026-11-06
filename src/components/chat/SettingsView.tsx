@@ -200,6 +200,33 @@ export function SettingsView() {
   const [showMetaConfiguration, setShowMetaConfiguration] = useState(false);
   const [testingMeta, setTestingMeta] = useState(false);
   const [metaTestResult, setMetaTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testingMetaCalling, setTestingMetaCalling] = useState(false);
+  const [updatingMetaCalling, setUpdatingMetaCalling] = useState(false);
+  const [metaCallingCheck, setMetaCallingCheck] = useState<{
+    valid: boolean;
+    eligible: boolean;
+    callingEnabled: boolean;
+    summaryMessage: string;
+    error?: string;
+    details?: {
+      phoneNumberId: string;
+      verifiedName: string;
+      phoneNumber: string;
+      qualityRating: string;
+      platformType: string | null;
+      accountMode: string | null;
+      tierCode: string | null;
+      tierLabel: string;
+      dailyLimit: number | null;
+      meetsCallingMinimum: boolean | null;
+      callingStatus: string | null;
+      callIconVisibility: string | null;
+      callbackPermissionStatus: string | null;
+      settingsReachable: boolean;
+      settingsError: string | null;
+      settingsErrorCode: number | null;
+    };
+  } | null>(null);
   const [savingChannel, setSavingChannel] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [metaUsage, setMetaUsage] = useState<{
@@ -339,9 +366,10 @@ export function SettingsView() {
       });
       const data = await res.json();
       if (res.ok && data.valid) {
+        const tierSuffix = data.details?.messagingTierLabel ? ` · Limite: ${data.details.messagingTierLabel}` : "";
         setMetaTestResult({
           success: true,
-          message: `Credenciais válidas para ${data.details?.phoneNumber || "o número configurado"} (${data.details?.verifiedName || "Meta Cloud"}). Confirme o recebimento do webhook antes de ativar.`,
+          message: `Credenciais válidas para ${data.details?.phoneNumber || "o número configurado"} (${data.details?.verifiedName || "Meta Cloud"}${tierSuffix}). Confirme o recebimento do webhook antes de ativar.`,
         });
       } else {
         setMetaTestResult({
@@ -353,6 +381,80 @@ export function SettingsView() {
       setMetaTestResult({ success: false, message: e.message || "Erro de rede ao validar na Meta." });
     } finally {
       setTestingMeta(false);
+    }
+  };
+
+  const handleCheckMetaCallingEligibility = async () => {
+    setTestingMetaCalling(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings/whatsapp/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "check_calling_eligibility",
+          customConfig: {
+            metaPhoneNumberId: whatsappChannel.metaPhoneNumberId || undefined,
+            metaAccessToken: whatsappChannel.metaAccessToken || undefined,
+          },
+        }),
+      });
+      const data = await res.json();
+      setMetaCallingCheck(data);
+      if (data.callingEnabled) {
+        toast.success("Ligações nativas da Meta já estão ativas neste número!");
+      } else if (data.eligible) {
+        toast.success("Número elegível para Ligações Meta Cloud API!");
+      }
+    } catch (e: any) {
+      setMetaCallingCheck({
+        valid: false,
+        eligible: false,
+        callingEnabled: false,
+        summaryMessage: e?.message || "Erro de rede ao consultar elegibilidade de ligações na Meta.",
+      });
+    } finally {
+      setTestingMetaCalling(false);
+    }
+  };
+
+  const handleSetMetaCallingStatus = async (enable: boolean) => {
+    setUpdatingMetaCalling(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/settings/whatsapp/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          action: "set_calling_status",
+          enable,
+          customConfig: {
+            metaPhoneNumberId: whatsappChannel.metaPhoneNumberId || undefined,
+            metaAccessToken: whatsappChannel.metaAccessToken || undefined,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || "Configuração de chamadas atualizada na Meta!");
+        if (data.eligibility) {
+          setMetaCallingCheck(data.eligibility);
+        } else {
+          await handleCheckMetaCallingEligibility();
+        }
+      } else {
+        toast.error(data.message || data.error || "A Meta recusou a alteração de chamadas neste número.");
+        if (metaCallingCheck) {
+          setMetaCallingCheck({
+            ...metaCallingCheck,
+            summaryMessage: data.message || data.error || metaCallingCheck.summaryMessage,
+          });
+        }
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Falha de comunicação ao configurar chamadas na Meta.");
+    } finally {
+      setUpdatingMetaCalling(false);
     }
   };
 
@@ -704,20 +806,33 @@ export function SettingsView() {
               /* PAINEL META OFICIAL */
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <form onSubmit={handleSaveMetaCredentials} className="lg:col-span-2 rounded-2xl bg-card p-6 border border-border shadow-soft space-y-4">
-                  <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
                     <div className="flex items-center gap-2">
                       <Key className="h-4 w-4 text-primary" />
                       <h4 className="font-bold text-foreground text-sm">Credenciais Meta Cloud API</h4>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleTestMetaCredentials}
-                      disabled={testingMeta}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-foreground text-xs font-semibold hover:bg-muted/80 transition cursor-pointer border border-border"
-                    >
-                      {testingMeta ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                      Testar Conexão Meta
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SystemTooltip content="Consulta na Graph API da Meta o nível atual do número (mínimo 2.000/24h) e verifica se a API Oficial de Ligações (Calling API) já está liberada">
+                        <button
+                          type="button"
+                          onClick={handleCheckMetaCallingEligibility}
+                          disabled={testingMetaCalling}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/15 transition cursor-pointer border border-primary/25"
+                        >
+                          {testingMetaCalling ? <Loader2 className="h-3 w-3 animate-spin" /> : <PhoneCall className="h-3 w-3" />}
+                          Testar Ligações Meta
+                        </button>
+                      </SystemTooltip>
+                      <button
+                        type="button"
+                        onClick={handleTestMetaCredentials}
+                        disabled={testingMeta}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-foreground text-xs font-semibold hover:bg-muted/80 transition cursor-pointer border border-border"
+                      >
+                        {testingMeta ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                        Testar Conexão Meta
+                      </button>
+                    </div>
                   </div>
 
                   {metaTestResult && (
@@ -728,6 +843,137 @@ export function SettingsView() {
                     }`}>
                       {metaTestResult.success ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
                       <span>{metaTestResult.message}</span>
+                    </div>
+                  )}
+
+                  {metaCallingCheck && (
+                    <div className={`p-4 rounded-xl text-xs space-y-3 border ${
+                      metaCallingCheck.callingEnabled
+                        ? "bg-emerald-500/10 border-emerald-500/25"
+                        : metaCallingCheck.eligible
+                          ? "bg-primary/10 border-primary/25"
+                          : "bg-amber-500/10 border-amber-500/25"
+                    }`}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex items-start gap-2.5">
+                          <PhoneCall className={`h-4 w-4 shrink-0 mt-0.5 ${
+                            metaCallingCheck.callingEnabled
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : metaCallingCheck.eligible
+                                ? "text-primary"
+                                : "text-amber-600 dark:text-amber-400"
+                          }`} />
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold text-foreground">
+                                Diagnóstico WhatsApp Business Calling API (Meta)
+                              </span>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                metaCallingCheck.callingEnabled
+                                  ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                                  : metaCallingCheck.eligible
+                                    ? "bg-primary/20 text-primary"
+                                    : "bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                              }`}>
+                                {metaCallingCheck.callingEnabled
+                                  ? "Ligações Ativas"
+                                  : metaCallingCheck.eligible
+                                    ? "Nível Liberado (Pronto para Ativar)"
+                                    : "Aguardando Nível 2.000/24h"}
+                              </span>
+                            </div>
+                            <p className="text-foreground/90 leading-relaxed">
+                              {metaCallingCheck.summaryMessage}
+                            </p>
+                          </div>
+                        </div>
+
+                        {metaCallingCheck.valid && (
+                          <div className="flex items-center gap-2">
+                            {!metaCallingCheck.callingEnabled ? (
+                              <SystemTooltip content="Envia POST /{PHONE_NUMBER_ID}/settings com calling.status = ENABLED para habilitar chamadas nativas no número">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetMetaCallingStatus(true)}
+                                  disabled={updatingMetaCalling}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition cursor-pointer shadow-soft"
+                                >
+                                  {updatingMetaCalling ? <Loader2 className="h-3 w-3 animate-spin" /> : <PhoneCall className="h-3 w-3" />}
+                                  Testar Ativação na Meta
+                                </button>
+                              </SystemTooltip>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSetMetaCallingStatus(false)}
+                                disabled={updatingMetaCalling}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-foreground text-xs font-semibold hover:bg-muted/80 transition cursor-pointer border border-border"
+                              >
+                                {updatingMetaCalling ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                Desativar Ligações
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {metaCallingCheck.details && (
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-2 border-t border-border/60">
+                          <div className="rounded-lg bg-background/70 p-2.5 border border-border/60">
+                            <span className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                              Limite Diário (Tier)
+                            </span>
+                            <span className="mt-0.5 block font-bold text-foreground">
+                              {metaCallingCheck.details.tierLabel}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {metaCallingCheck.details.meetsCallingMinimum === true
+                                ? "Requisito >= 2.000/24h atingido"
+                                : metaCallingCheck.details.meetsCallingMinimum === false
+                                  ? "Exige >= 2.000/24h para voz"
+                                  : `Código: ${metaCallingCheck.details.tierCode || "N/A"}`}
+                            </span>
+                          </div>
+
+                          <div className="rounded-lg bg-background/70 p-2.5 border border-border/60">
+                            <span className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                              Status Calling (/settings)
+                            </span>
+                            <span className="mt-0.5 block font-bold text-foreground">
+                              {metaCallingCheck.details.callingStatus || (metaCallingCheck.details.settingsReachable ? "NÃO CONFIGURADO" : "BLOQUEADO / INDISPONÍVEL")}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {metaCallingCheck.details.callIconVisibility
+                                ? `Ícone: ${metaCallingCheck.details.callIconVisibility}`
+                                : metaCallingCheck.details.settingsError || "Endpoint /settings"}
+                            </span>
+                          </div>
+
+                          <div className="rounded-lg bg-background/70 p-2.5 border border-border/60">
+                            <span className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                              Qualidade do Número
+                            </span>
+                            <span className="mt-0.5 block font-bold text-foreground">
+                              {metaCallingCheck.details.qualityRating}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {metaCallingCheck.details.phoneNumber || metaCallingCheck.details.verifiedName}
+                            </span>
+                          </div>
+
+                          <div className="rounded-lg bg-background/70 p-2.5 border border-border/60">
+                            <span className="block text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                              Modo / Plataforma
+                            </span>
+                            <span className="mt-0.5 block font-bold text-foreground">
+                              {metaCallingCheck.details.platformType || "CLOUD_API"}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              Conta: {metaCallingCheck.details.accountMode || "LIVE"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
