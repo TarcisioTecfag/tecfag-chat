@@ -4,7 +4,7 @@ import { outboundQueue } from "../../../lib/whatsapp/outbound";
 import { storedResult } from "../../../lib/whatsapp/dispatch";
 import { requireSession } from "../../../lib/auth-session";
 import { db } from "../../../db";
-import { conversations, contacts, mediaFiles, channelConfigs, messages } from "../../../db/schema";
+import { conversations, contacts, contactPhones, mediaFiles, channelConfigs, messages } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import { metaAdapter } from "../../../lib/whatsapp/adapters/meta";
 import { isMetaExperimentError, resolveMetaTemplateValues } from "../../../lib/whatsapp/meta-template-common";
@@ -163,6 +163,8 @@ export const Route = createFileRoute("/api/whatsapp/send")({
             .select({
               id: conversations.id,
               contactId: conversations.contactId,
+              contactPhoneId: conversations.contactPhoneId,
+              contactPhone: conversations.contactPhone,
               whatsappConnectionId: conversations.whatsappConnectionId,
               tenantId: conversations.tenantId,
               operatorId: conversations.operatorId,
@@ -309,18 +311,42 @@ export const Route = createFileRoute("/api/whatsapp/send")({
                 )
               );
 
+            let phoneEntry: { phone: string; whatsappUserId: string | null } | null = null;
+            if (conv.contactPhoneId) {
+              try {
+                const [cp] = await db
+                  .select({ phone: contactPhones.phone, whatsappUserId: contactPhones.whatsappUserId })
+                  .from(contactPhones)
+                  .where(
+                    and(
+                      eq(contactPhones.tenantId, session.tenantId),
+                      eq(contactPhones.contactId, conv.contactId),
+                      eq(contactPhones.id, conv.contactPhoneId),
+                    ),
+                  )
+                  .limit(1);
+                phoneEntry = cp || null;
+              } catch {}
+            }
+
+            const effectivePhone = phoneEntry?.phone || conv.contactPhone || contact?.phone || undefined;
+            const effectiveUserId =
+              phoneEntry?.whatsappUserId ||
+              (!conv.contactPhoneId ? contact?.whatsappUserId : undefined) ||
+              undefined;
+
             const target = await resolveConversationConnection(session.tenantId, conversationId);
             const activeChannel = { activeProvider: target.provider };
-            recipientUserId = activeChannel?.activeProvider === "meta" ? contact?.whatsappUserId || undefined : undefined;
+            recipientUserId = activeChannel?.activeProvider === "meta" ? effectiveUserId : undefined;
             const peer = conv.whatsappConnectionId ? await connectionPeerJid(session.tenantId, conv.whatsappConnectionId, conv.contactId) : null;
-            if (!contact?.phone && !recipientUserId && !peer) {
+            if (!effectivePhone && !recipientUserId && !peer) {
               return new Response(
                 JSON.stringify({ error: "Contato sem identificador WhatsApp disponível para envio." }),
                 { status: 400, headers: { "Content-Type": "application/json" } }
               );
             }
 
-            recipientPhone = contact?.phone || undefined;
+            recipientPhone = effectivePhone;
             recipientName = contact?.name || undefined;
           }
 

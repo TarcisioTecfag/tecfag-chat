@@ -398,6 +398,28 @@ export const contacts = pgTable("contacts", {
   tenantAccountIdx: index("idx_contacts_tenant_account").on(table.tenantId, table.accountId),
 }));
 
+// Múltiplos números de telefone por contato (Comercial, Pessoal, Fixo, WhatsApp, Financeiro, Outro)
+export const contactPhones = pgTable("contact_phones", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  contactId: text("contact_id").references(() => contacts.id, { onDelete: "cascade" }).notNull(),
+  phone: text("phone").notNull(),
+  phoneIdentity: text("phone_identity").notNull(),
+  type: text("type").default("commercial").notNull(), // 'commercial' | 'personal' | 'landline' | 'whatsapp' | 'financial' | 'other'
+  label: text("label"),
+  isPrimary: boolean("is_primary").default(false).notNull(),
+  hasWhatsapp: boolean("has_whatsapp").default(true).notNull(),
+  whatsappJid: text("whatsapp_jid"),
+  whatsappUserId: text("whatsapp_user_id"),
+  position: integer("position").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  tenantContactIdx: index("idx_contact_phones_tenant_contact").on(table.tenantId, table.contactId, table.isPrimary, table.position),
+  tenantIdentityIdx: index("idx_contact_phones_tenant_identity").on(table.tenantId, table.phoneIdentity),
+  contactIdentityUniqIdx: uniqueIndex("idx_contact_phones_contact_identity_uniq").on(table.tenantId, table.contactId, table.phoneIdentity).where(sql`phone_identity <> ''`),
+}));
+
 // Additional individual WhatsApp sessions. Corporate credentials remain in channelConfigs.
 export const whatsappConnections = pgTable("whatsapp_connections", {
   id: text("id").primaryKey(),
@@ -454,6 +476,8 @@ export const conversations = pgTable("conversations", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   contactId: text("contact_id").references(() => contacts.id, { onDelete: "cascade" }).notNull(),
+  contactPhoneId: text("contact_phone_id").references(() => contactPhones.id, { onDelete: "set null" }),
+  contactPhone: text("contact_phone"),
   // NULL preserves the existing corporate connection and its historical provenance.
   whatsappConnectionId: text("whatsapp_connection_id"),
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }), // Null indica que está na fila ou bot

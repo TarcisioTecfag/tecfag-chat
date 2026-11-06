@@ -3,6 +3,12 @@ import {
   lockContactDeals,
   syncConversationDeals,
 } from "../crm/deal-associations";
+import {
+  findContactByAnyPhone,
+  findConversationForContactPhone,
+  resolveOrEnsureContactPhoneRow,
+  type ContactPhoneItem,
+} from "../crm/contact-phones";
 import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { runtimeSingleton } from "../runtime-singleton";
@@ -1466,12 +1472,20 @@ export class SessionManager {
       // Com PN resolvido, prioriza o contato da conversa já aberta. O mesmo número
       // pode estar salvo com ou sem DDI; buscar primeiro pelo LID criaria outra conversa.
       let contact: typeof contacts.$inferSelect | undefined;
+      let matchedPhone: ContactPhoneItem | null = null;
       if (this.connectionId) contact = await findConnectionContact(db, tenantId, this.connectionId, jid, resolvedPhoneJid.endsWith("@s.whatsapp.net") ? phone : undefined);
       if (!this.connectionId && !jid.endsWith("@lid")) {
         contact = await db.query.contacts.findFirst({
           where: (table, { eq: dEq, and: dAnd }) =>
             dAnd(dEq(table.tenantId, tenantId), dEq(table.whatsappJid, jid))
         });
+      }
+      if (resolvedPhoneJid.endsWith("@s.whatsapp.net") && typeof findContactByAnyPhone === "function") {
+        const foundAny = await findContactByAnyPhone(db, tenantId, phone).catch(() => null);
+        if (foundAny?.contact) {
+          if (!contact) contact = foundAny.contact;
+          if (contact.id === foundAny.contact.id) matchedPhone = foundAny.matchedPhone;
+        }
       }
       const phoneVariants = resolvedPhoneJid.endsWith("@s.whatsapp.net")
         ? phoneIdentityVariants(phone)
@@ -1511,6 +1525,7 @@ export class SessionManager {
       console.log(`[Baileys Inbound] tenant=${tenantId} jidType=${jid.endsWith("@lid") ? "lid" : "phone"} pnResolved=${resolvedPhoneJid !== jid} contactId=${contactId} existing=${!!contact}`);
 
       const canonicalPhone = normalizeCanonicalPhone(phone) || phone;
+      const isSecondaryMatchedPhone = Boolean(matchedPhone && !matchedPhone.isPrimary);
       if (!contact) {
         // Criar contato se não existir (inicialmente sem foto para velocidade máxima)
         await db.insert(contacts).values({
@@ -1526,13 +1541,13 @@ export class SessionManager {
         });
       } else {
         const updates: any = {};
-        if (!contact.whatsappJid) {
+        if (!contact.whatsappJid && !isSecondaryMatchedPhone) {
           updates.whatsappJid = jid;
         }
 
-        // Se o telefone salvo era o LID (que não foi resolvido) ou estava corrompido e agora conseguimos resolver o número real
+        // Se o telefone salvo era o LID (que não foi resolvido) ou estava corrompido e agora conseguimos resolver o número real (apenas no telefone principal)
         const isResolved = !resolvedPhoneJid.endsWith("@lid");
-        if (contact.phone !== canonicalPhone && isResolved) {
+        if (!isSecondaryMatchedPhone && contact.phone !== canonicalPhone && isResolved) {
           updates.phone = canonicalPhone;
         }
 
@@ -1541,6 +1556,12 @@ export class SessionManager {
             .set(updates)
             .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
         }
+      }
+
+      if (!matchedPhone && resolvedPhoneJid.endsWith("@s.whatsapp.net") && typeof resolveOrEnsureContactPhoneRow === "function") {
+        matchedPhone = await resolveOrEnsureContactPhoneRow(db, tenantId, contactId, {
+          phone: canonicalPhone,
+        }).catch(() => null);
       }
 
       if (this.connectionId) await bindConnectionIdentity(db, tenantId, this.connectionId, contactId, jid, name);
@@ -1606,17 +1627,40 @@ export class SessionManager {
         }
       }
 
-      // 2. Garantir que a conversa existe no banco
+      // 2. Garantir que a conversa existe no banco (isolada por número quando houver múltiplos números no contato)
       await lockContactDeals(db, tenantId, contactId);
-      let conversation = await db.query.conversations.findFirst({
-        where: (convsTable, { eq: dEq, and: dAnd }) => 
-          dAnd(dEq(convsTable.tenantId, tenantId), dEq(convsTable.contactId, contactId), conversationConnectionCondition(this.connectionId))
-      });
+      let conversation =
+        matchedPhone && typeof findConversationForContactPhone === "function"
+          ? await findConversationForContactPhone(
+              db,
+              tenantId,
+              contactId,
+              matchedPhone,
+              this.connectionId,
+            ).catch(() => null)
+          : null;
+      if (!conversation && (!matchedPhone || matchedPhone.isPrimary)) {
+        conversation = await db.query.conversations.findFirst({
+          where: (convsTable, { eq: dEq, and: dAnd }) =>
+            dAnd(
+              dEq(convsTable.tenantId, tenantId),
+              dEq(convsTable.contactId, contactId),
+              conversationConnectionCondition(this.connectionId),
+            ),
+        });
+      }
 
       // IMPORTANTE: convId DEVE ser determinístico quando a conversa ainda não existe.
       // Se usarmos conv-${Date.now()}, duas mensagens rápidas do mesmo contato geram
       // IDs diferentes → duas sessões no debouncer → saudação duplicada.
-      const convId = conversation?.id || (this.connectionId ? `conv-${createHash("sha256").update(connectionScope(tenantId, this.connectionId) + ":" + contactId).digest("hex")}` : `conv-${tenantId}-${contactId}`);
+      const phoneScopeSuffix = isSecondaryMatchedPhone && matchedPhone?.id ? `:${matchedPhone.id}` : "";
+      const convId =
+        conversation?.id ||
+        (this.connectionId
+          ? `conv-${createHash("sha256")
+              .update(connectionScope(tenantId, this.connectionId) + ":" + contactId + phoneScopeSuffix)
+              .digest("hex")}`
+          : `conv-${tenantId}-${contactId}${phoneScopeSuffix ? `-${matchedPhone!.id}` : ""}`);
       console.log(`[Baileys Inbound] tenant=${tenantId} messageId=${messageId} conversationId=${convId} existingConversation=${!!conversation}`);
       const isFromMe = !!rawMsg.key.fromMe;
 
@@ -1629,7 +1673,7 @@ export class SessionManager {
 
         // 2. Arquivar a triagem anterior em previousTriages antes de reiniciar (preserva histórico compilado)
         if (getAiPersona(tenantId).triagePolicy === "industrial") {
-          if (!conversation) await db.insert(conversations).values({ id: convId, tenantId, contactId, queueState: "automacao" }).onConflictDoNothing();
+          if (!conversation) await db.insert(conversations).values({ id: convId, tenantId, contactId, contactPhoneId: matchedPhone?.id || null, contactPhone: matchedPhone?.phone || (resolvedPhoneJid.endsWith("@s.whatsapp.net") ? canonicalPhone : null), queueState: "automacao" }).onConflictDoNothing();
           const restarted = await restartIndustrialCycle(db, tenantId, convId, { reason: "reset", sourceKey: messageId, receivedAt: eventTime });
           if (!restarted || restarted.replayed) return;
         } else {
@@ -1810,6 +1854,8 @@ export class SessionManager {
           id: convId,
           tenantId,
           contactId,
+          contactPhoneId: matchedPhone?.id || null,
+          contactPhone: matchedPhone?.phone || (resolvedPhoneJid.endsWith("@s.whatsapp.net") ? canonicalPhone : null),
           whatsappConnectionId: this.connectionId,
           queueState: this.connectionId ? targetQueue : isFromMe ? "meus" : contact?.walletOperatorId ? "meus" : "fila",
           operatorId: this.connectionId ? targetOperatorId : !isFromMe && contact?.walletOperatorId ? contact.walletOperatorId : null,

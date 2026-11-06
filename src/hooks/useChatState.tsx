@@ -245,7 +245,10 @@ type ChatContextType = {
   updateTags: (id: string, tags: string[]) => void;
   updateClientInfo: (
     id: string,
-    fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & { accountId?: string | null },
+    fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & {
+      accountId?: string | null;
+      phones?: import("@/lib/contact-phone-types").ContactPhoneInput[];
+    },
   ) => Promise<void>;
   updateContactWallet: (
     contactId: string,
@@ -260,6 +263,7 @@ type ChatContextType = {
     channel: Channel,
     dealInput: ContactDealInput,
     customFields?: Record<string, unknown>,
+    phones?: import("@/lib/contact-phone-types").ContactPhoneInput[],
   ) => Promise<{
     contactId: string;
     conversationId: string;
@@ -3880,7 +3884,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const updateClientInfo = async (id: string, fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & { accountId?: string | null }) => {
+  const updateClientInfo = async (
+    id: string,
+    fields: Partial<Pick<Conversation, "name" | "phone" | "email">> & {
+      accountId?: string | null;
+      phones?: import("@/lib/contact-phone-types").ContactPhoneInput[];
+    },
+  ) => {
     const conv = rawConversations.find((c) => c.id === id);
     const contactId = ((conv as any)?.contactId as string | undefined) || (id.startsWith("cont-") ? id : undefined);
 
@@ -3898,9 +3908,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id !== id && (!contactId || c.contactId !== contactId)) return c;
+        const { phones: _ignoredPhones, ...restFields } = fields;
+        const shouldUpdatePhone = c.id === id || !c.contactPhoneId;
+        const safeFields = shouldUpdatePhone
+          ? restFields
+          : { ...restFields, ...(restFields.phone !== undefined ? { phone: c.phone } : {}) };
         return {
           ...c,
-          ...fields,
+          ...safeFields,
           ...(nextInitials ? { initials: nextInitials } : {}),
         };
       })
@@ -3938,6 +3953,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Não foi possível salvar os dados do contato.");
       } else {
+        const data = await res.json().catch(() => ({}));
+        const updatedPhones = data?.contact?.phones;
+        if (Array.isArray(updatedPhones)) {
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== id && c.contactId !== contactId) return c;
+              const matched = c.contactPhoneId
+                ? updatedPhones.find((p: any) => p.id === c.contactPhoneId)
+                : updatedPhones.find((p: any) => p.isPrimary) || updatedPhones[0];
+              return {
+                ...c,
+                contactPhones: updatedPhones,
+                ...(matched?.phone ? { phone: matched.phone, phoneType: matched.type || null } : {}),
+              };
+            }),
+          );
+        }
         console.log("[updateClientInfo] Contato atualizado com sucesso:", contactId);
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("crm-deals-changed"));
@@ -4205,12 +4237,30 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   refreshAssignedChatRef.current = refreshConversations;
 
-  const createContact = async (name: string, phone: string, email: string, accountId: string | null, channel: Channel, dealInput: ContactDealInput, customFields?: Record<string, unknown>) => {
+  const createContact = async (
+    name: string,
+    phone: string,
+    email: string,
+    accountId: string | null,
+    channel: Channel,
+    dealInput: ContactDealInput,
+    customFields?: Record<string, unknown>,
+    phones?: import("@/lib/contact-phone-types").ContactPhoneInput[],
+  ) => {
     const response = await fetch(`${BACKEND_URL}/api/contacts`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, phone, email, accountId, channel, customFields, ...dealInput }),
+      body: JSON.stringify({
+        name,
+        phone,
+        ...(Array.isArray(phones) && phones.length > 0 ? { phones } : {}),
+        email,
+        accountId,
+        channel,
+        customFields,
+        ...dealInput,
+      }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw Object.assign(new Error(result.error || "Não foi possível criar o contato."), { code: result.code, contactId: result.contactId, contact: result.contact });
@@ -4428,6 +4478,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (data.type === "contact_updated") {
           const contactId = data.contact?.id || data.contactId;
           if (contactId && data.contact) {
+            const incomingPhones = Array.isArray(data.contact.phones) ? data.contact.phones : undefined;
             setConversations((prev) =>
               prev.map((c) => {
                 if (c.contactId !== contactId && c.id !== contactId) return c;
@@ -4441,19 +4492,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     .slice(0, 2)
                     .map((p: string) => p[0]?.toUpperCase() || "")
                     .join("") || c.initials;
+                const matchedPhoneItem =
+                  incomingPhones && c.contactPhoneId
+                    ? incomingPhones.find((p: any) => p.id === c.contactPhoneId)
+                    : undefined;
+                const nextPhone = matchedPhoneItem
+                  ? matchedPhoneItem.phone
+                  : !c.contactPhoneId && data.contact.phone !== undefined
+                    ? data.contact.phone || ""
+                    : c.phone;
                 return {
                   ...c,
                   name: nextName,
                   initials: nextInitials,
-                  ...(data.contact.phone !== undefined ? { phone: data.contact.phone || "" } : {}),
+                  phone: nextPhone,
+                  ...(incomingPhones ? { contactPhones: incomingPhones } : {}),
                   ...(data.contact.email !== undefined ? { email: data.contact.email || "" } : {}),
                 };
               }),
             );
           }
-          const conversationId = conversationsRef.current.find((chat) => chat.contactId === contactId)?.id;
-          if (conversationId) {
-            void refreshAssignedChatRef.current(conversationId).catch((error) =>
+          const matchingConversations = conversationsRef.current.filter((chat) => chat.contactId === contactId);
+          for (const chat of matchingConversations) {
+            void refreshAssignedChatRef.current(chat.id).catch((error) =>
               console.warn("Falha ao atualizar contato da conversa:", error)
             );
           }

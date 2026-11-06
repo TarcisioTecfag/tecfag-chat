@@ -1,15 +1,38 @@
 import { requireCrmDealAccess } from "../../../../../lib/access-control/crm-record-access";
-import { conversationReadCondition, requireConversationAccess } from "../../../../../lib/access-control/conversation-access";
-import { linkContactToDeal, syncConversationDeals } from "../../../../../lib/crm/deal-associations";
-import { phoneRegistrationError, normalizeCanonicalPhone } from "../../../../../lib/utils";
+import {
+  conversationReadCondition,
+  requireConversationAccess,
+} from "../../../../../lib/access-control/conversation-access";
+import {
+  linkContactToDeal,
+  syncConversationDeals,
+} from "../../../../../lib/crm/deal-associations";
+import {
+  findContactByAnyPhone,
+  findConversationForContactPhone,
+  resolveOrEnsureContactPhoneRow,
+} from "../../../../../lib/crm/contact-phones";
+import {
+  phoneRegistrationError,
+  normalizeCanonicalPhone,
+  buildPhoneSearchTerms,
+} from "../../../../../lib/utils";
 import { createFileRoute } from "@tanstack/react-router";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { db } from "../../../../../db";
-import { crmDeals, crmConversationDeals, crmDealContacts, crmAccounts, conversations, contacts, operators, rdMarketingReceipts } from "../../../../../db/schema";
-import { isNull, eq, and, desc, asc, or, ilike, sql } from "drizzle-orm";
-import { buildPhoneSearchTerms } from "../../../../../lib/utils";
+import {
+  crmDeals,
+  crmConversationDeals,
+  crmDealContacts,
+  crmAccounts,
+  conversations,
+  contacts,
+  operators,
+  rdMarketingReceipts,
+} from "../../../../../db/schema";
+import { isNull, eq, and, desc, asc, or, sql } from "drizzle-orm";
 import { setAttendanceActor } from "../../../../../lib/attendance-events";
 
 const corsHeaders = {
@@ -34,7 +57,10 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
-          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          const recordDenied = await requireCrmDealAccess(
+            session,
+            (params as { dealId: string }).dealId,
+          );
           if (recordDenied) return recordDenied;
 
           const permError = requireCrmPermission(session, "canViewCrm");
@@ -50,10 +76,13 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
             .limit(1);
 
           if (!deal) {
-            return new Response(JSON.stringify({ error: "Negociação não encontrada.", code: "NOT_FOUND" }), {
-              status: 404,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({ error: "Negociação não encontrada.", code: "NOT_FOUND" }),
+              {
+                status: 404,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
           }
 
           if (
@@ -64,10 +93,11 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
           ) {
             return new Response(
               JSON.stringify({
-                error: "Acesso restrito: você não tem permissão para visualizar dados deste negócio.",
+                error:
+                  "Acesso restrito: você não tem permissão para visualizar dados deste negócio.",
                 code: "FORBIDDEN",
               }),
-              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
             );
           }
 
@@ -82,16 +112,28 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               operatorName: operators.name,
             })
             .from(crmConversationDeals)
-            .innerJoin(conversations, and(eq(crmConversationDeals.conversationId, conversations.id), eq(conversations.tenantId, tenantId)))
-            .innerJoin(contacts, and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)))
-            .leftJoin(operators, and(eq(conversations.operatorId, operators.id), eq(operators.tenantId, tenantId)))
+            .innerJoin(
+              conversations,
+              and(
+                eq(crmConversationDeals.conversationId, conversations.id),
+                eq(conversations.tenantId, tenantId),
+              ),
+            )
+            .innerJoin(
+              contacts,
+              and(eq(conversations.contactId, contacts.id), eq(contacts.tenantId, tenantId)),
+            )
+            .leftJoin(
+              operators,
+              and(eq(conversations.operatorId, operators.id), eq(operators.tenantId, tenantId)),
+            )
             .where(
               and(
                 eq(crmConversationDeals.tenantId, tenantId),
                 eq(crmConversationDeals.dealId, dealId),
                 conversationReadCondition(session),
-                eq(crmConversationDeals.isActive, true)
-              )
+                eq(crmConversationDeals.isActive, true),
+              ),
             )
             .orderBy(desc(conversations.lastMessageTime));
 
@@ -108,13 +150,15 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               lastMessageTime: r.conversation.lastMessageTime || null,
               createdAt: r.conversation.createdAt,
               contactId: r.contact?.id || r.conversation.contactId,
+              contactPhoneId: r.conversation.contactPhoneId || null,
               contactName: r.contact?.name || "Sem nome",
-              contactPhone: r.contact?.phone || null,
+              contactPhone: r.conversation.contactPhone || r.contact?.phone || null,
               contactAvatar: r.contact?.avatar || null,
               channel: mainChan,
               mainChannel: mainChan,
               operatorId: r.conversation.operatorId,
-              operatorName: r.operatorName || (r.conversation.operatorId ? "Operador" : "Na Fila"),
+              operatorName:
+                r.operatorName || (r.conversation.operatorId ? "Operador" : "Na Fila"),
               conversation: r.conversation,
               contact: r.contact,
             };
@@ -133,7 +177,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
        * POST /api/crm/deals/:dealId/conversations
        * Associa uma conversa existente a esta negociação ou resolve/cria automaticamente
        * o atendimento da negociação quando `ensure: true` é informado.
-       * Body: { conversationId?: string, origin?: "chat" | "crm" | "auto_sdr", ensure?: boolean, autoCapture?: boolean, phone?: string, name?: string }
+       * Body: { conversationId?: string, origin?: "chat" | "crm" | "auto_sdr", ensure?: boolean, autoCapture?: boolean, contactId?: string, contactPhoneId?: string, phone?: string, name?: string }
        */
       POST: async ({ request, params }) => {
         try {
@@ -141,7 +185,10 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
-          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          const recordDenied = await requireCrmDealAccess(
+            session,
+            (params as { dealId: string }).dealId,
+          );
           if (recordDenied) return recordDenied;
 
           const { dealId } = params as { dealId: string };
@@ -168,10 +215,13 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               .limit(1);
 
             if (!deal) {
-              return new Response(JSON.stringify({ error: "Negociação não encontrada.", code: "NOT_FOUND" }), {
-                status: 404,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              });
+              return new Response(
+                JSON.stringify({ error: "Negociação não encontrada.", code: "NOT_FOUND" }),
+                {
+                  status: 404,
+                  headers: { ...corsHeaders, "Content-Type": "application/json" },
+                },
+              );
             }
 
             if (
@@ -182,44 +232,67 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
             ) {
               return new Response(
                 JSON.stringify({
-                  error: "Acesso restrito: você não tem permissão para visualizar dados deste negócio.",
+                  error:
+                    "Acesso restrito: você não tem permissão para visualizar dados deste negócio.",
                   code: "FORBIDDEN",
                 }),
-                { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
               );
             }
 
-            const autoCapture = body.autoCapture === true && session.permissions?.chat?.canCaptureChat === true;
+            const autoCapture =
+              body.autoCapture === true && session.permissions?.chat?.canCaptureChat === true;
+            const requestedContactId =
+              typeof body.contactId === "string" && body.contactId.trim()
+                ? body.contactId.trim()
+                : null;
+            const requestedContactPhoneId =
+              typeof body.contactPhoneId === "string" && body.contactPhoneId.trim()
+                ? body.contactPhoneId.trim()
+                : null;
+            const requestedPhone =
+              typeof body.phone === "string" && body.phone.trim() ? body.phone.trim() : null;
+            const hasExplicitTargetPhone = Boolean(
+              requestedContactId || requestedContactPhoneId || requestedPhone,
+            );
 
             const result = await db.transaction(async (tx) => {
-              // 1. Verifica se já existe conversa ativa vinculada à negociação
-              const [existingLinkedConv] = await tx
-                .select({
-                  conversation: conversations,
-                })
-                .from(crmConversationDeals)
-                .innerJoin(
-                  conversations,
-                  and(
-                    eq(crmConversationDeals.conversationId, conversations.id),
-                    eq(conversations.tenantId, tenantId)
-                  )
-                )
-                .where(
-                  and(
-                    eq(crmConversationDeals.tenantId, tenantId),
-                    eq(crmConversationDeals.dealId, dealId),
-                    eq(crmConversationDeals.isActive, true)
-                  )
-                )
-                .orderBy(desc(conversations.lastMessageTime), desc(crmConversationDeals.createdAt))
-                .limit(1);
-
-              let targetConv = existingLinkedConv?.conversation || null;
-              let targetContactId = targetConv?.contactId || null;
+              let targetConv: typeof conversations.$inferSelect | null = null;
+              let targetContactId: string | null = requestedContactId;
               let created = false;
 
-              // 2. Se não há conversa vinculada, resolve ou cria o contato principal da negociação
+              // 1. Se nenhum telefone específico foi solicitado, verifica se já existe conversa ativa vinculada à negociação
+              if (!hasExplicitTargetPhone) {
+                const [existingLinkedConv] = await tx
+                  .select({
+                    conversation: conversations,
+                  })
+                  .from(crmConversationDeals)
+                  .innerJoin(
+                    conversations,
+                    and(
+                      eq(crmConversationDeals.conversationId, conversations.id),
+                      eq(conversations.tenantId, tenantId),
+                    ),
+                  )
+                  .where(
+                    and(
+                      eq(crmConversationDeals.tenantId, tenantId),
+                      eq(crmConversationDeals.dealId, dealId),
+                      eq(crmConversationDeals.isActive, true),
+                    ),
+                  )
+                  .orderBy(
+                    desc(conversations.lastMessageTime),
+                    desc(crmConversationDeals.createdAt),
+                  )
+                  .limit(1);
+
+                targetConv = existingLinkedConv?.conversation || null;
+                targetContactId = targetConv?.contactId || null;
+              }
+
+              // 2. Se não há contato resolvido, resolve o contato principal da negociação
               if (!targetContactId) {
                 const [dealContactLink] = await tx
                   .select({ contactId: crmDealContacts.contactId })
@@ -227,8 +300,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   .where(
                     and(
                       eq(crmDealContacts.tenantId, tenantId),
-                      eq(crmDealContacts.dealId, dealId)
-                    )
+                      eq(crmDealContacts.dealId, dealId),
+                    ),
                   )
                   .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt))
                   .limit(1);
@@ -238,7 +311,12 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                 }
               }
 
-              let accountRow: { id: string; name: string; phone: string | null; email: string | null } | null = null;
+              let accountRow: {
+                id: string;
+                name: string;
+                phone: string | null;
+                email: string | null;
+              } | null = null;
               if (!targetContactId && deal.accountId) {
                 const [acc] = await tx
                   .select({
@@ -248,7 +326,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                     email: crmAccounts.email,
                   })
                   .from(crmAccounts)
-                  .where(and(eq(crmAccounts.id, deal.accountId), eq(crmAccounts.tenantId, tenantId)))
+                  .where(
+                    and(eq(crmAccounts.id, deal.accountId), eq(crmAccounts.tenantId, tenantId)),
+                  )
                   .limit(1);
                 accountRow = acc || null;
 
@@ -258,8 +338,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   .where(
                     and(
                       eq(contacts.tenantId, tenantId),
-                      eq(contacts.accountId, deal.accountId)
-                    )
+                      eq(contacts.accountId, deal.accountId),
+                    ),
                   )
                   .orderBy(desc(contacts.createdAt))
                   .limit(1);
@@ -269,31 +349,31 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                 }
               }
 
-              const candidatePhone =
-                (typeof body.phone === "string" && body.phone.trim()) ||
-                accountRow?.phone ||
-                "";
+              const candidatePhone = requestedPhone || accountRow?.phone || "";
 
               if (!targetContactId && candidatePhone) {
-                const terms = buildPhoneSearchTerms(candidatePhone);
-                if (terms.length > 0) {
-                  const phoneConditions = terms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`);
-                  const [phoneContact] = await tx
-                    .select({ id: contacts.id })
-                    .from(contacts)
-                    .where(and(eq(contacts.tenantId, tenantId), or(...phoneConditions)))
-                    .orderBy(desc(contacts.createdAt))
-                    .limit(1);
-                  if (phoneContact?.id) {
-                    targetContactId = phoneContact.id;
-                  }
+                const foundByPhone = await findContactByAnyPhone(tx, tenantId, candidatePhone);
+                if (foundByPhone?.contact?.id) {
+                  targetContactId = foundByPhone.contact.id;
                 }
               }
 
               if (!targetContactId) {
-                if (session.operator.role !== "admin" && (!session.permissions?.contacts?.canCreateContact || !session.permissions?.crm?.canEditDeals)) throw Object.assign(new Error("Permissão insuficiente para criar e vincular um contato."), { statusCode: 403, code: "FORBIDDEN" });
+                if (
+                  session.operator.role !== "admin" &&
+                  (!session.permissions?.contacts?.canCreateContact ||
+                    !session.permissions?.crm?.canEditDeals)
+                )
+                  throw Object.assign(
+                    new Error("Permissão insuficiente para criar e vincular um contato."),
+                    { statusCode: 403, code: "FORBIDDEN" },
+                  );
                 const phoneError = phoneRegistrationError(candidatePhone);
-                if (phoneError) throw Object.assign(new Error(phoneError), { statusCode: 400, code: "PHONE_DDD_REQUIRED" });
+                if (phoneError)
+                  throw Object.assign(new Error(phoneError), {
+                    statusCode: 400,
+                    code: "PHONE_DDD_REQUIRED",
+                  });
                 const contactName =
                   (typeof body.name === "string" && body.name.trim()) ||
                   accountRow?.name ||
@@ -314,35 +394,53 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                 targetContactId = newContact.id;
               }
 
-              if (targetContactId) await linkContactToDeal(tx, tenantId, targetContactId, dealId, session.operator.id);
+              if (targetContactId)
+                await linkContactToDeal(
+                  tx,
+                  tenantId,
+                  targetContactId,
+                  dealId,
+                  session.operator.id,
+                );
 
-              // 3. Resolve ou cria a conversa para targetContactId
+              // 3. Resolve ou cria a conversa para targetContactId + targetPhoneItem
               if (!targetConv && targetContactId) {
-                const [existingConv] = await tx
-                  .select()
-                  .from(conversations)
-                  .where(
-                    and(
-                      eq(conversations.tenantId, tenantId),
-                      eq(conversations.contactId, targetContactId), isNull(conversations.whatsappConnectionId)
-                    )
-                  )
-                  .orderBy(desc(conversations.lastMessageTime), desc(conversations.createdAt))
-                  .limit(1);
+                const targetPhoneItem = await resolveOrEnsureContactPhoneRow(
+                  tx,
+                  tenantId,
+                  targetContactId,
+                  {
+                    contactPhoneId: requestedContactPhoneId,
+                    phone: requestedPhone,
+                  },
+                );
+
+                const existingConv = await findConversationForContactPhone(
+                  tx,
+                  tenantId,
+                  targetContactId,
+                  targetPhoneItem,
+                  null,
+                );
 
                 if (existingConv) {
                   targetConv = existingConv;
-                } else {
+                } else if (!targetPhoneItem || targetPhoneItem.isPrimary) {
                   const [contactObj] = await tx
                     .select()
                     .from(contacts)
-                    .where(and(eq(contacts.id, targetContactId), eq(contacts.tenantId, tenantId)))
+                    .where(
+                      and(eq(contacts.id, targetContactId), eq(contacts.tenantId, tenantId)),
+                    )
                     .limit(1);
 
-                  if (contactObj?.phone) {
-                    const terms = buildPhoneSearchTerms(contactObj.phone);
+                  const searchPhone = targetPhoneItem?.phone || contactObj?.phone;
+                  if (searchPhone) {
+                    const terms = buildPhoneSearchTerms(searchPhone);
                     if (terms.length > 0) {
-                      const phoneConditions = terms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`);
+                      const phoneConditions = terms.map(
+                        (term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,
+                      );
                       const [otherHistory] = await tx
                         .select({ conversation: conversations })
                         .from(conversations)
@@ -350,22 +448,32 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                           contacts,
                           and(
                             eq(conversations.contactId, contacts.id),
-                            eq(contacts.tenantId, tenantId)
-                          )
+                            eq(contacts.tenantId, tenantId),
+                          ),
                         )
                         .where(
                           and(
                             eq(conversations.tenantId, tenantId),
-                            or(...phoneConditions)
-                          )
+                            isNull(conversations.whatsappConnectionId),
+                            or(...phoneConditions),
+                          ),
                         )
-                        .orderBy(desc(conversations.lastMessageTime), desc(conversations.createdAt))
+                        .orderBy(
+                          desc(conversations.lastMessageTime),
+                          desc(conversations.createdAt),
+                        )
                         .limit(1);
 
                       if (otherHistory?.conversation) {
                         targetConv = otherHistory.conversation;
                         targetContactId = targetConv.contactId;
-                        await linkContactToDeal(tx, tenantId, targetContactId, dealId, session.operator.id);
+                        await linkContactToDeal(
+                          tx,
+                          tenantId,
+                          targetContactId,
+                          dealId,
+                          session.operator.id,
+                        );
                       }
                     }
                   }
@@ -375,13 +483,23 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                   const [rdReceipt] = await tx
                     .select({ id: rdMarketingReceipts.id })
                     .from(rdMarketingReceipts)
-                    .where(and(eq(rdMarketingReceipts.tenantId, tenantId), eq(rdMarketingReceipts.dealId, dealId)))
+                    .where(
+                      and(
+                        eq(rdMarketingReceipts.tenantId, tenantId),
+                        eq(rdMarketingReceipts.dealId, dealId),
+                      ),
+                    )
                     .limit(1);
                   const creationActorName =
                     rdReceipt && !autoCapture
                       ? `Automação RD Station Marketing (${session.operator.name})`
                       : session.operator.name;
-                  await setAttendanceActor(tx, tenantId, creationActorName, session.operator.id);
+                  await setAttendanceActor(
+                    tx,
+                    tenantId,
+                    creationActorName,
+                    session.operator.id,
+                  );
                   const now = new Date();
                   const [insertedConv] = await tx
                     .insert(conversations)
@@ -389,6 +507,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                       id: `conv-${crypto.randomUUID()}`,
                       tenantId,
                       contactId: targetContactId,
+                      contactPhoneId: targetPhoneItem?.id || null,
+                      contactPhone: targetPhoneItem?.phone || null,
                       operatorId: autoCapture ? session.operator.id : null,
                       queueState: autoCapture ? "meus" : "fila",
                       unreadCount: 0,
@@ -404,16 +524,37 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               }
 
               if (targetConv) {
-                const [visible] = await tx.select({ id: conversations.id }).from(conversations).where(and(
-                  eq(conversations.id, targetConv.id), eq(conversations.tenantId, tenantId), conversationReadCondition(session),
-                )).limit(1);
-                if (!visible) throw Object.assign(new Error("Conversa não encontrada."), { statusCode: 404, code: "NOT_FOUND" });
+                const [visible] = await tx
+                  .select({ id: conversations.id })
+                  .from(conversations)
+                  .where(
+                    and(
+                      eq(conversations.id, targetConv.id),
+                      eq(conversations.tenantId, tenantId),
+                      conversationReadCondition(session),
+                    ),
+                  )
+                  .limit(1);
+                if (!visible)
+                  throw Object.assign(new Error("Conversa não encontrada."), {
+                    statusCode: 404,
+                    code: "NOT_FOUND",
+                  });
                 if (
                   autoCapture &&
-                  !(targetConv.queueState === "meus" && targetConv.operatorId && targetConv.operatorId !== session.operator.id)
+                  !(
+                    targetConv.queueState === "meus" &&
+                    targetConv.operatorId &&
+                    targetConv.operatorId !== session.operator.id
+                  )
                 ) {
                   if (targetConv.queueState !== "meus" || !targetConv.operatorId) {
-                    await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
+                    await setAttendanceActor(
+                      tx,
+                      tenantId,
+                      session.operator.name,
+                      session.operator.id,
+                    );
                     await tx
                       .update(conversations)
                       .set({
@@ -424,8 +565,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                       .where(
                         and(
                           eq(conversations.id, targetConv.id),
-                          eq(conversations.tenantId, tenantId)
-                        )
+                          eq(conversations.tenantId, tenantId),
+                        ),
                       );
                   }
                   if (targetConv.contactId) {
@@ -438,22 +579,25 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                       .where(
                         and(
                           eq(contacts.id, targetConv.contactId),
-                          eq(contacts.tenantId, tenantId)
-                        )
+                          eq(contacts.tenantId, tenantId),
+                        ),
                       );
                   }
                 }
 
                 // Garante vínculo ativo em crm_conversation_deals
                 const [existingDealConvLink] = await tx
-                  .select({ id: crmConversationDeals.id, isActive: crmConversationDeals.isActive })
+                  .select({
+                    id: crmConversationDeals.id,
+                    isActive: crmConversationDeals.isActive,
+                  })
                   .from(crmConversationDeals)
                   .where(
                     and(
                       eq(crmConversationDeals.tenantId, tenantId),
                       eq(crmConversationDeals.conversationId, targetConv.id),
-                      eq(crmConversationDeals.dealId, dealId)
-                    )
+                      eq(crmConversationDeals.dealId, dealId),
+                    ),
                   )
                   .limit(1);
 
@@ -478,13 +622,20 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
                     .where(
                       and(
                         eq(crmConversationDeals.id, existingDealConvLink.id),
-                        eq(crmConversationDeals.tenantId, tenantId)
-                      )
+                        eq(crmConversationDeals.tenantId, tenantId),
+                      ),
                     );
                 }
               }
 
-              if (targetConv && targetContactId) await syncConversationDeals(tx, tenantId, targetConv.id, targetContactId, session.operator.id);
+              if (targetConv && targetContactId)
+                await syncConversationDeals(
+                  tx,
+                  tenantId,
+                  targetConv.id,
+                  targetContactId,
+                  session.operator.id,
+                );
               return {
                 conversationId: targetConv?.id || null,
                 contactId: targetContactId,
@@ -502,7 +653,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
               {
                 status: result.created ? 201 : 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
-              }
+              },
             );
           }
 
@@ -511,8 +662,11 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
 
           if (!body.conversationId) {
             return new Response(
-              JSON.stringify({ error: "O campo conversationId é obrigatório.", code: "BAD_REQUEST" }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              JSON.stringify({
+                error: "O campo conversationId é obrigatório.",
+                code: "BAD_REQUEST",
+              }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
             );
           }
 
@@ -523,7 +677,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
             body.conversationId,
             dealId,
             session.operator.id,
-            body.origin || "crm"
+            body.origin || "crm",
           );
 
           return new Response(JSON.stringify({ success: true, link }), {
@@ -548,7 +702,10 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId;
-          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          const recordDenied = await requireCrmDealAccess(
+            session,
+            (params as { dealId: string }).dealId,
+          );
           if (recordDenied) return recordDenied;
 
           const permError = requireCrmPermission(session, "canEditDeals");
@@ -572,8 +729,11 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
 
           if (!conversationId) {
             return new Response(
-              JSON.stringify({ error: "O campo conversationId é obrigatório (via body ou query string).", code: "BAD_REQUEST" }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              JSON.stringify({
+                error: "O campo conversationId é obrigatório (via body ou query string).",
+                code: "BAD_REQUEST",
+              }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
             );
           }
 
@@ -583,7 +743,7 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/conversations")({
             tenantId,
             conversationId,
             dealId,
-            session.operator.id
+            session.operator.id,
           );
 
           return new Response(JSON.stringify({ success: true }), {

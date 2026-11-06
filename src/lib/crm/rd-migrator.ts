@@ -30,6 +30,8 @@ import {
 } from "../../db/schema";
 import { rdRequest } from "../rdCrmService";
 import { normalizeDocument, CrmConcurrencyError, CrmValidationError } from "./crm-service";
+import { findContactByAnyPhone, getContactPhonesList, syncContactPhones } from "./contact-phones";
+import { inferContactPhoneType, type ContactPhoneType } from "../contact-phone-types";
 
 export type RdFetcher = <T = any>(
   tenantId: string,
@@ -793,28 +795,44 @@ export class RdCrmMigrator {
               if (Array.isArray(rdd.contacts) && rdd.contacts.length > 0) {
                 for (const [cIndex, c] of rdd.contacts.entries()) {
                   report.contacts.foundInRd++;
-                  const phone = c.phones?.[0]?.phone || c.phone;
-                  const cleanPhone = phone ? normalizeDocument(phone) : null;
+                  const rawRdPhones: Array<{ phone: string; type: ContactPhoneType; label: string | null }> = [];
+                  if (Array.isArray(c.phones)) {
+                    for (const pObj of c.phones) {
+                      const rawNum = typeof pObj === "string" ? pObj : pObj?.phone;
+                      const clean = rawNum ? normalizeDocument(String(rawNum)) : "";
+                      if (clean && clean.length >= 8) {
+                        const rawType = String(pObj?.type || "").toLowerCase();
+                        let mappedType: ContactPhoneType = inferContactPhoneType(clean);
+                        if (rawType.includes("work") || rawType.includes("comercial")) mappedType = "commercial";
+                        else if (rawType.includes("home") || rawType.includes("fixo") || rawType.includes("landline")) mappedType = "landline";
+                        else if (rawType.includes("cell") || rawType.includes("mobile") || rawType.includes("pessoal")) mappedType = "personal";
+                        rawRdPhones.push({ phone: clean, type: mappedType, label: null });
+                      }
+                    }
+                  }
+                  if (c.phone) {
+                    const cleanSingle = normalizeDocument(String(c.phone));
+                    if (cleanSingle && cleanSingle.length >= 8 && !rawRdPhones.some((p) => p.phone === cleanSingle)) {
+                      rawRdPhones.unshift({
+                        phone: cleanSingle,
+                        type: inferContactPhoneType(cleanSingle),
+                        label: null,
+                      });
+                    }
+                  }
+
+                  const cleanPhone = rawRdPhones[0]?.phone || null;
                   const contactEmail = c.email?.trim() || null;
                   const contactName = (c.name || "Contato RD").trim();
 
                   let localContactId: string | null = null;
 
-                  if (cleanPhone) {
-                    const [foundByPhone] = await db
-                      .select()
-                      .from(contacts)
-                      .where(
-                        and(
-                          eq(contacts.tenantId, tenantId),
-                          eq(contacts.phone, cleanPhone)
-                        )
-                      )
-                      .limit(1);
-
-                    if (foundByPhone) {
-                      localContactId = foundByPhone.id;
+                  for (const rdPhoneItem of rawRdPhones) {
+                    const matched = await findContactByAnyPhone(tenantId, rdPhoneItem.phone);
+                    if (matched) {
+                      localContactId = matched.contact.id;
                       report.contacts.skippedAlreadyExists++;
+                      break;
                     }
                   }
 
@@ -855,6 +873,33 @@ export class RdCrmMigrator {
 
                     localContactId = createdContact.id;
                     report.contacts.imported++;
+                  }
+
+                  // Sincroniza todos os telefones do contato vindos do RD (preservando os já existentes)
+                  if (localContactId && rawRdPhones.length > 0) {
+                    try {
+                      const existingPhones = await getContactPhonesList(tenantId, localContactId);
+                      const mergedInputs = [
+                        ...existingPhones.map((ep) => ({
+                          id: ep.id,
+                          phone: ep.phone,
+                          type: ep.type,
+                          label: ep.label,
+                          isPrimary: ep.isPrimary,
+                          hasWhatsapp: ep.hasWhatsapp,
+                        })),
+                        ...rawRdPhones.map((rp, idx) => ({
+                          phone: rp.phone,
+                          type: rp.type,
+                          label: rp.label,
+                          isPrimary: existingPhones.length === 0 && idx === 0,
+                          hasWhatsapp: true,
+                        })),
+                      ];
+                      await syncContactPhones(tenantId, localContactId, mergedInputs);
+                    } catch (syncPhoneErr: any) {
+                      console.warn("[RdCrmMigrator] Falha ao sincronizar telefones múltiplos do contato:", syncPhoneErr?.message);
+                    }
                   }
 
                   // Associa participante à negociação (crm_deal_contacts) de forma idempotente

@@ -5,9 +5,19 @@ import { contacts, crmAccounts, crmDealContacts, crmDeals } from "../../../db/sc
 import { listCustomFields, validateFieldValues } from "../../../lib/crm/custom-fields";
 import { requireSession } from "../../../lib/auth-session";
 import { requireCrmPermission } from "../../../lib/rbac";
-import { normalizeCanonicalPhone, buildPhoneSearchTerms, phoneRegistrationError, localPhoneSearchTerms } from "../../../lib/utils";
+import {
+  buildPhoneSearchTerms,
+  phoneRegistrationError,
+  localPhoneSearchTerms,
+} from "../../../lib/utils";
 
 import { contactDealPermission, registerContactDeal } from "../../../lib/crm/contact-registration";
+import {
+  findContactByAnyPhone,
+  getContactPhonesMap,
+  normalizeContactPhonesInput,
+  syncContactPhones,
+} from "../../../lib/crm/contact-phones";
 
 export const Route = createFileRoute("/api/crm/contacts")({
   server: {
@@ -35,12 +45,35 @@ export const Route = createFileRoute("/api/crm/contacts")({
         if (identityPhone || identityName) {
           const identityParts = [];
           if (identityPhone) {
-            const terms = phoneRegistrationError(identityPhone) ? localPhoneSearchTerms(identityPhone) : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
+            const isLocalOnly = Boolean(phoneRegistrationError(identityPhone));
+            const terms = isLocalOnly
+              ? localPhoneSearchTerms(identityPhone)
+              : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
             if (terms.length > 0) {
               identityParts.push(
-                or(...terms.map((term) => phoneRegistrationError(identityPhone)
-                  ? sql`right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}`
-                  : sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))!
+                or(
+                  ...terms.map((term) =>
+                    isLocalOnly
+                      ? sql`(
+                          right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}
+                          OR EXISTS (
+                            SELECT 1 FROM contact_phones cp
+                            WHERE cp.tenant_id = ${tenantId}
+                              AND cp.contact_id = ${contacts.id}
+                              AND right(regexp_replace(cp.phone, '[^0-9]', '', 'g'), ${term.length}) = ${term}
+                          )
+                        )`
+                      : sql`(
+                          regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}
+                          OR EXISTS (
+                            SELECT 1 FROM contact_phones cp
+                            WHERE cp.tenant_id = ${tenantId}
+                              AND cp.contact_id = ${contacts.id}
+                              AND (regexp_replace(cp.phone, '[^0-9]', '', 'g') = ${term} OR cp.phone_identity = ${term})
+                          )
+                        )`,
+                  ),
+                )!,
               );
             }
           }
@@ -55,12 +88,31 @@ export const Route = createFileRoute("/api/crm/contacts")({
               ilike(contacts.name, pattern),
               ilike(contacts.phone, pattern),
               ilike(contacts.email, pattern),
-              digits.length >= 4 ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}` : undefined,
-            )!
+              sql`EXISTS (
+                SELECT 1 FROM contact_phones cp
+                WHERE cp.tenant_id = ${tenantId}
+                  AND cp.contact_id = ${contacts.id}
+                  AND (cp.phone ILIKE ${pattern} OR cp.label ILIKE ${pattern})
+              )`,
+              digits.length >= 4
+                ? sql`(
+                    regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
+                    OR EXISTS (
+                      SELECT 1 FROM contact_phones cp
+                      WHERE cp.tenant_id = ${tenantId}
+                        AND cp.contact_id = ${contacts.id}
+                        AND regexp_replace(cp.phone, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
+                    )
+                  )`
+                : undefined,
+            )!,
           );
         }
 
-        if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only") {
+        if (
+          session.operator.role !== "admin" &&
+          session.permissions?.contacts?.contactScope === "wallet_only"
+        ) {
           conditions.push(eq(contacts.walletOperatorId, session.operator.id));
         }
         const results = await db
@@ -76,13 +128,27 @@ export const Route = createFileRoute("/api/crm/contacts")({
             responsibleName: contacts.responsibleName,
           })
           .from(contacts)
-          .leftJoin(crmAccounts, and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)))
+          .leftJoin(
+            crmAccounts,
+            and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)),
+          )
           .where(and(...conditions))
           .orderBy(desc(contacts.createdAt))
           .limit(10);
 
         const contactIds = results.map((item) => item.id);
-        const dealsByContact = new Map<string, Array<{ id: string; title: string; status: string; value: string | null; pipelineId: string; stageId: string }>>();
+        const phonesByContact = await getContactPhonesMap(db, tenantId, contactIds, results);
+        const dealsByContact = new Map<
+          string,
+          Array<{
+            id: string;
+            title: string;
+            status: string;
+            value: string | null;
+            pipelineId: string;
+            stageId: string;
+          }>
+        >();
         if (contactIds.length > 0) {
           const dealLinks = await db
             .select({
@@ -95,8 +161,16 @@ export const Route = createFileRoute("/api/crm/contacts")({
               stageId: crmDeals.stageId,
             })
             .from(crmDealContacts)
-            .innerJoin(crmDeals, and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)))
-            .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.contactId, contactIds)))
+            .innerJoin(
+              crmDeals,
+              and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
+            )
+            .where(
+              and(
+                eq(crmDealContacts.tenantId, tenantId),
+                inArray(crmDealContacts.contactId, contactIds),
+              ),
+            )
             .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt));
 
           for (const link of dealLinks) {
@@ -106,7 +180,8 @@ export const Route = createFileRoute("/api/crm/contacts")({
                 id: link.id,
                 title: link.title,
                 status: link.status,
-                value: link.value !== null && link.value !== undefined ? String(link.value) : null,
+                value:
+                  link.value !== null && link.value !== undefined ? String(link.value) : null,
                 pipelineId: link.pipelineId,
                 stageId: link.stageId,
               });
@@ -117,8 +192,11 @@ export const Route = createFileRoute("/api/crm/contacts")({
 
         const enrichedResults = results.map((item) => {
           const linked = dealsByContact.get(item.id) || [];
+          const phones = phonesByContact.get(item.id) || [];
           return {
             ...item,
+            phone: phones.find((p) => p.isPrimary)?.phone || item.phone || null,
+            phones,
             dealsCount: linked.length,
             linkedDeals: linked.slice(0, 5),
           };
@@ -144,11 +222,27 @@ export const Route = createFileRoute("/api/crm/contacts")({
           return Response.json({ error: "Dados inválidos." }, { status: 400 });
         }
         const input = body as Record<string, unknown>;
-        if (!input.existingContactId && session.operator.role !== "admin" && !session.permissions?.contacts?.canCreateContact && !session.permissions?.crm?.canCreateDeals) return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
+        if (
+          !input.existingContactId &&
+          session.operator.role !== "admin" &&
+          !session.permissions?.contacts?.canCreateContact &&
+          !session.permissions?.crm?.canCreateDeals
+        )
+          return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
         const name = typeof input.name === "string" ? input.name.trim() : "";
-        const phoneError = phoneRegistrationError(typeof input.phone === "string" ? input.phone : "");
-        if (phoneError && !input.existingContactId) return Response.json({ error: phoneError, code: "PHONE_DDD_REQUIRED" }, { status: 400 });
-        const phone = normalizeCanonicalPhone(typeof input.phone === "string" ? input.phone : "");
+        const newContactId = `cont-${crypto.randomUUID()}`;
+        const normalizedPhonesResult = normalizeContactPhonesInput(
+          input.phones,
+          typeof input.phone === "string" ? input.phone : "",
+          newContactId,
+        );
+        if (normalizedPhonesResult.validationError && !input.existingContactId) {
+          return Response.json(
+            { error: normalizedPhonesResult.validationError, code: "PHONE_DDD_REQUIRED" },
+            { status: 400 },
+          );
+        }
+        const phone = normalizedPhonesResult.primaryPhone || "";
         const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
         if (!name || name.length > 200) {
           return Response.json(
@@ -168,47 +262,160 @@ export const Route = createFileRoute("/api/crm/contacts")({
         const dealPermission = contactDealPermission(session, input);
         if (dealPermission) return dealPermission;
         try {
-          const customFields = input.existingContactId ? {} : validateFieldValues(await listCustomFields(tenantId, "contact"), input.customFields, { requireOnCreate: true });
+          const customFields = input.existingContactId
+            ? {}
+            : validateFieldValues(await listCustomFields(tenantId, "contact"), input.customFields, {
+                requireOnCreate: true,
+              });
           const outcome = await db.transaction(async (tx) => {
             if (typeof input.existingContactId === "string" && input.existingContactId) {
-              const [existing] = await tx.select().from(contacts).where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, input.existingContactId))).limit(1);
-              if (!existing) throw Object.assign(new Error("Contato não encontrado."), { statusCode: 404 });
-              if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only" && existing.walletOperatorId !== session.operator.id) throw Object.assign(new Error("Permissão insuficiente."), { statusCode: 403 });
+              const [existing] = await tx
+                .select()
+                .from(contacts)
+                .where(
+                  and(
+                    eq(contacts.tenantId, tenantId),
+                    eq(contacts.id, input.existingContactId),
+                  ),
+                )
+                .limit(1);
+              if (!existing)
+                throw Object.assign(new Error("Contato não encontrado."), { statusCode: 404 });
+              if (
+                session.operator.role !== "admin" &&
+                session.permissions?.contacts?.contactScope === "wallet_only" &&
+                existing.walletOperatorId !== session.operator.id
+              )
+                throw Object.assign(new Error("Permissão insuficiente."), { statusCode: 403 });
               await registerContactDeal(tx, session, existing.id, existing.accountId, input);
-              return { kind: "linked" as const, contact: { id: existing.id, name: existing.name, phone: existing.phone, email: existing.email } };
+              const existingPhones =
+                (await getContactPhonesMap(tx, tenantId, [existing.id], [existing])).get(
+                  existing.id,
+                ) || [];
+              return {
+                kind: "linked" as const,
+                contact: {
+                  id: existing.id,
+                  name: existing.name,
+                  phone: existing.phone,
+                  phones: existingPhones,
+                  email: existing.email,
+                },
+              };
             }
             if (phone || email) {
-              await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${phone || email}))`);
+              await tx.execute(
+                sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${phone || email}))`,
+              );
             }
-            const phoneTerms = buildPhoneSearchTerms(phone);
-            const identity = phoneTerms.length > 0
-              ? or(...phoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
-              : email ? ilike(contacts.email, email) : undefined;
-            if (identity) {
-              const [existing] = await tx.select({ id: contacts.id, name: contacts.name, phone: contacts.phone, email: contacts.email, walletOperatorId: contacts.walletOperatorId })
-                .from(contacts).where(and(eq(contacts.tenantId, tenantId), identity)).limit(1);
-              if (existing) return { kind: "existing" as const, existing };
+            for (const p of normalizedPhonesResult.phones) {
+              const found = await findContactByAnyPhone(tx, tenantId, p.phone);
+              if (found?.contact) {
+                return {
+                  kind: "existing" as const,
+                  existing: {
+                    id: found.contact.id,
+                    name: found.contact.name,
+                    phone: found.contact.phone,
+                    email: found.contact.email,
+                    walletOperatorId: found.contact.walletOperatorId,
+                  },
+                };
+              }
             }
-            const [contact] = await tx.insert(contacts).values({
-              id: `cont-${crypto.randomUUID()}`, tenantId, name,
-              phone: phone || null, email: email || null, mainChannel: "whatsapp",
-              walletOperatorId: session.permissions?.contacts?.contactScope === "wallet_only" ? session.operator.id : null,
-              customFields,
-            }).returning({ id: contacts.id, name: contacts.name, phone: contacts.phone, email: contacts.email });
+            if (!phone && email) {
+              const [existingByEmail] = await tx
+                .select({
+                  id: contacts.id,
+                  name: contacts.name,
+                  phone: contacts.phone,
+                  email: contacts.email,
+                  walletOperatorId: contacts.walletOperatorId,
+                })
+                .from(contacts)
+                .where(and(eq(contacts.tenantId, tenantId), ilike(contacts.email, email)))
+                .limit(1);
+              if (existingByEmail) return { kind: "existing" as const, existing: existingByEmail };
+            }
+            const [contact] = await tx
+              .insert(contacts)
+              .values({
+                id: newContactId,
+                tenantId,
+                name,
+                phone: phone || null,
+                email: email || null,
+                mainChannel: "whatsapp",
+                walletOperatorId:
+                  session.permissions?.contacts?.contactScope === "wallet_only"
+                    ? session.operator.id
+                    : null,
+                customFields,
+              })
+              .returning({
+                id: contacts.id,
+                name: contacts.name,
+                phone: contacts.phone,
+                email: contacts.email,
+              });
+            const synced = await syncContactPhones(
+              tx,
+              tenantId,
+              contact.id,
+              normalizedPhonesResult.phones,
+              phone || null,
+            );
             await registerContactDeal(tx, session, contact.id, null, input);
-            return { kind: "created" as const, contact };
+            return {
+              kind: "created" as const,
+              contact: {
+                ...contact,
+                phone: synced.primaryPhone || contact.phone,
+                phones: synced.phones,
+              },
+            };
           });
           if (outcome.kind === "existing") {
-            if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only" && outcome.existing.walletOperatorId !== session.operator.id) return Response.json({ error: "Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.", code: "CONTACT_EXISTS" }, { status: 409 });
-            return Response.json({ error: `Contato já cadastrado: ${outcome.existing.name}. Selecione o cadastro existente para continuar.`, code: "CONTACT_EXISTS", contactId: outcome.existing.id, contact: outcome.existing }, { status: 409 });
+            if (
+              session.operator.role !== "admin" &&
+              session.permissions?.contacts?.contactScope === "wallet_only" &&
+              outcome.existing.walletOperatorId !== session.operator.id
+            )
+              return Response.json(
+                {
+                  error:
+                    "Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.",
+                  code: "CONTACT_EXISTS",
+                },
+                { status: 409 },
+              );
+            return Response.json(
+              {
+                error: `Contato já cadastrado: ${outcome.existing.name}. Selecione o cadastro existente para continuar.`,
+                code: "CONTACT_EXISTS",
+                contactId: outcome.existing.id,
+                contact: outcome.existing,
+              },
+              { status: 409 },
+            );
           }
           const contact = outcome.contact;
           return Response.json({ contact }, { status: outcome.kind === "linked" ? 200 : 201 });
         } catch (error) {
-          if (((error as any)?.constraint || (error as any)?.cause?.constraint) === "contacts_tenant_phone_identity") {
-            return Response.json({ error: "Já existe um contato com este telefone.", code: "CONTACT_EXISTS" }, { status: 409 });
+          if (
+            ((error as any)?.constraint || (error as any)?.cause?.constraint) ===
+            "contacts_tenant_phone_identity"
+          ) {
+            return Response.json(
+              { error: "Já existe um contato com este telefone.", code: "CONTACT_EXISTS" },
+              { status: 409 },
+            );
           }
-          if (error instanceof Error && "statusCode" in error) return Response.json({ error: error.message, code: (error as any).code }, { status: Number(error.statusCode) || 400 });
+          if (error instanceof Error && "statusCode" in error)
+            return Response.json(
+              { error: error.message, code: (error as any).code },
+              { status: Number(error.statusCode) || 400 },
+            );
           console.error("[CRM Contacts API] Erro ao criar contato:", error);
           return Response.json({ error: "Não foi possível criar o contato." }, { status: 500 });
         }

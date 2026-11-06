@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../db";
-import { channelConfigs, contacts, conversations, messages } from "../../db/schema";
+import { channelConfigs, contacts, contactPhones, conversations, messages } from "../../db/schema";
 import { metaAdapter } from "./adapters/meta";
 import { baileysAdapter } from "./adapters/baileys";
 import { restoreOutbound } from "./envelope";
@@ -130,12 +130,34 @@ export async function dispatchStored(
       .from(contacts)
       .where(and(eq(contacts.tenantId, tenantId), eq(contacts.id, conv.contactId)));
     if (!contact) return finish("failed", "Contato indisponível.");
-    if (msg.whatsappConnectionId && typeof msg.metaDetails.recipientPhone === "string" && msg.metaDetails.recipientPhone && msg.metaDetails.recipientPhone.replace(/\D/g, "") !== (contact.phone || "").replace(/\D/g, "")) {
-      return finish("failed", "O telefone do contato mudou. Confira o destinatário e crie um novo envio.");
+    let effectivePhone = conv.contactPhone || contact.phone || "";
+    let effectiveWhatsappUserId = contact.whatsappUserId || undefined;
+    if (conv.contactPhoneId) {
+      try {
+        const [phoneRow] = await db
+          .select({ phone: contactPhones.phone, whatsappUserId: contactPhones.whatsappUserId })
+          .from(contactPhones)
+          .where(and(eq(contactPhones.tenantId, tenantId), eq(contactPhones.id, conv.contactPhoneId)))
+          .limit(1);
+        if (phoneRow?.phone) effectivePhone = phoneRow.phone;
+        if (phoneRow?.whatsappUserId) effectiveWhatsappUserId = phoneRow.whatsappUserId;
+      } catch {}
+    }
+    if (
+      msg.whatsappConnectionId &&
+      typeof msg.metaDetails.recipientPhone === "string" &&
+      msg.metaDetails.recipientPhone
+    ) {
+      const targetDigits = msg.metaDetails.recipientPhone.replace(/\D/g, "");
+      const effectiveDigits = (effectivePhone || "").replace(/\D/g, "");
+      const primaryDigits = (contact.phone || "").replace(/\D/g, "");
+      if (targetDigits !== effectiveDigits && targetDigits !== primaryDigits) {
+        return finish("failed", "O telefone do contato mudou. Confira o destinatário e crie um novo envio.");
+      }
     }
     let payload;
     try {
-      payload = restoreOutbound(msg, contact.phone || "", contact.whatsappUserId || undefined);
+      payload = restoreOutbound(msg, effectivePhone, effectiveWhatsappUserId);
       payload.whatsappConnectionId = target.connectionId;
     } catch {
       return finish(

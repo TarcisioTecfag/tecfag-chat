@@ -3,12 +3,29 @@ import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   contacts,
+  contactPhones,
   contactChannelIdentities,
   whatsappConnectionContacts,
   whatsappConnections,
 } from "../../db/schema";
 import { buildPhoneSearchTerms } from "../utils";
 type Reader = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+function computeContactPhoneIdentity(rawPhone: string | null | undefined): string | null {
+  if (!rawPhone) return null;
+  const digits = rawPhone.replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.length === 13 && digits.startsWith("55") && digits[4] === "9") {
+    return `${digits.slice(0, 4)}${digits.slice(5)}`;
+  }
+  if (digits.length === 11 && digits[2] === "9") {
+    return `55${digits.slice(0, 2)}${digits.slice(3)}`;
+  }
+  if (digits.length === 10) {
+    return `55${digits}`;
+  }
+  return digits;
+}
 
 export async function findConnectionContact(
   reader: Reader,
@@ -58,7 +75,37 @@ export async function findConnectionContact(
     throw new Error(
       "Telefone associado a contatos duplicados; revise os cadastros antes de sincronizar.",
     );
-  return found[0];
+  if (found[0]) return found[0];
+
+  try {
+    const identity =
+      typeof computeContactPhoneIdentity === "function"
+        ? computeContactPhoneIdentity(phone)
+        : phone.replace(/\D/g, "");
+    const cpConds = terms.map((term) => eq(contactPhones.phone, term));
+    if (identity) cpConds.push(eq(contactPhones.phoneIdentity, identity));
+    const cpMatches = await reader
+      .select({ contact: contacts })
+      .from(contactPhones)
+      .innerJoin(
+        contacts,
+        and(eq(contactPhones.contactId, contacts.id), eq(contacts.tenantId, tenantId)),
+      )
+      .where(and(eq(contactPhones.tenantId, tenantId), or(...cpConds)))
+      .limit(2);
+    const uniqueContacts = Array.from(
+      new Map(cpMatches.map((m) => [m.contact.id, m.contact])).values(),
+    );
+    if (uniqueContacts.length > 1) {
+      throw new Error(
+        "Telefone associado a contatos duplicados; revise os cadastros antes de sincronizar.",
+      );
+    }
+    return uniqueContacts[0];
+  } catch (err: any) {
+    if (err?.message?.includes("contatos duplicados")) throw err;
+    return undefined;
+  }
 }
 
 export async function captureConnectionPeer(

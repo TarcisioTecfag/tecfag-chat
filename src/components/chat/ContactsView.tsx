@@ -12,7 +12,19 @@ import {
   type ExistingPhoneContact,
 } from "@/components/crm/PhoneContactSuggestions";
 import type { ContactDealInput } from "@/lib/crm/contact-deal-input";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { SystemTooltip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  ContactPhonesEditor,
+  ContactPhoneTypeBadge,
+  ContactPhoneChatLauncher,
+  createEmptyContactPhoneInput,
+  ensureEditablePhonesList,
+} from "@/components/crm/ContactPhonesEditor";
+import {
+  type ContactPhoneInput,
+  type ContactPhoneItem,
+  getContactPhoneTypeLabel,
+} from "@/lib/contact-phone-types";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useChat } from "@/hooks/useChatState";
@@ -88,6 +100,7 @@ type ContactListItem = {
   id: string;
   name: string;
   phone: string;
+  phones: ContactPhoneItem[];
   whatsappUsername: string;
   email: string;
   accountId: string | null;
@@ -203,6 +216,10 @@ export function ContactsView() {
   const [showDealModalOnSave, setShowDealModalOnSave] = useState(false);
   const [existingContact, setExistingContact] = useState<ExistingPhoneContact | null>(null);
   const [pendingDealContactId, setPendingDealContactId] = useState<string | null>(null);
+  const [pendingDealPhoneTarget, setPendingDealPhoneTarget] = useState<{
+    contactPhoneId?: string | null;
+    phone?: string | null;
+  } | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactListItem | null>(null);
   const [journeyTarget, setJourneyTarget] = useState<{
@@ -261,6 +278,7 @@ export function ContactsView() {
       id: item.id,
       name: item.name,
       phone: item.phone || "",
+      phones: Array.isArray(item.phones) ? item.phones : [],
       whatsappUsername: item.whatsappUsername || "",
       email: item.email || "",
       accountId: item.accountId || null,
@@ -435,16 +453,31 @@ export function ContactsView() {
       .filter(Boolean) as { conv: Conversation; matchedMessages: Conversation["messages"] }[];
   }, [globalSearch, searchConversations, currentGroup.allowedChannels]);
 
-  const [addForm, setAddForm] = useState({
+  const [addForm, setAddForm] = useState<{
+    name: string;
+    phone: string;
+    phones: ContactPhoneInput[];
+    email: string;
+    channel: Channel;
+  }>({
     name: "",
     phone: "",
+    phones: [createEmptyContactPhoneInput("commercial", true)],
     email: "",
     channel: "whatsapp" as Channel,
   });
 
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<{
+    name: string;
+    phone: string;
+    phones: ContactPhoneInput[];
+    whatsappUsername: string;
+    email: string;
+    tagsInput: string;
+  }>({
     name: "",
     phone: "",
+    phones: [createEmptyContactPhoneInput("commercial", true)],
     whatsappUsername: "",
     email: "",
     tagsInput: "",
@@ -507,11 +540,28 @@ export function ContactsView() {
 
   const filteredContacts = contactRows;
 
-  const handleStartChat = async (contactId: string, selection?: ContactDealInput) => {
+  const handleStartChat = async (
+    contactId: string,
+    selection?: ContactDealInput,
+    phoneTarget?: { contactPhoneId?: string | null; phone?: string | null },
+  ) => {
     try {
-      const response = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(selection || {}) });
+      const response = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(selection || {}),
+          ...(phoneTarget?.contactPhoneId ? { contactPhoneId: phoneTarget.contactPhoneId } : {}),
+          ...(phoneTarget?.phone ? { phone: phoneTarget.phone } : {}),
+        }),
+      });
       const result = await response.json();
-      if (!response.ok && result.code === "DEAL_REQUIRED") { setPendingDealContactId(contactId); return false; }
+      if (!response.ok && result.code === "DEAL_REQUIRED") {
+        setPendingDealContactId(contactId);
+        setPendingDealPhoneTarget(phoneTarget || null);
+        return false;
+      }
       if (!response.ok) throw new Error(result.error || "Não foi possível abrir o atendimento.");
       await refreshConversations(result.conversationId);
       const queue: QueueType = result.readOnly
@@ -548,16 +598,26 @@ export function ContactsView() {
         }
         return;
       }
+      const validPhones = addForm.phones.filter((p) => (p.phone || "").replace(/\D/g, "").length >= 8);
+      const primaryPhoneValue =
+        (validPhones.find((p) => p.isPrimary) || validPhones[0])?.phone || addForm.phone;
       const result = await createContact(
         addForm.name,
-        addForm.phone,
+        primaryPhoneValue,
         addForm.email,
         selectedDealMeta?.account?.id || dealSelection.newDeal?.accountId || newAccount?.id || null,
         addForm.channel,
         dealSelection,
         newContactCustomFields,
+        validPhones,
       );
-      setAddForm({ name: "", phone: "", email: "", channel: "whatsapp" });
+      setAddForm({
+        name: "",
+        phone: "",
+        phones: [createEmptyContactPhoneInput("commercial", true)],
+        email: "",
+        channel: "whatsapp",
+      });
       setNewAccount(null);
       setContactDealInput({});
       setSelectedDealMeta(null);
@@ -619,9 +679,16 @@ export function ContactsView() {
     );
     setEditAccountId(c.accountId);
     setCreatingCompany(false);
+    const editablePhones = ensureEditablePhonesList(c.phones, c.phone);
+    const primaryPhone =
+      (editablePhones.find((p) => p.isPrimary) || editablePhones[0])?.phone || c.phone || "";
     setEditForm({
       name: c.name,
-      phone: c.phone ? maskPhone(c.phone) : "",
+      phone: primaryPhone ? maskPhone(primaryPhone) : "",
+      phones: editablePhones.map((p) => ({
+        ...p,
+        phone: p.phone ? maskPhone(p.phone) : "",
+      })),
       whatsappUsername: c.whatsappUsername || "",
       email: c.email || "",
       tagsInput: c.tags.join(", "),
@@ -632,11 +699,22 @@ export function ContactsView() {
     e.preventDefault();
     if (!editingContact) return;
     const tagsArray = editForm.tagsInput.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+    const validPhones = editForm.phones.filter((p) => (p.phone || "").replace(/\D/g, "").length >= 8);
+    const primaryPhoneValue =
+      (validPhones.find((p) => p.isPrimary) || validPhones[0])?.phone || editForm.phone;
     setSavingContact(true);
     try {
       const response = await fetch(`/api/contacts/${encodeURIComponent(editingContact.id)}`, {
         method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editForm.name, phone: editForm.phone, whatsappUsername: editForm.whatsappUsername, email: editForm.email, accountId: editAccountId, tags: tagsArray }),
+        body: JSON.stringify({
+          name: editForm.name,
+          phone: primaryPhoneValue,
+          phones: validPhones,
+          whatsappUsername: editForm.whatsappUsername,
+          email: editForm.email,
+          accountId: editAccountId,
+          tags: tagsArray,
+        }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível salvar o contato.");
@@ -837,11 +915,16 @@ export function ContactsView() {
           key={pendingDealContactId}
           contactId={pendingDealContactId}
           contactName={contactRows.find((c) => c.id === pendingDealContactId)?.name}
-          onClose={() => setPendingDealContactId(null)}
+          onClose={() => {
+            setPendingDealContactId(null);
+            setPendingDealPhoneTarget(null);
+          }}
           onSuccess={() => {
             const id = pendingDealContactId;
+            const target = pendingDealPhoneTarget;
             setPendingDealContactId(null);
-            void handleStartChat(id);
+            setPendingDealPhoneTarget(null);
+            void handleStartChat(id, undefined, target || undefined);
           }}
         />
       )}
@@ -896,7 +979,13 @@ export function ContactsView() {
                 setContactDealInput({});
                 setSelectedDealMeta(null);
                 setShowDealModalOnSave(false);
-                setAddForm({ name: "", phone: "", email: "", channel: "whatsapp" });
+                setAddForm({
+                  name: "",
+                  phone: "",
+                  phones: [createEmptyContactPhoneInput("commercial", true)],
+                  email: "",
+                  channel: "whatsapp",
+                });
                 setShowAddModal(true);
               }}
               className="inline-flex h-9 sm:h-10 flex-1 sm:flex-none items-center justify-center gap-1.5 sm:gap-2 rounded-xl bg-primary px-2.5 sm:px-5 text-xs sm:text-sm font-semibold text-primary-foreground transition hover:opacity-90 cursor-pointer shadow-soft whitespace-nowrap"
@@ -1221,11 +1310,59 @@ export function ContactsView() {
                           )}
                         </div>
                       </td>
-                      <td className="py-3.5 px-4 space-y-0.5">
-                        <div className="flex items-center gap-1.5 text-muted-foreground">
-                          <Phone className="h-3 w-3" />
-                          <span>{c.phone ? formatPhoneNumber(c.phone) : "Número não informado"}</span>
-                        </div>
+                      <td className="py-3.5 px-4 space-y-1">
+                        {(() => {
+                          const primaryObj =
+                            c.phones.find((p) => p.isPrimary) || c.phones[0];
+                          const extraPhones = c.phones.filter(
+                            (p) => primaryObj && p.id !== primaryObj.id,
+                          );
+                          const displayPhone = primaryObj?.phone || c.phone;
+                          return (
+                            <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
+                              <Phone className="h-3 w-3 shrink-0" />
+                              <span className="font-mono text-foreground">
+                                {displayPhone ? formatPhoneNumber(displayPhone) : "Número não informado"}
+                              </span>
+                              {primaryObj && (
+                                <ContactPhoneTypeBadge
+                                  type={primaryObj.type}
+                                  label={primaryObj.label}
+                                  isPrimary={primaryObj.isPrimary}
+                                  size="xs"
+                                />
+                              )}
+                              {extraPhones.length > 0 && (
+                                <SystemTooltip
+                                  content={
+                                    <div className="space-y-1 py-0.5">
+                                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                        Outros números deste contato
+                                      </p>
+                                      {extraPhones.map((ep) => (
+                                        <div
+                                          key={ep.id || ep.phone}
+                                          className="flex items-center justify-between gap-3 text-[11px]"
+                                        >
+                                          <span className="font-mono font-bold text-popover-foreground">
+                                            {formatPhoneNumber(ep.phone)}
+                                          </span>
+                                          <span className="text-[10px] text-primary font-semibold">
+                                            {getContactPhoneTypeLabel(ep.type, ep.label)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  }
+                                >
+                                  <span className="inline-flex items-center rounded-md bg-primary/10 border border-primary/25 px-1.5 py-0.5 text-[10px] font-bold text-primary cursor-default">
+                                    +{extraPhones.length}
+                                  </span>
+                                </SystemTooltip>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {c.whatsappUsername && c.channel === "whatsapp" && (
                           <div className="text-primary font-semibold">@{c.whatsappUsername}</div>
                         )}
@@ -1330,15 +1467,14 @@ export function ContactsView() {
                                 <TooltipContent side="top">Editar Cadastro</TooltipContent>
                               </Tooltip>
                           )}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button data-tour="contacts.attend" onClick={() => handleStartChat(c.id)} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground hover:opacity-90 transition cursor-pointer shadow-soft">
-                                <MessageSquare className="h-3.5 w-3.5" />
-                                Conversar
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">Iniciar Atendimento</TooltipContent>
-                          </Tooltip>
+                          <div data-tour="contacts.attend">
+                            <ContactPhoneChatLauncher
+                              phones={c.phones}
+                              fallbackPhone={c.phone}
+                              triggerLabel="Conversar"
+                              onSelectPhone={(target) => handleStartChat(c.id, undefined, target)}
+                            />
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -1464,9 +1600,14 @@ export function ContactsView() {
                 {/* Dados do contato e cliente vinculado */}
                 <div className="bg-muted/40 rounded-xl p-3 text-xs space-y-1.5 border border-border/50">
                   <div className="flex items-center justify-between text-muted-foreground">
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex items-center gap-1.5 flex-wrap">
                       <Phone className="h-3.5 w-3.5 text-primary" />
                       <span className="font-semibold text-foreground">{c.phone ? formatPhoneNumber(c.phone) : "Número não informado"}</span>
+                      {c.phones.length > 1 && (
+                        <span className="inline-flex items-center rounded-md bg-primary/10 border border-primary/25 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                          +{c.phones.length - 1}
+                        </span>
+                      )}
                     </span>
                     {c.accountName && (
                       <span className="text-[10px] text-emerald-600 font-mono bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
@@ -1515,13 +1656,13 @@ export function ContactsView() {
                       <span>Editar</span>
                     </button>
                   )}
-                  <button
-                    onClick={() => handleStartChat(c.id)}
-                    className="flex-1 py-2 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center gap-1.5 shadow-soft hover:opacity-90 transition cursor-pointer"
-                  >
-                    <MessageSquare className="h-3.5 w-3.5" />
-                    <span>Iniciar Chat</span>
-                  </button>
+                  <ContactPhoneChatLauncher
+                    phones={c.phones}
+                    fallbackPhone={c.phone}
+                    triggerLabel="Iniciar Chat"
+                    className="flex-1 py-2 px-3 rounded-xl justify-center"
+                    onSelectPhone={(target) => handleStartChat(c.id, undefined, target)}
+                  />
                 </div>
               </div>
             );
@@ -1766,16 +1907,15 @@ export function ContactsView() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
-                <PhoneCountryInput
-                  disabled={!!existingContact}
-                  value={addForm.phone}
-                  onChange={(phone) => setAddForm({ ...addForm, phone })}
-                  buttonClassName="h-10 rounded-l-xl bg-muted border-border"
-                  inputClassName="h-10 rounded-r-xl bg-muted px-3.5 text-xs text-foreground border-border disabled:opacity-60"
-                />
-              </div>
+              <ContactPhonesEditor
+                disabled={!!existingContact}
+                phones={addForm.phones}
+                onChange={(nextPhones) => {
+                  const primary =
+                    (nextPhones.find((p) => p.isPrimary) || nextPhones[0])?.phone || "";
+                  setAddForm({ ...addForm, phones: nextPhones, phone: primary });
+                }}
+              />
 
               {!existingContact && (
                 <PhoneContactSuggestions
@@ -2000,15 +2140,14 @@ export function ContactsView() {
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold uppercase text-muted-foreground">Telefone</label>
-                  <PhoneCountryInput
-                    value={editForm.phone}
-                    onChange={(phone) => setEditForm({ ...editForm, phone })}
-                    buttonClassName="h-10 rounded-l-xl bg-muted border-border"
-                    inputClassName="h-10 rounded-r-xl bg-muted px-3.5 text-xs text-foreground border-border"
-                  />
-                </div>
+                <ContactPhonesEditor
+                  phones={editForm.phones}
+                  onChange={(nextPhones) => {
+                    const primary =
+                      (nextPhones.find((p) => p.isPrimary) || nextPhones[0])?.phone || "";
+                    setEditForm({ ...editForm, phones: nextPhones, phone: primary });
+                  }}
+                />
 
                 {editingContact.channel === "whatsapp" && (
                   <div className="space-y-1">

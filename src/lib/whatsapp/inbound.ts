@@ -1,9 +1,16 @@
 import { syncConversationDeals, lockContactDeals } from "../crm/deal-associations";
+import {
+  findContactByAnyPhone,
+  findConversationForContactPhone,
+  resolveOrEnsureContactPhoneRow,
+  type ContactPhoneItem,
+} from "../crm/contact-phones";
 import { runtimeSingleton } from "../runtime-singleton";
 import { db } from "../../db";
 import {
   pendingInbounds,
   contacts,
+  contactPhones,
   conversations,
   messages,
   mediaFiles,
@@ -507,7 +514,7 @@ export class InboundProcessor {
       .where(and(eq(pendingInbounds.tenantId, tenantId), eq(pendingInbounds.id, targetInboundId)));
 
     try {
-      // 2. Resolução do Contato (contacts)
+      // 2. Resolução do Contato (contacts + contact_phones)
       let contact = userId
         ? (
             await db
@@ -517,9 +524,18 @@ export class InboundProcessor {
               .limit(1)
           )[0]
         : undefined;
+      let matchedPhone: ContactPhoneItem | null = null;
 
       const canonicalPhone = normalizeCanonicalPhone(cleanPhone);
       const phoneTerms = buildPhoneSearchTerms(canonicalPhone || cleanPhone);
+
+      if (!contact && (canonicalPhone || cleanPhone)) {
+        const foundByAny = await findContactByAnyPhone(db, tenantId, canonicalPhone || cleanPhone);
+        if (foundByAny?.contact) {
+          contact = foundByAny.contact;
+          matchedPhone = foundByAny.matchedPhone;
+        }
+      }
 
       if (!contact && phoneTerms.length > 0) {
         const matching = await db
@@ -541,7 +557,15 @@ export class InboundProcessor {
         }
       }
 
-      if (contact && userId && contact.whatsappUserId && contact.whatsappUserId !== userId) {
+      const isSecondaryMatchedPhone = Boolean(matchedPhone && !matchedPhone.isPrimary);
+
+      if (
+        contact &&
+        userId &&
+        !isSecondaryMatchedPhone &&
+        contact.whatsappUserId &&
+        contact.whatsappUserId !== userId
+      ) {
         throw new Error("Telefone já vinculado a outro BSUID; associação manual necessária");
       }
 
@@ -571,9 +595,15 @@ export class InboundProcessor {
         contact = createdContact;
       } else {
         const identityUpdates: Partial<typeof contacts.$inferInsert> = {};
-        if (userId && !contact.whatsappUserId) identityUpdates.whatsappUserId = userId;
-        // Auto-cura: se o contato estava sem phone ou com phone não canônico (ex: sem 55), atualiza para o canonicalPhone
-        if (canonicalPhone && (!contact.phone || contact.phone !== canonicalPhone)) {
+        if (userId && !contact.whatsappUserId && !isSecondaryMatchedPhone) {
+          identityUpdates.whatsappUserId = userId;
+        }
+        // Auto-cura do telefone principal apenas se não for um número secundário do contato
+        if (
+          !isSecondaryMatchedPhone &&
+          canonicalPhone &&
+          (!contact.phone || contact.phone !== canonicalPhone)
+        ) {
           const [phoneOwner] = await db
             .select({ id: contacts.id })
             .from(contacts)
@@ -613,31 +643,55 @@ export class InboundProcessor {
         }
       }
 
+      if (!matchedPhone) {
+        matchedPhone = await resolveOrEnsureContactPhoneRow(db, tenantId, contact.id, {
+          phone: canonicalPhone || cleanPhone || contact.phone,
+        });
+      }
+      if (matchedPhone && userId && matchedPhone.whatsappUserId !== userId) {
+        try {
+          await db
+            .update(contactPhones)
+            .set({ whatsappUserId: userId, updatedAt: new Date() })
+            .where(and(eq(contactPhones.tenantId, tenantId), eq(contactPhones.id, matchedPhone.id)));
+          matchedPhone.whatsappUserId = userId;
+        } catch {}
+      }
+
       await lockContactDeals(db, tenantId, contact.id);
-      // 3. Resolução da Conversa Ativa (conversations)
-      let [activeConv] = await db
-        .select()
-        .from(conversations)
-        .where(and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.contactId, contact.id)))
-        .orderBy(desc(conversations.lastMessageTime))
-        .limit(1);
+      // 3. Resolução da Conversa Ativa (conversations) — isolada por número de telefone (matchedPhone)
+      let activeConv = await findConversationForContactPhone(
+        db,
+        tenantId,
+        contact.id,
+        matchedPhone,
+        null,
+      );
 
       if (activeConv) {
         const [locked] = await db
           .select()
           .from(conversations)
-          .where(and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.id, activeConv.id)))
+          .where(
+            and(
+              eq(conversations.tenantId, tenantId),
+              isNull(conversations.whatsappConnectionId),
+              eq(conversations.id, activeConv.id),
+            ),
+          )
           .for("update");
-        activeConv = locked;
+        activeConv = locked || null;
       }
       const aiPersona = getAiPersona(tenantId);
       const lastTextPreview = text || (media ? `[Mídia: ${media.fileName || media.mimeType}]` : "");
-      const normalizedContactPhone = normalizeCanonicalPhone(cleanPhone || contact.phone || "");
+      const normalizedContactPhone = normalizeCanonicalPhone(
+        matchedPhone?.phone || cleanPhone || contact.phone || "",
+      );
       let createdConversation = false;
       let reopened = false;
 
       if (!activeConv) {
-        // 3a. Criação da primeira conversa para o contato
+        // 3a. Criação da conversa para este número específico do contato
         const convId = `conv-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const contactId = contact.id;
         let initialOperatorId: string | null = null;
@@ -675,7 +729,7 @@ export class InboundProcessor {
           await tx.execute(
             sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${contactId}))`,
           );
-          if (normalizedContactPhone.length >= 8) {
+          if (normalizedContactPhone.length >= 8 && (!matchedPhone || matchedPhone.isPrimary)) {
             await tx.execute(
               sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedContactPhone}))`,
             );
@@ -689,7 +743,8 @@ export class InboundProcessor {
               )
               .where(
                 and(
-                  eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId),
+                  eq(conversations.tenantId, tenantId),
+                  isNull(conversations.whatsappConnectionId),
                   or(
                     ...convPhoneTerms.map(
                       (term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`,
@@ -701,14 +756,13 @@ export class InboundProcessor {
               .limit(1);
             if (matchingHistories.length) return matchingHistories[0].conversation;
           }
-          const [existing] = await tx
-            .select()
-            .from(conversations)
-            .where(
-              and(eq(conversations.tenantId, tenantId), isNull(conversations.whatsappConnectionId), eq(conversations.contactId, contactId)),
-            )
-            .orderBy(desc(conversations.lastMessageTime))
-            .limit(1);
+          const existing = await findConversationForContactPhone(
+            tx,
+            tenantId,
+            contactId,
+            matchedPhone,
+            null,
+          );
           if (existing) return existing;
           await setAttendanceActor(
             tx,
@@ -730,6 +784,8 @@ export class InboundProcessor {
               id: convId,
               tenantId,
               contactId,
+              contactPhoneId: matchedPhone?.id || null,
+              contactPhone: matchedPhone?.phone || normalizedContactPhone || null,
               operatorId: initialOperatorId,
               queueState: initialQueueState,
               unreadCount: 1,

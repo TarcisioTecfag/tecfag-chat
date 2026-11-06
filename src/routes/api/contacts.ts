@@ -1,12 +1,31 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../db/index.js";
-import { channelConfigs, contacts, conversations, crmAccounts, crmContactAccountHistory, crmDealContacts, crmDeals } from "../../db/schema.js";
+import {
+  channelConfigs,
+  contacts,
+  conversations,
+  crmAccounts,
+  crmContactAccountHistory,
+  crmDealContacts,
+  crmDeals,
+} from "../../db/schema.js";
 import { eq, and, count, desc, ilike, inArray, or, sql } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
 import { requireSession } from "../../lib/auth-session.js";
-import { normalizeCanonicalPhone, buildPhoneSearchTerms, phoneRegistrationError, localPhoneSearchTerms } from "../../lib/utils.js";
+import {
+  normalizeCanonicalPhone,
+  buildPhoneSearchTerms,
+  phoneRegistrationError,
+  localPhoneSearchTerms,
+} from "../../lib/utils.js";
 
 import { contactDealPermission, registerContactDeal } from "../../lib/crm/contact-registration";
+import {
+  findContactByAnyPhone,
+  getContactPhonesMap,
+  normalizeContactPhonesInput,
+  syncContactPhones,
+} from "../../lib/crm/contact-phones";
 import { syncConversationDeals } from "../../lib/crm/deal-associations";
 import { listCustomFields, validateFieldValues } from "../../lib/crm/custom-fields";
 import { setAttendanceActor } from "../../lib/attendance-events";
@@ -42,21 +61,48 @@ export const Route = createFileRoute("/api/contacts")({
         }
         const rawLimit = Number(url.searchParams.get("limit"));
         const rawOffset = Number(url.searchParams.get("offset"));
-        const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 50;
+        const limit =
+          Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 50;
         const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
         const conditions = [eq(contacts.tenantId, tenantId)];
-        if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only") {
+        if (
+          session.operator.role !== "admin" &&
+          session.permissions?.contacts?.contactScope === "wallet_only"
+        ) {
           conditions.push(eq(contacts.walletOperatorId, session.operator.id));
         }
         if (identityPhone || identityName) {
           const identityParts = [];
           if (identityPhone) {
-            const terms = phoneRegistrationError(identityPhone) ? localPhoneSearchTerms(identityPhone) : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
+            const isLocalOnly = Boolean(phoneRegistrationError(identityPhone));
+            const terms = isLocalOnly
+              ? localPhoneSearchTerms(identityPhone)
+              : [...buildPhoneSearchTerms(identityPhone), ...localPhoneSearchTerms(identityPhone)];
             if (terms.length > 0) {
               identityParts.push(
-                or(...terms.map((term) => phoneRegistrationError(identityPhone)
-                  ? sql`right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}`
-                  : sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))!
+                or(
+                  ...terms.map((term) =>
+                    isLocalOnly
+                      ? sql`(
+                          right(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g'), ${term.length}) = ${term}
+                          OR EXISTS (
+                            SELECT 1 FROM contact_phones cp
+                            WHERE cp.tenant_id = ${tenantId}
+                              AND cp.contact_id = ${contacts.id}
+                              AND right(regexp_replace(cp.phone, '[^0-9]', '', 'g'), ${term.length}) = ${term}
+                          )
+                        )`
+                      : sql`(
+                          regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}
+                          OR EXISTS (
+                            SELECT 1 FROM contact_phones cp
+                            WHERE cp.tenant_id = ${tenantId}
+                              AND cp.contact_id = ${contacts.id}
+                              AND (regexp_replace(cp.phone, '[^0-9]', '', 'g') = ${term} OR cp.phone_identity = ${term})
+                          )
+                        )`,
+                  ),
+                )!,
               );
             }
           }
@@ -70,45 +116,112 @@ export const Route = createFileRoute("/api/contacts")({
         if (search) {
           const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
           const digits = search.replace(/\D/g, "");
-          conditions.push(or(
-            ilike(contacts.name, pattern), ilike(contacts.email, pattern),
-            ilike(contacts.whatsappUsername, pattern),
-            ilike(contacts.phone, pattern), ilike(crmAccounts.name, pattern), ilike(crmAccounts.document, pattern),
-            ilike(contacts.responsibleName, pattern),
-            sql`${contacts.tags}::text ILIKE ${pattern}`,
-            digits.length >= 4 ? sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}` : undefined,
-          )!);
+          conditions.push(
+            or(
+              ilike(contacts.name, pattern),
+              ilike(contacts.email, pattern),
+              ilike(contacts.whatsappUsername, pattern),
+              ilike(contacts.phone, pattern),
+              ilike(crmAccounts.name, pattern),
+              ilike(crmAccounts.document, pattern),
+              ilike(contacts.responsibleName, pattern),
+              sql`${contacts.tags}::text ILIKE ${pattern}`,
+              sql`EXISTS (
+                SELECT 1 FROM contact_phones cp
+                WHERE cp.tenant_id = ${tenantId}
+                  AND cp.contact_id = ${contacts.id}
+                  AND (cp.phone ILIKE ${pattern} OR cp.label ILIKE ${pattern})
+              )`,
+              digits.length >= 4
+                ? sql`(
+                    regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
+                    OR EXISTS (
+                      SELECT 1 FROM contact_phones cp
+                      WHERE cp.tenant_id = ${tenantId}
+                        AND cp.contact_id = ${contacts.id}
+                        AND regexp_replace(cp.phone, '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
+                    )
+                  )`
+                : undefined,
+            )!,
+          );
         }
         const where = and(...conditions);
         try {
           const [items, totals] = await Promise.all([
-            db.select({
-              id: contacts.id, name: contacts.name, phone: contacts.phone,
-              whatsappUsername: contacts.whatsappUsername,
-              email: contacts.email, cnpj: contacts.cnpj, cpf: contacts.cpf,
-              accountId: contacts.accountId,
-              accountName: crmAccounts.name, accountDocument: crmAccounts.document, accountType: crmAccounts.type,
-              avatar: contacts.avatar, tags: contacts.tags,
-              mainChannel: contacts.mainChannel, walletOperatorId: contacts.walletOperatorId,
-              responsibleName: contacts.responsibleName,
-              customFields: contacts.customFields,
-              latestConversationId: sql<string | null>`(
-                SELECT conv.id FROM conversations conv
-                WHERE conv.contact_id = ${contacts.id} AND conv.tenant_id = ${tenantId}
-                ORDER BY conv.last_message_time DESC, conv.created_at DESC LIMIT 1
-              )`,
-              latestOperatorId: sql<string | null>`(
-                SELECT conv.operator_id FROM conversations conv
-                WHERE conv.contact_id = ${contacts.id} AND conv.tenant_id = ${tenantId}
-                ORDER BY conv.last_message_time DESC, conv.created_at DESC LIMIT 1
-              )`,
-            }).from(contacts).leftJoin(crmAccounts, and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId))).where(where).orderBy(desc(contacts.createdAt), desc(contacts.id)).limit(limit).offset(offset),
-            db.select({ total: count() }).from(contacts).leftJoin(crmAccounts, and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId))).where(where),
+            db
+              .select({
+                id: contacts.id,
+                name: contacts.name,
+                phone: contacts.phone,
+                whatsappUsername: contacts.whatsappUsername,
+                email: contacts.email,
+                cnpj: contacts.cnpj,
+                cpf: contacts.cpf,
+                accountId: contacts.accountId,
+                accountName: crmAccounts.name,
+                accountDocument: crmAccounts.document,
+                accountType: crmAccounts.type,
+                avatar: contacts.avatar,
+                tags: contacts.tags,
+                mainChannel: contacts.mainChannel,
+                walletOperatorId: contacts.walletOperatorId,
+                responsibleName: contacts.responsibleName,
+                customFields: contacts.customFields,
+                latestConversationId: sql<string | null>`(
+                  SELECT conv.id FROM conversations conv
+                  WHERE conv.contact_id = ${contacts.id} AND conv.tenant_id = ${tenantId}
+                  ORDER BY conv.last_message_time DESC, conv.created_at DESC LIMIT 1
+                )`,
+                latestOperatorId: sql<string | null>`(
+                  SELECT conv.operator_id FROM conversations conv
+                  WHERE conv.contact_id = ${contacts.id} AND conv.tenant_id = ${tenantId}
+                  ORDER BY conv.last_message_time DESC, conv.created_at DESC LIMIT 1
+                )`,
+              })
+              .from(contacts)
+              .leftJoin(
+                crmAccounts,
+                and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)),
+              )
+              .where(where)
+              .orderBy(desc(contacts.createdAt), desc(contacts.id))
+              .limit(limit)
+              .offset(offset),
+            db
+              .select({ total: count() })
+              .from(contacts)
+              .leftJoin(
+                crmAccounts,
+                and(eq(contacts.accountId, crmAccounts.id), eq(crmAccounts.tenantId, tenantId)),
+              )
+              .where(where),
           ]);
 
           const contactIds = items.map((item) => item.id);
-          const dealsByContact = new Map<string, Array<{ id: string; title: string; status: string; value: string | null; pipelineId: string; stageId: string }>>();
-          const fallbackAccountByContact = new Map<string, { accountId: string; accountName: string | null; accountDocument: string | null; accountType: string | null }>();
+          const dealsByContact = new Map<
+            string,
+            Array<{
+              id: string;
+              title: string;
+              status: string;
+              value: string | null;
+              pipelineId: string;
+              stageId: string;
+            }>
+          >();
+          const fallbackAccountByContact = new Map<
+            string,
+            {
+              accountId: string;
+              accountName: string | null;
+              accountDocument: string | null;
+              accountType: string | null;
+            }
+          >();
+
+          const phonesByContact = await getContactPhonesMap(db, tenantId, contactIds, items);
+
           if (contactIds.length > 0) {
             const dealLinks = await db
               .select({
@@ -125,9 +238,20 @@ export const Route = createFileRoute("/api/contacts")({
                 accountType: crmAccounts.type,
               })
               .from(crmDealContacts)
-              .innerJoin(crmDeals, and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)))
-              .leftJoin(crmAccounts, and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)))
-              .where(and(eq(crmDealContacts.tenantId, tenantId), inArray(crmDealContacts.contactId, contactIds)))
+              .innerJoin(
+                crmDeals,
+                and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
+              )
+              .leftJoin(
+                crmAccounts,
+                and(eq(crmAccounts.id, crmDeals.accountId), eq(crmAccounts.tenantId, tenantId)),
+              )
+              .where(
+                and(
+                  eq(crmDealContacts.tenantId, tenantId),
+                  inArray(crmDealContacts.contactId, contactIds),
+                ),
+              )
               .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt));
 
             for (const link of dealLinks) {
@@ -137,13 +261,18 @@ export const Route = createFileRoute("/api/contacts")({
                   id: link.id,
                   title: link.title,
                   status: link.status,
-                  value: link.value !== null && link.value !== undefined ? String(link.value) : null,
+                  value:
+                    link.value !== null && link.value !== undefined ? String(link.value) : null,
                   pipelineId: link.pipelineId,
                   stageId: link.stageId,
                 });
                 dealsByContact.set(link.contactId, existing);
               }
-              if (link.accountId && link.accountName && !fallbackAccountByContact.has(link.contactId)) {
+              if (
+                link.accountId &&
+                link.accountName &&
+                !fallbackAccountByContact.has(link.contactId)
+              ) {
                 fallbackAccountByContact.set(link.contactId, {
                   accountId: link.accountId,
                   accountName: link.accountName,
@@ -157,6 +286,8 @@ export const Route = createFileRoute("/api/contacts")({
           const enrichedItems = items.map((item) => {
             const linked = dealsByContact.get(item.id) || [];
             const fallbackAcc = !item.accountId ? fallbackAccountByContact.get(item.id) : undefined;
+            const phones = phonesByContact.get(item.id) || [];
+            const primaryPhone = phones.find((p) => p.isPrimary)?.phone || item.phone || null;
             const cf = ((item.customFields || {}) as Record<string, any>) || {};
             const siteVisitorId =
               typeof cf.siteVisitorId === "string" && cf.siteVisitorId
@@ -177,6 +308,8 @@ export const Route = createFileRoute("/api/contacts")({
             );
             return {
               ...item,
+              phone: primaryPhone,
+              phones,
               accountId: item.accountId || fallbackAcc?.accountId || null,
               accountName: item.accountName || fallbackAcc?.accountName || null,
               accountDocument: item.accountDocument || fallbackAcc?.accountDocument || null,
@@ -188,10 +321,18 @@ export const Route = createFileRoute("/api/contacts")({
             };
           });
 
-          return Response.json({ contacts: enrichedItems, total: totals[0]?.total || 0, limit, offset });
+          return Response.json({
+            contacts: enrichedItems,
+            total: totals[0]?.total || 0,
+            limit,
+            offset,
+          });
         } catch (error) {
           console.error("[GET /api/contacts] Erro ao listar contatos:", error);
-          return Response.json({ error: "Não foi possível listar os contatos." }, { status: 500 });
+          return Response.json(
+            { error: "Não foi possível listar os contatos." },
+            { status: 500 },
+          );
         }
       },
       POST: async ({ request }) => {
@@ -200,100 +341,219 @@ export const Route = createFileRoute("/api/contacts")({
           if ("response" in auth) return auth.response;
           const { session } = auth;
           const tenantId = session.tenantId; // SEMPRE da sessão — nunca do body
-          if (session.operator.role !== "admin" && !session.permissions?.contacts?.canCreateContact) {
+          if (
+            session.operator.role !== "admin" &&
+            !session.permissions?.contacts?.canCreateContact
+          ) {
             return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
           }
 
           const body = await request.json().catch(() => ({}));
-          const { name, phone, email, accountId, channel } = body;
+          const { name, phone, phones: rawPhones, email, accountId, channel } = body;
 
           if (typeof name !== "string" || !name.trim() || name.trim().length > 200) {
-            return new Response(
-              JSON.stringify({ error: "Campo obrigatório ausente: name." }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            return new Response(JSON.stringify({ error: "Campo obrigatório ausente: name." }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          const finalContactId = `cont-${crypto.randomUUID()}`;
+          const finalConversationId = `conv-${crypto.randomUUID()}`;
+
+          const normalizedPhonesResult = normalizeContactPhonesInput(
+            rawPhones,
+            typeof phone === "string" ? phone : "",
+            finalContactId,
+          );
+          if (normalizedPhonesResult.validationError) {
+            return Response.json(
+              { error: normalizedPhonesResult.validationError, code: "PHONE_DDD_REQUIRED" },
+              { status: 400 },
             );
           }
 
-          const phoneError = phoneRegistrationError(typeof phone === "string" ? phone : "");
-          if (phoneError) return Response.json({ error: phoneError, code: "PHONE_DDD_REQUIRED" }, { status: 400 });
-          const normalizedPhone = normalizeCanonicalPhone(typeof phone === "string" ? phone : "");
+          const normalizedPhone = normalizedPhonesResult.primaryPhone || "";
           const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
-          if ((phone && (typeof phone !== "string" || phone.length > 40)) ||
-              (normalizedPhone && normalizedPhone.length < 8) ||
-              (email != null && typeof email !== "string") ||
-              normalizedEmail.length > 254 ||
-              (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) ||
-              (channel && !["whatsapp", "instagram", "messenger", "livechat"].includes(channel)) ||
-              (accountId !== undefined && accountId !== null && typeof accountId !== "string")) {
+          if (
+            (phone && (typeof phone !== "string" || phone.length > 40)) ||
+            (normalizedPhone && normalizedPhone.length < 8) ||
+            (email != null && typeof email !== "string") ||
+            normalizedEmail.length > 254 ||
+            (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) ||
+            (channel && !["whatsapp", "instagram", "messenger", "livechat"].includes(channel)) ||
+            (accountId !== undefined && accountId !== null && typeof accountId !== "string")
+          ) {
             return Response.json({ error: "Dados do contato inválidos." }, { status: 400 });
           }
           if (accountId) {
-            const [account] = await db.select({ id: crmAccounts.id }).from(crmAccounts)
-              .where(and(eq(crmAccounts.tenantId, tenantId), eq(crmAccounts.id, accountId), sql`${crmAccounts.archivedAt} IS NULL`)).limit(1);
-            if (!account) return Response.json({ error: "Empresa não encontrada neste tenant." }, { status: 404 });
+            const [account] = await db
+              .select({ id: crmAccounts.id })
+              .from(crmAccounts)
+              .where(
+                and(
+                  eq(crmAccounts.tenantId, tenantId),
+                  eq(crmAccounts.id, accountId),
+                  sql`${crmAccounts.archivedAt} IS NULL`,
+                ),
+              )
+              .limit(1);
+            if (!account)
+              return Response.json(
+                { error: "Empresa não encontrada neste tenant." },
+                { status: 404 },
+              );
           }
-          if (phone && shouldIgnoreJid(phone)) {
-            return new Response(
-              JSON.stringify({ error: "Telefone inválido: grupos, status e listas de transmissão não são aceitos como contato." }),
-              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
+
+          for (const p of normalizedPhonesResult.phones) {
+            if (shouldIgnoreJid(p.phone)) {
+              return new Response(
+                JSON.stringify({
+                  error:
+                    "Telefone inválido: grupos, status e listas de transmissão não são aceitos como contato.",
+                }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
           }
 
           const dealPermission = contactDealPermission(session, body);
           if (dealPermission) return dealPermission;
-          const customFields = validateFieldValues(await listCustomFields(tenantId, "contact"), body.customFields, { requireOnCreate: true });
-          const finalContactId = `cont-${crypto.randomUUID()}`;
-          const finalConversationId = `conv-${crypto.randomUUID()}`;
+          const customFields = validateFieldValues(
+            await listCustomFields(tenantId, "contact"),
+            body.customFields,
+            { requireOnCreate: true },
+          );
 
-          const [channelConfig] = await db.select({ activeProvider: channelConfigs.activeProvider })
-            .from(channelConfigs).where(eq(channelConfigs.tenantId, tenantId)).limit(1);
+          const [channelConfig] = await db
+            .select({ activeProvider: channelConfigs.activeProvider })
+            .from(channelConfigs)
+            .where(eq(channelConfigs.tenantId, tenantId))
+            .limit(1);
           const requiresExplicitCapture = channelConfig?.activeProvider === "meta";
 
           const duplicate = await db.transaction(async (tx) => {
             if (normalizedPhone || normalizedEmail) {
-              await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedPhone || normalizedEmail}))`);
+              await tx.execute(
+                sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${normalizedPhone || normalizedEmail}))`,
+              );
             }
-            const phoneTerms = buildPhoneSearchTerms(normalizedPhone);
-            const identity = phoneTerms.length > 0
-              ? or(...phoneTerms.map((term) => sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') = ${term}`))
-              : normalizedEmail ? ilike(contacts.email, normalizedEmail) : undefined;
-            if (identity) {
-              const [existing] = await tx.select({ id: contacts.id, name: contacts.name, phone: contacts.phone, email: contacts.email, walletOperatorId: contacts.walletOperatorId })
-                .from(contacts).where(and(eq(contacts.tenantId, tenantId), identity)).limit(1);
-              if (existing) return existing;
+
+            // Verifica se QUALQUER um dos números informados já pertence a um contato existente no tenant
+            for (const p of normalizedPhonesResult.phones) {
+              const found = await findContactByAnyPhone(tx, tenantId, p.phone);
+              if (found?.contact) {
+                return {
+                  id: found.contact.id,
+                  name: found.contact.name,
+                  phone: found.contact.phone,
+                  email: found.contact.email,
+                  walletOperatorId: found.contact.walletOperatorId,
+                };
+              }
             }
+
+            if (!normalizedPhone && normalizedEmail) {
+              const [existingByEmail] = await tx
+                .select({
+                  id: contacts.id,
+                  name: contacts.name,
+                  phone: contacts.phone,
+                  email: contacts.email,
+                  walletOperatorId: contacts.walletOperatorId,
+                })
+                .from(contacts)
+                .where(
+                  and(eq(contacts.tenantId, tenantId), ilike(contacts.email, normalizedEmail)),
+                )
+                .limit(1);
+              if (existingByEmail) return existingByEmail;
+            }
+
             const now = new Date();
             await tx.insert(contacts).values({
-              id: finalContactId, tenantId, name: name.trim(),
-              phone: normalizedPhone || null, email: normalizedEmail || null,
+              id: finalContactId,
+              tenantId,
+              name: name.trim(),
+              phone: normalizedPhone || null,
+              email: normalizedEmail || null,
               accountId: accountId || null,
               mainChannel: channel || "whatsapp",
               walletOperatorId: requiresExplicitCapture ? null : session.operator.id,
               responsibleName: requiresExplicitCapture ? "Na Fila" : session.operator.name,
-              customFields, createdAt: now,
+              customFields,
+              createdAt: now,
             });
+
+            const syncedPhones = await syncContactPhones(
+              tx,
+              tenantId,
+              finalContactId,
+              normalizedPhonesResult.phones,
+              normalizedPhone || null,
+            );
+
             if (accountId) {
               await tx.insert(crmContactAccountHistory).values({
-                id: `cah-${crypto.randomUUID()}`, tenantId, contactId: finalContactId,
-                accountId, reason: "Vínculo definido no cadastro do contato",
-                changedByOperatorId: session.operator.id, createdAt: now,
+                id: `cah-${crypto.randomUUID()}`,
+                tenantId,
+                contactId: finalContactId,
+                accountId,
+                reason: "Vínculo definido no cadastro do contato",
+                changedByOperatorId: session.operator.id,
+                createdAt: now,
               });
             }
             await registerContactDeal(tx, session, finalContactId, accountId || null, body);
             await setAttendanceActor(tx, tenantId, session.operator.name, session.operator.id);
             await tx.insert(conversations).values({
-              id: finalConversationId, tenantId, contactId: finalContactId,
+              id: finalConversationId,
+              tenantId,
+              contactId: finalContactId,
+              contactPhoneId: syncedPhones.primaryPhoneItem?.id || null,
+              contactPhone: syncedPhones.primaryPhone || null,
               operatorId: requiresExplicitCapture ? null : session.operator.id,
               queueState: requiresExplicitCapture ? "fila" : "meus",
-              lastMessageText: requiresExplicitCapture ? "Contato criado. Aguardando captura do atendimento." : "Contato criado e atendimento iniciado.",
-              lastMessageTime: now, version: 1, updatedAt: now, createdAt: now,
+              lastMessageText: requiresExplicitCapture
+                ? "Contato criado. Aguardando captura do atendimento."
+                : "Contato criado e atendimento iniciado.",
+              lastMessageTime: now,
+              version: 1,
+              updatedAt: now,
+              createdAt: now,
             });
-            await syncConversationDeals(tx, tenantId, finalConversationId, finalContactId, session.operator.id);
+            await syncConversationDeals(
+              tx,
+              tenantId,
+              finalConversationId,
+              finalContactId,
+              session.operator.id,
+            );
             return null;
           });
           if (duplicate) {
-            if (session.operator.role !== "admin" && session.permissions?.contacts?.contactScope === "wallet_only" && duplicate.walletOperatorId !== session.operator.id) return Response.json({ error: "Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.", code: "CONTACT_EXISTS" }, { status: 409 });
-            return Response.json({ error: `Contato já cadastrado: ${duplicate.name}.`, code: "CONTACT_EXISTS", contactId: duplicate.id, contact: duplicate }, { status: 409 });
+            if (
+              session.operator.role !== "admin" &&
+              session.permissions?.contacts?.contactScope === "wallet_only" &&
+              duplicate.walletOperatorId !== session.operator.id
+            )
+              return Response.json(
+                {
+                  error:
+                    "Este telefone já está cadastrado. Solicite acesso ao contato ao administrador.",
+                  code: "CONTACT_EXISTS",
+                },
+                { status: 409 },
+              );
+            return Response.json(
+              {
+                error: `Contato já cadastrado: ${duplicate.name}.`,
+                code: "CONTACT_EXISTS",
+                contactId: duplicate.id,
+                contact: duplicate,
+              },
+              { status: 409 },
+            );
           }
 
           return new Response(
@@ -306,12 +566,15 @@ export const Route = createFileRoute("/api/contacts")({
             {
               status: 201,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
-            }
+            },
           );
         } catch (e: any) {
           console.error("[POST /api/contacts] Erro ao criar contato e conversa no DB:", e);
           if ((e?.constraint || e?.cause?.constraint) === "contacts_tenant_phone_identity") {
-            return Response.json({ error: "Já existe um contato com este telefone.", code: "CONTACT_EXISTS" }, { status: 409 });
+            return Response.json(
+              { error: "Já existe um contato com este telefone.", code: "CONTACT_EXISTS" },
+              { status: 409 },
+            );
           }
           return new Response(JSON.stringify({ error: e.message, code: e.code }), {
             status: e.statusCode || 500,

@@ -96,7 +96,10 @@ import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getAiPersona } from "@/lib/ai-persona";
 import { setRememberedTabForView } from "@/lib/app-routes";
-import { resolveTemplateVariables } from "@/lib/utils";
+import { resolveTemplateVariables, formatPhoneNumber } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ContactPhoneTypeBadge } from "@/components/crm/ContactPhonesEditor";
+import type { ContactPhoneItem } from "@/lib/contact-phone-types";
 import {
   useAudioPlaybackRate,
   formatAudioPlaybackRate,
@@ -1225,13 +1228,48 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [headerNameDraft, setHeaderNameDraft] = useState("");
   const [savingHeaderName, setSavingHeaderName] = useState(false);
   const [copiedHeaderName, setCopiedHeaderName] = useState(false);
+  const [headerPhonePopoverOpen, setHeaderPhonePopoverOpen] = useState(false);
+  const [switchingHeaderPhoneId, setSwitchingHeaderPhoneId] = useState<string | null>(null);
   const headerNameInputRef = useRef<HTMLInputElement | null>(null);
   const copyHeaderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setIsEditingHeaderName(false);
     setCopiedHeaderName(false);
+    setHeaderPhonePopoverOpen(false);
   }, [activeChat?.id]);
+
+  const handleSwitchHeaderPhoneChat = async (phoneItem: ContactPhoneItem) => {
+    const contactId = activeChat?.contactId;
+    if (!contactId || !phoneItem.phone) return;
+    const loadingKey = phoneItem.id || phoneItem.phone;
+    setSwitchingHeaderPhoneId(loadingKey);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/contacts/${encodeURIComponent(contactId)}/conversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          contactPhoneId: phoneItem.id || undefined,
+          phone: phoneItem.phone,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Não foi possível abrir o atendimento deste número.");
+      }
+      setHeaderPhonePopoverOpen(false);
+      if (data.conversationId) {
+        await refreshConversations(data.conversationId);
+        setActiveQueue("todos");
+        setSelectedChatId(data.conversationId);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao alternar para o atendimento deste número.");
+    } finally {
+      setSwitchingHeaderPhoneId(null);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -2944,6 +2982,97 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                         )}
                       </button>
                     </SystemTooltip>
+                    {Array.isArray(activeChat.contactPhones) && activeChat.contactPhones.length > 1 ? (
+                      <Popover open={headerPhonePopoverOpen} onOpenChange={setHeaderPhonePopoverOpen}>
+                        <SystemTooltip content="Este contato possui múltiplos números (clique para alternar entre os atendimentos separados)">
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="ml-1 inline-flex items-center gap-1 rounded-lg border border-border bg-muted/60 hover:bg-muted hover:border-primary/40 px-1.5 py-0.5 text-[10px] font-bold text-foreground transition-colors cursor-pointer"
+                            >
+                              <ContactPhoneTypeBadge
+                                type={activeChat.phoneType || "commercial"}
+                                label={activeChat.phoneLabel}
+                                compact
+                              />
+                              <span className="hidden sm:inline font-mono text-[10px] text-muted-foreground">
+                                {activeChat.phone ? formatPhoneNumber(activeChat.phone) : ""}
+                              </span>
+                              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                            </button>
+                          </PopoverTrigger>
+                        </SystemTooltip>
+                        <PopoverContent align="start" sideOffset={6} className="w-72 p-2 rounded-2xl">
+                          <div className="px-2 py-1 border-b border-border/60 mb-1.5">
+                            <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                              Números deste contato ({activeChat.contactPhones.length})
+                            </p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              Cada número possui um atendimento separado
+                            </p>
+                          </div>
+                          <div className="space-y-1 max-h-56 overflow-y-auto scrollbar-thin">
+                            {activeChat.contactPhones.map((p, pIdx) => {
+                              const cleanActive = (activeChat.phone || "").replace(/\D/g, "");
+                              const cleanP = (p.phone || "").replace(/\D/g, "");
+                              const isCurrent =
+                                (activeChat.contactPhoneId && p.id === activeChat.contactPhoneId) ||
+                                (!activeChat.contactPhoneId &&
+                                  cleanActive.length >= 8 &&
+                                  cleanP.length >= 8 &&
+                                  (cleanActive.endsWith(cleanP.slice(-8)) ||
+                                    cleanP.endsWith(cleanActive.slice(-8))));
+                              const isSwitchingThis = switchingHeaderPhoneId === (p.id || p.phone);
+
+                              return (
+                                <button
+                                  key={p.id || `${p.phone}-${pIdx}`}
+                                  type="button"
+                                  disabled={isCurrent || isSwitchingThis}
+                                  onClick={() => void handleSwitchHeaderPhoneChat(p)}
+                                  className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                                    isCurrent
+                                      ? "bg-primary/10 border border-primary/30 cursor-default"
+                                      : "hover:bg-muted cursor-pointer border border-transparent"
+                                  }`}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-xs font-bold text-foreground font-mono truncate">
+                                        {formatPhoneNumber(p.phone)}
+                                      </span>
+                                      <ContactPhoneTypeBadge
+                                        type={p.type}
+                                        label={p.label}
+                                        isPrimary={p.isPrimary}
+                                        compact
+                                      />
+                                    </div>
+                                  </div>
+                                  {isCurrent ? (
+                                    <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold text-primary border border-primary/25">
+                                      Neste chat
+                                    </span>
+                                  ) : isSwitchingThis ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
+                                  ) : (
+                                    <MessageSquare className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    ) : activeChat.phoneLabel ? (
+                      <div className="ml-1">
+                        <ContactPhoneTypeBadge
+                          type={activeChat.phoneType || "commercial"}
+                          label={activeChat.phoneLabel}
+                          compact
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>

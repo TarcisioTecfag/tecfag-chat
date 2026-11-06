@@ -10,6 +10,8 @@ import { SessionManager } from "../../lib/baileys/session-manager";
 import { conversationReadCondition, requireConversationWriteAccess } from "../../lib/access-control/conversation-access";
 import { conversationReadRules } from "../../lib/access-control/conversation-policy";
 import { getDealContext, recordConversationAction, assertDealContextVersion, DealContextError, findActiveGraceDeal } from "../../lib/crm/conversation-deal-context";
+import { getContactPhonesMap } from "../../lib/crm/contact-phones";
+import { computeContactPhoneIdentity, getContactPhoneTypeLabel } from "../../lib/contact-phone-types";
 
 export const Route = createFileRoute("/api/chats")({
   server: {
@@ -412,6 +414,7 @@ export const Route = createFileRoute("/api/chats")({
           // A lista só precisa da última mensagem para o preview. O histórico
           // completo é carregado, com paginação, quando a conversa é aberta.
           const convIds = rows.map((r) => r.conversation.id);
+          const contactIds = [...new Set(rows.map((r) => r.contact.id))];
           const messageFields = {
             id: messages.id,
             conversationId: messages.conversationId,
@@ -435,7 +438,7 @@ export const Route = createFileRoute("/api/chats")({
             .where(and(eq(messages.tenantId, session.tenantId), eq(messages.conversationId, conversations.id)))
             .orderBy(desc(messages.sentAt), desc(messages.id))
             .limit(recentPerConversation).as("latest_message");
-          const [recentMessages, latestClientTimes] = await Promise.all([
+          const [recentMessages, latestClientTimes, phonesByContactId] = await Promise.all([
             db.select().from(conversations)
               .leftJoinLateral(latestMessage, sql`true`)
               .where(and(eq(conversations.tenantId, session.tenantId), inArray(conversations.id, convIds)))
@@ -453,6 +456,7 @@ export const Route = createFileRoute("/api/chats")({
                 ),
               )
               .groupBy(messages.conversationId),
+            getContactPhonesMap(session.tenantId, contactIds),
           ]);
 
           const lastClientTimeByConv = new Map<string, string>();
@@ -557,15 +561,42 @@ export const Route = createFileRoute("/api/chats")({
                 (Array.isArray(cf.linkedSiteContactIds) && cf.linkedSiteContactIds.length > 0),
             );
 
+            const contactPhonesList = phonesByContactId.get(row.contact.id) || [];
+            const matchedPhoneItem =
+              (row.conversation.contactPhoneId
+                ? contactPhonesList.find((p) => p.id === row.conversation.contactPhoneId)
+                : undefined) ||
+              (row.conversation.contactPhone
+                ? contactPhonesList.find(
+                    (p) =>
+                      computeContactPhoneIdentity(p.phone) ===
+                      computeContactPhoneIdentity(row.conversation.contactPhone),
+                  )
+                : undefined) ||
+              contactPhonesList.find((p) => p.isPrimary) ||
+              contactPhonesList[0];
+
+            const effectivePhone =
+              row.conversation.contactPhone ||
+              matchedPhoneItem?.phone ||
+              row.contact.phone ||
+              "";
+
             return {
               id: row.conversation.id,
               contactId: row.contact.id,
+              contactPhoneId: row.conversation.contactPhoneId || matchedPhoneItem?.id || null,
               whatsappConnectionId: row.conversation.whatsappConnectionId,
               name: row.contact.name,
               avatar: row.contact.avatar || "",
               initials: initials || "C",
               initialsBg: "",
-              phone: row.contact.phone || "",
+              phone: effectivePhone,
+              phoneType: matchedPhoneItem?.type || null,
+              phoneLabel: matchedPhoneItem
+                ? getContactPhoneTypeLabel(matchedPhoneItem.type, matchedPhoneItem.label)
+                : null,
+              contactPhones: contactPhonesList,
               whatsappUsername: row.contact.whatsappUsername || "",
               email: row.contact.email || "",
               cnpj: row.contact.cnpj || "",

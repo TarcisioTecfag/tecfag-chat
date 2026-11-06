@@ -6,7 +6,7 @@ import {
 } from "../types";
 import { SessionManager, resolveRealJid } from "../../baileys/session-manager";
 import { db } from "../../../db";
-import { contacts, conversations, mediaFiles } from "../../../db/schema";
+import { contacts, contactPhones, conversations, mediaFiles } from "../../../db/schema";
 import { eq, and } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
@@ -49,24 +49,50 @@ export class BaileysAdapter implements WhatsAppAdapter {
         };
       }
 
-      // 1. Obter JID resolvido do WhatsApp
+      // 1. Obter JID resolvido do WhatsApp (respeitando telefone específico da conversa quando aplicável)
       let jid: string | null = null;
       if (message.conversationId) {
         const [conv] = await db
-          .select({ contactId: conversations.contactId })
+          .select({
+            contactId: conversations.contactId,
+            contactPhoneId: conversations.contactPhoneId,
+            contactPhone: conversations.contactPhone,
+          })
           .from(conversations)
           .where(
             and(eq(conversations.id, message.conversationId), eq(conversations.tenantId, tenantId)),
           );
 
         if (conv?.contactId) {
+          let phoneRowJid: string | null = null;
+          let phoneRowNumber: string | null = conv.contactPhone || null;
+          if (conv.contactPhoneId) {
+            try {
+              const [phoneRow] = await db
+                .select({ whatsappJid: contactPhones.whatsappJid, phone: contactPhones.phone })
+                .from(contactPhones)
+                .where(and(eq(contactPhones.id, conv.contactPhoneId), eq(contactPhones.tenantId, tenantId)))
+                .limit(1);
+              if (phoneRow?.whatsappJid) phoneRowJid = phoneRow.whatsappJid;
+              if (phoneRow?.phone) phoneRowNumber = phoneRow.phone;
+            } catch {}
+          }
+
           const [contact] = await db
-            .select({ whatsappJid: contacts.whatsappJid })
+            .select({ whatsappJid: contacts.whatsappJid, phone: contacts.phone })
             .from(contacts)
             .where(and(eq(contacts.id, conv.contactId), eq(contacts.tenantId, tenantId)));
 
-          if (target.connectionId) jid = await connectionPeerJid(tenantId, target.connectionId, conv.contactId) || null;
-          if (!target.connectionId && contact?.whatsappJid) {
+          const isPrimaryOrSamePhone =
+            !phoneRowNumber ||
+            !contact?.phone ||
+            phoneRowNumber.replace(/\D/g, "") === contact.phone.replace(/\D/g, "");
+
+          if (phoneRowJid) {
+            jid = phoneRowJid;
+          } else if (target.connectionId && isPrimaryOrSamePhone) {
+            jid = (await connectionPeerJid(tenantId, target.connectionId, conv.contactId)) || null;
+          } else if (!target.connectionId && isPrimaryOrSamePhone && contact?.whatsappJid) {
             jid = contact.whatsappJid;
           }
         }

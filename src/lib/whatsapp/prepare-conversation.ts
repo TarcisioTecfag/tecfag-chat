@@ -130,7 +130,7 @@ export async function prepareWhatsappConversation(
       if ((contact.mainChannel ?? "whatsapp") !== "whatsapp")
         fail("Use o atendimento do canal original deste contato.", "INVALID_CHANNEL", 400);
     }
-    const candidates = await tx
+    const allCandidates = await tx
       .select()
       .from(conversations)
       .where(
@@ -142,6 +142,11 @@ export async function prepareWhatsappConversation(
       )
       .orderBy(desc(conversations.lastMessageTime), desc(conversations.id))
       .for("update");
+    const candidates = current.contactPhoneId
+      ? allCandidates.filter(
+          (row) => !row.contactPhoneId || row.contactPhoneId === current.contactPhoneId,
+        )
+      : allCandidates;
     if (!master && candidates.some((row) => row.queueState === "meus"))
       fail(
         "Já existe um atendimento em andamento por este número. Finalize-o antes de preparar outro.",
@@ -179,6 +184,8 @@ export async function prepareWhatsappConversation(
           id: randomUUID(),
           tenantId,
           contactId: current.contactId,
+          contactPhoneId: current.contactPhoneId ?? null,
+          contactPhone: current.contactPhone ?? null,
           whatsappConnectionId: input.connectionId,
           queueState: "fila",
           operatorId: null,

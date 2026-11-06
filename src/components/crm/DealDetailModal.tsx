@@ -61,6 +61,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { DealAddContactDrawer, formatContactRoleLabel } from "./DealAddContactDrawer";
+import { ContactPhoneTypeBadge } from "./ContactPhonesEditor";
 import { DealLinkAccountDrawer } from "./DealLinkAccountDrawer";
 import { DealStatusBadge } from "./deal-status-config";
 import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
@@ -806,14 +807,27 @@ export function DealDetailModal({
   const [linkAccountDrawerMode, setLinkAccountDrawerMode] = useState<"search" | "create" | "edit">("search");
   const [openingChatContactId, setOpeningChatContactId] = useState<string | null>(null);
 
-  const handleOpenChatForContact = async (contactId: string) => {
-    setOpeningChatContactId(contactId);
+  const handleOpenChatForContact = async (
+    contactId: string,
+    phoneTarget?: { contactPhoneId?: string | null; phone?: string | null },
+  ) => {
+    const loadingKey = phoneTarget?.contactPhoneId
+      ? `${contactId}:${phoneTarget.contactPhoneId}`
+      : phoneTarget?.phone
+        ? `${contactId}:${phoneTarget.phone}`
+        : contactId;
+    setOpeningChatContactId(loadingKey);
     try {
       const res = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ dealId: deal?.id, autoCapture: true }),
+        body: JSON.stringify({
+          dealId: deal?.id,
+          contactPhoneId: phoneTarget?.contactPhoneId || undefined,
+          phone: phoneTarget?.phone || undefined,
+          autoCapture: true,
+        }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -834,11 +848,13 @@ export function DealDetailModal({
     contactId: string,
     contactName?: string,
     contactPhone?: string,
+    contactPhoneId?: string | null,
   ) => {
     window.dispatchEvent(
       new CustomEvent("crm:open-mini-chat", {
         detail: {
           contactId,
+          contactPhoneId: contactPhoneId || undefined,
           dealId: deal?.id,
           name: contactName,
           phone: contactPhone,
@@ -3444,119 +3460,223 @@ export function DealDetailModal({
                 </div>
 
                 {deal?.contacts && deal.contacts.length > 0 ? (
-                  deal.contacts.map((c: any) => (
-                    <div key={c.id} className="rounded-sm bg-muted/40 p-2 text-xs space-y-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-bold text-foreground truncate">{c.contact?.name || "Contato"}</div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {/* Ligar via VigosPhone */}
-                          {c.contact?.phone && (
-                            <SystemTooltip content="Ligar via VigosPhone">
-                              <a
-                                href={getVigosPhoneLink(c.contact.phone)}
+                  deal.contacts.map((c: any) => {
+                    const contactPhonesList =
+                      Array.isArray(c.contact?.phones) && c.contact.phones.length > 0
+                        ? c.contact.phones
+                        : c.contact?.phone
+                          ? [
+                              {
+                                id: null,
+                                phone: c.contact.phone,
+                                type: "commercial" as const,
+                                label: null,
+                                isPrimary: true,
+                              },
+                            ]
+                          : [];
+                    const hasMultiplePhones = contactPhonesList.length > 1;
+                    const singlePhone = contactPhonesList[0] || null;
+                    return (
+                      <div key={c.id} className="rounded-sm bg-muted/40 p-2 text-xs space-y-1.5">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="font-bold text-foreground truncate">{c.contact?.name || "Contato"}</div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {!hasMultiplePhones && singlePhone?.phone && (
+                              <>
+                                {/* Ligar via VigosPhone */}
+                                <SystemTooltip content="Ligar via VigosPhone">
+                                  <a
+                                    href={getVigosPhoneLink(singlePhone.phone)}
+                                    className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
+                                  >
+                                    <PhoneCall className="h-3.5 w-3.5" />
+                                  </a>
+                                </SystemTooltip>
+
+                                {/* Abrir Chat Principal */}
+                                <SystemTooltip content="Abrir conversa no Chat">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleOpenChatForContact(c.contactId, {
+                                        contactPhoneId: singlePhone.id,
+                                        phone: singlePhone.phone,
+                                      })
+                                    }
+                                    disabled={Boolean(openingChatContactId?.startsWith(c.contactId))}
+                                    className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                                  >
+                                    {openingChatContactId?.startsWith(c.contactId) ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                                    ) : (
+                                      <MessageSquare className="h-3.5 w-3.5" />
+                                    )}
+                                  </button>
+                                </SystemTooltip>
+
+                                {/* Abrir Mini Chat */}
+                                <SystemTooltip content="Abrir no Mini Chat">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleOpenMiniChatForContact(
+                                        c.contactId,
+                                        c.contact?.name,
+                                        singlePhone.phone,
+                                        singlePhone.id,
+                                      )
+                                    }
+                                    disabled={Boolean(openingChatContactId?.startsWith(c.contactId))}
+                                    className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                                  >
+                                    <MessageCircle className="h-3.5 w-3.5" />
+                                  </button>
+                                </SystemTooltip>
+                              </>
+                            )}
+
+                            {/* Editar Contato */}
+                            <SystemTooltip content="Editar dados e números deste contato">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingContactIdForDrawer(c.contactId);
+                                  setIsAddContactDrawerOpen(true);
+                                }}
                                 className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
                               >
-                                <PhoneCall className="h-3.5 w-3.5" />
-                              </a>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
                             </SystemTooltip>
-                          )}
 
-                          {/* Abrir Chat Principal */}
-                          <SystemTooltip content="Abrir conversa no Chat">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenChatForContact(c.contactId)}
-                              disabled={openingChatContactId === c.contactId}
-                              className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
-                            >
-                              {openingChatContactId === c.contactId ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                              ) : (
-                                <MessageSquare className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                          </SystemTooltip>
-
-                          {/* Abrir Mini Chat */}
-                          <SystemTooltip content="Abrir no Mini Chat">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenMiniChatForContact(
-                                  c.contactId,
-                                  c.contact?.name,
-                                  c.contact?.phone,
-                                )
-                              }
-                              disabled={openingChatContactId === c.contactId}
-                              className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" />
-                            </button>
-                          </SystemTooltip>
-
-                          {/* Editar Contato */}
-                          <SystemTooltip content="Editar dados deste contato">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingContactIdForDrawer(c.contactId);
-                                setIsAddContactDrawerOpen(true);
-                              }}
-                              className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                          </SystemTooltip>
-
-                          {/* Remover participante */}
-                          <SystemTooltip content="Desvincular participante da negociação">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveParticipant(c.contactId)}
-                              className="text-muted-foreground hover:text-rose-500 p-0.5 rounded-sm transition-colors cursor-pointer"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </SystemTooltip>
+                            {/* Remover participante */}
+                            <SystemTooltip content="Desvincular participante da negociação">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveParticipant(c.contactId)}
+                                className="text-muted-foreground hover:text-rose-500 p-0.5 rounded-sm transition-colors cursor-pointer"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </SystemTooltip>
+                          </div>
                         </div>
-                      </div>
-                      {c.contact?.phone && (
-                        <div className="text-[11px] text-muted-foreground font-mono">
-                          {formatContactPhone(c.contact.phone)}
-                        </div>
-                      )}
-                      {c.contact?.email && (
-                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
-                          <Mail className="h-3 w-3 shrink-0" />
-                          <span className="break-all">{c.contact.email}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between pt-1">
-                        <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary uppercase">
-                          {formatContactRoleLabel(c.role)}
-                        </span>
-                        {c.isPrimary ? (
-                          <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[9px] font-bold text-foreground">
-                            Principal
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleSetPrimaryParticipant(c.contactId)}
-                            className="text-[9px] text-muted-foreground hover:text-primary hover:underline cursor-pointer"
-                          >
-                            Tornar principal
-                          </button>
+
+                        {contactPhonesList.length > 0 && (
+                          <div className="space-y-1">
+                            {contactPhonesList.map((p: any, pIdx: number) => {
+                              const phoneLoadingKey = p.id
+                                ? `${c.contactId}:${p.id}`
+                                : `${c.contactId}:${p.phone}`;
+                              const isOpeningThisPhone =
+                                openingChatContactId === phoneLoadingKey ||
+                                openingChatContactId === c.contactId;
+                              return (
+                                <div
+                                  key={p.id || `${p.phone}-${pIdx}`}
+                                  className={`flex items-center justify-between gap-1.5 ${
+                                    hasMultiplePhones
+                                      ? "rounded-md border border-border/50 bg-card/60 px-2 py-1"
+                                      : ""
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                    <span className="text-[11px] text-muted-foreground font-mono">
+                                      {formatContactPhone(p.phone)}
+                                    </span>
+                                    <ContactPhoneTypeBadge
+                                      type={p.type}
+                                      label={p.label}
+                                      isPrimary={p.isPrimary && hasMultiplePhones}
+                                      compact
+                                    />
+                                  </div>
+                                  {hasMultiplePhones && (
+                                    <div className="flex items-center gap-0.5 shrink-0">
+                                      <SystemTooltip content={`Ligar via VigosPhone (${formatContactPhone(p.phone)})`}>
+                                        <a
+                                          href={getVigosPhoneLink(p.phone)}
+                                          className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer"
+                                        >
+                                          <PhoneCall className="h-3 w-3" />
+                                        </a>
+                                      </SystemTooltip>
+                                      <SystemTooltip content={`Abrir atendimento separado no Chat (${formatContactPhone(p.phone)})`}>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleOpenChatForContact(c.contactId, {
+                                              contactPhoneId: p.id,
+                                              phone: p.phone,
+                                            })
+                                          }
+                                          disabled={isOpeningThisPhone}
+                                          className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                                        >
+                                          {isOpeningThisPhone ? (
+                                            <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                                          ) : (
+                                            <MessageSquare className="h-3 w-3" />
+                                          )}
+                                        </button>
+                                      </SystemTooltip>
+                                      <SystemTooltip content={`Abrir atendimento separado no Mini Chat (${formatContactPhone(p.phone)})`}>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleOpenMiniChatForContact(
+                                              c.contactId,
+                                              c.contact?.name,
+                                              p.phone,
+                                              p.id,
+                                            )
+                                          }
+                                          disabled={isOpeningThisPhone}
+                                          className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                                        >
+                                          <MessageCircle className="h-3 w-3" />
+                                        </button>
+                                      </SystemTooltip>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
+                        {c.contact?.email && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
+                            <Mail className="h-3 w-3 shrink-0" />
+                            <span className="break-all">{c.contact.email}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary uppercase">
+                            {formatContactRoleLabel(c.role)}
+                          </span>
+                          {c.isPrimary ? (
+                            <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[9px] font-bold text-foreground">
+                              Principal
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSetPrimaryParticipant(c.contactId)}
+                              className="text-[9px] text-muted-foreground hover:text-primary hover:underline cursor-pointer"
+                            >
+                              Tornar principal
+                            </button>
+                          )}
+                        </div>
+                        <ContactCustomFieldsCard
+                          contactId={c.contactId}
+                          dealId={deal?.id}
+                          onSaved={() => void loadDealDetail(true, true)}
+                        />
                       </div>
-                      <ContactCustomFieldsCard
-                        contactId={c.contactId}
-                        dealId={deal?.id}
-                        onSaved={() => void loadDealDetail(true, true)}
-                      />
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <p className="text-[11px] text-muted-foreground/60 italic">Nenhum contato participante vinculado.</p>
                 )}

@@ -43,6 +43,13 @@ import { maskPhone } from "@/lib/utils";
 import { PhoneCountryInput } from "@/components/ui/phone-country-input";
 import { CustomFieldsEditor } from "./CustomFieldsEditor";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import {
+  ContactPhonesEditor,
+  ContactPhoneTypeBadge,
+  createEmptyContactPhoneInput,
+  ensureEditablePhonesList,
+} from "./ContactPhonesEditor";
+import type { ContactPhoneInput, ContactPhoneItem } from "@/lib/contact-phone-types";
 
 export const CONTACT_ROLE_LABELS: Record<string, string> = {
   buyer: "Comprador",
@@ -97,6 +104,7 @@ export interface LinkedDealContactItem {
     id: string;
     name: string;
     phone?: string | null;
+    phones?: ContactPhoneItem[];
     email?: string | null;
     cpf?: string | null;
     cnpj?: string | null;
@@ -156,6 +164,9 @@ export function DealAddContactDrawer({
   const [loadingEditDetails, setLoadingEditDetails] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editPhones, setEditPhones] = useState<ContactPhoneInput[]>([
+    createEmptyContactPhoneInput("commercial", true),
+  ]);
   const [editWhatsappUsername, setEditWhatsappUsername] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editCpf, setEditCpf] = useState("");
@@ -169,6 +180,9 @@ export function DealAddContactDrawer({
   // Estado da aba de criação
   const [createName, setCreateName] = useState("");
   const [createPhone, setCreatePhone] = useState("");
+  const [createPhones, setCreatePhones] = useState<ContactPhoneInput[]>([
+    createEmptyContactPhoneInput("commercial", true),
+  ]);
   const [createEmail, setCreateEmail] = useState("");
   const [createRole, setCreateRole] = useState("buyer");
   const [createIsPrimary, setCreateIsPrimary] = useState(false);
@@ -178,6 +192,11 @@ export function DealAddContactDrawer({
   const startEditingLinkedContact = async (item: LinkedDealContactItem) => {
     setEditingContactId(item.contactId);
     setEditName(item.contact?.name || "");
+    const initialEditablePhones = ensureEditablePhonesList(
+      item.contact?.phones,
+      item.contact?.phone,
+    ).map((p) => ({ ...p, phone: p.phone ? maskPhone(p.phone) : "" }));
+    setEditPhones(initialEditablePhones);
     setEditPhone(item.contact?.phone ? maskPhone(item.contact.phone) : "");
     setEditWhatsappUsername(item.contact?.whatsappUsername || "");
     setEditEmail(item.contact?.email || "");
@@ -193,6 +212,11 @@ export function DealAddContactDrawer({
       if (res.ok) {
         const data = await res.json();
         setEditName(data.name || item.contact?.name || "");
+        const fetchedPhones = ensureEditablePhonesList(data.phones, data.phone).map((p) => ({
+          ...p,
+          phone: p.phone ? maskPhone(p.phone) : "",
+        }));
+        setEditPhones(fetchedPhones);
         setEditPhone(data.phone ? maskPhone(data.phone) : "");
         setEditWhatsappUsername(data.whatsappUsername || "");
         setEditEmail(data.email || "");
@@ -219,6 +243,7 @@ export function DealAddContactDrawer({
       setSearchIsPrimary(linkedContacts.length === 0);
       setCreateName("");
       setCreatePhone("");
+      setCreatePhones([createEmptyContactPhoneInput("commercial", true)]);
       setCreateEmail("");
       setCreateRole("buyer");
       setCreateIsPrimary(linkedContacts.length === 0);
@@ -285,13 +310,18 @@ export function DealAddContactDrawer({
 
     setSavingEdit(true);
     try {
+      const validPhones = editPhones.filter((p) => (p.phone || "").replace(/\D/g, "").length >= 8);
+      const primaryPhoneValue =
+        (validPhones.find((p) => p.isPrimary) || validPhones[0])?.phone || editPhone.trim() || null;
+
       // 1. Atualiza dados cadastrais do contato
       const patchRes = await fetch(`/api/contacts/${encodeURIComponent(editingContactId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: editName.trim(),
-          phone: editPhone.trim() || null,
+          phone: primaryPhoneValue,
+          phones: validPhones,
           whatsappUsername: editWhatsappUsername.trim() || null,
           email: editEmail.trim() || null,
           cpf: editCpf.trim() || null,
@@ -480,10 +510,17 @@ export function DealAddContactDrawer({
     }
     setCreating(true);
     try {
+      const validPhones = createPhones.filter((p) => (p.phone || "").replace(/\D/g, "").length >= 8);
+      const primaryPhoneValue =
+        (validPhones.find((p) => p.isPrimary) || validPhones[0])?.phone ||
+        createPhone.trim() ||
+        undefined;
+
       // 1. Criar ou obter contato
       const contactPayload: any = {
         name: createName.trim(),
-        phone: createPhone.trim() || undefined,
+        phone: primaryPhoneValue,
+        ...(validPhones.length > 0 ? { phones: validPhones } : {}),
         email: createEmail.trim() || undefined,
         accountId: accountId || undefined,
         customFields: Object.keys(createCustomFields).length > 0 ? createCustomFields : undefined,
@@ -630,32 +667,27 @@ export function DealAddContactDrawer({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">
-                    Telefone / WhatsApp
-                  </Label>
-                  <PhoneCountryInput
-                    size="sm"
-                    value={editPhone}
-                    onChange={(val) => setEditPhone(val)}
-                    buttonClassName="h-8 bg-card border-border"
-                    inputClassName="h-8 text-xs bg-card border-border"
-                  />
-                </div>
+              <ContactPhonesEditor
+                compact
+                phones={editPhones}
+                onChange={(next) => {
+                  setEditPhones(next);
+                  const primary = (next.find((p) => p.isPrimary) || next[0])?.phone || "";
+                  setEditPhone(primary);
+                }}
+              />
 
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-foreground">
-                    Usuário WhatsApp (@)
-                  </Label>
-                  <Input
-                    type="text"
-                    placeholder="@usuario"
-                    value={editWhatsappUsername}
-                    onChange={(e) => setEditWhatsappUsername(e.target.value)}
-                    className="h-8 text-xs rounded-sm border-border bg-card"
-                  />
-                </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-foreground">
+                  Usuário WhatsApp (@)
+                </Label>
+                <Input
+                  type="text"
+                  placeholder="@usuario"
+                  value={editWhatsappUsername}
+                  onChange={(e) => setEditWhatsappUsername(e.target.value)}
+                  className="h-8 text-xs rounded-sm border-border bg-card"
+                />
               </div>
 
               <div className="space-y-1">
@@ -870,11 +902,31 @@ export function DealAddContactDrawer({
                                   )}
                                 </div>
 
-                                {cPhone && (
-                                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-mono">
-                                    <Phone className="h-3 w-3 shrink-0 opacity-70" />
-                                    <span>{cPhone}</span>
+                                {Array.isArray(item.contact?.phones) && item.contact!.phones.length > 0 ? (
+                                  <div className="space-y-1 pt-0.5">
+                                    {item.contact!.phones.map((pItem) => (
+                                      <div
+                                        key={pItem.id || pItem.phone}
+                                        className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-mono flex-wrap"
+                                      >
+                                        <Phone className="h-3 w-3 shrink-0 opacity-70" />
+                                        <span>{maskPhone(pItem.phone)}</span>
+                                        <ContactPhoneTypeBadge
+                                          type={pItem.type}
+                                          label={pItem.label}
+                                          isPrimary={pItem.isPrimary}
+                                          size="xs"
+                                        />
+                                      </div>
+                                    ))}
                                   </div>
+                                ) : (
+                                  cPhone && (
+                                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-mono">
+                                      <Phone className="h-3 w-3 shrink-0 opacity-70" />
+                                      <span>{cPhone}</span>
+                                    </div>
+                                  )
                                 )}
                                 {cEmail && (
                                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -1113,18 +1165,15 @@ export function DealAddContactDrawer({
                 />
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-foreground">
-                  Telefone / WhatsApp
-                </Label>
-                <PhoneCountryInput
-                  size="sm"
-                  value={createPhone}
-                  onChange={(val) => setCreatePhone(val)}
-                  buttonClassName="h-8 bg-card border-border"
-                  inputClassName="h-8 text-xs bg-card border-border"
-                />
-              </div>
+              <ContactPhonesEditor
+                compact
+                phones={createPhones}
+                onChange={(next) => {
+                  setCreatePhones(next);
+                  const primary = (next.find((p) => p.isPrimary) || next[0])?.phone || "";
+                  setCreatePhone(primary);
+                }}
+              />
 
               <div className="space-y-1">
                 <Label className="text-xs font-semibold text-foreground">

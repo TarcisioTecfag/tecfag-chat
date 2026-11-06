@@ -31,6 +31,7 @@ export interface CrmDealContactDTO {
     id: string;
     name: string;
     phone: string | null;
+    phones?: import("../contact-phone-types").ContactPhoneItem[];
     email: string | null;
     avatar?: string | null;
   };
@@ -117,6 +118,7 @@ export interface CrmContactSummaryDTO {
   id: string;
   name: string;
   phone: string | null;
+  phones?: import("../contact-phone-types").ContactPhoneItem[];
   email: string | null;
   avatar?: string | null;
   accountId?: string | null;

@@ -21,6 +21,12 @@ import { RdCrmCard } from "./RdCrmCard";
 import { ConversationDealsPanel } from "@/components/crm/ConversationDealsPanel";
 import { useConversationDealContext } from "@/components/crm/ConversationDealContext";
 import { AccountPicker } from "@/components/crm/AccountPicker";
+import {
+  ContactPhonesEditor,
+  ContactPhoneTypeBadge,
+  ensureEditablePhonesList,
+} from "@/components/crm/ContactPhonesEditor";
+import type { ContactPhoneInput, ContactPhoneItem } from "@/lib/contact-phone-types";
 import type { CrmAccountDTO } from "@/lib/crm/crm-types";
 import { WhatsappLogo, InstagramLogo, MessengerLogo, SiteLogo } from "./ChatList";
 import { CustomerJourneyModal } from "./CustomerJourneyModal";
@@ -75,6 +81,7 @@ import {
   MessageSquare,
   MapPin,
   Copy,
+  Loader2,
 } from "lucide-react";
 
 
@@ -90,6 +97,8 @@ export function SharedFiles() {
     disconnectBaileys,
     setRightSidebarOpen,
     setSelectedChatId,
+    setActiveQueue,
+    refreshConversations,
   } = useChat();
 
   const { canEditClientInfo, canManageTags, canManageRdCrm, canChangeWalletOperator } = usePermissions();
@@ -406,6 +415,9 @@ export function SharedFiles() {
     phone: "",
     email: "",
   });
+  const [contactPhones, setContactPhones] = useState<ContactPhoneItem[]>([]);
+  const [editPhones, setEditPhones] = useState<ContactPhoneInput[]>([]);
+  const [openingPhoneChatId, setOpeningPhoneChatId] = useState<string | null>(null);
 
   const [cnpjDetails, setCnpjDetails] = useState<CnpjFullDetails>({});
   const [isSearchingCnpj, setIsSearchingCnpj] = useState(false);
@@ -418,6 +430,7 @@ export function SharedFiles() {
     setLinkedAccount(null);
     setSelectedAccount(null);
     setContactSiteVisitorId(null);
+    setContactPhones(Array.isArray(activeChat?.contactPhones) ? activeChat.contactPhones : []);
     setIsEditingInfo(false);
     setIsEditingNameInline(false);
     isFirstCnpjRender.current = true;
@@ -432,6 +445,9 @@ export function SharedFiles() {
           const acc: CrmAccountDTO | null = contact?.account || null;
           setLinkedAccount(acc);
           setSelectedAccount(acc);
+          if (Array.isArray(contact?.phones)) {
+            setContactPhones(contact.phones);
+          }
           const cf = contact?.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
           const svId =
             typeof cf.siteVisitorId === "string" && cf.siteVisitorId.trim()
@@ -453,6 +469,12 @@ export function SharedFiles() {
       .catch(() => {});
     return () => controller.abort();
   }, [activeChat?.contactId]);
+
+  useEffect(() => {
+    if (Array.isArray(activeChat?.contactPhones) && activeChat.contactPhones.length > 0) {
+      setContactPhones(activeChat.contactPhones);
+    }
+  }, [activeChat?.contactPhones]);
 
   const persistCnpjDetailsToLinkedAccount = React.useCallback(
     async (detailsToSave: CnpjFullDetails): Promise<CrmAccountDTO | null> => {
@@ -739,8 +761,46 @@ export function SharedFiles() {
       phone: activeChat.phone || "",
       email: activeChat.email || "",
     });
+    const basePhones =
+      contactPhones.length > 0
+        ? contactPhones
+        : Array.isArray(activeChat.contactPhones) && activeChat.contactPhones.length > 0
+          ? activeChat.contactPhones
+          : null;
+    setEditPhones(ensureEditablePhonesList(basePhones, activeChat.phone));
     setSelectedAccount(linkedAccount);
     setIsEditingInfo(true);
+  };
+
+  const handleOpenPhoneChat = async (phoneItem: ContactPhoneItem) => {
+    const contactId = activeChat.contactId;
+    if (!contactId || !phoneItem.phone) return;
+    const loadingKey = phoneItem.id || phoneItem.phone;
+    setOpeningPhoneChatId(loadingKey);
+    try {
+      const res = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/conversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          contactPhoneId: phoneItem.id || undefined,
+          phone: phoneItem.phone,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Não foi possível abrir o atendimento deste número.");
+      }
+      if (data.conversationId) {
+        await refreshConversations(data.conversationId);
+        setActiveQueue("todos");
+        setSelectedChatId(data.conversationId);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao alternar para o atendimento deste número.");
+    } finally {
+      setOpeningPhoneChatId(null);
+    }
   };
 
   const startInlineNameEdit = () => {
@@ -782,11 +842,25 @@ export function SharedFiles() {
     setSavingInfo(true);
     try {
       const normalizedName = editForm.name.trim() || activeChat.name || "";
+      const validPhones = editPhones.filter((p) => (p.phone || "").replace(/\D/g, "").length >= 8);
+      const primaryPhoneItem = validPhones.find((p) => p.isPrimary) || validPhones[0];
+      const primaryPhone = primaryPhoneItem?.phone || editForm.phone || activeChat.phone || "";
       await updateClientInfo(activeChat.id, {
         ...editForm,
         name: normalizedName,
+        phone: primaryPhone,
+        phones: validPhones.length > 0 ? validPhones : undefined,
         accountId: selectedAccount?.id || null,
       });
+      if (activeChat.contactId) {
+        const refreshedRes = await fetch(`/api/contacts/${encodeURIComponent(activeChat.contactId)}`).catch(() => null);
+        if (refreshedRes?.ok) {
+          const refreshedContact = await refreshedRes.json().catch(() => null);
+          if (Array.isArray(refreshedContact?.phones)) {
+            setContactPhones(refreshedContact.phones);
+          }
+        }
+      }
       let hydratedAccount = selectedAccount;
       if (selectedAccount?.id && selectedAccount.address === undefined) {
         const accRes = await fetch(`/api/contacts/account-options?id=${encodeURIComponent(selectedAccount.id)}`).catch(() => null);
@@ -1087,14 +1161,11 @@ export function SharedFiles() {
                     className="h-8 w-full rounded-lg bg-card px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                   />
                 </div>
-                <div className="space-y-0.5">
-                  <label className="text-[9px] font-bold text-muted-foreground">Telefone</label>
-                  <PhoneCountryInput
-                    size="sm"
-                    value={editForm.phone}
-                    onChange={(phone) => setEditForm({ ...editForm, phone })}
-                    buttonClassName="h-8 bg-card border-border"
-                    inputClassName="h-8 bg-card px-2 text-xs border-border"
+                <div className="space-y-1">
+                  <ContactPhonesEditor
+                    phones={editPhones}
+                    onChange={setEditPhones}
+                    compact
                   />
                 </div>
                 <div className="space-y-0.5">
@@ -1216,32 +1287,137 @@ export function SharedFiles() {
                   )}
                 </div>
 
-                {/* Telefone + Cópia */}
-                <div className="flex items-center justify-between gap-1.5 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-xs text-foreground font-medium truncate">
-                      {activeChat.phone ? formatPhoneNumber(activeChat.phone) : "Não informado"}
-                    </span>
-                  </div>
-                  {activeChat.phone && (
-                    <SystemTooltip content="Copiar telefone">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleCopyValue("phone", formatPhoneNumber(activeChat.phone), "Telefone")
-                        }
-                        className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
-                      >
-                        {copiedKey === "phone" ? (
-                          <Check className="h-3 w-3 text-emerald-500" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
-                        )}
-                      </button>
-                    </SystemTooltip>
-                  )}
-                </div>
+                {/* Telefones do Contato + Alternância de Chat Separado + Cópia */}
+                {(() => {
+                  const displayPhones: ContactPhoneItem[] =
+                    contactPhones.length > 0
+                      ? contactPhones
+                      : Array.isArray(activeChat.contactPhones) && activeChat.contactPhones.length > 0
+                        ? activeChat.contactPhones
+                        : activeChat.phone
+                          ? [
+                              {
+                                id: activeChat.contactPhoneId || "primary",
+                                contactId: activeChat.contactId || activeChat.id,
+                                phone: activeChat.phone,
+                                type: activeChat.phoneType || "commercial",
+                                label: activeChat.phoneLabel || null,
+                                isPrimary: true,
+                                sortOrder: 0,
+                              },
+                            ]
+                          : [];
+
+                  if (displayPhones.length === 0) {
+                    return (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-xs text-foreground font-medium truncate">
+                          Não informado
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  const cleanActivePhone = (activeChat.phone || "").replace(/\D/g, "");
+                  const hasMulti = displayPhones.length > 1;
+
+                  return (
+                    <div className="space-y-1.5">
+                      {displayPhones.map((p, idx) => {
+                        const cleanP = (p.phone || "").replace(/\D/g, "");
+                        const isThisChatPhone =
+                          (activeChat.contactPhoneId && p.id === activeChat.contactPhoneId) ||
+                          (!activeChat.contactPhoneId &&
+                            cleanActivePhone.length >= 8 &&
+                            cleanP.length >= 8 &&
+                            (cleanActivePhone.endsWith(cleanP.slice(-8)) ||
+                              cleanP.endsWith(cleanActivePhone.slice(-8))));
+                        const copyKey = `phone-${p.id || idx}`;
+                        const isOpeningThis = openingPhoneChatId === (p.id || p.phone);
+
+                        return (
+                          <div
+                            key={p.id || `${p.phone}-${idx}`}
+                            className={`flex items-center justify-between gap-1.5 min-w-0 transition-colors ${
+                              hasMulti
+                                ? isThisChatPhone
+                                  ? "rounded-xl border border-primary/30 bg-primary/5 px-2 py-1.5"
+                                  : "rounded-xl border border-border/60 bg-card/60 hover:border-border px-2 py-1.5"
+                                : ""
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
+                              <Phone
+                                className={`h-3.5 w-3.5 shrink-0 ${
+                                  hasMulti && isThisChatPhone
+                                    ? "text-primary"
+                                    : "text-muted-foreground"
+                                }`}
+                              />
+                              <span
+                                className={`text-xs font-medium truncate ${
+                                  hasMulti && isThisChatPhone
+                                    ? "text-foreground font-bold"
+                                    : "text-foreground"
+                                }`}
+                              >
+                                {formatPhoneNumber(p.phone)}
+                              </span>
+                              <ContactPhoneTypeBadge
+                                type={p.type}
+                                label={p.label}
+                                isPrimary={p.isPrimary && hasMulti}
+                                compact
+                              />
+                              {hasMulti && isThisChatPhone && (
+                                <span className="inline-flex items-center rounded-md bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold text-primary border border-primary/25">
+                                  Neste chat
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              {hasMulti && !isThisChatPhone && activeChat.contactId && (
+                                <SystemTooltip
+                                  content={`Abrir atendimento separado deste número (${formatPhoneNumber(p.phone)})`}
+                                >
+                                  <button
+                                    type="button"
+                                    disabled={isOpeningThis}
+                                    onClick={() => void handleOpenPhoneChat(p)}
+                                    className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-muted-foreground/70 hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer disabled:opacity-50"
+                                  >
+                                    {isOpeningThis ? (
+                                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                                    ) : (
+                                      <MessageSquare className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                </SystemTooltip>
+                              )}
+                              <SystemTooltip content="Copiar telefone">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleCopyValue(copyKey, formatPhoneNumber(p.phone), "Telefone")
+                                  }
+                                  className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                                >
+                                  {copiedKey === copyKey ? (
+                                    <Check className="h-3 w-3 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </button>
+                              </SystemTooltip>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
 
                 {/* E-mail + Cópia */}
                 <div className="flex items-center justify-between gap-1.5 min-w-0">

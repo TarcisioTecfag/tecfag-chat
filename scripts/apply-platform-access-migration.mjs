@@ -243,6 +243,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0056_contact_multiple_phones",
+    url: new URL(
+      "../src/db/migrations/0056_contact_multiple_phones.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

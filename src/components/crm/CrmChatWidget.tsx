@@ -1875,6 +1875,7 @@ export function CrmChatWidget() {
       const custom = event as CustomEvent<{
         conversationId?: string;
         contactId?: string;
+        contactPhoneId?: string;
         dealId?: string;
         phone?: string;
         name?: string;
@@ -1883,6 +1884,7 @@ export function CrmChatWidget() {
       const hasSpecificTarget = Boolean(
         detail.conversationId ||
         detail.contactId ||
+        detail.contactPhoneId ||
         detail.dealId ||
         detail.phone ||
         detail.name,
@@ -1903,7 +1905,21 @@ export function CrmChatWidget() {
         (detail.conversationId
           ? currentList.find((c) => c.id === detail.conversationId)
           : undefined) ||
-        (detail.contactId
+        (detail.contactPhoneId
+          ? currentList.find((c) => c.contactPhoneId === detail.contactPhoneId)
+          : undefined) ||
+        (detail.contactId && cleanPhone.length >= 8
+          ? currentList.find((c) => {
+              if (c.contactId !== detail.contactId) return false;
+              const cPhone = c.phone?.replace(/\D/g, "");
+              return Boolean(
+                cPhone &&
+                  cPhone.length >= 8 &&
+                  (cPhone.includes(cleanPhone) || cleanPhone.includes(cPhone)),
+              );
+            })
+          : undefined) ||
+        (detail.contactId && !cleanPhone && !detail.contactPhoneId
           ? currentList.find((c) => c.contactId && c.contactId === detail.contactId)
           : undefined) ||
         (cleanPhone.length >= 8
@@ -1943,7 +1959,7 @@ export function CrmChatWidget() {
         try {
           let resolvedConvId = initialConvId || null;
 
-          // 1. Se contactId foi informado (ou se ainda não temos conversa), garante/inicia conversa do contato
+          // 1. Se contactId foi informado (ou se ainda não temos conversa), garante/inicia conversa do contato (e do número específico)
           if (detail.contactId && !detail.conversationId) {
             const res = await fetch(
               `${BACKEND_URL}/api/contacts/${encodeURIComponent(detail.contactId)}/conversations`,
@@ -1953,6 +1969,8 @@ export function CrmChatWidget() {
                 credentials: "include",
                 body: JSON.stringify({
                   dealId: detail.dealId || undefined,
+                  contactPhoneId: detail.contactPhoneId || undefined,
+                  phone: detail.phone || undefined,
                   autoCapture: true,
                 }),
               },
@@ -1976,6 +1994,8 @@ export function CrmChatWidget() {
                 body: JSON.stringify({
                   ensure: true,
                   autoCapture: true,
+                  contactId: detail.contactId || undefined,
+                  contactPhoneId: detail.contactPhoneId || undefined,
                   phone: detail.phone || undefined,
                   name: detail.name || undefined,
                 }),

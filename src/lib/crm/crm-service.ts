@@ -39,6 +39,7 @@ import {
   contactChannelIdentities,
 } from "../../db/schema";
 import { getDealContext } from "./conversation-deal-context";
+import { getContactPhonesMap, type ContactPhoneItem } from "./contact-phones";
 import type {
   CrmAccount,
   CrmPipeline,
@@ -1910,6 +1911,7 @@ export class CrmService {
         id: string;
         name: string;
         phone: string | null;
+        phones?: ContactPhoneItem[];
         email: string | null;
         avatar: string | null;
       };
@@ -1941,12 +1943,20 @@ export class CrmService {
       )
       .orderBy(desc(crmDealContacts.isPrimary), asc(crmDealContacts.createdAt));
 
+    const phonesMap = await getContactPhonesMap(
+      db,
+      tenantId,
+      raw.map((r) => r.contact.id),
+      raw.map((r) => r.contact),
+    );
+
     return raw.map((r) => ({
       ...r.dealContact,
       contact: {
         id: r.contact.id,
         name: r.contact.name,
         phone: r.contact.phone,
+        phones: phonesMap.get(r.contact.id) || [],
         email: r.contact.email,
         avatar: r.contact.avatar,
       },
@@ -2165,12 +2175,20 @@ export class CrmService {
         );
       }
 
+      const phonesMap = await getContactPhonesMap(
+        tx,
+        tenantId,
+        updatedRaw.map((r) => r.contact.id),
+        updatedRaw.map((r) => r.contact),
+      );
+
       return updatedRaw.map((r) => ({
         ...r.dealContact,
         contact: {
           id: r.contact.id,
           name: r.contact.name,
           phone: r.contact.phone,
+          phones: phonesMap.get(r.contact.id) || [],
           email: r.contact.email,
           avatar: r.contact.avatar,
         },
@@ -2314,12 +2332,20 @@ export class CrmService {
         );
       }
 
+      const phonesMap = await getContactPhonesMap(
+        tx,
+        tenantId,
+        updatedRaw.map((r) => r.contact.id),
+        updatedRaw.map((r) => r.contact),
+      );
+
       return updatedRaw.map((r) => ({
         ...r.dealContact,
         contact: {
           id: r.contact.id,
           name: r.contact.name,
           phone: r.contact.phone,
+          phones: phonesMap.get(r.contact.id) || [],
           email: r.contact.email,
           avatar: r.contact.avatar,
         },
@@ -2421,12 +2447,20 @@ export class CrmService {
         );
       }
 
+      const phonesMap = await getContactPhonesMap(
+        tx,
+        tenantId,
+        updatedRaw.map((r) => r.contact.id),
+        updatedRaw.map((r) => r.contact),
+      );
+
       return updatedRaw.map((r) => ({
         ...r.dealContact,
         contact: {
           id: r.contact.id,
           name: r.contact.name,
           phone: r.contact.phone,
+          phones: phonesMap.get(r.contact.id) || [],
           email: r.contact.email,
           avatar: r.contact.avatar,
         },

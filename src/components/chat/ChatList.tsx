@@ -16,6 +16,7 @@ import { useOptionalOnboarding } from "@/hooks/useOnboarding";
 import { useOnboardingAdapter } from "@/hooks/useOnboardingAdapter";
 import { canReadConversation, conversationReadRules } from "@/lib/access-control/conversation-policy";
 import { getConversationPreviewMessage, getConversationPreviewTime } from "@/components/crm/CrmChatWidget";
+import { ContactPhoneTypeBadge } from "@/components/crm/ContactPhonesEditor";
 
 /** Converte conteúdo de mídia em label legível para o preview da lista */
 function formatLastMessage(text: string): { mediaType?: "document" | "image" | "video" | "audio" | "sticker"; label: string } {
@@ -240,8 +241,19 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
     // 3. Search Query Filter
     if (searchQuery.trim() !== "") {
       const q = searchQuery.toLowerCase();
+      const qDigits = q.replace(/\D/g, "");
       const matchName = c.name.toLowerCase().includes(q);
-      const matchPhone = c.phone?.toLowerCase().includes(q) || false;
+      const matchPhone =
+        c.phone?.toLowerCase().includes(q) ||
+        (qDigits.length >= 4 && c.phone?.replace(/\D/g, "").includes(qDigits)) ||
+        (Array.isArray(c.contactPhones) &&
+          c.contactPhones.some(
+            (p) =>
+              p.phone?.toLowerCase().includes(q) ||
+              (qDigits.length >= 4 && p.phone?.replace(/\D/g, "").includes(qDigits)) ||
+              p.label?.toLowerCase().includes(q),
+          )) ||
+        false;
       const matchUsername = c.whatsappUsername?.toLowerCase().includes(q.replace(/^@/, "")) || false;
       const matchCnpj = c.cnpj?.toLowerCase().includes(q) || false;
       const matchTags = c.tags.some((t) => t.toLowerCase().includes(q));
@@ -655,7 +667,16 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                       {/* Info Text */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1">
-                          <span className="truncate text-xs font-bold text-foreground">{c.name}</span>
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="truncate text-xs font-bold text-foreground">{c.name}</span>
+                            {((c.contactPhones && c.contactPhones.length > 1) || c.phoneLabel) && (
+                              <ContactPhoneTypeBadge
+                                type={c.phoneType || "commercial"}
+                                label={c.phoneLabel}
+                                compact
+                              />
+                            )}
+                          </div>
                           <span className="shrink-0 text-[10px] text-muted-foreground font-medium">{getConversationPreviewTime(c, lastMsg)}</span>
                         </div>
                         <div className="flex items-center justify-between mt-0.5">

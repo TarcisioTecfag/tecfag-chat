@@ -156,11 +156,15 @@ export type Conversation = {
   whatsappConnectionId?: string | null;
   id: string;
   contactId?: string;
+  contactPhoneId?: string | null;
   name: string;
   avatar: string;
   initials?: string;
   initialsBg?: string;
   phone?: string;
+  phoneType?: import("./contact-phone-types").ContactPhoneType | null;
+  phoneLabel?: string | null;
+  contactPhones?: import("./contact-phone-types").ContactPhoneItem[];
   whatsappUsername?: string;
   email?: string;
   cnpj?: string;
