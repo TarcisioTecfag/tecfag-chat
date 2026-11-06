@@ -1070,11 +1070,14 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           !/(embalag|valv|válv|spray|frasc|pote|selad|catal|catál|prec|preç|cota|cotá|orç|orc|sab|comp|prod|inform|duvid|dúvid|maquin|máquin|envas|empacot|datador|peca|peça|assist|boleto|nota|nf|rastreio|pedido|manuten|personalit|falar|atendent|vendedor|consultor)/.test(combinedText);
 
         const article = aiPersona.gender === "female" ? "a" : "o";
+        const presentationLine = industrialTriage
+          ? `Eu sou ${article} ${aiPersona.name}, assistente virtual ${companyPrep} ${aiPersona.company} 😊`
+          : `Eu sou ${article} ${aiPersona.name}, da ${aiPersona.company} 😊`;
         if (isGenericGreetingOnly) {
           // Cliente só cumprimentou — estrutura fixa de 3 balões
           aiResult.messagesToSend = [
             greeting,
-            `Eu sou ${article} ${aiPersona.name}, da ${aiPersona.company} 😊`,
+            presentationLine,
             "Como posso te ajudar?",
           ];
         } else {
@@ -1083,7 +1086,7 @@ Retorne EXCLUSIVAMENTE o JSON no formato:
           // Apenas substitui os 2 primeiros por greeting + apresentação obrigatórios.
           aiResult.messagesToSend = [
             greeting,
-            `Eu sou ${article} ${aiPersona.name}, da ${aiPersona.company} 😊`,
+            presentationLine,
             ...aiResult.messagesToSend, // todos os balões da IA vêm depois
           ];
         }
