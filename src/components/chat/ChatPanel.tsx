@@ -1465,6 +1465,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Não foi possível registrar a abertura da nota.");
       if (noteConversationRef.current !== activeChat.id) return false;
+      draftContextVersion.current = context.version;
       setMsgMode("internal");
       return true;
     } catch (error) {
@@ -1474,15 +1475,31 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   };
   useEffect(() => {
     const syncVersion = () => {
-      draftContextVersion.current = undefined;
+      draftContextVersion.current = dealContext.data?.version;
+      void dealContext.refresh().then((ctx) => {
+        if (ctx?.version !== undefined) {
+          draftContextVersion.current = ctx.version;
+        }
+      });
     };
     window.addEventListener("conversation-deal-context-changed", syncVersion);
     return () => window.removeEventListener("conversation-deal-context-changed", syncVersion);
-  }, []);
+  }, [dealContext]);
   useEffect(() => {
-    if (!text || msgMode !== "internal") draftContextVersion.current = undefined;
-    else if (draftContextVersion.current === undefined) draftContextVersion.current = dealContext.data?.version;
-  }, [text, msgMode, dealContext.data?.version]);
+    if (msgMode !== "internal") {
+      draftContextVersion.current = undefined;
+    } else if (dealContext.data?.version !== undefined) {
+      draftContextVersion.current = dealContext.data.version;
+    }
+  }, [text, msgMode, dealContext.data?.version, dealContext.data?.hasCurrentDeal, dealContext.data?.gracePeriodActive]);
+  useEffect(() => {
+    if (
+      noteScope === "general" &&
+      (dealContext.data?.hasCurrentDeal || dealContext.data?.gracePeriodActive)
+    ) {
+      setNoteScope("current");
+    }
+  }, [noteScope, dealContext.data?.hasCurrentDeal, dealContext.data?.gracePeriodActive]);
   const [showValentinaModal, setShowValentinaModal] = useState(false);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
   const [showFinishConfirmModal, setShowFinishConfirmModal] = useState(false);
@@ -2667,7 +2684,20 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
     if (!isInternal && !ensureActiveDealBeforeOutbound()) {
       return;
     }
-    if (isInternal && noteScope === "current" && ((!dealContext.data?.hasCurrentDeal && !dealContext.data?.gracePeriodActive) || draftContextVersion.current === undefined)) {
+    const hasActiveOrGraceDeal = Boolean(
+      dealContext.data?.hasCurrentDeal || dealContext.data?.gracePeriodActive,
+    );
+    const effectiveNoteScope = isInternal
+      ? hasActiveOrGraceDeal
+        ? "current"
+        : noteScope
+      : undefined;
+    const effectiveContextVersion = draftContextVersion.current ?? dealContext.data?.version;
+    if (
+      isInternal &&
+      effectiveNoteScope === "current" &&
+      (!hasActiveOrGraceDeal || effectiveContextVersion === undefined)
+    ) {
       toast.error("Selecione a negociação do atendimento ou marque a nota como geral.");
       return;
     }
@@ -2678,8 +2708,8 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       conversationId: activeChat.id,
       text: currentText,
       isInternal,
-      expectedContextVersion: isInternal ? draftContextVersion.current : undefined,
-      noteScope: isInternal ? noteScope : undefined,
+      expectedContextVersion: isInternal ? effectiveContextVersion : undefined,
+      noteScope: effectiveNoteScope,
       attachments: currentAttachments,
       quoted,
       audioBlob: currentAudioBlob,
@@ -4376,7 +4406,16 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
               {/* ── 2. Seletor de Categorias / Modos (Enviar Mensagem vs Fagner/Valentina vs Nota vs Catálogo vs Templates Meta) ── */}
               {activeChat.id !== "valentina" && (
-                <div className={(!dealContext.data?.hasCurrentDeal && !dealContext.data?.gracePeriodActive && dealContext.data) || msgMode === "internal" || trainingStepId === "chat.deal-context" ? "mb-2" : ""}>
+                <div
+                  className={
+                    (!dealContext.data?.hasCurrentDeal &&
+                      !dealContext.data?.gracePeriodActive &&
+                      dealContext.data) ||
+                    trainingStepId === "chat.deal-context"
+                      ? "mb-2"
+                      : ""
+                  }
+                >
                   <ConversationDealContext
                     conversationId={activeChat.id}
                     hideWhenSelected={trainingStepId !== "chat.deal-context"}
@@ -4384,16 +4423,21 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                       draftContextVersion.current = version;
                     }}
                   />
-                  {msgMode === "internal" && (
-                    <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={noteScope === "general"}
-                        onChange={(event) => setNoteScope(event.target.checked ? "general" : "current")}
-                      />
-                      Permitir salvar sem card atual (vínculo pendente)
-                    </label>
-                  )}
+                  {msgMode === "internal" &&
+                    dealContext.data &&
+                    !dealContext.data.hasCurrentDeal &&
+                    !dealContext.data.gracePeriodActive && (
+                      <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={noteScope === "general"}
+                          onChange={(event) =>
+                            setNoteScope(event.target.checked ? "general" : "current")
+                          }
+                        />
+                        Permitir salvar sem card atual (vínculo pendente)
+                      </label>
+                    )}
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-3 pl-1 mb-2 text-[11px] font-bold select-none">

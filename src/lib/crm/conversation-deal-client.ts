@@ -35,6 +35,7 @@ const cache = new Map<string, ConversationDealContext>();
 const inFlightContext = new Map<string, Promise<ConversationDealContext>>();
 const requirementCache = new Map<string, ConversationDealRequirementState>();
 const inFlightRequirement = new Map<string, Promise<ConversationDealRequirementState>>();
+const mutationEpoch = new Map<string, number>();
 
 const key = (tenantId: string, operatorId: string, conversationId: string) =>
   JSON.stringify([tenantId, operatorId, conversationId]);
@@ -53,14 +54,41 @@ export const cachedDealRequirement = (conversationId?: string | null) => {
   return requirementCache.get(conversationId);
 };
 
-export function markConversationDealSatisfied(conversationId?: string | null) {
+export function markConversationDealSatisfied(
+  conversationId?: string | null,
+  selectedDeal?: { id: string; title: string; version?: number } | null,
+) {
   if (!conversationId) return;
+  mutationEpoch.set(conversationId, (mutationEpoch.get(conversationId) || 0) + 1);
+  inFlightRequirement.delete(conversationId);
+  const keySuffix = `,${JSON.stringify(conversationId)}]`;
+  for (const k of inFlightContext.keys()) {
+    if (k.endsWith(keySuffix)) {
+      inFlightContext.delete(k);
+    }
+  }
   requirementCache.set(conversationId, {
     id: conversationId,
     pending: false,
     currentRequired: false,
     error: "",
   });
+  if (selectedDeal?.id) {
+    for (const [k, existing] of cache.entries()) {
+      if (k.endsWith(keySuffix)) {
+        cache.set(k, {
+          ...existing,
+          version:
+            typeof selectedDeal.version === "number" && selectedDeal.version > existing.version
+              ? selectedDeal.version
+              : existing.version,
+          currentDeal: { id: selectedDeal.id, title: selectedDeal.title },
+          hasCurrentDeal: true,
+          selectionRequired: false,
+        });
+      }
+    }
+  }
 }
 
 export async function fetchDealContext(
@@ -72,6 +100,7 @@ export async function fetchDealContext(
   const existingFlight = inFlightContext.get(k);
   if (existingFlight) return existingFlight;
 
+  const startEpoch = mutationEpoch.get(conversationId) || 0;
   const promise = (async () => {
     try {
       const res = await fetch(`/api/chats/${encodeURIComponent(conversationId)}/deal-context`, {
@@ -82,16 +111,29 @@ export async function fetchDealContext(
       if (!res.ok)
         throw new Error(data.error || "Não foi possível carregar a negociação do atendimento.");
       const previous = cachedDealContext(tenantId, operatorId, conversationId);
+      const currentEpoch = mutationEpoch.get(conversationId) || 0;
       const resolved = (
-        previous && previous.version > data.version ? previous : data
+        previous &&
+        (previous.version > data.version ||
+          (currentEpoch !== startEpoch && previous.hasCurrentDeal && !data.hasCurrentDeal))
+          ? previous
+          : data
       ) as ConversationDealContext;
       cache.set(k, resolved);
       if (resolved.hasCurrentDeal || resolved.gracePeriodActive) {
-        markConversationDealSatisfied(conversationId);
+        requirementCache.set(conversationId, {
+          id: conversationId,
+          pending: false,
+          currentRequired: false,
+          gracePeriodActive: resolved.gracePeriodActive,
+          error: "",
+        });
       }
       return resolved;
     } finally {
-      inFlightContext.delete(k);
+      if (inFlightContext.get(k) === promise) {
+        inFlightContext.delete(k);
+      }
     }
   })();
 
@@ -105,6 +147,7 @@ export async function fetchDealRequirement(
   const existingFlight = inFlightRequirement.get(conversationId);
   if (existingFlight) return existingFlight;
 
+  const startEpoch = mutationEpoch.get(conversationId) || 0;
   const promise = (async () => {
     try {
       const res = await fetch(
@@ -116,6 +159,11 @@ export async function fetchDealRequirement(
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Não foi possível verificar a negociação.");
+      const currentEpoch = mutationEpoch.get(conversationId) || 0;
+      const existingReq = requirementCache.get(conversationId);
+      if (currentEpoch !== startEpoch && existingReq && !existingReq.pending) {
+        return existingReq;
+      }
       const inGrace = data.gracePeriodActive === true;
       const nextState: ConversationDealRequirementState = {
         id: conversationId,
@@ -127,7 +175,9 @@ export async function fetchDealRequirement(
       requirementCache.set(conversationId, nextState);
       return nextState;
     } finally {
-      inFlightRequirement.delete(conversationId);
+      if (inFlightRequirement.get(conversationId) === promise) {
+        inFlightRequirement.delete(conversationId);
+      }
     }
   })();
 

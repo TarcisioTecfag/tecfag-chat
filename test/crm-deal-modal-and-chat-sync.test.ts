@@ -145,5 +145,22 @@ describe("CRM Deal Modal, Contact/Account Drawers & Chat Sync", () => {
     expect(dealModalSource).not.toContain('onClick={() => setActiveTab("chat")}');
     expect(dealRouteSource).toContain("onOpenDeal={(targetDealId) => {");
   });
+
+  it("hides the pending deal link checkbox in ChatPanel when a current deal or post-close grace period is already active", () => {
+    const chatPanelSource = fs.readFileSync(
+      path.join(rootDir, "src/components/chat/ChatPanel.tsx"),
+      "utf-8"
+    );
+    const dealsPanelSource = fs.readFileSync(
+      path.join(rootDir, "src/components/crm/ConversationDealsPanel.tsx"),
+      "utf-8"
+    );
+
+    expect(chatPanelSource).toContain("!dealContext.data.hasCurrentDeal &&");
+    expect(chatPanelSource).toContain("!dealContext.data.gracePeriodActive &&");
+    expect(chatPanelSource).toContain("Permitir salvar sem card atual (vínculo pendente)");
+    expect(chatPanelSource).toContain("const effectiveContextVersion = draftContextVersion.current ?? dealContext.data?.version;");
+    expect(dealsPanelSource).toContain("if (!freshCtx.hasCurrentDeal && freshCtx.editable && isOpenDeal)");
+  });
 });
 

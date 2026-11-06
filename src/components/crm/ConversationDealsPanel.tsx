@@ -503,10 +503,42 @@ export function ConversationDealsPanel({
         body: JSON.stringify({ conversationId, isPrimary: deals.length === 0 }),
       });
       if (!res.ok) throw new Error("Falha ao vincular conversa.");
+
+      if (tenant && currentOperatorId) {
+        try {
+          const freshCtx = await fetchDealContext(tenant, currentOperatorId, conversationId);
+          const isOpenDeal = !dealItem.status || dealItem.status === "open";
+          if (!freshCtx.hasCurrentDeal && freshCtx.editable && isOpenDeal) {
+            const patchRes = await fetch(
+              `/api/chats/${encodeURIComponent(conversationId)}/deal-context`,
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  dealId: dealItem.id,
+                  expectedVersion: freshCtx.version,
+                }),
+              },
+            );
+            const patchData = await patchRes.json().catch(() => ({}));
+            if (patchRes.ok) {
+              markConversationDealSatisfied(conversationId, {
+                id: dealItem.id,
+                title: dealItem.title || "Negociação vinculada",
+                version: patchData?.version,
+              });
+            }
+          } else if (freshCtx.hasCurrentDeal || freshCtx.gracePeriodActive) {
+            markConversationDealSatisfied(conversationId);
+          }
+        } catch {}
+      }
+
       toast.success("Negociação vinculada com sucesso!");
       setIsLinkingOpen(false);
       setSearchDealsQuery("");
-      fetchLinkedDeals(true);
+      await Promise.all([fetchLinkedDeals(true), dealContext.refresh()]);
+      window.dispatchEvent(new Event("conversation-deal-context-changed"));
     } catch (e: any) {
       toast.error(e.message || "Erro ao vincular.");
     }
@@ -589,6 +621,7 @@ export function ConversationDealsPanel({
         }
       }
 
+      let resultVersion: number | undefined;
       if (tenant && currentOperatorId) {
         const freshCtx = await fetchDealContext(tenant, currentOperatorId, conversationId);
         if (freshCtx.editable) {
@@ -607,12 +640,17 @@ export function ConversationDealsPanel({
           if (!res.ok) {
             throw new Error(result.error || "Falha ao selecionar negociação atual.");
           }
+          resultVersion = result?.version;
         }
       }
 
-      markConversationDealSatisfied(conversationId);
-      window.dispatchEvent(new Event("conversation-deal-context-changed"));
+      markConversationDealSatisfied(conversationId, {
+        id: deal.id,
+        title: deal.title || "Negociação selecionada",
+        version: resultVersion,
+      });
       await Promise.all([fetchLinkedDeals(true, true), dealContext.refresh()]);
+      window.dispatchEvent(new Event("conversation-deal-context-changed"));
       window.dispatchEvent(new Event("crm-deals-changed"));
       toast.success("As próximas ações serão registradas na negociação selecionada.");
     } catch (e: any) {
@@ -1393,9 +1431,39 @@ export function ConversationDealsPanel({
               });
               const data = await res.json().catch(() => ({}));
               if (!res.ok) throw new Error(data.error || "Falha ao criar e vincular negociação.");
+              const createdDealId = data?.deal?.id || data?.id;
+              if (createdDealId && tenant && currentOperatorId) {
+                try {
+                  const freshCtx = await fetchDealContext(tenant, currentOperatorId, conversationId);
+                  if (!freshCtx.hasCurrentDeal && freshCtx.editable) {
+                    const patchRes = await fetch(
+                      `/api/chats/${encodeURIComponent(conversationId)}/deal-context`,
+                      {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          dealId: createdDealId,
+                          expectedVersion: freshCtx.version,
+                        }),
+                      },
+                    );
+                    const patchData = await patchRes.json().catch(() => ({}));
+                    if (patchRes.ok) {
+                      markConversationDealSatisfied(conversationId, {
+                        id: createdDealId,
+                        title: confirmedSelection.newDeal.title || "Nova negociação",
+                        version: patchData?.version,
+                      });
+                    }
+                  } else if (freshCtx.hasCurrentDeal || freshCtx.gracePeriodActive) {
+                    markConversationDealSatisfied(conversationId);
+                  }
+                } catch {}
+              }
               toast.success("Nova negociação criada e vinculada com sucesso!");
               setIsLinkingOpen(false);
-              fetchLinkedDeals(true);
+              await Promise.all([fetchLinkedDeals(true), dealContext.refresh()]);
+              window.dispatchEvent(new Event("conversation-deal-context-changed"));
             } catch (e: any) {
               toast.error(e.message || "Erro ao criar negociação.");
             }
@@ -1410,15 +1478,26 @@ export function ConversationDealsPanel({
         offerUseAsCurrent
         onSuccess={async (newDeal, createAnother, useAsCurrent) => {
           await fetchLinkedDeals(true);
-          if (useAsCurrent) {
+          if (useAsCurrent || !dealContext.data?.hasCurrentDeal) {
             try {
               const context = await fetchDealContext(tenant!, currentOperatorId!, conversationId);
-              const res = await fetch(`/api/chats/${encodeURIComponent(conversationId)}/deal-context`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dealId: newDeal.id, expectedVersion: context.version }) });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.error || "Não foi possível selecionar o card criado.");
-              markConversationDealSatisfied(conversationId);
-            } catch (error) { toast.error(`Card criado. ${error instanceof Error ? error.message : "Selecione a negociação atual no atendimento."}`); }
+              if (useAsCurrent || (!context.hasCurrentDeal && context.editable)) {
+                const res = await fetch(`/api/chats/${encodeURIComponent(conversationId)}/deal-context`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dealId: newDeal.id, expectedVersion: context.version }) });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Não foi possível selecionar o card criado.");
+                markConversationDealSatisfied(conversationId, {
+                  id: newDeal.id,
+                  title: newDeal.title || "Nova negociação",
+                  version: data?.version,
+                });
+              }
+            } catch (error) {
+              if (useAsCurrent) {
+                toast.error(`Card criado. ${error instanceof Error ? error.message : "Selecione a negociação atual no atendimento."}`);
+              }
+            }
           }
+          await dealContext.refresh();
           window.dispatchEvent(new Event("conversation-deal-context-changed"));
           if (!createAnother) {
             navigate({

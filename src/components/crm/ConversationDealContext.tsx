@@ -140,10 +140,14 @@ export function ConversationDealContext({
       );
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Falha ao selecionar negociação.");
-      markConversationDealSatisfied(conversationId);
+      const picked = data.deals.find((d) => d.id === dealId);
+      markConversationDealSatisfied(
+        conversationId,
+        picked ? { id: picked.id, title: picked.title, version: result.version } : undefined,
+      );
       onSelected?.(result.version);
-      window.dispatchEvent(new Event("conversation-deal-context-changed"));
       await refresh();
+      onSelected?.(result.version);
       window.dispatchEvent(new Event("conversation-deal-context-changed"));
       toast.success("As próximas ações serão registradas na negociação selecionada.");
     } catch (err) {
