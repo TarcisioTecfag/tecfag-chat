@@ -423,6 +423,30 @@ if (!databaseUrl) {
     } else {
       console.log(`[platform migration] ${evelynBeatrizHomologationName} já aplicada anteriormente.`);
     }
+
+    // 6. Pareamento (Match) de E-mail nos Contatos e Fonte/Campanha nas Negociações do tenant Tecfag (06/11/2026)
+    const tecfagSdrBackfillName = "backfill_tecfag_sdr_emails_sources_campaigns_2026_11_06_v1";
+    const [appliedTecfagSdrBackfill] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagSdrBackfillName}
+    `;
+    if (!appliedTecfagSdrBackfill) {
+      console.log(`[platform migration] Iniciando execução única de ${tecfagSdrBackfillName}...`);
+      const { runTecfagSdrEmailsSourcesCampaignsBackfill } = await import(
+        "./backfill-tecfag-sdr-emails-sources-campaigns.mjs"
+      );
+      const summary = await runTecfagSdrEmailsSourcesCampaignsBackfill(sql);
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${tecfagSdrBackfillName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(
+        `[platform migration] ${tecfagSdrBackfillName} concluída com sucesso:`,
+        summary,
+      );
+    } else {
+      console.log(`[platform migration] ${tecfagSdrBackfillName} já aplicada anteriormente.`);
+    }
   } catch (error) {
     console.error(
       "[platform migration] Falha crítica ao aplicar migrações estruturais DDL:",

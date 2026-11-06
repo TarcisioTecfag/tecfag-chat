@@ -7,6 +7,8 @@ import { applyTecfagCrmSeed } from "../../../../../scripts/apply-tecfag-crm-seed
 import { cleanupSyntheticOperators } from "../../../../../scripts/cleanup-synthetic-operators.mjs";
 // @ts-ignore
 import { reassignMarceloNardelliDeals } from "../../../../../scripts/reassign-marcelo-nardelli-deals.mjs";
+// @ts-ignore
+import { runTecfagSdrEmailsSourcesCampaignsBackfill } from "../../../../../scripts/backfill-tecfag-sdr-emails-sources-campaigns.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -115,6 +117,19 @@ export const Route = createFileRoute("/api/crm/import/sync-status")({
                 success: true,
                 action: "reassign-marcelo",
                 result: marceloResult,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          if (action === "backfill-sdr-2026-11-06") {
+            console.log("[Sync Status API] Disparando backfill de e-mails nos contatos e fontes/campanhas nas negociações...");
+            const backfillResult = await runTecfagSdrEmailsSourcesCampaignsBackfill(client);
+            return new Response(
+              JSON.stringify({
+                success: true,
+                action: "backfill-sdr-2026-11-06",
+                result: backfillResult,
               }),
               { headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
