@@ -1,16 +1,38 @@
 /** A null ID is the existing corporate connection; never substitute another connection. */
 export const CORPORATE_CONNECTION = "corporate";
 
-/** Messages from a linked device do not claim an attendance on behalf of its owner. */
+/**
+ * Resolve attendance queue state and assigned operator for a linked personal connection.
+ * When `ownerOperatorId` is provided (from `whatsappConnections.ownerOperatorId`), active
+ * conversations on that linked phone are automatically assigned to the phone's owner (`"meus"`).
+ */
 export function personalAttendanceState(
   previous: { queueState: string; operatorId: string | null } | undefined,
-  event: { historical: boolean; fromMe: boolean },
+  event: { historical: boolean; fromMe: boolean; ownerOperatorId?: string | null },
 ) {
   const keepClosed = previous?.queueState === "finalizados" && (event.historical || event.fromMe);
   const keepCapture = previous?.queueState === "meus" && !!previous.operatorId;
+  if (keepCapture) {
+    return {
+      queueState: "meus",
+      operatorId: previous.operatorId,
+    };
+  }
+  if (keepClosed) {
+    return {
+      queueState: "finalizados",
+      operatorId: previous?.operatorId ?? event.ownerOperatorId ?? null,
+    };
+  }
+  if (event.ownerOperatorId) {
+    return {
+      queueState: "meus",
+      operatorId: event.ownerOperatorId,
+    };
+  }
   return {
-    queueState: keepCapture ? "meus" : keepClosed ? "finalizados" : "fila",
-    operatorId: keepCapture || keepClosed ? (previous?.operatorId ?? null) : null,
+    queueState: "fila",
+    operatorId: null,
   };
 }
 

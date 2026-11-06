@@ -24,6 +24,7 @@ import { db } from "../../db";
 import {
   channelConfigs,
   whatsappConnections,
+  operators,
   contacts,
   conversations,
   messages,
@@ -78,12 +79,145 @@ function phoneIdentityVariants(phone: string): string[] {
   return buildPhoneSearchTerms(phone);
 }
 
+const CALL_MISSED_STUB_TYPES = new Set<unknown>([
+  40,
+  41,
+  45,
+  46,
+  "CALL_MISSED_VOICE",
+  "CALL_MISSED_VIDEO",
+  "CALL_MISSED_GROUP_VOICE",
+  "CALL_MISSED_GROUP_VIDEO",
+]);
+
+export function formatWhatsappCallDuration(durationSecs: number): string {
+  const total = Math.max(0, Math.round(Number(durationSecs) || 0));
+  if (total <= 0) return "0s";
+  const hours = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours > 0) return `${hours}h ${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
+  if (mins > 0) return `${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
+  return `${secs}s`;
+}
+
+export function extractWhatsappCallDetails(
+  rawMsg: any,
+  isFromMe: boolean,
+): {
+  text: string;
+  isVideo: boolean;
+  outcome: "connected" | "missed" | "rejected" | "ongoing" | "accepted_elsewhere";
+  durationSecs: number;
+} | null {
+  const callLog = rawMsg?.message?.callLogMesssage || rawMsg?.message?.callLogMessage;
+  const stubType = rawMsg?.messageStubType;
+  if (!callLog && !CALL_MISSED_STUB_TYPES.has(stubType)) return null;
+
+  const isVideo = Boolean(
+    callLog?.isVideo ||
+      stubType === 41 ||
+      stubType === 46 ||
+      stubType === "CALL_MISSED_VIDEO" ||
+      stubType === "CALL_MISSED_GROUP_VIDEO",
+  );
+  const durationSecs = Math.max(0, Math.round(Number(callLog?.durationSecs ?? 0) || 0));
+  const rawOutcome = callLog?.callOutcome;
+
+  let outcome: "connected" | "missed" | "rejected" | "ongoing" | "accepted_elsewhere" = "missed";
+  if (rawOutcome === 0 || rawOutcome === "CONNECTED" || durationSecs > 0) {
+    outcome = "connected";
+  } else if (rawOutcome === 3 || rawOutcome === "REJECTED") {
+    outcome = "rejected";
+  } else if (rawOutcome === 4 || rawOutcome === "ACCEPTED_ELSEWHERE") {
+    outcome = "accepted_elsewhere";
+  } else if (rawOutcome === 5 || rawOutcome === "ONGOING") {
+    outcome = "ongoing";
+  }
+
+  const kindLabel = isVideo ? "Chamada de vídeo" : "Ligação de voz";
+  const icon =
+    outcome === "connected" || outcome === "accepted_elsewhere" || outcome === "ongoing"
+      ? isVideo
+        ? "📹"
+        : "📞"
+      : "📵";
+
+  let text: string;
+  if (outcome === "connected") {
+    const dirLabel = isFromMe ? "realizada" : "recebida";
+    const durSuffix = durationSecs > 0 ? ` (${formatWhatsappCallDuration(durationSecs)})` : "";
+    text = `${icon} ${kindLabel} ${dirLabel} — atendida${durSuffix}`;
+  } else if (outcome === "rejected") {
+    text = `${icon} ${kindLabel} ${isFromMe ? "recusada pelo destinatário" : "recusada"}`;
+  } else if (outcome === "accepted_elsewhere") {
+    text = `${icon} ${kindLabel} atendida em outro dispositivo`;
+  } else if (outcome === "ongoing") {
+    text = `${icon} ${kindLabel} ${isFromMe ? "realizada" : "recebida"}`;
+  } else {
+    text = isFromMe
+      ? `${icon} ${kindLabel} realizada — sem resposta`
+      : `${icon} ${kindLabel} perdida (não atendida)`;
+  }
+
+  return { text, isVideo, outcome, durationSecs };
+}
+
+export function normalizeInboundCallMessage(msg: any): any | null {
+  if (!msg?.key?.id || !msg?.key?.remoteJid) return null;
+  const hasCallLog = Boolean(msg.message?.callLogMesssage || msg.message?.callLogMessage);
+  const isStubCall = CALL_MISSED_STUB_TYPES.has(msg.messageStubType);
+  if (!hasCallLog && !isStubCall) {
+    return msg.message ? msg : null;
+  }
+  const normalizedId = String(msg.key.id).startsWith("call-")
+    ? String(msg.key.id)
+    : `call-${msg.key.id}`;
+  const isVideo = Boolean(
+    msg.message?.callLogMesssage?.isVideo ||
+      msg.message?.callLogMessage?.isVideo ||
+      msg.messageStubType === 41 ||
+      msg.messageStubType === 46 ||
+      msg.messageStubType === "CALL_MISSED_VIDEO" ||
+      msg.messageStubType === "CALL_MISSED_GROUP_VIDEO",
+  );
+  return {
+    ...msg,
+    key: {
+      ...msg.key,
+      id: normalizedId,
+    },
+    message:
+      msg.message?.callLogMesssage || msg.message?.callLogMessage
+        ? msg.message
+        : {
+            callLogMesssage: {
+              isVideo,
+              callOutcome: 1, // MISSED
+              durationSecs: 0,
+            },
+          },
+  };
+}
+
 export class SessionManager {
   private static instance: SessionManager;
   private sessions = new Map<string, WASocket>();
   private sessionStatuses = new Map<string, SessionStatus>();
   private sessionQrs = new Map<string, string>();
   private listeners = new Map<string, Set<SessionListener>>();
+  private activeCalls = new Map<
+    string,
+    {
+      chatId: string;
+      from: string;
+      callerPn?: string;
+      isVideo: boolean;
+      fromMe: boolean;
+      offeredAt: number;
+      acceptedAt?: number;
+    }
+  >();
   // Cache de mensagens para permitir retransmissão (obrigatório para evitar timeouts no sendMessage)
   private msgRetryCounterCaches = new Map<string, NodeCache>();
   // Mutex por tenant: evita duas inicializações simultâneas de sessão
@@ -683,12 +817,13 @@ export class SessionManager {
       }
     });
 
-    // Tratar eventos de mensagens recebidas
+    // Tratar eventos de mensagens recebidas (incluindo logs de chamadas de voz/vídeo)
     sock.ev.on("messages.upsert", async (event: any) => {
       if (this.sessions.get(tenantId) !== sock) return;
       for (const msg of event.messages) {
-        if (msg.message)
-          await this.captureInbound(tenantId, msg, event.type !== "notify").catch(() =>
+        const normalized = normalizeInboundCallMessage(msg);
+        if (normalized)
+          await this.captureInbound(tenantId, normalized, event.type !== "notify").catch(() =>
             console.error("[Baileys] Evento não processado; recuperação pendente."),
           );
       }
@@ -696,10 +831,91 @@ export class SessionManager {
     sock.ev.on("messaging-history.set", async (event: any) => {
       if (this.sessions.get(tenantId) !== sock) return;
       for (const msg of event.messages || []) {
-        if (msg.message)
-          await this.captureInbound(tenantId, msg, true).catch(() =>
+        const normalized = normalizeInboundCallMessage(msg);
+        if (normalized)
+          await this.captureInbound(tenantId, normalized, true).catch(() =>
             console.error("[Baileys] Falha ao importar histórico; evento preservado."),
           );
+      }
+    });
+
+    // Tratar eventos de chamadas (Voz e Vídeo) em tempo real do WhatsApp / Baileys
+    sock.ev.on("call", async (calls: any[]) => {
+      if (this.sessions.get(tenantId) !== sock || !Array.isArray(calls)) return;
+      for (const call of calls) {
+        try {
+          if (!call?.id || !call?.chatId || call.isGroup || shouldIgnoreJid(call.chatId)) continue;
+          const callScopeKey = `${connectionScope(tenantId, this.connectionId)}:${call.id}`;
+          const existing = this.activeCalls.get(callScopeKey);
+          const ownPhonePrefix = sock.user?.id?.split(":")[0]?.split("@")[0] || "";
+          const ownLidPrefix = (sock.user as any)?.lid?.split(":")[0]?.split("@")[0] || "";
+          const callerPrefix = String(call.from || "").split(":")[0].split("@")[0];
+          const inferredFromMe = Boolean(
+            (ownPhonePrefix && callerPrefix === ownPhonePrefix) ||
+              (ownLidPrefix && callerPrefix === ownLidPrefix) ||
+              (call.from && call.chatId && call.from !== call.chatId),
+          );
+          const state = {
+            chatId: call.chatId,
+            from: call.from || existing?.from || call.chatId,
+            callerPn: call.callerPn || existing?.callerPn,
+            isVideo: Boolean(call.isVideo ?? existing?.isVideo),
+            fromMe: existing ? existing.fromMe : inferredFromMe,
+            offeredAt:
+              existing?.offeredAt ||
+              (call.date instanceof Date ? call.date.getTime() : Date.now()),
+            acceptedAt: existing?.acceptedAt,
+          };
+
+          if (call.status === "offer" || call.status === "ringing" || call.status === "preaccept") {
+            this.activeCalls.set(callScopeKey, state);
+            continue;
+          }
+
+          if (call.status === "accept") {
+            state.acceptedAt = state.acceptedAt || Date.now();
+            this.activeCalls.set(callScopeKey, state);
+            continue;
+          }
+
+          if (call.status === "terminate" || call.status === "reject" || call.status === "timeout") {
+            this.activeCalls.delete(callScopeKey);
+            const wasConnected = Boolean(state.acceptedAt);
+            const durationSecs = state.acceptedAt
+              ? Math.max(1, Math.round((Date.now() - state.acceptedAt) / 1000))
+              : 0;
+            const callOutcome = wasConnected
+              ? 0 // CONNECTED
+              : call.status === "reject"
+                ? 3 // REJECTED
+                : 1; // MISSED
+
+            const syntheticCallMsg = {
+              key: {
+                id: String(call.id).startsWith("call-") ? String(call.id) : `call-${call.id}`,
+                remoteJid: state.chatId,
+                remoteJidAlt: state.callerPn,
+                fromMe: state.fromMe,
+              },
+              messageTimestamp: Math.floor(
+                (call.date instanceof Date ? call.date.getTime() : Date.now()) / 1000,
+              ),
+              message: {
+                callLogMesssage: {
+                  isVideo: state.isVideo,
+                  callOutcome,
+                  durationSecs,
+                },
+              },
+            };
+
+            await this.captureInbound(tenantId, syntheticCallMsg, Boolean(call.offline)).catch(() =>
+              console.error("[Baileys/Call] Falha ao registrar evento de ligação do WhatsApp."),
+            );
+          }
+        } catch (callErr) {
+          console.error("[Baileys/Call] Erro ao processar evento de chamada:", callErr);
+        }
       }
     });
 
@@ -1045,9 +1261,12 @@ export class SessionManager {
                     rawMsg.message?.viewOnceMessageV2?.message?.imageMessage ||
                     rawMsg.message?.viewOnceMessageV2?.message?.videoMessage;
 
-    // Obter texto representativo da mensagem (incluindo tratamento de mídias como áudio, imagem e vídeo)
+    // Obter texto representativo da mensagem (incluindo tratamento de mídias e chamadas de voz/vídeo)
+    const callDetails = extractWhatsappCallDetails(rawMsg, !!rawMsg.key?.fromMe);
     let text = "[Mídia/Outro]";
-    if (rawMsg.message) {
+    if (callDetails) {
+      text = callDetails.text;
+    } else if (rawMsg.message) {
       if (rawMsg.message.conversation) {
         text = rawMsg.message.conversation;
       } else if (rawMsg.message.extendedTextMessage?.text) {
@@ -1543,10 +1762,41 @@ export class SessionManager {
         }
       }
 
+      let connectionOwnerId: string | null = null;
+      let connectionOwnerName: string | null = null;
       if (this.connectionId) {
-        // A paired phone does not capture an attendance. Keep active captures, but
-        // new/reopened messages wait for an explicit capture in the panel.
-        const personalState = personalAttendanceState(conversation, { historical: !!rawMsg.__historical, fromMe: isFromMe });
+        try {
+          const [connRow] = await db
+            .select({
+              ownerOperatorId: whatsappConnections.ownerOperatorId,
+              ownerName: operators.name,
+            })
+            .from(whatsappConnections)
+            .leftJoin(
+              operators,
+              and(
+                eq(operators.id, whatsappConnections.ownerOperatorId),
+                eq(operators.tenantId, whatsappConnections.tenantId),
+              ),
+            )
+            .where(
+              and(
+                eq(whatsappConnections.tenantId, tenantId),
+                eq(whatsappConnections.id, this.connectionId),
+              ),
+            )
+            .limit(1);
+          connectionOwnerId = connRow?.ownerOperatorId || null;
+          connectionOwnerName = connRow?.ownerName || null;
+        } catch (ownerErr) {
+          console.warn("[Baileys] Não foi possível carregar titular da conexão:", ownerErr);
+        }
+
+        const personalState = personalAttendanceState(conversation, {
+          historical: !!rawMsg.__historical,
+          fromMe: isFromMe,
+          ownerOperatorId: connectionOwnerId,
+        });
         targetQueue = personalState.queueState;
         targetOperatorId = personalState.operatorId;
       }
@@ -1602,7 +1852,11 @@ export class SessionManager {
         if (quoted) { quotedMessageId = quoted.id; quotedMessageSender = quoted.senderName; quotedMessageContent = quoted.content; }
       }
       const finalSenderType = isFromMe ? "agent" : "client";
-      const finalSenderName = isFromMe ? (this.connectionId ? "Dispositivo vinculado" : "Operador") : name;
+      const finalSenderName = isFromMe
+        ? this.connectionId
+          ? connectionOwnerName || "Dispositivo vinculado"
+          : "Operador"
+        : name;
 
       // 3. Salvar a mensagem (onConflictDoNothing evita erro de chave duplicada
       // quando o WA entrega a mesma mensagem mais de uma vez)
@@ -1614,7 +1868,21 @@ export class SessionManager {
           conversationId: convId,
           provider: "baileys",
           whatsappConnectionId: this.connectionId,
-          metaDetails: this.connectionId ? { wireStanzaId: rawMsg.key.id, ...(isFromMe ? { origin: "linked_device", authenticatedOperatorId: null } : {}) } : {},
+          metaDetails: {
+            ...(this.connectionId
+              ? {
+                  wireStanzaId: rawMsg.key.id,
+                  ...(isFromMe
+                    ? {
+                        origin: "linked_device",
+                        authenticatedOperatorId: connectionOwnerId,
+                        authenticatedOperatorName: connectionOwnerName,
+                      }
+                    : {}),
+                }
+              : {}),
+            ...(callDetails ? { call: callDetails } : {}),
+          },
           direction: isFromMe ? "outbound" : "inbound",
           externalId: rawMsg.__externalEventId,
           senderType: finalSenderType,
@@ -1671,16 +1939,14 @@ export class SessionManager {
             operatorId: targetOperatorId ?? null,
           });
         } else if (finalSenderType === "agent") {
-          // Operador respondeu: fecha todos os ciclos de SLA abertos da conversa
-          if (!this.connectionId) {
-            await SlaEngine.getInstance().closeOpenSlaCycles({
-              tenantId,
-              conversationId: convId,
-              agentResponseId: messageId,
-              agentResponseAt: now,
-              operatorId: targetOperatorId ?? null,
-            });
-          }
+          // Operador respondeu (pelo painel ou pelo celular vinculado): fecha ciclos de SLA abertos da conversa
+          await SlaEngine.getInstance().closeOpenSlaCycles({
+            tenantId,
+            conversationId: convId,
+            agentResponseId: messageId,
+            agentResponseAt: now,
+            operatorId: targetOperatorId ?? connectionOwnerId ?? null,
+          });
         }
       } catch (slaErr: any) {
         // SLA não é crítico — falha silenciosamente para não bloquear mensagens
@@ -1689,7 +1955,7 @@ export class SessionManager {
       // ── Fim SLA Engine ──────────────────────────────────────────────────────
 
       // ── Sentiment Analyzer: análise de sentimento em mensagens de clientes ──
-      if (!this.connectionId && !rawMsg.__historical && finalSenderType === "client" && text && text.trim().length > 5) {
+      if (!this.connectionId && !callDetails && !rawMsg.__historical && finalSenderType === "client" && text && text.trim().length > 5) {
         try {
           const { analyzeSentiment } = await import("../valentina/sentiment-analyzer");
           analyzeSentiment(text, convId, tenantId, { contactName: finalSenderName })
@@ -1735,7 +2001,7 @@ export class SessionManager {
         },
       });
 
-      if (this.connectionId) return; // Personal connections initially have no autonomous replies or AI.
+      if (this.connectionId || callDetails) return; // Personal connections and call logs do not trigger autonomous SDR replies.
 
       // ── Auto-resposta quando operador atribuído estiver em pausa ou desconectado ──
       if (!rawMsg.__historical && finalSenderType === "client") {

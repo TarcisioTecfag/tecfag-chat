@@ -183,7 +183,11 @@ before(async () => {
   preparation = loadAccessSource("src/lib/whatsapp/prepare-conversation.ts", {
     ...overrides,
     "../access-control/conversation-access": access,
+    "../access-control/conversation-policy": loadAccessSource(
+      "src/lib/access-control/conversation-policy.ts",
+    ),
     "../crm/deal-associations": { lockContactDeals: async () => {} },
+    "../attendance-events": { setAttendanceActor: async () => {} },
     "./connections": connectionService,
     "./connection-policy": policy,
   });
@@ -421,6 +425,9 @@ test("outbound dispatch preserves its selected connection if the corporate provi
     "./meta-status": { replayPendingMetaStatuses: async () => {} },
     "./meta-presence": { resetMetaTypingThrottle: () => {} },
     "../commercial/tma": { recordCommercialFirstResponse: async () => {} },
+    "../sla-engine": {
+      SlaEngine: { getInstance: () => ({ closeOpenSlaCycles: async () => {} }) },
+    },
     "../baileys/session-manager": {
       SessionManager: { getInstance: () => ({ notifyPublic() {} }) },
     },
@@ -1408,6 +1415,14 @@ test("choose number, save, capture, finish and choose again preserve independent
     "../../../lib/crm/deal-associations": { syncConversationDeals: async () => true },
     "../../../lib/attendance-events": { setAttendanceActor: async () => {} },
     "../../../lib/commercial/tma": { recordCommercialTransfer: async () => {} },
+    "../../../lib/sla-engine": {
+      SlaEngine: {
+        getInstance: () => ({
+          closeOpenSlaCycles: async () => {},
+          syncConversationQueueChange: async () => {},
+        }),
+      },
+    },
     "../../../lib/audit-service": { auditService: { enqueueAudit: async () => {} } },
     "../../../lib/crm/conversation-deal-context": {
       getDealContext: async (tx, tenantId, id) => ({
@@ -1426,6 +1441,7 @@ test("choose number, save, capture, finish and choose again preserve independent
         deals: [],
       }),
       assertDealContextVersion() {},
+      findActiveGraceDeal: async () => null,
       recordConversationAction: async () => {},
       endDealContext: async () => {},
       DealContextError: class extends Error {},
@@ -1588,6 +1604,29 @@ test("linked-device messages do not replace an explicit capture or silently reop
     ),
     { queueState: "fila", operatorId: null },
   );
+  assert.deepEqual(
+    policy.personalAttendanceState(undefined, {
+      fromMe: true,
+      historical: false,
+      ownerOperatorId: "seller-a",
+    }),
+    { queueState: "meus", operatorId: "seller-a" },
+  );
+  assert.deepEqual(
+    policy.personalAttendanceState(undefined, {
+      fromMe: false,
+      historical: false,
+      ownerOperatorId: "seller-a",
+    }),
+    { queueState: "meus", operatorId: "seller-a" },
+  );
+  assert.deepEqual(
+    policy.personalAttendanceState(
+      { queueState: "fila", operatorId: null },
+      { fromMe: true, historical: false, ownerOperatorId: "seller-a" },
+    ),
+    { queueState: "meus", operatorId: "seller-a" },
+  );
 });
 
 test("a failed number-selection audit rolls back the waiting thread and selective contact approval", async () => {
@@ -1632,7 +1671,11 @@ test("a failed number-selection audit rolls back the waiting thread and selectiv
     "../../db/schema": schema,
     "drizzle-orm": orm,
     "../access-control/conversation-access": access,
+    "../access-control/conversation-policy": loadAccessSource(
+      "src/lib/access-control/conversation-policy.ts",
+    ),
     "../crm/deal-associations": { lockContactDeals: async () => {} },
+    "../attendance-events": { setAttendanceActor: async () => {} },
     "./connections": connectionService,
     "./connection-policy": policy,
   });
@@ -1753,4 +1796,68 @@ test("legacy group send grants cannot select another owner's number, while the o
     await access.hasWhatsappConnectionAccess({ ...who, tenantId: otherTenant }, "number-2", "send"),
     false,
   );
+});
+
+test("WhatsApp call logs (voice/video, connected/missed/rejected) are normalized and formatted for timeline recording", async () => {
+  const {
+    extractWhatsappCallDetails,
+    normalizeInboundCallMessage,
+    formatWhatsappCallDuration,
+  } = isolatedModule("src/lib/baileys/session-manager.ts", {
+    "node:crypto": await import("node:crypto"),
+    "node:async_hooks": await import("node:async_hooks"),
+    "../../db": { db },
+    "../../db/schema": schema,
+    "drizzle-orm": orm,
+    "../runtime-singleton": { runtimeSingleton: (_k, fn) => fn() },
+    "../whatsapp/connection-policy": policy,
+    "./jid-validator": loadAccessSource("src/lib/baileys/jid-validator.ts"),
+  });
+
+  assert.equal(formatWhatsappCallDuration(45), "45s");
+  assert.equal(formatWhatsappCallDuration(135), "02m 15s");
+  assert.equal(formatWhatsappCallDuration(3665), "1h 01m 05s");
+
+  const missedStub = normalizeInboundCallMessage({
+    key: { id: "abc123", remoteJid: "5511999990000@s.whatsapp.net", fromMe: false },
+    messageStubType: 40, // CALL_MISSED_VOICE
+  });
+  assert.ok(missedStub);
+  assert.equal(missedStub.key.id, "call-abc123");
+  const missedDetails = extractWhatsappCallDetails(missedStub, false);
+  assert.equal(missedDetails.outcome, "missed");
+  assert.equal(missedDetails.isVideo, false);
+  assert.match(missedDetails.text, /Ligação de voz perdida/);
+
+  const connectedVideo = extractWhatsappCallDetails(
+    {
+      message: {
+        callLogMesssage: {
+          isVideo: true,
+          callOutcome: 0,
+          durationSecs: 185,
+        },
+      },
+    },
+    true,
+  );
+  assert.equal(connectedVideo.outcome, "connected");
+  assert.equal(connectedVideo.isVideo, true);
+  assert.equal(connectedVideo.durationSecs, 185);
+  assert.match(connectedVideo.text, /Chamada de vídeo realizada — atendida \(03m 05s\)/);
+
+  const rejectedCall = extractWhatsappCallDetails(
+    {
+      message: {
+        callLogMesssage: {
+          isVideo: false,
+          callOutcome: 3,
+          durationSecs: 0,
+        },
+      },
+    },
+    false,
+  );
+  assert.equal(rejectedCall.outcome, "rejected");
+  assert.match(rejectedCall.text, /Ligação de voz recusada/);
 });
