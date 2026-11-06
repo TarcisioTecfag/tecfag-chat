@@ -3064,14 +3064,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                           </div>
                         </PopoverContent>
                       </Popover>
-                    ) : activeChat.phoneLabel ? (
-                      <div className="ml-1">
-                        <ContactPhoneTypeBadge
-                          type={activeChat.phoneType || "commercial"}
-                          label={activeChat.phoneLabel}
-                          compact
-                        />
-                      </div>
                     ) : null}
                   </div>
                 )}

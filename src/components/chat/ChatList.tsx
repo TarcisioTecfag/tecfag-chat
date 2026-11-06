@@ -669,7 +669,7 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                         <div className="flex items-center justify-between gap-1">
                           <div className="flex items-center gap-1 min-w-0">
                             <span className="truncate text-xs font-bold text-foreground">{c.name}</span>
-                            {((c.contactPhones && c.contactPhones.length > 1) || c.phoneLabel) && (
+                            {c.contactPhones && c.contactPhones.length > 1 && (
                               <ContactPhoneTypeBadge
                                 type={c.phoneType || "commercial"}
                                 label={c.phoneLabel}
