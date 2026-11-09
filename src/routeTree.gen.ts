@@ -93,6 +93,7 @@ import { Route as ApiGestaoMetaCostsRouteImport } from './routes/api/gestao/meta
 import { Route as ApiGestaoMessagesRouteImport } from './routes/api/gestao/messages'
 import { Route as ApiGestaoLiveRouteImport } from './routes/api/gestao/live'
 import { Route as ApiGestaoHealthRouteImport } from './routes/api/gestao/health'
+import { Route as ApiGestaoCrmAnalyticsRouteImport } from './routes/api/gestao/crm-analytics'
 import { Route as ApiGestaoCostsRouteImport } from './routes/api/gestao/costs'
 import { Route as ApiGestaoContactsAnalyticsRouteImport } from './routes/api/gestao/contacts-analytics'
 import { Route as ApiGestaoAuditsRouteImport } from './routes/api/gestao/audits'
@@ -621,6 +622,11 @@ const ApiGestaoLiveRoute = ApiGestaoLiveRouteImport.update({
 const ApiGestaoHealthRoute = ApiGestaoHealthRouteImport.update({
   id: '/api/gestao/health',
   path: '/api/gestao/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGestaoCrmAnalyticsRoute = ApiGestaoCrmAnalyticsRouteImport.update({
+  id: '/api/gestao/crm-analytics',
+  path: '/api/gestao/crm-analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiGestaoCostsRoute = ApiGestaoCostsRouteImport.update({
@@ -1253,6 +1259,7 @@ export interface FileRoutesByFullPath {
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
   '/api/gestao/costs': typeof ApiGestaoCostsRoute
+  '/api/gestao/crm-analytics': typeof ApiGestaoCrmAnalyticsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/live': typeof ApiGestaoLiveRoute
   '/api/gestao/messages': typeof ApiGestaoMessagesRoute
@@ -1439,6 +1446,7 @@ export interface FileRoutesByTo {
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
   '/api/gestao/costs': typeof ApiGestaoCostsRoute
+  '/api/gestao/crm-analytics': typeof ApiGestaoCrmAnalyticsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/live': typeof ApiGestaoLiveRoute
   '/api/gestao/messages': typeof ApiGestaoMessagesRoute
@@ -1626,6 +1634,7 @@ export interface FileRoutesById {
   '/api/gestao/audits': typeof ApiGestaoAuditsRoute
   '/api/gestao/contacts-analytics': typeof ApiGestaoContactsAnalyticsRoute
   '/api/gestao/costs': typeof ApiGestaoCostsRoute
+  '/api/gestao/crm-analytics': typeof ApiGestaoCrmAnalyticsRoute
   '/api/gestao/health': typeof ApiGestaoHealthRoute
   '/api/gestao/live': typeof ApiGestaoLiveRoute
   '/api/gestao/messages': typeof ApiGestaoMessagesRoute
@@ -1814,6 +1823,7 @@ export interface FileRouteTypes {
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
     | '/api/gestao/costs'
+    | '/api/gestao/crm-analytics'
     | '/api/gestao/health'
     | '/api/gestao/live'
     | '/api/gestao/messages'
@@ -2000,6 +2010,7 @@ export interface FileRouteTypes {
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
     | '/api/gestao/costs'
+    | '/api/gestao/crm-analytics'
     | '/api/gestao/health'
     | '/api/gestao/live'
     | '/api/gestao/messages'
@@ -2186,6 +2197,7 @@ export interface FileRouteTypes {
     | '/api/gestao/audits'
     | '/api/gestao/contacts-analytics'
     | '/api/gestao/costs'
+    | '/api/gestao/crm-analytics'
     | '/api/gestao/health'
     | '/api/gestao/live'
     | '/api/gestao/messages'
@@ -2364,6 +2376,7 @@ export interface RootRouteChildren {
   ApiGestaoAuditsRoute: typeof ApiGestaoAuditsRoute
   ApiGestaoContactsAnalyticsRoute: typeof ApiGestaoContactsAnalyticsRoute
   ApiGestaoCostsRoute: typeof ApiGestaoCostsRoute
+  ApiGestaoCrmAnalyticsRoute: typeof ApiGestaoCrmAnalyticsRoute
   ApiGestaoHealthRoute: typeof ApiGestaoHealthRoute
   ApiGestaoLiveRoute: typeof ApiGestaoLiveRoute
   ApiGestaoMessagesRoute: typeof ApiGestaoMessagesRoute
@@ -3007,6 +3020,13 @@ declare module '@tanstack/react-router' {
       path: '/api/gestao/health'
       fullPath: '/api/gestao/health'
       preLoaderRoute: typeof ApiGestaoHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/gestao/crm-analytics': {
+      id: '/api/gestao/crm-analytics'
+      path: '/api/gestao/crm-analytics'
+      fullPath: '/api/gestao/crm-analytics'
+      preLoaderRoute: typeof ApiGestaoCrmAnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/gestao/costs': {
@@ -4140,6 +4160,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGestaoAuditsRoute: ApiGestaoAuditsRoute,
   ApiGestaoContactsAnalyticsRoute: ApiGestaoContactsAnalyticsRoute,
   ApiGestaoCostsRoute: ApiGestaoCostsRoute,
+  ApiGestaoCrmAnalyticsRoute: ApiGestaoCrmAnalyticsRoute,
   ApiGestaoHealthRoute: ApiGestaoHealthRoute,
   ApiGestaoLiveRoute: ApiGestaoLiveRoute,
   ApiGestaoMessagesRoute: ApiGestaoMessagesRoute,

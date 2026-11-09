@@ -20,8 +20,8 @@ import {
   Smile, Meh, Frown, Briefcase, Building2, Lock, Send,
   CornerUpLeft, Check, CheckCheck, LayoutDashboard, Flame, ArrowLeft,
   ArrowRightLeft, RotateCcw, Image as ImageIcon, Video as VideoIcon,
-  Tag, Paperclip, PenTool, Timer, UserCheck,
-  Utensils, MapPin, Columns3, ListTodo, Pencil, Trash2, Ban, CalendarClock, Plus
+  Tag, Paperclip, PenTool, Timer, User, UserCheck,
+  Utensils, MapPin, Columns3, ListTodo, Pencil, Trash2, Ban, CalendarClock, Plus, Target
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";

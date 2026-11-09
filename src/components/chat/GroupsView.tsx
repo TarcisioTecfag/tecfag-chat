@@ -3289,6 +3289,7 @@ export function GroupsView() {
                           { key: "canAccessPerformance", label: "Desempenho por Setor", desc: "Eficiência de times e conversão" },
                           { key: "canAccessSla",         label: "SLA & Tempos de Espera", desc: "Métricas de TMA, TME e conformidade" },
                           { key: "canAccessContacts",    label: "Analytics de Clientes", desc: "Frequência de recompra e inatividade" },
+                          { key: "canAccessCrm",         label: "Analytics de CRM & Funis", desc: "Métricas de Kanban, funis, etapas, conversão e perdas" },
                           { key: "canAccessAiReports",     label: "Relatórios Executivos IA", desc: "Geração de resumos e relatórios analíticos" },
                           { key: "canAccessCosts",       label: "Painel de Custos de IA", desc: "Gastos com Vertex AI, tokens e transcrições" },
                         ].map(({ key, label, desc }) => {

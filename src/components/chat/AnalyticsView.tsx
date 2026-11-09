@@ -26,6 +26,7 @@ import {
   ContactsAnalyticsTab,
   type ContactsAnalyticsPayload,
 } from "@/components/chat/ContactsAnalyticsTab";
+import { CrmAnalyticsTab } from "@/components/chat/CrmAnalyticsTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 import { enhanceLegacyAvatarSrc } from "@/lib/avatar-image";
@@ -36,7 +37,7 @@ import {
 } from "recharts";
 
 // ── Tipos ───────────────────────────────────────────────────────────────────
-type AnalyticsTab = "overview" | "performance" | "sla" | "contacts" | "reports" | "costs";
+type AnalyticsTab = "overview" | "performance" | "sla" | "contacts" | "crm" | "reports" | "costs";
 
 type PerformancePeriod = "today" | "7d" | "15d" | "30d" | "month";
 type PerformanceChannelFilter = "all" | "meta_official" | "baileys_linked";
@@ -3211,6 +3212,7 @@ export function AnalyticsView() {
     { id: "performance",  label: "Desempenho",     icon: BarChart2 },
     { id: "sla",          label: "SLA & Tempos",   icon: Clock },
     { id: "contacts",     label: "Clientes",       icon: Users },
+    { id: "crm",          label: "CRM & Funis",    icon: Briefcase },
     { id: "reports",      label: "Relatórios IA",  icon: FileText },
     { id: "costs",        label: "Custos",         icon: Coins },
   ];
@@ -3410,6 +3412,12 @@ export function AnalyticsView() {
           {activeTab === "contacts" && (
             <ContactsAnalyticsTab
               initialData={contactsData}
+              tenant={tenant}
+              refreshTrigger={lastRefresh.getTime()}
+            />
+          )}
+          {activeTab === "crm" && (
+            <CrmAnalyticsTab
               tenant={tenant}
               refreshTrigger={lastRefresh.getTime()}
             />

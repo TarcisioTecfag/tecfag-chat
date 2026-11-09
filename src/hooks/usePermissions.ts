@@ -77,6 +77,7 @@ export function usePermissions() {
       case "performance": return a.canAccessPerformance;
       case "sla": return a.canAccessSla;
       case "contacts": return a.canAccessContacts;
+      case "crm": return a.canAccessCrm !== false;
       case "reports": return a.canAccessAiReports;
       case "costs": return a.canAccessCosts;
       default: return true;

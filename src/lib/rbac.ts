@@ -25,7 +25,7 @@ export type ViewId =
 
 export type ValentinaTabId = "chat" | "sdr" | "rodizio" | "fluxos" | "supervisor" | "vendedor" | "knowledge";
 export type MonitorTabId = "live" | "alerts" | "operators" | "audits" | "tasks" | "site";
-export type AnalyticsTabId = "overview" | "performance" | "sla" | "contacts" | "reports" | "costs";
+export type AnalyticsTabId = "overview" | "performance" | "sla" | "contacts" | "crm" | "reports" | "costs";
 export type SettingsTabId = "whatsapp" | "voz" | "rd" | "crm" | "email" | "livechat";
 export type LigacoesTabId =
   | "voice_equipe"
@@ -120,6 +120,7 @@ export interface AnalyticsPermissions {
   canAccessPerformance: boolean;
   canAccessSla: boolean;
   canAccessContacts: boolean;
+  canAccessCrm: boolean;
   canAccessAiReports: boolean;
   canAccessCosts: boolean;
 }
@@ -277,6 +278,7 @@ export const DEFAULT_ADMIN_PERMISSIONS: GroupPermissions = {
     canAccessPerformance: true,
     canAccessSla: true,
     canAccessContacts: true,
+    canAccessCrm: true,
     canAccessAiReports: true,
     canAccessCosts: true,
   },
@@ -345,6 +347,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         canAccessPerformance: true,
         canAccessSla: true,
         canAccessContacts: true,
+        canAccessCrm: true,
         canAccessAiReports: true,
         canAccessCosts: false,
       },
@@ -452,6 +455,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         canAccessPerformance: false,
         canAccessSla: false,
         canAccessContacts: false,
+        canAccessCrm: false,
         canAccessAiReports: false,
         canAccessCosts: false,
       },
@@ -559,6 +563,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         canAccessPerformance: false,
         canAccessSla: false,
         canAccessContacts: false,
+        canAccessCrm: false,
         canAccessAiReports: false,
         canAccessCosts: false,
       },
@@ -666,6 +671,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         canAccessPerformance: false,
         canAccessSla: false,
         canAccessContacts: false,
+        canAccessCrm: false,
         canAccessAiReports: false,
         canAccessCosts: false,
       },
@@ -773,6 +779,7 @@ export const ROLE_PRESETS: Record<string, { name: string; description: string; p
         canAccessPerformance: true,
         canAccessSla: false,
         canAccessContacts: true,
+        canAccessCrm: true,
         canAccessAiReports: true,
         canAccessCosts: false,
       },
@@ -986,6 +993,7 @@ export function normalizeGroupPermissions(rawGroup: any): GroupPermissions {
       canAccessPerformance: existingPerms.analytics?.canAccessPerformance ?? (isLegacyAdmin || baseFallback.analytics.canAccessPerformance),
       canAccessSla: existingPerms.analytics?.canAccessSla ?? (isLegacyAdmin || baseFallback.analytics.canAccessSla),
       canAccessContacts: existingPerms.analytics?.canAccessContacts ?? (isLegacyAdmin || baseFallback.analytics.canAccessContacts),
+      canAccessCrm: existingPerms.analytics?.canAccessCrm ?? existingPerms.analytics?.canAccessContacts ?? (isLegacyAdmin || baseFallback.analytics.canAccessCrm),
       canAccessAiReports: existingPerms.analytics?.canAccessAiReports ?? (isLegacyAdmin || baseFallback.analytics.canAccessAiReports),
       canAccessCosts: existingPerms.analytics?.canAccessCosts ?? (isLegacyAdmin || false),
     },
