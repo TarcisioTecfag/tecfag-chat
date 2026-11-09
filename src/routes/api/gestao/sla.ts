@@ -59,15 +59,23 @@ export const Route = createFileRoute("/api/gestao/sla")({
 
           const totalSlaCount = allSlaLogs.length;
           const overdueCount = allSlaLogs.filter((l) => l.isOverdue).length;
+          const withinSlaCount = Math.max(0, totalSlaCount - overdueCount);
           const overallSlaPct = totalSlaCount > 0
-            ? Math.round(((totalSlaCount - overdueCount) / totalSlaCount) * 100)
+            ? Math.round((withinSlaCount / totalSlaCount) * 100)
             : 100;
+          const allValidTimes = allSlaLogs
+            .map((l) => l.responseTimeSeconds)
+            .filter((v): v is number => typeof v === "number" && v > 0);
+          const overallAvgResponseSeconds = allValidTimes.length > 0
+            ? Math.round(allValidTimes.reduce((acc, curr) => acc + curr, 0) / allValidTimes.length)
+            : 0;
 
           // ── 2. Ranking de SLA por Operador ─────────────────────────────────
           const allOperators = await db
             .select({
               id: operators.id,
               name: operators.name,
+              avatar: operators.avatar,
             })
             .from(operators)
             .where(and(
@@ -112,22 +120,39 @@ export const Route = createFileRoute("/api/gestao/sla")({
 
               const opTotal = logsRes.length;
               const opOverdue = logsRes.filter((l) => l.isOverdue).length;
-              const slaPct = opTotal > 0 ? Math.round(((opTotal - opOverdue) / opTotal) * 100) : 0;
+              const opWithin = Math.max(0, opTotal - opOverdue);
+              const slaPct = opTotal > 0 ? Math.round((opWithin / opTotal) * 100) : 0;
 
               return {
                 id: op.id,
                 name: op.name,
+                avatar: op.avatar ?? null,
                 chats,
                 avgResponseSeconds,
                 slaPct,
+                slaSampleCount: opTotal,
+                overdueCount: opOverdue,
+                withinSlaCount: opWithin,
               };
             })
           );
+
+          operatorSlaMetrics.sort((a, b) => {
+            const aActive = a.chats > 0 || a.slaSampleCount > 0 ? 1 : 0;
+            const bActive = b.chats > 0 || b.slaSampleCount > 0 ? 1 : 0;
+            if (bActive !== aActive) return bActive - aActive;
+            if (b.chats !== a.chats) return b.chats - a.chats;
+            if (b.slaPct !== a.slaPct) return b.slaPct - a.slaPct;
+            return a.name.localeCompare(b.name, "pt-BR");
+          });
 
           return new Response(
             JSON.stringify({
               overallSlaPct,
               overdueCount,
+              totalSlaCount,
+              withinSlaCount,
+              overallAvgResponseSeconds,
               operators: operatorSlaMetrics,
             }),
             {
