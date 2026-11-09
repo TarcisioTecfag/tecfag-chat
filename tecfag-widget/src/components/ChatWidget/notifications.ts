@@ -1,44 +1,69 @@
 import { AVATAR_URL } from "../../config";
 
-export const playNotificationSound = () => {
+// Notification sound utility using Web Audio API (Two-tone chime original do chat-widget-pro)
+const audioCtx =
+  typeof window !== "undefined" && (window.AudioContext || (window as any).webkitAudioContext)
+    ? new (window.AudioContext || (window as any).webkitAudioContext)()
+    : null;
+
+export function playNotificationSound() {
   try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
+    if (!audioCtx) return;
 
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    const now = audioCtx.currentTime;
+    const frequencies = [880, 1100];
 
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(600, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.1);
+    frequencies.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
 
-    gain.gain.setValueAtTime(0.1, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, now + i * 0.12);
 
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.3);
-  } catch (e) {
-    console.warn("Audio play blocked or failed:", e);
+      gain.gain.setValueAtTime(0, now + i * 0.12);
+      gain.gain.linearRampToValueAtTime(0.15, now + i * 0.12 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.3);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(now + i * 0.12);
+      osc.stop(now + i * 0.12 + 0.35);
+    });
+  } catch {
+    // Audio play blocked or unsupported
   }
-};
+}
+
+export function vibrate() {
+  try {
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      navigator.vibrate([80, 40, 80]);
+    }
+  } catch {}
+}
 
 export const requestNotificationPermission = async () => {
-  if (!("Notification" in window)) return;
-  if (Notification.permission !== "granted" && Notification.permission !== "denied") {
-    await Notification.requestPermission();
-  }
+  try {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+      await Notification.requestPermission();
+    }
+  } catch {}
 };
 
 export const showBrowserNotification = (title: string, body: string) => {
-  if (!("Notification" in window)) return;
-  if (Notification.permission === "granted" && document.hidden) {
-    new Notification(title, {
-      body,
-      icon: AVATAR_URL,
-    });
-  }
+  try {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "granted" && document.hidden) {
+      new Notification(title, {
+        body,
+        icon: AVATAR_URL,
+      });
+    }
+  } catch {}
 };

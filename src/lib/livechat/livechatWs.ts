@@ -540,13 +540,20 @@ async function handleVisitorMessage(
     await updatePageviewMetrics(tenantId, visitor.id, {
       pageviewId: payload.pageviewId,
       url: url || visitor.currentUrl,
-      timeOnPage: payload.timeOnPage,
+      timeOnPage: payload.timeOnPage ?? payload.timeSpent,
       scrollDepth: payload.scrollDepth,
     });
     return;
   }
 
   // Rastreamento de cliques em CTAs, botões, WhatsApp, etc.
+  if (type === "nps_rating" || type === "NPS_RATING") {
+    const rating = Number(payload.rating);
+    if (Number.isFinite(rating) && rating >= 1 && rating <= 5) {
+      await saveMessage(tenantId, chat.id, "visitor", `[Avaliação NPS: ${rating}/5 estrelas]`);
+    }
+    return;
+  }
   if (type === "click_event" || type === "CLICK_EVENT") {
     const clickEvt = await recordClickEvent(
       tenantId,

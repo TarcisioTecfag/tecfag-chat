@@ -1,171 +1,291 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Send, Paperclip, X, FileText } from "lucide-react";
+import React, { useState, useRef } from "react";
+import { Paperclip, Send, X, FileText } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import type { Attachment } from "./ChatBubble";
 
-interface ChatInputProps {
-  onSendMessage: (message: string, file?: File) => void;
+export interface ChatInputProps {
+  onSend?: (message: string, attachments: Attachment[]) => void;
+  onSendMessage?: (message: string, attachments?: Attachment[]) => void;
+  isBlackNovember?: boolean;
   disabled?: boolean;
 }
 
-export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, disabled }) => {
-  const [message, setMessage] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+let attachmentIdCounter = 0;
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+export const ChatInput: React.FC<ChatInputProps> = ({
+  onSend,
+  onSendMessage,
+  isBlackNovember = false,
+  disabled = false,
+}) => {
+  const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((message.trim() || selectedFile) && !disabled) {
-      onSendMessage(message.trim(), selectedFile || undefined);
-      setMessage("");
-      clearSelectedFile();
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
+  const hasContent = text.trim().length > 0 || attachments.length > 0;
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files) return;
+
+    let oversized = false;
+    const validFiles = Array.from(files).filter((file) => {
+      if (file.size > 5 * 1024 * 1024) {
+        oversized = true;
+        return false;
       }
+      return true;
+    });
+
+    if (oversized) {
+      alert(
+        "O limite para anexos é de 5MB por imagem. Por favor, compacte a foto ou envie uma menor!",
+      );
+    }
+
+    const newAttachments: Attachment[] = validFiles.map((file) => {
+      const isImage = file.type.startsWith("image/");
+      return {
+        id: `att-${++attachmentIdCounter}`,
+        file,
+        previewUrl: isImage ? URL.createObjectURL(file) : null,
+        type: isImage ? "image" : "file",
+      };
+    });
+    setAttachments((prev) => [...prev, ...newAttachments]);
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => {
+      const att = prev.find((a) => a.id === id);
+      if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  };
+
+  const handleSend = () => {
+    if (!hasContent || disabled) return;
+    const trimmed = text.trim();
+    if (onSend) {
+      onSend(trimmed, attachments);
+    } else if (onSendMessage) {
+      onSendMessage(trimmed, attachments);
+    }
+    setText("");
+    setAttachments([]);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      e.preventDefault();
+      handleFiles(e.clipboardData.files);
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert("O arquivo selecionado é muito grande. O limite máximo é de 15MB.");
-      return;
-    }
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
 
-    setSelectedFile(file);
-
-    if (file.type.startsWith("image/")) {
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
-    } else {
-      setPreviewUrl(null);
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
     }
   };
 
-  const clearSelectedFile = () => {
-    setSelectedFile(null);
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      handleSend();
     }
   };
 
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
-    }
-  }, [message]);
-
   return (
-    <div className="p-3 bg-white border-t border-slate-100 rounded-b-2xl">
-      {selectedFile && (
-        <div className="mb-2 p-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            {previewUrl ? (
-              <img
-                src={previewUrl}
-                alt="Preview"
-                className="w-10 h-10 object-cover rounded-lg border border-slate-200 flex-shrink-0"
-              />
-            ) : (
-              <div className="w-10 h-10 bg-red-50 text-[#E50914] rounded-lg flex items-center justify-center flex-shrink-0 border border-red-100">
-                <FileText className="w-5 h-5" />
-              </div>
-            )}
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-medium text-slate-700 truncate">
-                {selectedFile.name}
-              </span>
-              <span className="text-[10px] text-slate-400">
-                {(selectedFile.size / 1024).toFixed(1)} KB
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={clearSelectedFile}
-            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors ml-2 flex-shrink-0"
-            title="Remover arquivo"
+    <div
+      id="tecfag-input-area"
+      className={`border-t border-border bg-card rounded-b-2xl transition-colors ${isDragging ? "bg-accent/50 border-primary" : ""}`}
+      style={{
+        borderTop: "1px solid hsl(0 10% 90%)",
+        background: "hsl(0 0% 100%)",
+        borderRadius: "0 0 16px 16px",
+      }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Attachment previews */}
+      <AnimatePresence>
+        {attachments.length > 0 && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
           >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+            <div className="px-4 pt-3 flex gap-2 flex-wrap" style={{ display: "flex", gap: 8, padding: "12px 16px 0", flexWrap: "wrap" }}>
+              {attachments.map((att) => (
+                <motion.div
+                  key={att.id}
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.8, opacity: 0 }}
+                  className="relative group"
+                  style={{ position: "relative" }}
+                >
+                  {att.type === "image" && att.previewUrl ? (
+                    <div
+                      className="w-16 h-16 rounded-lg overflow-hidden border border-border"
+                      style={{ width: 64, height: 64, borderRadius: 8, overflow: "hidden", border: "1px solid hsl(0 10% 90%)" }}
+                    >
+                      <img
+                        src={att.previewUrl}
+                        alt={att.file.name}
+                        className="w-full h-full object-cover"
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      className="w-16 h-16 rounded-lg border border-border bg-muted flex flex-col items-center justify-center gap-1 px-1"
+                      style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: 8,
+                        border: "1px solid hsl(0 10% 90%)",
+                        background: "hsl(0 5% 94%)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 4,
+                        padding: "0 4px",
+                      }}
+                    >
+                      <FileText size={16} className="text-muted-foreground" />
+                      <span
+                        className="text-[8px] text-muted-foreground truncate w-full text-center"
+                        style={{ fontSize: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%", textAlign: "center" }}
+                      >
+                        {att.file.name.split(".").pop()?.toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => removeAttachment(att.id)}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    style={{
+                      position: "absolute",
+                      top: -6,
+                      right: -6,
+                      width: 20,
+                      height: 20,
+                      borderRadius: "50%",
+                      background: "hsl(0 84% 60%)",
+                      color: "white",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <X size={10} />
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <form
-        onSubmit={handleSubmit}
-        className={`flex items-end gap-2 bg-slate-50 p-1.5 rounded-2xl border transition-all duration-200 ${
-          disabled
-            ? "border-slate-100 opacity-60"
-            : "border-slate-200/80 focus-within:border-[#E50914] focus-within:bg-white focus-within:shadow-sm"
-        }`}
-      >
+      {/* Input row */}
+      <div id="tecfag-input-row" className="px-4 py-3 flex items-center gap-2">
         <input
-          type="file"
           ref={fileInputRef}
-          onChange={handleFileChange}
-          accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
+          type="file"
+          multiple
+          accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx"
           className="hidden"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            handleFiles(e.target.files);
+            e.target.value = "";
+          }}
         />
-
         <button
+          id="tecfag-attach-btn"
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
-          className="p-2.5 text-slate-400 hover:text-slate-600 transition-colors rounded-xl hover:bg-slate-200/50 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Anexar imagem ou PDF"
+          className="p-2 rounded-lg text-muted-foreground hover:text-accent-foreground hover:bg-accent transition-colors duration-200 flex-shrink-0"
+          style={{ color: "hsl(215 16% 47%)" }}
         >
-          <Paperclip className="w-5 h-5" />
+          <Paperclip size={18} />
         </button>
 
-        <textarea
-          ref={textareaRef}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Digite sua dúvida sobre equipamentos..."
-          disabled={disabled}
-          rows={1}
-          className="w-full bg-transparent text-slate-800 placeholder-slate-400 text-[14px] resize-none focus:outline-none py-2 px-1 max-h-[120px] custom-scrollbar leading-relaxed"
+          onPaste={handlePaste}
+          placeholder={isDragging ? "Solte as imagens aqui..." : "Escreva sua mensagem..."}
+          className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+          style={{ color: "hsl(222 47% 6%)" }}
         />
 
         <button
-          type="submit"
-          disabled={(!message.trim() && !selectedFile) || disabled}
-          className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
-            (message.trim() || selectedFile) && !disabled
-              ? "text-white shadow-md hover:shadow-lg active:scale-95"
-              : "bg-slate-200 text-slate-400 cursor-not-allowed"
+          id="tecfag-send-btn"
+          type="button"
+          onClick={handleSend}
+          disabled={!hasContent || disabled}
+          className={`p-2 rounded-xl flex-shrink-0 transition-all duration-300 ${
+            hasContent
+              ? "bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:scale-105 active:scale-95"
+              : "bg-muted text-muted-foreground cursor-not-allowed"
           }`}
           style={
-            (message.trim() || selectedFile) && !disabled
-              ? { background: "linear-gradient(135deg, #E50914 0%, #b8070f 100%)" }
-              : undefined
+            hasContent
+              ? {
+                  background: isBlackNovember
+                    ? "linear-gradient(135deg, #09090b 0%, #27272a 100%)"
+                    : "hsl(0 100% 27%)",
+                  color: "white",
+                  border: "none",
+                  width: 36,
+                  height: 36,
+                  minWidth: 36,
+                  minHeight: 36,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }
+              : {
+                  background: "hsl(0 5% 90%)",
+                  color: "hsl(0 0% 55%)",
+                  border: "none",
+                  width: 36,
+                  height: 36,
+                  minWidth: 36,
+                  minHeight: 36,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }
           }
-          aria-label="Enviar mensagem"
         >
-          <Send className="w-4 h-4 ml-0.5" />
+          <Send size={16} />
         </button>
-      </form>
-      <div className="text-center mt-2 flex items-center justify-center gap-1.5">
-        <span className="text-[10px] font-medium text-slate-400 tracking-wide">
-          Atendimento inteligente por <span className="font-bold text-slate-500">Tecfag IA</span>
-        </span>
       </div>
     </div>
   );
 };
+
+export default ChatInput;
