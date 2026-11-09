@@ -59,7 +59,13 @@ import {
   MousePointerClick,
   RefreshCw,
   MapPin,
+  ExternalLink,
+  DollarSign,
+  Clock,
+  Star,
+  AlertCircle,
 } from "lucide-react";
+import { DealStatusBadge } from "@/components/crm/deal-status-config";
 import { Channel, Conversation, QueueType } from "@/lib/mockData";
 import { usePermissions } from "@/hooks/usePermissions";
 import { toast } from "sonner";
@@ -96,6 +102,40 @@ type CompanyListItem = {
   createdAt?: string | null;
 };
 
+type ContactLinkedDealItem = {
+  id: string;
+  title: string;
+  status: string;
+  value: string | number | null;
+  pipelineId?: string | null;
+  stageId?: string | null;
+  pipelineName?: string | null;
+  stageName?: string | null;
+  operatorId?: string | null;
+  operatorName?: string | null;
+  accountId?: string | null;
+  accountName?: string | null;
+  lossReason?: string | null;
+  pausedReason?: string | null;
+  rating?: number | null;
+  source?: string | null;
+  campaign?: string | null;
+  closedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+function sortContactLinkedDeals(deals: ContactLinkedDealItem[]): ContactLinkedDealItem[] {
+  return [...deals].sort((a, b) => {
+    const aOpen = a.status === "open" ? 0 : 1;
+    const bOpen = b.status === "open" ? 0 : 1;
+    if (aOpen !== bOpen) return aOpen - bOpen;
+    const timeA = new Date(a.createdAt || a.updatedAt || 0).getTime() || 0;
+    const timeB = new Date(b.createdAt || b.updatedAt || 0).getTime() || 0;
+    return timeB - timeA || a.id.localeCompare(b.id);
+  });
+}
+
 type ContactListItem = {
   id: string;
   name: string;
@@ -120,6 +160,8 @@ type ContactListItem = {
   walletOperatorId: string | null;
   responsibleName: string;
   latestConversationId: string | null;
+  dealsCount: number;
+  linkedDeals: ContactLinkedDealItem[];
 };
 
 // ─── helper de highlight ──────────────────────────────────────────────────
@@ -222,6 +264,12 @@ export function ContactsView() {
   } | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactListItem | null>(null);
+  const [dealsDrawerContact, setDealsDrawerContact] = useState<ContactListItem | null>(null);
+  const [contactDealsList, setContactDealsList] = useState<ContactLinkedDealItem[]>([]);
+  const [loadingContactDeals, setLoadingContactDeals] = useState(false);
+  const [dealsDrawerStatusFilter, setDealsDrawerStatusFilter] = useState<
+    "all" | "open" | "lost" | "won" | "paused"
+  >("all");
   const [journeyTarget, setJourneyTarget] = useState<{
     contactId: string;
     visitorId?: string | null;
@@ -296,10 +344,51 @@ export function ContactsView() {
       walletOperatorId: item.walletOperatorId || null,
       responsibleName: item.responsibleName || "Na Fila",
       latestConversationId: item.latestConversationId || null,
+      dealsCount: Number(item.dealsCount || (Array.isArray(item.linkedDeals) ? item.linkedDeals.length : 0)),
+      linkedDeals: sortContactLinkedDeals(Array.isArray(item.linkedDeals) ? item.linkedDeals : []),
     }));
     setContactRows((previous) => offset === 0 ? rows : [...previous, ...rows]);
     setTotalContacts(result.total || 0);
   };
+
+  const openContactDealsDrawer = (contact: ContactListItem) => {
+    setDealsDrawerContact(contact);
+    setDealsDrawerStatusFilter("all");
+    setContactDealsList(sortContactLinkedDeals(contact.linkedDeals || []));
+  };
+
+  useEffect(() => {
+    if (!dealsDrawerContact) return;
+    const controller = new AbortController();
+    const targetContactId = dealsDrawerContact.id;
+    setLoadingContactDeals(true);
+    fetch(`/api/contacts/${encodeURIComponent(targetContactId)}`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (controller.signal.aborted || !data) return;
+        if (Array.isArray(data.deals)) {
+          const sorted = sortContactLinkedDeals(data.deals);
+          setContactDealsList(sorted);
+          setContactRows((prev) =>
+            prev.map((row) =>
+              row.id === targetContactId
+                ? { ...row, dealsCount: sorted.length, linkedDeals: sorted }
+                : row,
+            ),
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoadingContactDeals(false);
+        }
+      });
+    return () => controller.abort();
+  }, [dealsDrawerContact?.id]);
 
   const loadCompanies = async (offset = 0, signal?: AbortSignal) => {
     const revision = companiesRequestRevision.current;
@@ -605,7 +694,10 @@ export function ContactsView() {
         addForm.name,
         primaryPhoneValue,
         addForm.email,
-        selectedDealMeta?.account?.id || dealSelection.newDeal?.accountId || newAccount?.id || null,
+        selectedDealMeta?.account?.id ||
+          (dealSelection.newDeal as { accountId?: string | null } | undefined)?.accountId ||
+          newAccount?.id ||
+          null,
         addForm.channel,
         dealSelection,
         newContactCustomFields,
@@ -914,7 +1006,6 @@ export function ContactsView() {
         <ContactDealResolutionDialog
           key={pendingDealContactId}
           contactId={pendingDealContactId}
-          contactName={contactRows.find((c) => c.id === pendingDealContactId)?.name}
           onClose={() => {
             setPendingDealContactId(null);
             setPendingDealPhoneTarget(null);
@@ -1457,6 +1548,22 @@ export function ContactsView() {
                               <TooltipContent side="top">Ver Jornada do Cliente no Site (Páginas, Cliques e Tempo)</TooltipContent>
                             </Tooltip>
                           )}
+                          <SystemTooltip
+                            content={
+                              c.dealsCount > 0
+                                ? `Ver negociações vinculadas (${c.dealsCount})`
+                                : "Ver negociações vinculadas"
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={() => openContactDealsDrawer(c)}
+                              aria-label="Ver negociações vinculadas"
+                              className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+                            >
+                              <Briefcase className="h-3.5 w-3.5" />
+                            </button>
+                          </SystemTooltip>
                           {canEditContact && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1647,6 +1754,14 @@ export function ContactsView() {
                       <span>Jornada</span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => openContactDealsDrawer(c)}
+                    className="flex-1 py-2 px-3 rounded-xl border border-border bg-card hover:bg-muted text-foreground text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Briefcase className="h-3.5 w-3.5" />
+                    <span>Negociações{c.dealsCount > 0 ? ` (${c.dealsCount})` : ""}</span>
+                  </button>
                   {canEditContact && (
                     <button
                       onClick={() => startEditing(c)}
@@ -2542,7 +2657,6 @@ export function ContactsView() {
                     value={standaloneCompanyForm.segment || null}
                     onChange={(value) => setStandaloneCompanyForm((prev) => ({ ...prev, segment: value || "" }))}
                     placeholder="Selecionar segmento..."
-                    allowCreate
                   />
                 </div>
               </div>
@@ -2860,6 +2974,398 @@ export function ContactsView() {
               </button>
             </div>
           </form>
+        </SheetContent>
+      </Sheet>
+
+      {/* DRAWER: NEGOCIAÇÕES VINCULADAS DO CONTATO */}
+      <Sheet
+        open={dealsDrawerContact !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDealsDrawerContact(null);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex h-full w-full max-w-[520px] flex-col gap-0 overflow-hidden bg-card p-0 sm:max-w-[520px] shadow-2xl border-l border-border"
+        >
+          <SheetHeader className="flex h-16 shrink-0 flex-row items-center justify-between border-b border-border px-6 bg-card space-y-0">
+            <SheetTitle className="text-base font-extrabold text-foreground flex items-center gap-2">
+              <Briefcase className="h-4.5 w-4.5 text-primary" />
+              Negociações Vinculadas
+              {contactDealsList.length > 0 && (
+                <span className="inline-flex h-5 items-center justify-center rounded-full bg-primary/10 px-2 text-[11px] font-bold text-primary">
+                  {contactDealsList.length}
+                </span>
+              )}
+            </SheetTitle>
+          </SheetHeader>
+
+          {dealsDrawerContact && (
+            <div className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
+              {/* Subheader do Contato + Filtros de Status */}
+              <div className="shrink-0 border-b border-border bg-muted/20 px-6 py-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <ContactAvatar
+                      avatar={dealsDrawerContact.avatar}
+                      name={dealsDrawerContact.name}
+                      initials={dealsDrawerContact.initials}
+                      initialsBg={dealsDrawerContact.initialsBg}
+                      size="h-10 w-10"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-foreground truncate">
+                        {dealsDrawerContact.name}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                        {dealsDrawerContact.phone && (
+                          <span className="inline-flex items-center gap-1 font-mono">
+                            <Phone className="h-3 w-3 text-primary" />
+                            {formatPhoneNumber(dealsDrawerContact.phone)}
+                          </span>
+                        )}
+                        {dealsDrawerContact.accountName && (
+                          <span className="inline-flex items-center gap-1 truncate max-w-[180px]">
+                            <Building2 className="h-3 w-3 text-primary shrink-0" />
+                            <span className="truncate">{dealsDrawerContact.accountName}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {loadingContactDeals && (
+                    <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                  )}
+                </div>
+
+                {(() => {
+                  const openCount = contactDealsList.filter((d) => d.status === "open").length;
+                  const lostCount = contactDealsList.filter((d) => d.status === "lost").length;
+                  const wonCount = contactDealsList.filter((d) => d.status === "won").length;
+                  const pausedCount = contactDealsList.filter((d) => d.status === "paused").length;
+
+                  return (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setDealsDrawerStatusFilter("all")}
+                        className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                          dealsDrawerStatusFilter === "all"
+                            ? "bg-primary text-primary-foreground shadow-xs"
+                            : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Todas ({contactDealsList.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDealsDrawerStatusFilter("open")}
+                        className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                          dealsDrawerStatusFilter === "open"
+                            ? "bg-primary text-primary-foreground shadow-xs"
+                            : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Em andamento ({openCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDealsDrawerStatusFilter("lost")}
+                        className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                          dealsDrawerStatusFilter === "lost"
+                            ? "bg-primary text-primary-foreground shadow-xs"
+                            : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Perdidas ({lostCount})
+                      </button>
+                      {wonCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setDealsDrawerStatusFilter("won")}
+                          className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                            dealsDrawerStatusFilter === "won"
+                              ? "bg-primary text-primary-foreground shadow-xs"
+                              : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Vendidas ({wonCount})
+                        </button>
+                      )}
+                      {pausedCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setDealsDrawerStatusFilter("paused")}
+                          className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                            dealsDrawerStatusFilter === "paused"
+                              ? "bg-primary text-primary-foreground shadow-xs"
+                              : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Pausadas ({pausedCount})
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Lista de Negociações (Em andamento sempre primeiro) */}
+              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3 scrollbar-thin">
+                {loadingContactDeals && contactDealsList.length === 0 ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 3 }).map((_, idx) => (
+                      <div
+                        key={`skel-deal-${idx}`}
+                        className="rounded-2xl border border-border bg-muted/20 p-4 space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <Skeleton className="h-4 w-24 rounded-full" />
+                          <Skeleton className="h-4 w-16 rounded" />
+                        </div>
+                        <Skeleton className="h-4 w-48 rounded" />
+                        <Skeleton className="h-12 w-full rounded-xl" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (() => {
+                  const orderedDeals = sortContactLinkedDeals(contactDealsList).filter((d) =>
+                    dealsDrawerStatusFilter === "all" ? true : d.status === dealsDrawerStatusFilter,
+                  );
+
+                  if (orderedDeals.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-14 text-center px-4 rounded-2xl border border-dashed border-border bg-muted/10">
+                        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 text-primary mb-3">
+                          <Briefcase className="h-6 w-6" />
+                        </div>
+                        <p className="text-sm font-bold text-foreground">
+                          {dealsDrawerStatusFilter === "all"
+                            ? "Nenhuma negociação vinculada"
+                            : "Nenhuma negociação neste filtro"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                          {dealsDrawerStatusFilter === "all"
+                            ? "Este contato ainda não possui negociações em andamento ou perdidas vinculadas no CRM."
+                            : "Altere o filtro acima para visualizar todas as negociações vinculadas a este contato."}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return orderedDeals.map((deal, index) => {
+                    const isOpenDeal = deal.status === "open";
+                    const prevIsOpen = index > 0 ? orderedDeals[index - 1].status === "open" : null;
+                    const showSectionHeader =
+                      dealsDrawerStatusFilter === "all" && (index === 0 || prevIsOpen !== isOpenDeal);
+
+                    const rawVal =
+                      deal.value !== null && deal.value !== undefined && deal.value !== ""
+                        ? Number(deal.value)
+                        : null;
+                    const formattedValue =
+                      rawVal !== null && !Number.isNaN(rawVal)
+                        ? new Intl.NumberFormat("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          }).format(rawVal)
+                        : "Sem valor";
+
+                    const createdDateLabel = deal.createdAt
+                      ? new Date(deal.createdAt).toLocaleDateString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        })
+                      : null;
+
+                    const closedDateLabel = deal.closedAt
+                      ? new Date(deal.closedAt).toLocaleDateString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        })
+                      : null;
+
+                    return (
+                      <React.Fragment key={deal.id}>
+                        {showSectionHeader && (
+                          <div className="flex items-center justify-between pt-1 pb-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                              <span
+                                className={`h-2 w-2 rounded-full ${
+                                  isOpenDeal ? "bg-emerald-500" : "bg-destructive/80"
+                                }`}
+                              />
+                              {isOpenDeal ? "Em andamento" : "Perdidas e encerradas"}
+                            </span>
+                          </div>
+                        )}
+
+                        <div
+                          onClick={() => {
+                            setDealsDrawerContact(null);
+                            navigate({
+                              to: "/crm/deals/$dealId",
+                              params: { dealId: deal.id },
+                              search: { from: "crm" },
+                            });
+                          }}
+                          className={`group rounded-2xl border bg-card p-3.5 shadow-xs transition cursor-pointer ${
+                            isOpenDeal
+                              ? "border-border hover:border-primary/50"
+                              : "border-border/70 bg-muted/10 hover:border-primary/40"
+                          }`}
+                        >
+                          {/* Topo: Status Badge + Estrelas + Ação Abrir no CRM */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <DealStatusBadge
+                                status={deal.status}
+                                size="xs"
+                                className="rounded-full"
+                              />
+                              {Number(deal.rating || 0) > 0 && (
+                                <div className="flex items-center gap-0.5">
+                                  {Array.from({
+                                    length: Math.min(Number(deal.rating || 0), 5),
+                                  }).map((_, idx) => (
+                                    <Star
+                                      key={idx}
+                                      className="h-2.5 w-2.5 fill-primary text-primary"
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <SystemTooltip content="Abrir ficha completa da negociação no CRM">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDealsDrawerContact(null);
+                                  navigate({
+                                    to: "/crm/deals/$dealId",
+                                    params: { dealId: deal.id },
+                                    search: { from: "crm" },
+                                  });
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1 text-[10px] font-bold text-muted-foreground group-hover:text-primary group-hover:border-primary/30 transition cursor-pointer"
+                              >
+                                <span>Abrir CRM</span>
+                                <ExternalLink className="h-3 w-3" />
+                              </button>
+                            </SystemTooltip>
+                          </div>
+
+                          {/* Título da Negociação */}
+                          <h4 className="mt-2 text-xs font-bold text-foreground group-hover:text-primary transition-colors leading-snug">
+                            {deal.title}
+                          </h4>
+
+                          {/* Grade de Detalhes: Valor + Funil / Etapa + Empresa + Responsável */}
+                          <div className="mt-2.5 grid grid-cols-2 gap-2 rounded-xl border border-border/50 bg-muted/30 p-2.5 text-[11px]">
+                            <div className="space-y-0.5 min-w-0">
+                              <span className="text-[9px] font-bold uppercase text-muted-foreground flex items-center gap-1">
+                                <DollarSign className="h-2.5 w-2.5 text-primary shrink-0" />
+                                Valor
+                              </span>
+                              <span className="block text-xs font-bold text-primary truncate">
+                                {formattedValue}
+                              </span>
+                            </div>
+
+                            <div className="space-y-0.5 min-w-0">
+                              <span className="text-[9px] font-bold uppercase text-muted-foreground flex items-center gap-1">
+                                <Building2 className="h-2.5 w-2.5 shrink-0" />
+                                Empresa
+                              </span>
+                              <span className="block text-xs font-semibold text-foreground truncate">
+                                {deal.accountName || dealsDrawerContact.accountName || "Sem empresa"}
+                              </span>
+                            </div>
+
+                            <div className="col-span-2 border-t border-border/40 pt-1.5 flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-semibold text-muted-foreground truncate">
+                                {deal.pipelineName || "Funil Comercial"}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-foreground truncate">
+                                <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                                {deal.stageName || "Etapa"}
+                              </span>
+                            </div>
+
+                            {(deal.operatorName || createdDateLabel) && (
+                              <div className="col-span-2 border-t border-border/40 pt-1.5 flex items-center justify-between gap-2 text-[10px]">
+                                <span className="inline-flex items-center gap-1 text-muted-foreground font-semibold truncate">
+                                  <User className="h-2.5 w-2.5 shrink-0" />
+                                  {deal.operatorName || "Sem responsável"}
+                                </span>
+                                {createdDateLabel && (
+                                  <span className="inline-flex items-center gap-1 text-muted-foreground shrink-0">
+                                    <Clock className="h-2.5 w-2.5" />
+                                    Criada em {createdDateLabel}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Motivo de Perda / Data de Fechamento */}
+                          {deal.status === "lost" && (deal.lossReason || closedDateLabel) && (
+                            <div className="mt-2 flex items-start justify-between gap-2 rounded-xl border border-destructive/25 bg-destructive/5 px-2.5 py-1.5 text-[10px] text-destructive">
+                              <span className="inline-flex items-center gap-1 font-semibold">
+                                <AlertCircle className="h-3 w-3 shrink-0" />
+                                {deal.lossReason
+                                  ? `Motivo da perda: ${deal.lossReason}`
+                                  : "Negociação perdida"}
+                              </span>
+                              {closedDateLabel && (
+                                <span className="shrink-0 font-medium opacity-80">
+                                  {closedDateLabel}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {deal.status === "paused" && deal.pausedReason && (
+                            <div className="mt-2 flex items-center gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                              <AlertCircle className="h-3 w-3 shrink-0" />
+                              <span>Motivo da pausa: {deal.pausedReason}</span>
+                            </div>
+                          )}
+                        </div>
+                      </React.Fragment>
+                    );
+                  });
+                })()}
+              </div>
+
+              {/* Rodapé da Gaveta */}
+              <div className="shrink-0 border-t border-border bg-card px-6 py-4 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDealsDrawerContact(null)}
+                  className="h-10 rounded-xl border border-border bg-card px-5 text-xs font-bold text-muted-foreground hover:bg-muted transition cursor-pointer"
+                >
+                  Fechar
+                </button>
+                <ContactPhoneChatLauncher
+                  phones={dealsDrawerContact.phones}
+                  fallbackPhone={dealsDrawerContact.phone}
+                  triggerLabel="Conversar"
+                  onSelectPhone={(target) => {
+                    const cid = dealsDrawerContact.id;
+                    setDealsDrawerContact(null);
+                    void handleStartChat(cid, undefined, target);
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
 

@@ -25,6 +25,7 @@ import {
   type ContactPhoneInput,
   type ContactPhoneItem,
 } from "../../../lib/crm/contact-phones";
+import { getContactDealRows } from "../../../lib/crm/contact-deals-query";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -601,7 +602,9 @@ export const Route = createFileRoute("/api/contacts/$contactId")({
             }
           }
 
-          return new Response(JSON.stringify({ ...contact, phones, account }), {
+          const deals = await getContactDealRows(db, session.tenantId, contact.id).catch(() => []);
+
+          return new Response(JSON.stringify({ ...contact, phones, account, deals }), {
             headers: { ...CORS, "Content-Type": "application/json" },
           });
         } catch (e: any) {

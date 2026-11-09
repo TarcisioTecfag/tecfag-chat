@@ -8,6 +8,9 @@ import {
   crmContactAccountHistory,
   crmDealContacts,
   crmDeals,
+  crmPipelines,
+  crmStages,
+  operators,
 } from "../../db/schema.js";
 import { eq, and, count, desc, ilike, inArray, or, sql } from "drizzle-orm";
 import { shouldIgnoreJid } from "../../lib/baileys/jid-validator.js";
@@ -208,6 +211,20 @@ export const Route = createFileRoute("/api/contacts")({
               value: string | null;
               pipelineId: string;
               stageId: string;
+              pipelineName: string | null;
+              stageName: string | null;
+              operatorId: string | null;
+              operatorName: string | null;
+              accountId: string | null;
+              accountName: string | null;
+              lossReason: string | null;
+              pausedReason: string | null;
+              rating: number;
+              source: string | null;
+              campaign: string | null;
+              closedAt: string | null;
+              createdAt: string | null;
+              updatedAt: string | null;
             }>
           >();
           const fallbackAccountByContact = new Map<
@@ -232,15 +249,39 @@ export const Route = createFileRoute("/api/contacts")({
                 value: crmDeals.value,
                 pipelineId: crmDeals.pipelineId,
                 stageId: crmDeals.stageId,
+                pipelineName: crmPipelines.name,
+                stageName: crmStages.name,
+                operatorId: crmDeals.operatorId,
+                operatorName: operators.name,
                 accountId: crmDeals.accountId,
                 accountName: crmAccounts.name,
                 accountDocument: crmAccounts.document,
                 accountType: crmAccounts.type,
+                lossReason: crmDeals.lossReason,
+                pausedReason: crmDeals.pausedReason,
+                rating: crmDeals.rating,
+                source: crmDeals.source,
+                campaign: crmDeals.campaign,
+                closedAt: crmDeals.closedAt,
+                createdAt: crmDeals.createdAt,
+                updatedAt: crmDeals.updatedAt,
               })
               .from(crmDealContacts)
               .innerJoin(
                 crmDeals,
                 and(eq(crmDeals.id, crmDealContacts.dealId), eq(crmDeals.tenantId, tenantId)),
+              )
+              .leftJoin(
+                crmPipelines,
+                and(eq(crmPipelines.id, crmDeals.pipelineId), eq(crmPipelines.tenantId, tenantId)),
+              )
+              .leftJoin(
+                crmStages,
+                and(eq(crmStages.id, crmDeals.stageId), eq(crmStages.tenantId, tenantId)),
+              )
+              .leftJoin(
+                operators,
+                and(eq(operators.id, crmDeals.operatorId), eq(operators.tenantId, tenantId)),
               )
               .leftJoin(
                 crmAccounts,
@@ -252,7 +293,11 @@ export const Route = createFileRoute("/api/contacts")({
                   inArray(crmDealContacts.contactId, contactIds),
                 ),
               )
-              .orderBy(desc(crmDeals.updatedAt), desc(crmDeals.createdAt));
+              .orderBy(
+                sql`CASE WHEN ${crmDeals.status} = 'open' THEN 0 ELSE 1 END`,
+                desc(crmDeals.createdAt),
+                desc(crmDeals.updatedAt),
+              );
 
             for (const link of dealLinks) {
               const existing = dealsByContact.get(link.contactId) || [];
@@ -265,6 +310,20 @@ export const Route = createFileRoute("/api/contacts")({
                     link.value !== null && link.value !== undefined ? String(link.value) : null,
                   pipelineId: link.pipelineId,
                   stageId: link.stageId,
+                  pipelineName: link.pipelineName || null,
+                  stageName: link.stageName || null,
+                  operatorId: link.operatorId || null,
+                  operatorName: link.operatorName || null,
+                  accountId: link.accountId || null,
+                  accountName: link.accountName || null,
+                  lossReason: link.lossReason || null,
+                  pausedReason: link.pausedReason || null,
+                  rating: Number(link.rating || 0),
+                  source: link.source || null,
+                  campaign: link.campaign || null,
+                  closedAt: link.closedAt ? new Date(link.closedAt).toISOString() : null,
+                  createdAt: link.createdAt ? new Date(link.createdAt).toISOString() : null,
+                  updatedAt: link.updatedAt ? new Date(link.updatedAt).toISOString() : null,
                 });
                 dealsByContact.set(link.contactId, existing);
               }
@@ -317,7 +376,7 @@ export const Route = createFileRoute("/api/contacts")({
               siteVisitorId,
               hasSiteJourney,
               dealsCount: linked.length,
-              linkedDeals: linked.slice(0, 5),
+              linkedDeals: linked.slice(0, 20),
             };
           });
 
