@@ -736,21 +736,23 @@ function AlertsSortSelect({
 }
 
 const SUPERVISOR_ALERT_PRESETS = [
-  "⚡ Priorizar resposta imediata a este cliente (SLA estourado).",
-  "📞 Cliente em risco/atrito — entrar em contato ou ligar agora.",
-  "💼 Negociação ativa — atualizar retorno e próximo passo no CRM.",
+  "Priorizar resposta imediata a este cliente (SLA estourado).",
+  "Cliente em risco/atrito — entrar em contato ou ligar agora.",
+  "Negociação ativa — atualizar retorno e próximo passo no CRM.",
 ];
 
 function AlertsTab({
   alerts,
   summary,
   operatorBottlenecks,
+  operators = [],
   loading,
   onRefresh,
 }: {
   alerts: AlertItem[];
   summary: AlertsExecutiveSummary | null;
   operatorBottlenecks: AlertOperatorBottleneck[];
+  operators?: OperatorOverviewItem[];
   loading: boolean;
   onRefresh?: () => void;
 }) {
@@ -767,10 +769,63 @@ function AlertsTab({
   const [expandedConvId, setExpandedConvId] = useState<string | null>(null);
   const [whisperOpenConvId, setWhisperOpenConvId] = useState<string | null>(null);
   const [whisperDraft, setWhisperDraft] = useState("");
+  const [whisperTargetOpByConv, setWhisperTargetOpByConv] = useState<Record<string, string>>({});
+  const [assignedOpOverrideByConv, setAssignedOpOverrideByConv] = useState<
+    Record<string, { operatorId: string; operatorName: string; queueState: string }>
+  >({});
   const [sendingWhisperConvId, setSendingWhisperConvId] = useState<string | null>(null);
   const [localWhispersByConv, setLocalWhispersByConv] = useState<Record<string, LiveMessage[]>>({});
   const [fullHistoryByConv, setFullHistoryByConv] = useState<Record<string, LiveMessage[]>>({});
   const [loadingHistoryConvId, setLoadingHistoryConvId] = useState<string | null>(null);
+
+  const availableConsultants = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; name: string; avatar?: string | null; isOnline: boolean }
+    >();
+    for (const op of operators) {
+      if (op.operatorId && op.operatorId !== "__fila__") {
+        map.set(op.operatorId, {
+          id: op.operatorId,
+          name: op.operatorName,
+          avatar: op.avatarUrl ?? null,
+          isOnline: Boolean(op.isOnline || op.status === "disponivel" || op.status === "ocupado"),
+        });
+      }
+    }
+    for (const b of operatorBottlenecks) {
+      if (b.operatorId && b.operatorId !== "__fila__" && !map.has(b.operatorId)) {
+        map.set(b.operatorId, {
+          id: b.operatorId,
+          name: b.operatorName,
+          avatar: b.operatorAvatar ?? null,
+          isOnline: Boolean(b.isOnline),
+        });
+      }
+    }
+    for (const a of alerts) {
+      if (a.operatorId && !map.has(a.operatorId)) {
+        map.set(a.operatorId, {
+          id: a.operatorId,
+          name: a.operatorName,
+          avatar: a.operatorAvatar ?? null,
+          isOnline: Boolean(a.operatorIsOnline),
+        });
+      }
+      if (a.suggestedOperatorId && a.suggestedOperatorName && !map.has(a.suggestedOperatorId)) {
+        map.set(a.suggestedOperatorId, {
+          id: a.suggestedOperatorId,
+          name: a.suggestedOperatorName,
+          avatar: null,
+          isOnline: false,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+      return a.name.localeCompare(b.name, "pt-BR");
+    });
+  }, [operators, operatorBottlenecks, alerts]);
 
   // Sumário calculado com fallback caso summary venha nulo (ex: modo demo)
   const computedSummary = useMemo<AlertsExecutiveSummary>(() => {
@@ -1001,7 +1056,7 @@ function AlertsTab({
   );
 
   const handleSendAlertWhisper = useCallback(
-    async (convId: string, contentText: string) => {
+    async (convId: string, contentText: string, targetOperatorId?: string | null) => {
       const trimmed = contentText.trim();
       if (!trimmed || sendingWhisperConvId) return;
       setSendingWhisperConvId(convId);
@@ -1012,6 +1067,7 @@ function AlertsTab({
           body: JSON.stringify({
             conversationId: convId,
             content: trimmed,
+            targetOperatorId: targetOperatorId || undefined,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -1025,8 +1081,26 @@ function AlertsTab({
             [convId]: [...(prev[convId] || []), createdMsg],
           }));
         }
+        if (data.assignedOperatorId && data.assignedOperatorName) {
+          setAssignedOpOverrideByConv((prev) => ({
+            ...prev,
+            [convId]: {
+              operatorId: data.assignedOperatorId,
+              operatorName: data.assignedOperatorName,
+              queueState: data.assignedQueueState || "meus",
+            },
+          }));
+        }
         setWhisperDraft("");
-        toast.success("Orientação de supervisão enviada em tempo real ao consultor!");
+        setWhisperOpenConvId(null);
+        const targetLabel = data.assignedOperatorName
+          ? ` para ${data.assignedOperatorName}`
+          : "";
+        toast.success(
+          data.didAssignOperator
+            ? `Atendimento atribuído e cobrança enviada em tempo real${targetLabel}!`
+            : `Cobrança/orientação enviada em tempo real${targetLabel}!`
+        );
       } catch (err: any) {
         toast.error(err.message || "Falha ao enviar orientação ao consultor.");
       } finally {
@@ -1504,12 +1578,23 @@ function AlertsTab({
       ) : (
         <div className="space-y-3.5">
           {filteredAlerts.map((alert) => {
+            const assignedOverride = assignedOpOverrideByConv[alert.conversationId];
+            const effectiveOperatorId =
+              assignedOverride?.operatorId ?? alert.operatorId ?? null;
+            const effectiveOperatorName =
+              assignedOverride?.operatorName ?? alert.operatorName;
+            const effectiveQueueState =
+              assignedOverride?.queueState ?? alert.queueState;
+
             const tags = alert.alertTags || [];
             const isConflict =
               tags.includes("conflict_risk") || alert.alertType === "conflict";
             const isQueue =
-              tags.includes("unassigned_queue") ||
-              (!alert.operatorId && alert.queueState === "fila");
+              !effectiveOperatorId &&
+              (tags.includes("unassigned_queue") || effectiveQueueState === "fila");
+            const isInAutomation =
+              !effectiveOperatorId && effectiveQueueState === "automacao";
+            const hasHumanConsultant = Boolean(effectiveOperatorId);
             const isDeliveryFailed =
               tags.includes("delivery_failed") || alert.alertType === "delivery_failure";
             const isMetaExpiring =
@@ -1520,6 +1605,20 @@ function AlertsTab({
             const isExpanded = expandedConvId === alert.conversationId;
             const isWhisperOpen = whisperOpenConvId === alert.conversationId;
 
+            const selectedWhisperOpId =
+              whisperTargetOpByConv[alert.conversationId] ??
+              effectiveOperatorId ??
+              alert.suggestedOperatorId ??
+              "";
+            const selectedWhisperOpObj = availableConsultants.find(
+              (c) => c.id === selectedWhisperOpId
+            );
+            const selectedWhisperOpLabel =
+              selectedWhisperOpObj?.name ||
+              (selectedWhisperOpId === effectiveOperatorId ? effectiveOperatorName : "") ||
+              alert.suggestedOperatorName ||
+              "Selecione um consultor";
+
             const baseMessages =
               fullHistoryByConv[alert.conversationId] || alert.recentMessages || [];
             const extraWhispers = localWhispersByConv[alert.conversationId] || [];
@@ -1528,6 +1627,15 @@ function AlertsTab({
               ...baseMessages,
               ...extraWhispers.filter((m) => !existingMsgIds.has(m.id)),
             ];
+
+            const lastSupervisorWhisper = [...combinedMessages]
+              .reverse()
+              .find(
+                (m) =>
+                  Boolean(m.isInternalNote) &&
+                  (Boolean((m.metaDetails as any)?.supervisorWhisper) ||
+                    /\(Supervisão\)/i.test(m.senderName || ""))
+              );
 
             const translatedDeliveryError = alert.lastMessageError
               ? formatMetaErrorMessagePt(
@@ -1641,15 +1749,17 @@ function AlertsTab({
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
                     <SystemTooltip
                       content={
-                        isQueue
-                          ? "Nenhum consultor capturou este atendimento ainda"
+                        !hasHumanConsultant
+                          ? isInAutomation
+                            ? "Atendimento na Triagem I.A. — clique em 'Cobrar / Orientar Consultor' para atribuir e orientar um consultor"
+                            : "Nenhum consultor capturou este atendimento ainda — clique em 'Cobrar / Orientar Consultor' para atribuir"
                           : alert.operatorIsOnline
-                          ? `${alert.operatorName} está ONLINE agora no sistema`
-                          : `${alert.operatorName} está OFFLINE no momento — risco de demora no atendimento!`
+                          ? `${effectiveOperatorName} está ONLINE agora no sistema`
+                          : `${effectiveOperatorName} está OFFLINE no momento — risco de demora no atendimento!`
                       }
                     >
                       <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/50 border border-border text-xs">
-                        {!isQueue && (
+                        {hasHumanConsultant && (
                           <span
                             className={`h-2 w-2 rounded-full shrink-0 ${
                               alert.operatorIsOnline
@@ -1662,9 +1772,9 @@ function AlertsTab({
                           Consultor:
                         </span>
                         <span className="font-extrabold text-foreground text-[11px]">
-                          {alert.operatorName}
+                          {effectiveOperatorName}
                         </span>
-                        {!isQueue && !alert.operatorIsOnline && (
+                        {hasHumanConsultant && !alert.operatorIsOnline && (
                           <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-primary/15 text-primary border border-primary/25 uppercase">
                             Offline
                           </span>
@@ -9263,15 +9373,19 @@ function GlobalTasksTab({
   const handleEditTask = (task: GlobalTaskItem) => {
     setEditingTaskData({
       id: task.id,
+      name: task.name,
       title: task.name,
       type: task.type || "task",
       dueDate: task.dueDate,
       description: task.description,
       dealId: task.deal?.id || null,
+      dealTitle: task.deal?.name || null,
       dealName: task.deal?.name || null,
+      accountName: task.client?.companyName || task.client?.name || null,
       contactId: task.chatContactId || null,
-      contactName: task.client.name || null,
+      contactName: task.client?.name || null,
       conversationId: task.chatConversationId || null,
+      assignedOperatorId: task.operatorId || null,
       assignedOperatorIds:
         task.assignedOperatorIds?.length > 0
           ? task.assignedOperatorIds
@@ -9479,13 +9593,13 @@ function GlobalTasksTab({
       }
       if (typeFilter !== "all" && (t.type || "task").toLowerCase() !== typeFilter) return false;
       if (q) {
-        const matchTitle = t.name.toLowerCase().includes(q);
+        const matchTitle = (t.name || "").toLowerCase().includes(q);
         const matchDesc = t.description?.toLowerCase().includes(q) || false;
-        const matchClient = t.client.name?.toLowerCase().includes(q) || false;
-        const matchCompany = t.client.companyName?.toLowerCase().includes(q) || false;
-        const matchPhone = t.client.phone?.toLowerCase().includes(q) || false;
+        const matchClient = t.client?.name?.toLowerCase().includes(q) || false;
+        const matchCompany = t.client?.companyName?.toLowerCase().includes(q) || false;
+        const matchPhone = t.client?.phone?.toLowerCase().includes(q) || false;
         const matchDeal = t.deal?.name?.toLowerCase().includes(q) || false;
-        const matchOp = t.operatorName.toLowerCase().includes(q);
+        const matchOp = (t.operatorName || "").toLowerCase().includes(q);
         if (!matchTitle && !matchDesc && !matchClient && !matchCompany && !matchPhone && !matchDeal && !matchOp) {
           return false;
         }
@@ -10768,12 +10882,15 @@ function GlobalTasksTab({
 
       {/* MODAL 3: CRIAR / DELEGAR OU EDITAR TAREFA */}
       <CreateTaskModal
+        isOpen={isCreateModalOpen}
         open={isCreateModalOpen}
         onClose={() => {
           setIsCreateModalOpen(false);
           setEditingTaskData(null);
         }}
+        onTaskCreated={fetchTasks}
         onCreated={fetchTasks}
+        operators={uniqueOperatorsList.map((op) => ({ id: op.id, name: op.name }))}
         editingTask={editingTaskData}
       />
     </div>

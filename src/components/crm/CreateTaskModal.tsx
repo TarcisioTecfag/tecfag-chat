@@ -75,50 +75,90 @@ interface DealOption {
 
 export interface EditingTaskData {
   id: string;
-  dealId: string;
+  dealId: string | null;
   dealTitle?: string | null;
+  dealName?: string | null;
   accountName?: string | null;
-  name: string;
+  name?: string;
+  title?: string;
   description?: string | null;
   type: string;
   dueDate?: string | null;
+  contactId?: string | null;
+  contactName?: string | null;
+  conversationId?: string | null;
   assignedOperatorId?: string | null;
   assignedOperatorIds?: string[] | null;
 }
 
 export interface CreateTaskModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
+  open?: boolean;
   onClose: () => void;
   onTaskCreated?: (task?: any) => void;
+  onCreated?: (task?: any) => void;
   dealId?: string | null;
   dealTitle?: string | null;
   accountId?: string | null;
   accountName?: string | null;
-  operators: Array<{ id: string; name: string }>;
+  operators?: Array<{ id: string; name: string }>;
   currentOperatorId?: string | null;
   defaultDate?: Date | null;
   editingTask?: EditingTaskData | null;
 }
 
 export function CreateTaskModal({
-  isOpen,
+  isOpen: isOpenProp,
+  open: openProp,
   onClose,
   onTaskCreated,
+  onCreated,
   dealId: initialDealId,
   dealTitle: initialDealTitle,
   accountId: initialAccountId,
   accountName: initialAccountName,
-  operators: initialOperators,
+  operators: initialOperatorsProp,
   currentOperatorId,
   defaultDate,
   editingTask,
 }: CreateTaskModalProps) {
+  const isOpen = Boolean(isOpenProp ?? openProp);
+  const handleTaskCreated = onTaskCreated ?? onCreated;
+  const [fallbackOperators, setFallbackOperators] = useState<Array<{ id: string; name: string }>>([]);
+  const initialOperators = React.useMemo(() => {
+    if (Array.isArray(initialOperatorsProp) && initialOperatorsProp.length > 0) {
+      return initialOperatorsProp;
+    }
+    return fallbackOperators;
+  }, [initialOperatorsProp, fallbackOperators]);
   const isEditMode = Boolean(editingTask);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (Array.isArray(initialOperatorsProp) && initialOperatorsProp.length > 0) return;
+    if (fallbackOperators.length > 0) return;
+    let mounted = true;
+    fetch("/api/operators")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!mounted || !data) return;
+        const list = Array.isArray(data) ? data : Array.isArray(data.operators) ? data.operators : [];
+        setFallbackOperators(
+          list
+            .filter((op: any) => op && op.id && op.name)
+            .map((op: any) => ({ id: String(op.id), name: String(op.name) }))
+        );
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isOpen, initialOperatorsProp, fallbackOperators.length]);
 
   // Negociação selecionada
   const [selectedDealId, setSelectedDealId] = useState<string | null>(editingTask?.dealId || initialDealId || null);
-  const [selectedDealTitle, setSelectedDealTitle] = useState<string>(editingTask?.dealTitle || initialDealTitle || "");
-  const [selectedAccountName, setSelectedAccountName] = useState<string>(editingTask?.accountName || initialAccountName || "");
+  const [selectedDealTitle, setSelectedDealTitle] = useState<string>(editingTask?.dealTitle || editingTask?.dealName || initialDealTitle || "");
+  const [selectedAccountName, setSelectedAccountName] = useState<string>(editingTask?.accountName || editingTask?.contactName || initialAccountName || "");
 
   // Campos do formulário
   const [subject, setSubject] = useState("");
@@ -156,10 +196,10 @@ export function CreateTaskModal({
     if (!isOpen) return;
 
     if (editingTask) {
-      setSelectedDealId(editingTask.dealId);
-      setSelectedDealTitle(editingTask.dealTitle || initialDealTitle || "");
-      setSelectedAccountName(editingTask.accountName || initialAccountName || "");
-      setSubject(editingTask.name || "");
+      setSelectedDealId(editingTask.dealId || null);
+      setSelectedDealTitle(editingTask.dealTitle || editingTask.dealName || initialDealTitle || "");
+      setSelectedAccountName(editingTask.accountName || editingTask.contactName || initialAccountName || "");
+      setSubject(editingTask.name || editingTask.title || "");
       setDescription(editingTask.description || "");
       const validType = CRM_TASK_TYPES.some((t) => t.id === editingTask.type)
         ? (editingTask.type as CrmTaskType)
@@ -440,7 +480,7 @@ export function CreateTaskModal({
   // Submissão do formulário
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDealId) {
+    if (!selectedDealId && !isEditMode) {
       toast.error("Por favor, selecione uma Negociação.");
       return;
     }
@@ -493,7 +533,7 @@ export function CreateTaskModal({
 
         const data = await res.json();
         toast.success("Tarefa atualizada com sucesso!");
-        onTaskCreated?.(data.activity);
+        handleTaskCreated?.(data.activity);
         onClose();
         return;
       }
@@ -530,7 +570,7 @@ export function CreateTaskModal({
             ? `Tarefa compartilhada agendada para ${targetOperators.length} responsáveis!`
             : "Tarefa agendada com sucesso!"
       );
-      onTaskCreated?.(createdActivity);
+      handleTaskCreated?.(createdActivity);
       onClose();
     } catch (err: any) {
       toast.error(err.message || (editingTask ? "Erro ao atualizar tarefa." : "Erro ao criar tarefa."));
@@ -969,7 +1009,7 @@ export function CreateTaskModal({
               type="submit"
               data-tour="task-create.save"
               size="sm"
-              disabled={saving || !subject.trim() || !selectedDealId}
+              disabled={saving || !subject.trim() || (!selectedDealId && !isEditMode)}
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs px-5 shadow-xs cursor-pointer disabled:opacity-50"
             >
               {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
