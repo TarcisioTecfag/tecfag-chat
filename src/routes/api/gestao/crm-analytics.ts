@@ -96,6 +96,15 @@ function parseDealValue(val: string | number | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+async function safeQuery<T>(label: string, fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn(`[CRM Analytics] Falha parcial em query (${label}):`, err);
+    return [];
+  }
+}
+
 export const Route = createFileRoute("/api/gestao/crm-analytics")({
   server: {
     handlers: {
@@ -164,113 +173,177 @@ export const Route = createFileRoute("/api/gestao/crm-analytics")({
             rawProposals,
             rawOperators,
           ] = await Promise.all([
-            db
-              .select()
-              .from(crmPipelines)
-              .where(eq(crmPipelines.tenantId, tenantId))
-              .orderBy(asc(crmPipelines.orderIndex)),
-            db
-              .select()
-              .from(crmStages)
-              .where(eq(crmStages.tenantId, tenantId))
-              .orderBy(asc(crmStages.orderIndex)),
-            db
-              .select()
-              .from(crmStageSettings)
-              .where(eq(crmStageSettings.tenantId, tenantId)),
-            db
-              .select()
-              .from(crmDeals)
-              .where(eq(crmDeals.tenantId, tenantId)),
-            db
-              .select({
-                id: crmAccounts.id,
-                name: crmAccounts.name,
-                segment: crmAccounts.segment,
-              })
-              .from(crmAccounts)
-              .where(eq(crmAccounts.tenantId, tenantId)),
-            db
-              .select({
-                dealId: crmDealContacts.dealId,
-                contactId: crmDealContacts.contactId,
-                isPrimary: crmDealContacts.isPrimary,
-              })
-              .from(crmDealContacts)
-              .where(eq(crmDealContacts.tenantId, tenantId)),
-            db
-              .select({
-                id: contacts.id,
-                name: contacts.name,
-                phone: contacts.phone,
-              })
-              .from(contacts)
-              .where(eq(contacts.tenantId, tenantId)),
-            db
-              .select({
-                dealId: crmConversationDeals.dealId,
-                conversationId: crmConversationDeals.conversationId,
-                isActive: crmConversationDeals.isActive,
-              })
-              .from(crmConversationDeals)
-              .where(eq(crmConversationDeals.tenantId, tenantId)),
-            db
-              .select({
-                id: crmDealActivities.id,
-                dealId: crmDealActivities.dealId,
-                type: crmDealActivities.type,
-                status: crmDealActivities.status,
-                dueDate: crmDealActivities.dueDate,
-                completedAt: crmDealActivities.completedAt,
-                assignedToOperatorId: crmDealActivities.assignedToOperatorId,
-                createdByOperatorId: crmDealActivities.createdByOperatorId,
-                createdAt: crmDealActivities.createdAt,
-              })
-              .from(crmDealActivities)
-              .where(eq(crmDealActivities.tenantId, tenantId)),
-            db
-              .select({
-                id: crmDealEvents.id,
-                dealId: crmDealEvents.dealId,
-                eventType: crmDealEvents.eventType,
-                fromStageId: crmDealEvents.fromStageId,
-                toStageId: crmDealEvents.toStageId,
-                fromStatus: crmDealEvents.fromStatus,
-                toStatus: crmDealEvents.toStatus,
-                createdAt: crmDealEvents.createdAt,
-              })
-              .from(crmDealEvents)
-              .where(eq(crmDealEvents.tenantId, tenantId)),
-            db
-              .select({
-                id: crmDealProducts.id,
-                dealId: crmDealProducts.dealId,
-                productId: crmDealProducts.productId,
-                name: crmDealProducts.name,
-                quantity: crmDealProducts.quantity,
-                totalPrice: crmDealProducts.totalPrice,
-              })
-              .from(crmDealProducts)
-              .where(eq(crmDealProducts.tenantId, tenantId)),
-            db
-              .select({
-                id: crmProposals.id,
-                dealId: crmProposals.dealId,
-                status: crmProposals.status,
-                total: crmProposals.total,
-                createdAt: crmProposals.createdAt,
-              })
-              .from(crmProposals)
-              .where(eq(crmProposals.tenantId, tenantId)),
-            db
-              .select({
-                id: operators.id,
-                name: operators.name,
-                avatar: operators.avatar,
-                role: operators.role,
-              })
-              .from(operators)
-              .where(eq(operators.tenantId, tenantId)),
+            safeQuery("crmPipelines", () =>
+              db
+                .select({
+                  id: crmPipelines.id,
+                  name: crmPipelines.name,
+                  orderIndex: crmPipelines.orderIndex,
+                  coolingDays: crmPipelines.coolingDays,
+                })
+                .from(crmPipelines)
+                .where(eq(crmPipelines.tenantId, tenantId))
+                .orderBy(asc(crmPipelines.orderIndex))
+            ),
+            safeQuery("crmStages", () =>
+              db
+                .select({
+                  id: crmStages.id,
+                  pipelineId: crmStages.pipelineId,
+                  name: crmStages.name,
+                  orderIndex: crmStages.orderIndex,
+                  isWinStage: crmStages.isWinStage,
+                  isLossStage: crmStages.isLossStage,
+                })
+                .from(crmStages)
+                .where(eq(crmStages.tenantId, tenantId))
+                .orderBy(asc(crmStages.orderIndex))
+            ),
+            safeQuery("crmStageSettings", () =>
+              db
+                .select({
+                  stageId: crmStageSettings.stageId,
+                  abbreviation: crmStageSettings.abbreviation,
+                  objective: crmStageSettings.objective,
+                  coolingEnabled: crmStageSettings.coolingEnabled,
+                  coolingDays: crmStageSettings.coolingDays,
+                })
+                .from(crmStageSettings)
+                .where(eq(crmStageSettings.tenantId, tenantId))
+            ),
+            safeQuery("crmDeals", () =>
+              db
+                .select({
+                  id: crmDeals.id,
+                  title: crmDeals.title,
+                  accountId: crmDeals.accountId,
+                  pipelineId: crmDeals.pipelineId,
+                  stageId: crmDeals.stageId,
+                  status: crmDeals.status,
+                  value: crmDeals.value,
+                  expectedCloseDate: crmDeals.expectedCloseDate,
+                  operatorId: crmDeals.operatorId,
+                  source: crmDeals.source,
+                  campaign: crmDeals.campaign,
+                  rating: crmDeals.rating,
+                  lossReason: crmDeals.lossReason,
+                  pausedReason: crmDeals.pausedReason,
+                  aiPriorityLevel: crmDeals.aiPriorityLevel,
+                  lastActivityAt: crmDeals.lastActivityAt,
+                  closedAt: crmDeals.closedAt,
+                  createdAt: crmDeals.createdAt,
+                  updatedAt: crmDeals.updatedAt,
+                })
+                .from(crmDeals)
+                .where(eq(crmDeals.tenantId, tenantId))
+            ),
+            safeQuery("crmAccounts", () =>
+              db
+                .select({
+                  id: crmAccounts.id,
+                  name: crmAccounts.name,
+                  segment: crmAccounts.segment,
+                })
+                .from(crmAccounts)
+                .where(eq(crmAccounts.tenantId, tenantId))
+            ),
+            safeQuery("crmDealContacts", () =>
+              db
+                .select({
+                  dealId: crmDealContacts.dealId,
+                  contactId: crmDealContacts.contactId,
+                  isPrimary: crmDealContacts.isPrimary,
+                })
+                .from(crmDealContacts)
+                .where(eq(crmDealContacts.tenantId, tenantId))
+            ),
+            safeQuery("contacts", () =>
+              db
+                .select({
+                  id: contacts.id,
+                  name: contacts.name,
+                  phone: contacts.phone,
+                })
+                .from(contacts)
+                .where(eq(contacts.tenantId, tenantId))
+            ),
+            safeQuery("crmConversationDeals", () =>
+              db
+                .select({
+                  dealId: crmConversationDeals.dealId,
+                  conversationId: crmConversationDeals.conversationId,
+                  isActive: crmConversationDeals.isActive,
+                })
+                .from(crmConversationDeals)
+                .where(eq(crmConversationDeals.tenantId, tenantId))
+            ),
+            safeQuery("crmDealActivities", () =>
+              db
+                .select({
+                  id: crmDealActivities.id,
+                  dealId: crmDealActivities.dealId,
+                  type: crmDealActivities.type,
+                  status: crmDealActivities.status,
+                  dueDate: crmDealActivities.dueDate,
+                  completedAt: crmDealActivities.completedAt,
+                  assignedToOperatorId: crmDealActivities.assignedToOperatorId,
+                  operatorId: crmDealActivities.operatorId,
+                  createdAt: crmDealActivities.createdAt,
+                })
+                .from(crmDealActivities)
+                .where(eq(crmDealActivities.tenantId, tenantId))
+            ),
+            safeQuery("crmDealEvents", () =>
+              db
+                .select({
+                  id: crmDealEvents.id,
+                  dealId: crmDealEvents.dealId,
+                  eventType: crmDealEvents.eventType,
+                  fromStageId: crmDealEvents.fromStageId,
+                  toStageId: crmDealEvents.toStageId,
+                  fromStatus: crmDealEvents.fromStatus,
+                  toStatus: crmDealEvents.toStatus,
+                  createdAt: crmDealEvents.createdAt,
+                })
+                .from(crmDealEvents)
+                .where(eq(crmDealEvents.tenantId, tenantId))
+            ),
+            safeQuery("crmDealProducts", () =>
+              db
+                .select({
+                  id: crmDealProducts.id,
+                  dealId: crmDealProducts.dealId,
+                  productId: crmDealProducts.productId,
+                  name: crmDealProducts.name,
+                  quantity: crmDealProducts.quantity,
+                  totalPrice: crmDealProducts.totalPrice,
+                })
+                .from(crmDealProducts)
+                .where(eq(crmDealProducts.tenantId, tenantId))
+            ),
+            safeQuery("crmProposals", () =>
+              db
+                .select({
+                  id: crmProposals.id,
+                  dealId: crmProposals.dealId,
+                  status: crmProposals.status,
+                  total: crmProposals.total,
+                  createdAt: crmProposals.createdAt,
+                })
+                .from(crmProposals)
+                .where(eq(crmProposals.tenantId, tenantId))
+            ),
+            safeQuery("operators", () =>
+              db
+                .select({
+                  id: operators.id,
+                  name: operators.name,
+                  avatar: operators.avatar,
+                  role: operators.role,
+                })
+                .from(operators)
+                .where(eq(operators.tenantId, tenantId))
+            ),
           ]);
 
           // 2. Apply RBAC visibility filters on pipelines, stages, and deals
@@ -387,7 +460,7 @@ export const Route = createFileRoute("/api/gestao/crm-analytics")({
             } else if (act.status === "completed") {
               const compAt = act.completedAt ? new Date(act.completedAt) : new Date(act.createdAt);
               if (compAt >= periodRange.start) {
-                const opId = act.assignedToOperatorId || act.createdByOperatorId;
+                const opId = act.assignedToOperatorId || act.operatorId;
                 if (opId) {
                   operatorCompletedActivitiesPeriod.set(
                     opId,
