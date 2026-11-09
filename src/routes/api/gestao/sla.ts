@@ -9,6 +9,7 @@ import { eq, and, count, avg, isNotNull } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
 import { conversationReadRules } from "../../../lib/access-control/conversation-policy";
+import { buildConsultantAvatarResolver } from "../../../lib/commercial/avatar-matcher";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -87,17 +88,19 @@ export const Route = createFileRoute("/api/gestao/sla")({
           const overallAvgResponseSeconds = computeOperationalAvgSeconds(allValidTimes);
 
           // ── 2. Ranking de SLA por Operador ─────────────────────────────────
-          const allOperators = await db
+          const allTenantOperators = await db
             .select({
               id: operators.id,
               name: operators.name,
               avatar: operators.avatar,
             })
             .from(operators)
-            .where(and(
-              eq(operators.tenantId, tenantId),
-              restrictOperatorScope ? eq(operators.id, session.operator.id) : undefined,
-            ));
+            .where(eq(operators.tenantId, tenantId));
+
+          const avatarResolver = buildConsultantAvatarResolver([allTenantOperators]);
+          const allOperators = restrictOperatorScope
+            ? allTenantOperators.filter((op) => op.id === session.operator.id)
+            : allTenantOperators;
 
           const operatorSlaMetrics = await Promise.all(
             allOperators.map(async (op) => {
@@ -140,7 +143,7 @@ export const Route = createFileRoute("/api/gestao/sla")({
               return {
                 id: op.id,
                 name: op.name,
-                avatar: op.avatar ?? null,
+                avatar: op.avatar || avatarResolver.getAvatar(op.id, op.name) || null,
                 chats,
                 avgResponseSeconds,
                 slaPct,

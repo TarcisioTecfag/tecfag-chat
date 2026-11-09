@@ -17,11 +17,67 @@
  *      suavidade do fundo vermelho sem amplificar ruído de crominância JPEG).
  */
 
+import { useEffect, useState } from "react";
+
 const DEFAULT_AVATAR_TARGET_SIZE = 512;
 const DEFAULT_AVATAR_QUALITY = 0.92;
 
 const enhancedAvatarCache = new Map<string, string>();
 const pendingEnhancements = new Map<string, Promise<string>>();
+
+/**
+ * Verifica se a string fornecida é uma URL ou Data URI válida de imagem
+ * (evitando tentar renderizar siglas de 2 letras como `<img src="II" />`).
+ */
+export function isValidAvatarImageSrc(src: string | null | undefined): src is string {
+  if (!src || typeof src !== "string") return false;
+  const trimmed = src.trim();
+  if (!trimmed) return false;
+  return (
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("blob:")
+  );
+}
+
+/**
+ * Retorna sincronamente a URL/Data URI da foto (usando a versão HD em cache se já processada).
+ */
+export function getSyncAvatarSrc(src: string | null | undefined): string | null {
+  if (!isValidAvatarImageSrc(src)) return null;
+  const trimmed = src.trim();
+  return enhancedAvatarCache.get(trimmed) ?? trimmed;
+}
+
+/**
+ * Hook React que retorna imediatamente uma string válida (`string | null`) para `<img src={...} />`
+ * e aprimora assincronamente avatares `data:image/` legados de baixa resolução em background.
+ */
+export function useEnhancedAvatarSrc(src: string | null | undefined): string | null {
+  const [resolvedSrc, setResolvedSrc] = useState<string | null>(() => getSyncAvatarSrc(src));
+
+  useEffect(() => {
+    const syncSrc = getSyncAvatarSrc(src);
+    setResolvedSrc(syncSrc);
+    if (!syncSrc || !syncSrc.startsWith("data:image/") || enhancedAvatarCache.has(syncSrc)) {
+      return;
+    }
+
+    let active = true;
+    void enhanceLegacyAvatarSrc(syncSrc).then((enhanced) => {
+      if (active && enhanced) {
+        setResolvedSrc(enhanced);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [src]);
+
+  return resolvedSrc;
+}
 
 function exportCanvasHighQuality(
   canvas: HTMLCanvasElement,

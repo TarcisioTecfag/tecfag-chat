@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { enhanceLegacyAvatarSrc } from "@/lib/avatar-image";
+import { useEnhancedAvatarSrc } from "@/lib/avatar-image";
 import {
   Users,
   Building2,
@@ -269,12 +269,18 @@ function AvatarBadge({
   sizeClass?: string;
 }) {
   const [imgErr, setImgErr] = useState(false);
-  const resolved = avatar && !imgErr ? enhanceLegacyAvatarSrc(avatar) : null;
-  if (resolved) {
+  const resolved = useEnhancedAvatarSrc(avatar);
+
+  useEffect(() => {
+    setImgErr(false);
+  }, [avatar]);
+
+  if (resolved && !imgErr) {
     return (
       <img
         src={resolved}
         alt={name}
+        decoding="async"
         onError={() => setImgErr(true)}
         className={`${sizeClass} rounded-full object-cover shrink-0 border ${
           highlight ? "border-primary/40" : "border-border"

@@ -23,6 +23,7 @@ import {
 import { eq, and, or, exists, gte, lte, isNotNull, isNull, inArray, count, avg, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
+import { buildConsultantAvatarResolver } from "../../../lib/commercial/avatar-matcher";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1298,6 +1299,8 @@ export const Route = createFileRoute("/api/gestao/performance")({
             }
           }
 
+          const avatarResolver = buildConsultantAvatarResolver([allOperatorsRows]);
+
           const consultantProductivity = allOperatorsRows
             .map((op) => {
               const opConvs = visibleConvs.filter((c) => c.operatorId === op.id);
@@ -1395,7 +1398,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
                 operatorId: op.id,
                 name: op.name,
                 role: op.role,
-                avatar: op.avatar ?? null,
+                avatar: op.avatar || avatarResolver.getAvatar(op.id, op.name) || null,
                 roleSubtitle,
                 sectorName,
                 divisionLabel,

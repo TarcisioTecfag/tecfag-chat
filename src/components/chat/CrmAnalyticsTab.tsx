@@ -39,7 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { enhanceLegacyAvatarSrc } from "@/lib/avatar-image";
+import { useEnhancedAvatarSrc } from "@/lib/avatar-image";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -54,6 +54,52 @@ import {
 } from "recharts";
 
 export type CrmPeriodKey = "7d" | "15d" | "30d" | "month" | "90d" | "all";
+
+function getConsultantInitials(name: string, fallbackAvatar?: string | null): string {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  if (parts.length === 1 && parts[0].length > 0) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  if (fallbackAvatar && fallbackAvatar.trim().length > 0 && fallbackAvatar.trim().length <= 3) {
+    return fallbackAvatar.trim().slice(0, 2).toUpperCase();
+  }
+  return "OP";
+}
+
+function CrmConsultantAvatarBadge({
+  name,
+  avatar,
+}: {
+  name: string;
+  avatar?: string | null;
+}) {
+  const resolved = useEnhancedAvatarSrc(avatar);
+  const [imgErr, setImgErr] = useState(false);
+
+  useEffect(() => {
+    setImgErr(false);
+  }, [avatar]);
+
+  if (resolved && !imgErr) {
+    return (
+      <img
+        src={resolved}
+        alt={name}
+        decoding="async"
+        onError={() => setImgErr(true)}
+        className="h-7 w-7 rounded-full object-cover border border-border shrink-0"
+      />
+    );
+  }
+  return (
+    <div className="h-7 w-7 rounded-full bg-primary/15 border border-primary/30 text-primary text-[10px] font-black grid place-items-center shrink-0">
+      {getConsultantInitials(name, avatar)}
+    </div>
+  );
+}
 
 export interface CrmAnalyticsPayload {
   filters: {
@@ -1815,10 +1861,6 @@ export function CrmAnalyticsTab({ tenant, refreshTrigger }: CrmAnalyticsTabProps
             </thead>
             <tbody className="divide-y divide-border/50 text-xs">
               {filteredConsultants.map((c) => {
-                const isImageAvatar =
-                  c.avatar.startsWith("http") ||
-                  c.avatar.startsWith("/") ||
-                  c.avatar.startsWith("data:");
                 return (
                   <tr
                     key={c.operatorId}
@@ -1833,17 +1875,7 @@ export function CrmAnalyticsTab({ tenant, refreshTrigger }: CrmAnalyticsTabProps
                   >
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-2.5">
-                        {isImageAvatar ? (
-                          <img
-                            src={enhanceLegacyAvatarSrc(c.avatar)}
-                            alt={c.name}
-                            className="h-7 w-7 rounded-full object-cover border border-border shrink-0"
-                          />
-                        ) : (
-                          <div className="h-7 w-7 rounded-full bg-primary/15 border border-primary/30 text-primary text-[10px] font-black grid place-items-center shrink-0">
-                            {c.avatar.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
+                        <CrmConsultantAvatarBadge name={c.name} avatar={c.avatar} />
                         <div>
                           <p className="font-extrabold text-foreground">{c.name}</p>
                           <p className="text-[10px] text-muted-foreground">

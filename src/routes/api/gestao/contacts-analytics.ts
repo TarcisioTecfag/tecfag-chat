@@ -16,6 +16,7 @@ import {
 import { eq, and, gte, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { conversationReadCondition } from "../../../lib/access-control/conversation-access";
+import { buildConsultantAvatarResolver } from "../../../lib/commercial/avatar-matcher";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -645,11 +646,13 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
             }
           >();
 
+          const avatarResolver = buildConsultantAvatarResolver([allOperatorsRows]);
+
           for (const op of allOperatorsRows) {
             portfolioByOperator.set(op.id, {
               operatorId: op.id,
               operatorName: op.name,
-              avatar: op.avatar ?? null,
+              avatar: op.avatar || avatarResolver.getAvatar(op.id, op.name) || null,
               walletContactsCount: 0,
               activeInPeriodCount: 0,
               openDealsCount: 0,
@@ -943,7 +946,10 @@ export const Route = createFileRoute("/api/gestao/contacts-analytics")({
               companyName: account?.tradeName || account?.name || (c.cnpj ? `CNPJ ${c.cnpj}` : null),
               operatorId: resolvedOpId,
               operatorName: resolvedOp?.name || (c.responsibleName && c.responsibleName !== "Na Fila" ? c.responsibleName : "Sem Consultor"),
-              operatorAvatar: resolvedOp?.avatar ?? null,
+              operatorAvatar:
+                resolvedOp?.avatar ||
+                avatarResolver.getAvatar(resolvedOpId, resolvedOp?.name || c.responsibleName) ||
+                null,
               conversationId: latestConv?.id ?? null,
               queueState: latestConv?.queueState ?? null,
               unreadCount: latestConv?.unreadCount ?? 0,

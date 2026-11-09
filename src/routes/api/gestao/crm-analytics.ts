@@ -21,6 +21,7 @@ import {
   getAllowedPipelineIds,
   isStageVisibleToSession,
 } from "../../../lib/access-control/crm-record-access";
+import { buildConsultantAvatarResolver } from "../../../lib/commercial/avatar-matcher";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1412,6 +1413,8 @@ export const Route = createFileRoute("/api/gestao/crm-analytics")({
             }
           >();
 
+          const crmAvatarResolver = buildConsultantAvatarResolver([allOperators]);
+
           for (const d of scopedDeals) {
             const opId = d.operatorId || "unassigned";
             if (!consultantGroups.has(opId)) {
@@ -1421,6 +1424,7 @@ export const Route = createFileRoute("/api/gestao/crm-analytics")({
                 name: op?.name || "Sem Responsável",
                 avatar:
                   op?.avatar ||
+                  crmAvatarResolver.getAvatar(opId, op?.name) ||
                   (op?.name
                     ? op.name
                         .split(/\s+/)

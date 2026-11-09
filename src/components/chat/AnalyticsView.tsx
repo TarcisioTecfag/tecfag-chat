@@ -29,7 +29,7 @@ import {
 import { CrmAnalyticsTab } from "@/components/chat/CrmAnalyticsTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
-import { enhanceLegacyAvatarSrc } from "@/lib/avatar-image";
+import { useEnhancedAvatarSrc } from "@/lib/avatar-image";
 import { getAiPersona } from "@/lib/ai-persona";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -276,18 +276,19 @@ function OperatorAvatarBadge({
   avatar?: string | null;
   highlight?: boolean;
 }) {
-  const resolvedAvatar = avatar ? enhanceLegacyAvatarSrc(avatar) : null;
+  const resolvedAvatar = useEnhancedAvatarSrc(avatar);
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     setImgError(false);
-  }, [resolvedAvatar]);
+  }, [avatar]);
 
   if (resolvedAvatar && !imgError) {
     return (
       <img
         src={resolvedAvatar}
         alt={name}
+        decoding="async"
         onError={() => setImgError(true)}
         className={`h-7 w-7 rounded-full object-cover shrink-0 border ${
           highlight ? "border-primary/40" : "border-border"
