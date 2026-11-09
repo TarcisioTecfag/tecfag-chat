@@ -346,28 +346,50 @@ export function OverviewTab({
     );
   }
 
-  // Função utilitária para converter "2min 45s" ou similar em minutos decimais
-  const parseTimeToMinutes = (timeStr: string): number => {
+  // Função utilitária para converter "2h 23min", "2min 45s" ou similar em minutos decimais
+  const parseTimeToMinutes = (timeStr: string, rawSeconds?: number): number => {
+    if (typeof rawSeconds === "number" && Number.isFinite(rawSeconds) && rawSeconds > 0) {
+      return Number((rawSeconds / 60).toFixed(2));
+    }
     if (!timeStr) return 0;
-    const minMatch = timeStr.match(/(\d+)\s*(?:min|m)/i);
-    const secMatch = timeStr.match(/(\d+)\s*(?:s)/i);
+    const hourMatch = timeStr.match(/(\d+)\s*h/i);
+    const minMatch = timeStr.match(/(\d+)\s*(?:min|m(?!s))/i);
+    const secMatch = timeStr.match(/(\d+)\s*s/i);
+    const hours = hourMatch ? parseInt(hourMatch[1], 10) : 0;
     const min = minMatch ? parseInt(minMatch[1], 10) : 0;
     const sec = secMatch ? parseInt(secMatch[1], 10) : 0;
-    return Number((min + sec / 60).toFixed(2));
+    return Number((hours * 60 + min + sec / 60).toFixed(2));
   };
 
-  // 1. Dados do gráfico de performance e tempo de resposta da equipe
-  const chartDataEquipe = overview.operators.map((op) => ({
-    name: op.operatorName.split(" ")[0] + (op.operatorName.split(" ")[1] ? " " + op.operatorName.split(" ")[1][0] + "." : ""),
+  // 1. Dados do gráfico de performance e tempo de resposta da equipe (filtra operadores sem atividade quando há ativos)
+  const operatorsWithActivity = overview.operators.filter(
+    (op) =>
+      (op.totalConversations ?? 0) > 0 ||
+      (op.avgPerformanceScore ?? 0) > 0 ||
+      parseTimeToMinutes(op.avgResponseTimeFormatted, (op as any).avgResponseTimeSeconds) > 0
+  );
+  const operatorsForChart =
+    operatorsWithActivity.length > 0 ? operatorsWithActivity : overview.operators.slice(0, 8);
+
+  const chartDataEquipe = operatorsForChart.map((op) => ({
+    name:
+      op.operatorName.split(" ")[0] +
+      (op.operatorName.split(" ")[1] ? " " + op.operatorName.split(" ")[1][0] + "." : ""),
     score: op.avgPerformanceScore || 0,
-    tmr: parseTimeToMinutes(op.avgResponseTimeFormatted),
+    tmr: parseTimeToMinutes(op.avgResponseTimeFormatted, (op as any).avgResponseTimeSeconds),
   }));
 
   // 2. Dados do gráfico de alertas críticos
-  const chartDataAlertas = alerts.slice(0, 6).map((al) => ({
-    cliente: al.contactName,
-    espera: Number((al.waitingMinutes + al.waitingSeconds / 60).toFixed(1)),
-  }));
+  const chartDataAlertas = alerts.slice(0, 6).map((al) => {
+    const fullName = (al.contactName || "Cliente").trim();
+    const shortName = fullName.length > 18 ? `${fullName.slice(0, 17).trimEnd()}…` : fullName;
+    const waitMin = Number((al.waitingMinutes + (al.waitingSeconds || 0) / 60).toFixed(1));
+    return {
+      cliente: shortName,
+      clienteCompleto: fullName,
+      espera: waitMin,
+    };
+  });
 
   const metricCards = [
     {
@@ -464,12 +486,28 @@ export function OverviewTab({
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartDataAlertas} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                <BarChart data={chartDataAlertas} layout="vertical" margin={{ top: 5, right: 12, left: 4, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-                  <XAxis type="number" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} unit=" min" />
-                  <YAxis dataKey="cliente" type="category" stroke="var(--muted-foreground)" fontSize={9} tickLine={false} width={80} />
-                  <RechartsTooltip contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px", color: "var(--foreground)" }} />
-                  <Bar dataKey="espera" name="Minutos de Espera" radius={[0, 4, 4, 0]} barSize={10} isAnimationActive={false}>
+                  <XAxis
+                    type="number"
+                    stroke="var(--muted-foreground)"
+                    fontSize={10}
+                    tickLine={false}
+                    tickFormatter={(v: number) =>
+                      v >= 1440
+                        ? `${Math.round(v / 1440)}d`
+                        : v >= 60
+                        ? `${Math.round(v / 60)}h`
+                        : `${Math.round(v)}m`
+                    }
+                  />
+                  <YAxis dataKey="cliente" type="category" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} width={105} />
+                  <RechartsTooltip
+                    contentStyle={{ backgroundColor: "var(--card)", borderColor: "var(--border)", borderRadius: "12px", fontSize: "11px", color: "var(--foreground)" }}
+                    labelFormatter={(_label, payload) => payload?.[0]?.payload?.clienteCompleto || _label}
+                    formatter={(val: any) => [formatWaitDuration(Math.round(Number(val) || 0)), "Tempo de Espera"]}
+                  />
+                  <Bar dataKey="espera" name="Minutos de Espera" radius={[0, 4, 4, 0]} barSize={12} isAnimationActive={false}>
                     {chartDataAlertas.map((entry, index) => {
                       const color = entry.espera >= 15 ? "var(--primary)" : "var(--muted-foreground)";
                       return <Cell key={`cell-${index}`} fill={color} />;
@@ -483,7 +521,7 @@ export function OverviewTab({
       </div>
 
       {/* Middle Row */}
-      <div className="grid grid-cols-5 gap-4 min-h-0">
+      <div className="grid grid-cols-5 gap-4 shrink-0 min-h-[240px] max-h-[320px]">
         {/* Critical Alerts */}
         <div className="col-span-3 bg-card rounded-2xl border border-border shadow-soft flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-line shrink-0">

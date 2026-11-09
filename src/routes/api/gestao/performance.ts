@@ -66,8 +66,27 @@ function getBrtDayBounds(dateStr: string): { start: Date; end: Date; weekdayLabe
 }
 
 function calcDeltaPct(current: number, previous: number): number | null {
-  if (previous <= 0) return current > 0 ? 100 : 0;
-  return Math.round(((current - previous) / previous) * 100);
+  if (previous <= 0) return null;
+  // Quando a base anterior é residual (< 5) e houve salto > 5x (ex: pós-migração/implantação),
+  // evita distorções irreais como +17550%.
+  if (previous < 5 && current >= 20) return null;
+  const raw = Math.round(((current - previous) / previous) * 100);
+  if (Math.abs(raw) > 999) return raw > 0 ? 999 : -999;
+  return raw;
+}
+
+function computeOperationalAvgSeconds(rawTimes: (number | null | undefined)[]): number | null {
+  const valid = rawTimes.filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0);
+  if (valid.length === 0) return null;
+  if (valid.length < 4) {
+    return Math.round(valid.reduce((acc, curr) => acc + curr, 0) / valid.length);
+  }
+  const inShift = valid.filter((v) => v <= 4 * 3600);
+  const base = inShift.length >= Math.ceil(valid.length * 0.5) ? inShift : valid;
+  const sorted = [...base].sort((a, b) => a - b);
+  const p85Cap = sorted[Math.floor((sorted.length - 1) * 0.85)] ?? sorted[sorted.length - 1];
+  const cappedSum = sorted.reduce((acc, v) => acc + Math.min(v, p85Cap), 0);
+  return Math.round(cappedSum / sorted.length);
 }
 
 export const Route = createFileRoute("/api/gestao/performance")({
@@ -867,6 +886,8 @@ export const Route = createFileRoute("/api/gestao/performance")({
               id: "whatsapp_linked",
               name: "Celulares Vinculados",
               value: baileysLinkedConvs,
+              connectedCount: connectedBaileysDevices,
+              totalConnections: totalBaileysDevices,
               subtitle:
                 totalBaileysDevices > 0
                   ? `${connectedBaileysDevices}/${totalBaileysDevices} aparelhos conectados`
@@ -908,21 +929,26 @@ export const Route = createFileRoute("/api/gestao/performance")({
           const inQueueCount = filteredConvs.filter((c) => c.queueState === "fila").length;
           const inAttendanceCount = filteredConvs.filter((c) => c.queueState === "meus").length;
           const totalFinishedNow = filteredConvs.filter((c) => c.queueState === "finalizados").length;
+          const activeNowConvIds = new Set(
+            filteredConvs.filter((c) => c.queueState !== "finalizados").map((c) => c.id)
+          );
 
           const openDealIds = new Set(crmDealsRows.filter((d) => d.status === "open").map((d) => d.id));
           const convIdsWithOpenDeal = new Set<string>();
           for (const link of crmConvDealsRows) {
-            if (openDealIds.has(link.dealId) && filteredConvIds.has(link.conversationId)) {
+            if (openDealIds.has(link.dealId) && activeNowConvIds.has(link.conversationId)) {
               convIdsWithOpenDeal.add(link.conversationId);
             }
           }
+
+          const completedInPeriodTotal = Math.max(finishedConvIdsInPeriod.size, totalFinishedNow);
 
           const operationalFunnel = {
             inAutomation: inAutomationCount,
             inQueue: inQueueCount,
             inAttendance: inAttendanceCount,
             withOpenDeal: convIdsWithOpenDeal.size,
-            completedInPeriod: Math.max(finishedConvIdsInPeriod.size, totalFinishedNow),
+            completedInPeriod: completedInPeriodTotal,
             totalActiveNow: inAutomationCount + inQueueCount + inAttendanceCount,
           };
 
@@ -942,9 +968,13 @@ export const Route = createFileRoute("/api/gestao/performance")({
           ).length;
           const recurringConvsInPeriod = Math.max(0, currentActiveTotal - newConvsInPeriod);
 
-          const totalHandledOrClosed = Math.max(
-            agentHandledConvIdsInPeriod.size + finishedConvIdsInPeriod.size,
-            volumes.reduce((s, v) => s + v.atendidos, 0)
+          const totalHandledOrClosed = Math.min(
+            currentActiveTotal,
+            Math.max(
+              agentHandledConvIdsInPeriod.size + finishedConvIdsInPeriod.size,
+              inAttendanceCount + completedInPeriodTotal,
+              volumes.reduce((s, v) => s + v.atendidos, 0)
+            )
           );
           const resolutionRatePct =
             currentActiveTotal > 0
@@ -957,10 +987,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
           const validSlaTimes = periodSlaLogsRows
             .filter((l) => filteredConvIds.has(l.conversationId) && typeof l.responseTimeSeconds === "number" && l.responseTimeSeconds > 0)
             .map((l) => Number(l.responseTimeSeconds));
-          const overallAvgResponseSeconds =
-            validSlaTimes.length > 0
-              ? Math.round(validSlaTimes.reduce((a, b) => a + b, 0) / validSlaTimes.length)
-              : null;
+          const overallAvgResponseSeconds = computeOperationalAvgSeconds(validSlaTimes);
           const totalSlaSamples = periodSlaLogsRows.filter((l) => filteredConvIds.has(l.conversationId)).length;
           const totalSlaOverdue = periodSlaLogsRows.filter(
             (l) => filteredConvIds.has(l.conversationId) && l.isOverdue
@@ -971,16 +998,33 @@ export const Route = createFileRoute("/api/gestao/performance")({
           const overallSlaPct =
             totalSlaSamples > 0 ? Math.round(((totalSlaSamples - totalSlaOverdue) / totalSlaSamples) * 100) : null;
 
+          // Nota média QA global
+          const validQaScoresGlobal = auditsRows
+            .filter((a) => filteredConvIds.has(a.conversationId) && typeof a.performanceScore === "number")
+            .map((a) => Number(a.performanceScore));
+          const overallAvgQaScore =
+            validQaScoresGlobal.length > 0
+              ? Math.round(validQaScoresGlobal.reduce((a, b) => a + b, 0) / validQaScoresGlobal.length)
+              : null;
+
           // Tempo de assunção pós-transferência SDR
           const respondedTransfers = transferEventsRows.filter(
             (t) => t.status === "responded" && typeof t.durationSeconds === "number" && t.durationSeconds > 0
           );
-          const avgTransferPickupSeconds =
-            respondedTransfers.length > 0
-              ? Math.round(
-                  respondedTransfers.reduce((s, t) => s + Number(t.durationSeconds || 0), 0) / respondedTransfers.length
-                )
-              : null;
+          const avgTransferPickupSeconds = computeOperationalAvgSeconds(
+            respondedTransfers.map((t) => Number(t.durationSeconds || 0))
+          );
+
+          // Ligações atendidas vs perdidas e duração
+          const answeredCallsInPeriod =
+            voiceCallsInPeriod.filter((vc) => vc.status === "completed" || vc.status === "answered" || (vc.durationSeconds ?? 0) > 0).length +
+            dealCallActivities.filter((a) => a.status === "completed").length +
+            whatsappCallsInMessages;
+          const missedCallsInPeriod = Math.max(0, totalCallsCount - answeredCallsInPeriod);
+          const totalCallDurationSeconds = voiceCallsInPeriod.reduce(
+            (sum, vc) => sum + Number(vc.durationSeconds || 0),
+            0
+          );
 
           // Métricas Comerciais do CRM no período
           const dealsCreatedInPeriod = crmDealsRows.filter(
@@ -998,6 +1042,11 @@ export const Route = createFileRoute("/api/gestao/performance")({
             const ref = d.closedAt || d.updatedAt || d.createdAt;
             return ref ? new Date(ref) >= periodStart && new Date(ref) <= periodEnd : true;
           });
+          const prevWonDealsInPeriod = crmDealsRows.filter((d) => {
+            if (d.status !== "won") return false;
+            const ref = d.closedAt || d.updatedAt || d.createdAt;
+            return ref ? new Date(ref) >= prevPeriodStart && new Date(ref) <= prevPeriodEnd : false;
+          });
           const lostDealsInPeriod = crmDealsRows.filter((d) => {
             if (d.status !== "lost") return false;
             const ref = d.closedAt || d.updatedAt || d.createdAt;
@@ -1005,6 +1054,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
           });
 
           const wonValueInPeriod = wonDealsInPeriod.reduce((sum, d) => sum + Number(d.value || 0), 0);
+          const prevWonValueInPeriod = prevWonDealsInPeriod.reduce((sum, d) => sum + Number(d.value || 0), 0);
           const lostValueInPeriod = lostDealsInPeriod.reduce((sum, d) => sum + Number(d.value || 0), 0);
           const closedDecisionsCount = wonDealsInPeriod.length + lostDealsInPeriod.length;
           const winRatePct =
@@ -1016,12 +1066,21 @@ export const Route = createFileRoute("/api/gestao/performance")({
             activeConversationsInPeriod: currentActiveTotal,
             activeConversationsDeltaPct: calcDeltaPct(currentActiveTotal, prevActiveTotal),
             newConversationsInPeriod: newConvsInPeriod,
+            newConversationsDeltaPct: calcDeltaPct(newConvsInPeriod, prevConvsCreated),
             recurringConversationsInPeriod: recurringConvsInPeriod,
+            attendedInPeriod: totalHandledOrClosed,
             resolutionRatePct,
-            completedInPeriod: Math.max(finishedConvIdsInPeriod.size, totalFinishedNow),
+            completedInPeriod: completedInPeriodTotal,
+            completedDeltaPct: null,
+            inQueueNow: inQueueCount,
+            inAttendanceNow: inAttendanceCount,
+            inAutomationNow: inAutomationCount,
+            unansweredOver15mCount: openOverdueWaitingNow,
             waitingInQueueNow: inQueueCount,
             waitingClientReplyNow: openOverdueWaitingNow,
-            totalMessagesInPeriod: clientMessagesCount + agentMessagesCount + botMessagesCount,
+            inboundMessagesInPeriod: clientMessagesCount,
+            outboundMessagesInPeriod: agentMessagesCount,
+            totalMessagesInPeriod: clientMessagesCount + agentMessagesCount,
             messagesDeltaPct: calcDeltaPct(
               clientMessagesCount + agentMessagesCount,
               prevPeriodMessagesCountRes.length
@@ -1030,21 +1089,35 @@ export const Route = createFileRoute("/api/gestao/performance")({
             agentMessagesCount,
             botMessagesCount,
             callsCount: totalCallsCount,
-            avgResponseSeconds: overallAvgResponseSeconds,
-            overallSlaPct,
+            totalCallsInPeriod: totalCallsCount,
+            answeredCallsInPeriod,
+            missedCallsInPeriod,
+            totalCallDurationSeconds,
+            avgResponseSeconds: overallAvgResponseSeconds ?? 0,
+            overallSlaPct: overallSlaPct ?? 100,
+            withinSlaCount: Math.max(0, totalSlaSamples - totalSlaOverdue),
+            overdueSlaCount: totalSlaOverdue,
             overdueCount: totalSlaOverdue,
             avgTransferPickupSeconds,
+            avgFirstPickupAfterTriageSeconds: avgTransferPickupSeconds,
             transferPickupCount: respondedTransfers.length,
+            avgQaScore: overallAvgQaScore,
+            qaAuditedCount: validQaScoresGlobal.length,
             crmDealsCreatedInPeriod: dealsCreatedInPeriod.length,
             crmDealsDeltaPct: calcDeltaPct(dealsCreatedInPeriod.length, prevDealsCreatedCount),
+            crmDealsCreatedDeltaPct: calcDeltaPct(dealsCreatedInPeriod.length, prevDealsCreatedCount),
             openDealsCount: openDeals.length,
             openPipelineValue,
             wonDealsCount: wonDealsInPeriod.length,
+            wonDealsInPeriod: wonDealsInPeriod.length,
             wonValueInPeriod,
+            wonValueDeltaPct: calcDeltaPct(wonValueInPeriod, prevWonValueInPeriod),
             lostDealsCount: lostDealsInPeriod.length,
+            lostDealsInPeriod: lostDealsInPeriod.length,
             lostValueInPeriod,
             winRatePct,
             avgTicketValue,
+            avgTicketWon: avgTicketValue,
           };
 
           // ── 9. Tabela Executiva Expandida por Setor & Divisão (`sectorDetails`) ──
@@ -1086,10 +1159,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
               .map((l) => l.responseTimeSeconds)
               .filter((v): v is number => typeof v === "number" && v > 0);
             const avgResponse =
-              fallbackBasic?.avgResponse ??
-              (secValidTimes.length > 0
-                ? Math.round(secValidTimes.reduce((a, b) => a + b, 0) / secValidTimes.length)
-                : null);
+              fallbackBasic?.avgResponse ?? computeOperationalAvgSeconds(secValidTimes);
 
             const secOverdue = secSlaLogs.filter((l) => l.isOverdue).length;
             const slaPct =
@@ -1114,6 +1184,8 @@ export const Route = createFileRoute("/api/gestao/performance")({
             const secDeals = crmDealsRows.filter((d) => d.operatorId && memberSet.has(d.operatorId));
             const secOpenDeals = secDeals.filter((d) => d.status === "open");
             const secWonDeals = secDeals.filter((d) => d.status === "won");
+            const secOpenValue = secOpenDeals.reduce((s, d) => s + Number(d.value || 0), 0);
+            const secWonValue = secWonDeals.reduce((s, d) => s + Number(d.value || 0), 0);
 
             const memberOps = allOperatorsRows.filter((o) => memberSet.has(o.id));
             const operatorsOnline = memberOps.filter((o) => o.isOnline !== false).length;
@@ -1122,20 +1194,28 @@ export const Route = createFileRoute("/api/gestao/performance")({
               id,
               name,
               kind,
+              category: kind,
               operatorsTotal: memberOps.length,
               operatorsOnline,
               inQueue,
               inProgress,
+              inAttendance: inProgress,
               completed,
               activeInPeriod: Math.max(activeInPeriod, completed + inProgress),
               messagesSent,
               avgResponse,
               slaPct,
+              withinSla: Math.max(0, secSlaLogs.length - secOverdue),
+              overdueSla: secOverdue,
               qaScore,
+              avgQaScore: qaScore,
               openDealsCount: secOpenDeals.length,
-              openPipelineValue: secOpenDeals.reduce((s, d) => s + Number(d.value || 0), 0),
+              dealsOpen: secOpenDeals.length,
+              openPipelineValue: secOpenValue,
+              pipelineValue: secOpenValue,
               wonDealsCount: secWonDeals.length,
-              wonValue: secWonDeals.reduce((s, d) => s + Number(d.value || 0), 0),
+              dealsWon: secWonDeals.length,
+              wonValue: secWonValue,
             };
           };
 
@@ -1231,10 +1311,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
               const opValidTimes = opSlaLogs
                 .map((l) => l.responseTimeSeconds)
                 .filter((v): v is number => typeof v === "number" && v > 0);
-              const avgResponseSeconds =
-                opValidTimes.length > 0
-                  ? Math.round(opValidTimes.reduce((a, b) => a + b, 0) / opValidTimes.length)
-                  : null;
+              const avgResponseSeconds = computeOperationalAvgSeconds(opValidTimes);
               const opOverdue = opSlaLogs.filter((l) => l.isOverdue).length;
               const slaPct =
                 opSlaLogs.length > 0
@@ -1252,8 +1329,11 @@ export const Route = createFileRoute("/api/gestao/performance")({
               const opActivities = dealActivitiesRows.filter(
                 (a) => a.assignedToOperatorId === op.id || a.operatorId === op.id
               );
-              const opCalls =
-                (callsByOperator.get(op.id) ?? 0) + opActivities.filter((a) => a.type === "call").length;
+              const opCallActivities = opActivities.filter((a) => a.type === "call");
+              const opCalls = (callsByOperator.get(op.id) ?? 0) + opCallActivities.length;
+              const opCallsAnswered =
+                (callsByOperator.get(op.id) ?? 0) +
+                opCallActivities.filter((a) => a.status === "completed").length;
 
               const opTasksFromCrm = opActivities.filter((a) => a.type === "task" || a.type === "meeting");
               const opLegacyTasks = op.email
@@ -1263,6 +1343,10 @@ export const Route = createFileRoute("/api/gestao/performance")({
               const tasksCompleted =
                 opTasksFromCrm.filter((t) => t.status === "completed").length +
                 opLegacyTasks.filter((t) => t.status === "completed" || t.status === "done").length;
+
+              const tasksOpen =
+                opTasksFromCrm.filter((t) => t.status === "pending").length +
+                opLegacyTasks.filter((t) => t.status !== "completed" && t.status !== "done").length;
 
               const tasksOverdue =
                 opTasksFromCrm.filter(
@@ -1292,34 +1376,57 @@ export const Route = createFileRoute("/api/gestao/performance")({
                     : 0;
 
               const divRaw = divisionByOperatorId.get(op.id);
+              const sectorName = operatorSectorMap.get(op.id) ?? (op.role === "admin" ? "Gestão" : "Comercial");
+              const divisionLabel =
+                divRaw === "personnalite"
+                  ? "Divisão Personnalité"
+                  : divRaw === "maquinas"
+                    ? "Divisão Máquinas"
+                    : "Geral";
               const roleSubtitle =
                 divRaw === "personnalite"
                   ? "Divisão Personnalité"
                   : divRaw === "maquinas"
                     ? "Divisão Máquinas"
-                    : operatorSectorMap.get(op.id) ?? (op.role === "admin" ? "Gestão" : "Comercial");
+                    : sectorName;
 
               return {
+                id: op.id,
                 operatorId: op.id,
                 name: op.name,
+                role: op.role,
                 avatar: op.avatar ?? null,
                 roleSubtitle,
+                sectorName,
+                divisionLabel,
+                online: op.isOnline !== false,
                 isOnline: op.isOnline !== false,
                 activeChatsNow,
                 handledInPeriod,
                 completedInPeriod,
                 messagesSent,
+                messagesReceived: 0,
                 callsCount: opCalls,
+                callsTotal: opCalls,
+                callsAnswered: opCallsAnswered,
+                callSeconds: 0,
                 tasksCompleted,
+                tasksOpen,
                 tasksOverdue,
-                avgResponseSeconds,
+                avgResponseSeconds: avgResponseSeconds ?? 0,
                 slaPct,
+                overdueSlaCount: opOverdue,
                 qaScore,
+                avgQaScore: qaScore,
                 openDealsCount: opOpenDeals.length,
+                dealsOpen: opOpenDeals.length,
                 openPipelineValue,
+                pipelineValue: openPipelineValue,
                 wonDealsCount: opWonDeals.length,
+                dealsWon: opWonDeals.length,
                 wonValue,
                 lostDealsCount: opLostDeals.length,
+                dealsLost: opLostDeals.length,
                 conversionRatePct,
               };
             })
@@ -1358,6 +1465,7 @@ export const Route = createFileRoute("/api/gestao/performance")({
             aiPersonaName,
             totalTriagedInPeriod: totalTriaged,
             inProgressNow: inAutomationCount,
+            completedTriageCount: transferredTotal,
             transferredToHuman: transferredTotal,
             qualificationRatePct:
               totalTriaged > 0 ? Math.min(100, Math.round((transferredTotal / totalTriaged) * 100)) : 0,
@@ -1366,10 +1474,15 @@ export const Route = createFileRoute("/api/gestao/performance")({
           };
 
           const filterOptions = {
-            sectors: [
-              ...allSectors.map((s) => ({ id: s.id, name: s.name })),
+            sectors: allSectors.map((s) => ({ id: s.id, name: s.name })),
+            divisions: [
               ...(maquinasOpIds.length > 0 ? [{ id: "division:maquinas", name: "Divisão Máquinas" }] : []),
               ...(personnaliteOpIds.length > 0 ? [{ id: "division:personnalite", name: "Divisão Personnalité" }] : []),
+            ],
+            channels: [
+              { id: "all", name: "Todos os Canais" },
+              { id: "meta_official", name: "WhatsApp Oficial" },
+              { id: "baileys_linked", name: "Celulares Vinculados" },
             ],
           };
 

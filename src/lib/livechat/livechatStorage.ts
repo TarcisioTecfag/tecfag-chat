@@ -2211,32 +2211,68 @@ export async function getVisitorJourneyDetail(
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function getLiveChatMetrics(tenantId: string, sinceHours = 24) {
-  const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
+  const nowMs = Date.now();
+  const since = new Date(nowMs - sinceHours * 60 * 60 * 1000);
+  const onlineThreshold = new Date(nowMs - ONLINE_WINDOW_MS);
 
-  const [visitors] = await db
-    .select({ total: count() })
-    .from(lcVisitors)
-    .where(and(eq(lcVisitors.tenantId, tenantId), gte(lcVisitors.sessionStart, since)));
+  const [visitorsRows, chatsRows] = await Promise.all([
+    db
+      .select({
+        id: lcVisitors.id,
+        intentScore: lcVisitors.intentScore,
+        lastSeenAt: lcVisitors.lastSeenAt,
+      })
+      .from(lcVisitors)
+      .where(and(eq(lcVisitors.tenantId, tenantId), gte(lcVisitors.lastSeenAt, since)))
+      .catch(() => []),
+    db
+      .select({
+        id: lcChats.id,
+        status: lcChats.status,
+        outcome: lcChats.outcome,
+        waConversationId: lcChats.waConversationId,
+      })
+      .from(lcChats)
+      .where(and(eq(lcChats.tenantId, tenantId), gte(lcChats.startedAt, since)))
+      .catch(() => []),
+  ]);
 
-  const [chats] = await db
-    .select({ total: count() })
-    .from(lcChats)
-    .where(and(eq(lcChats.tenantId, tenantId), gte(lcChats.startedAt, since)));
+  const uniqueVisitors = visitorsRows.length;
+  const chatsStarted = chatsRows.length;
+  const bridgesToWhatsApp = chatsRows.filter(
+    (c) => c.outcome === "bridge_whatsapp" || Boolean(c.waConversationId)
+  ).length;
 
-  const [bridges] = await db
-    .select({ total: count() })
-    .from(lcChats)
-    .where(
-      and(
-        eq(lcChats.tenantId, tenantId),
-        eq(lcChats.outcome, "bridge_whatsapp"),
-        gte(lcChats.startedAt, since),
-      ),
-    );
+  const activeVisitorsOnline = visitorsRows.filter(
+    (v) =>
+      siteGateway.isOnline(tenantId, v.id) ||
+      (v.lastSeenAt && new Date(v.lastSeenAt).getTime() >= onlineThreshold.getTime())
+  ).length;
+  const activeOpenChats = chatsRows.filter((c) => c.status !== "closed").length;
+  const activeSessions = Math.max(activeVisitorsOnline, activeOpenChats);
+
+  const validScores = visitorsRows
+    .map((v) => Number(v.intentScore ?? 0))
+    .filter((s) => Number.isFinite(s) && s > 0);
+  const avgScore =
+    validScores.length > 0
+      ? Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length)
+      : 0;
+
+  const totalSessionsOrChats = Math.max(uniqueVisitors, chatsStarted);
+  const conversionBase = uniqueVisitors > 0 ? uniqueVisitors : chatsStarted;
+  const convertedCount = uniqueVisitors > 0 ? Math.max(chatsStarted, bridgesToWhatsApp) : bridgesToWhatsApp;
+  const conversionRate =
+    conversionBase > 0 ? Math.min(100, Math.round((convertedCount / conversionBase) * 100)) : 0;
 
   return {
-    uniqueVisitors: visitors?.total ?? 0,
-    chatsStarted: chats?.total ?? 0,
-    bridgesToWhatsApp: bridges?.total ?? 0,
+    uniqueVisitors,
+    chatsStarted,
+    bridgesToWhatsApp,
+    totalChats: totalSessionsOrChats,
+    activeSessions,
+    bridgesWhatsapp: bridgesToWhatsApp,
+    avgScore,
+    conversionRate,
   };
 }

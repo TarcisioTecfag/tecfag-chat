@@ -16,6 +16,24 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+/**
+ * Calcula o Tempo Médio de Resposta (TME) operacional expurgando distorções
+ * de virada de noite/fim de semana (Winsorized mean no P85 para amostras >= 4).
+ */
+function computeOperationalAvgSeconds(rawTimes: (number | null | undefined)[]): number {
+  const valid = rawTimes.filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0);
+  if (valid.length === 0) return 0;
+  if (valid.length < 4) {
+    return Math.round(valid.reduce((acc, curr) => acc + curr, 0) / valid.length);
+  }
+  const inShift = valid.filter((v) => v <= 4 * 3600);
+  const base = inShift.length >= Math.ceil(valid.length * 0.5) ? inShift : valid;
+  const sorted = [...base].sort((a, b) => a - b);
+  const p85Cap = sorted[Math.floor((sorted.length - 1) * 0.85)] ?? sorted[sorted.length - 1];
+  const cappedSum = sorted.reduce((acc, v) => acc + Math.min(v, p85Cap), 0);
+  return Math.round(cappedSum / sorted.length);
+}
+
 export const Route = createFileRoute("/api/gestao/sla")({
   server: {
     handlers: {
@@ -66,9 +84,7 @@ export const Route = createFileRoute("/api/gestao/sla")({
           const allValidTimes = allSlaLogs
             .map((l) => l.responseTimeSeconds)
             .filter((v): v is number => typeof v === "number" && v > 0);
-          const overallAvgResponseSeconds = allValidTimes.length > 0
-            ? Math.round(allValidTimes.reduce((acc, curr) => acc + curr, 0) / allValidTimes.length)
-            : 0;
+          const overallAvgResponseSeconds = computeOperationalAvgSeconds(allValidTimes);
 
           // ── 2. Ranking de SLA por Operador ─────────────────────────────────
           const allOperators = await db
@@ -114,9 +130,7 @@ export const Route = createFileRoute("/api/gestao/sla")({
 
               const chats = Number(chatsRes[0]?.count ?? 0);
               const validTimes = logsRes.map((l) => l.responseTimeSeconds).filter(Boolean) as number[];
-              const avgResponseSeconds = validTimes.length > 0
-                ? Math.round(validTimes.reduce((acc, curr) => acc + curr, 0) / validTimes.length)
-                : 0;
+              const avgResponseSeconds = computeOperationalAvgSeconds(validTimes);
 
               const opTotal = logsRes.length;
               const opOverdue = logsRes.filter((l) => l.isOverdue).length;

@@ -277,11 +277,18 @@ function OperatorAvatarBadge({
   highlight?: boolean;
 }) {
   const resolvedAvatar = avatar ? enhanceLegacyAvatarSrc(avatar) : null;
-  if (resolvedAvatar) {
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [resolvedAvatar]);
+
+  if (resolvedAvatar && !imgError) {
     return (
       <img
         src={resolvedAvatar}
         alt={name}
+        onError={() => setImgError(true)}
         className={`h-7 w-7 rounded-full object-cover shrink-0 border ${
           highlight ? "border-primary/40" : "border-border"
         }`}
@@ -729,9 +736,9 @@ function PerformanceTab({
         }
         if (!q) return true;
         return (
-          c.name.toLowerCase().includes(q) ||
-          c.sectorName.toLowerCase().includes(q) ||
-          c.divisionLabel.toLowerCase().includes(q)
+          (c.name || "").toLowerCase().includes(q) ||
+          (c.sectorName || (c as any).roleSubtitle || "").toLowerCase().includes(q) ||
+          (c.divisionLabel || "").toLowerCase().includes(q)
         );
       })
       .sort((a, b) => {
@@ -1008,7 +1015,9 @@ function PerformanceTab({
                   {resolutionRatePct}%
                 </p>
                 <span className="text-[10px] font-bold text-muted-foreground tabular-nums">
-                  ({totalConcluidasPeriodo} concl.)
+                  {totalAtendidasPeriodo > totalConcluidasPeriodo
+                    ? `(${totalAtendidasPeriodo} atend. · ${totalConcluidasPeriodo} concl.)`
+                    : `(${totalConcluidasPeriodo} concl.)`}
                 </span>
               </div>
             </div>
@@ -1023,17 +1032,19 @@ function PerformanceTab({
             <span>
               Na fila:{" "}
               <strong className="text-foreground tabular-nums">
-                {kpis?.inQueueNow ?? 0}
+                {kpis?.inQueueNow ?? (kpis as any)?.waitingInQueueNow ?? 0}
               </strong>
             </span>
             <span>
               Espera &gt;15m:{" "}
               <strong
                 className={`tabular-nums ${
-                  (kpis?.unansweredOver15mCount ?? 0) > 0 ? "text-primary font-extrabold" : "text-foreground"
+                  (kpis?.unansweredOver15mCount ?? (kpis as any)?.waitingClientReplyNow ?? 0) > 0
+                    ? "text-primary font-extrabold"
+                    : "text-foreground"
                 }`}
               >
-                {kpis?.unansweredOver15mCount ?? 0}
+                {kpis?.unansweredOver15mCount ?? (kpis as any)?.waitingClientReplyNow ?? 0}
               </strong>
             </span>
           </div>
@@ -1067,7 +1078,7 @@ function PerformanceTab({
             <span>
               Voz:{" "}
               <strong className="text-foreground tabular-nums">
-                {kpis?.totalCallsInPeriod ?? 0} lig.
+                {kpis?.totalCallsInPeriod ?? (kpis as any)?.callsCount ?? 0} lig.
               </strong>
             </span>
           </div>
@@ -1103,7 +1114,9 @@ function PerformanceTab({
             <span>
               Assunção pós-IA:{" "}
               <strong className="text-foreground tabular-nums">
-                {formatDurationHuman(kpis?.avgFirstPickupAfterTriageSeconds)}
+                {formatDurationHuman(
+                  kpis?.avgFirstPickupAfterTriageSeconds ?? (kpis as any)?.avgTransferPickupSeconds
+                )}
               </strong>
             </span>
             <span>
@@ -1326,7 +1339,7 @@ function PerformanceTab({
             </div>
           </div>
 
-          <div className="flex-1 w-full h-[240px]">
+          <div className="flex-1 w-full h-[240px] min-h-[240px]">
             {volumes.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={volumes} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
@@ -1361,70 +1374,71 @@ function PerformanceTab({
                     iconType="circle"
                     wrapperStyle={{ fontSize: 11, fontWeight: 600 }}
                   />
-                  {volumeChartMode === "chats" ? (
-                    <>
-                      <Area
-                        type="monotone"
-                        dataKey="chats"
-                        name="Conversas Ativas"
-                        stroke="var(--primary)"
-                        strokeWidth={2.5}
-                        dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
-                        activeDot={{ r: 5, fill: "var(--primary)", stroke: "var(--card)", strokeWidth: 2 }}
-                        fillOpacity={1}
-                        fill="url(#colorPrimaryMetric)"
-                        isAnimationActive={false}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="atendidos"
-                        name="Atendidas / Concluídas"
-                        stroke="var(--muted-foreground)"
-                        strokeWidth={2}
-                        dot={{ r: 2.5, fill: "var(--muted-foreground)", strokeWidth: 0 }}
-                        activeDot={{
-                          r: 4.5,
-                          fill: "var(--muted-foreground)",
-                          stroke: "var(--card)",
-                          strokeWidth: 2,
-                        }}
-                        fillOpacity={1}
-                        fill="url(#colorSecondaryMetric)"
-                        isAnimationActive={false}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <Area
-                        type="monotone"
-                        dataKey="mensagensRecebidas"
-                        name="Msgs Recebidas (Clientes)"
-                        stroke="var(--primary)"
-                        strokeWidth={2.5}
-                        dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
-                        activeDot={{ r: 5, fill: "var(--primary)", stroke: "var(--card)", strokeWidth: 2 }}
-                        fillOpacity={1}
-                        fill="url(#colorPrimaryMetric)"
-                        isAnimationActive={false}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="mensagensEnviadas"
-                        name="Msgs Enviadas (Equipe)"
-                        stroke="var(--muted-foreground)"
-                        strokeWidth={2}
-                        dot={{ r: 2.5, fill: "var(--muted-foreground)", strokeWidth: 0 }}
-                        activeDot={{
-                          r: 4.5,
-                          fill: "var(--muted-foreground)",
-                          stroke: "var(--card)",
-                          strokeWidth: 2,
-                        }}
-                        fillOpacity={1}
-                        fill="url(#colorSecondaryMetric)"
-                        isAnimationActive={false}
-                      />
-                    </>
+                  {volumeChartMode === "chats" && (
+                    <Area
+                      type="monotone"
+                      dataKey="chats"
+                      name="Conversas Ativas"
+                      stroke="var(--primary)"
+                      strokeWidth={2.5}
+                      dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
+                      activeDot={{ r: 5, fill: "var(--primary)", stroke: "var(--card)", strokeWidth: 2 }}
+                      fillOpacity={1}
+                      fill="url(#colorPrimaryMetric)"
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {volumeChartMode === "chats" && (
+                    <Area
+                      type="monotone"
+                      dataKey="atendidos"
+                      name="Atendidas / Concluídas"
+                      stroke="var(--muted-foreground)"
+                      strokeWidth={2}
+                      dot={{ r: 2.5, fill: "var(--muted-foreground)", strokeWidth: 0 }}
+                      activeDot={{
+                        r: 4.5,
+                        fill: "var(--muted-foreground)",
+                        stroke: "var(--card)",
+                        strokeWidth: 2,
+                      }}
+                      fillOpacity={1}
+                      fill="url(#colorSecondaryMetric)"
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {volumeChartMode === "messages" && (
+                    <Area
+                      type="monotone"
+                      dataKey="mensagensRecebidas"
+                      name="Msgs Recebidas (Clientes)"
+                      stroke="var(--primary)"
+                      strokeWidth={2.5}
+                      dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
+                      activeDot={{ r: 5, fill: "var(--primary)", stroke: "var(--card)", strokeWidth: 2 }}
+                      fillOpacity={1}
+                      fill="url(#colorPrimaryMetric)"
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {volumeChartMode === "messages" && (
+                    <Area
+                      type="monotone"
+                      dataKey="mensagensEnviadas"
+                      name="Msgs Enviadas (Equipe)"
+                      stroke="var(--muted-foreground)"
+                      strokeWidth={2}
+                      dot={{ r: 2.5, fill: "var(--muted-foreground)", strokeWidth: 0 }}
+                      activeDot={{
+                        r: 4.5,
+                        fill: "var(--muted-foreground)",
+                        stroke: "var(--card)",
+                        strokeWidth: 2,
+                      }}
+                      fillOpacity={1}
+                      fill="url(#colorSecondaryMetric)"
+                      isAnimationActive={false}
+                    />
                   )}
                 </AreaChart>
               </ResponsiveContainer>
@@ -2348,7 +2362,7 @@ function SlaTab({
               Dentro do Prazo
             </span>
             <span className="text-foreground font-black text-xs tabular-nums mt-0.5 block">
-              {computedWithinSla} ciclos
+              {computedWithinSla} {computedWithinSla === 1 ? "ciclo" : "ciclos"}
             </span>
           </div>
 
@@ -2357,7 +2371,7 @@ function SlaTab({
               Excedidos (&gt;15m)
             </span>
             <span className={`font-black text-xs tabular-nums mt-0.5 block ${overdueCount > 0 ? "text-primary" : "text-foreground"}`}>
-              {overdueCount} chats
+              {overdueCount} {overdueCount === 1 ? "ciclo" : "ciclos"}
             </span>
           </div>
         </div>
@@ -2438,7 +2452,7 @@ function SlaTab({
               </div>
 
               {/* Lista de Barras Horizontais com Scroll Suave */}
-              <div className="space-y-1.5 max-h-[245px] overflow-y-auto scrollbar-thin pr-1">
+              <div className="space-y-1.5 max-h-[310px] overflow-y-auto scrollbar-thin pr-1">
                 {chartOperators.map((op, index) => {
                   const isGoalMet = op.slaPct >= 90;
                   const isModerate = op.slaPct >= 70 && op.slaPct < 90;
@@ -3134,8 +3148,14 @@ export function AnalyticsView() {
       ]);
 
       if (ovRes.ok) setOverview(await ovRes.json());
-      if (alRes.ok) setAlerts(await alRes.json());
-      if (auRes.ok) setAudits(await auRes.json());
+      if (alRes.ok) {
+        const alData = await alRes.json();
+        setAlerts(Array.isArray(alData) ? alData : alData?.alerts || []);
+      }
+      if (auRes.ok) {
+        const auData = await auRes.json();
+        setAudits(Array.isArray(auData) ? auData : auData?.audits || []);
+      }
 
       if (perfRes.ok) {
         const pData = await perfRes.json();
@@ -3327,19 +3347,22 @@ export function AnalyticsView() {
       {activeTab === "reports" ? (
         <ReportsIATab tenant={tenant} refreshTrigger={lastRefresh.getTime()} />
       ) : (
-        <div className="flex-1 overflow-y-auto md:overflow-hidden px-3 md:px-5 py-4 flex flex-col">
+        <div className="flex-1 overflow-y-auto scrollbar-thin px-3 md:px-5 py-4 flex flex-col">
           {activeTab === "overview" && (
             <>
               <OverviewTab
                 overview={overview}
                 alerts={alerts}
                 audits={audits}
-                onSwitchTab={() => {}}
+                onSwitchTab={(tab) => {
+                  if (tab === "audits") setActiveTab("reports");
+                  else if (tab === "alerts") setActiveTab("sla");
+                }}
               />
 
               {/* ─── SEÇÃO LIVE CHAT ────────────────────────────────────────────────── */}
               {lcMetrics !== null && (
-                <div className="rounded-2xl bg-card border border-border p-6 shadow-soft mt-5">
+                <div className="rounded-2xl bg-card border border-border p-6 shadow-soft mt-5 shrink-0">
                   <div className="flex items-center gap-3 mb-5">
                     <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary grid place-items-center">
                       <Globe className="h-5 w-5" />
@@ -3351,11 +3374,11 @@ export function AnalyticsView() {
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     {([
-                      { label: "Sessões",        value: lcMetrics.totalChats,      icon: MessageSquare },
-                      { label: "Ativas agora",   value: lcMetrics.activeSessions,  icon: Activity },
-                      { label: "Bridges WA",     value: lcMetrics.bridgesWhatsapp, icon: Phone },
-                      { label: "Score médio",    value: lcMetrics.avgScore,        icon: TrendingUp },
-                      { label: "Conversão",      value: `${lcMetrics.conversionRate}%`, icon: Zap },
+                      { label: "Sessões",        value: lcMetrics.totalChats ?? (lcMetrics as any).chatsStarted ?? 0,      icon: MessageSquare },
+                      { label: "Ativas agora",   value: lcMetrics.activeSessions ?? 0,  icon: Activity },
+                      { label: "Bridges WA",     value: lcMetrics.bridgesWhatsapp ?? (lcMetrics as any).bridgesToWhatsApp ?? 0, icon: Phone },
+                      { label: "Score médio",    value: lcMetrics.avgScore ?? 0,        icon: TrendingUp },
+                      { label: "Conversão",      value: `${lcMetrics.conversionRate ?? 0}%`, icon: Zap },
                     ] as const).map(({ label, value, icon: Icon }) => (
                       <div key={label} className="rounded-xl bg-muted/40 p-4 border border-border/50">
                         <div className="flex items-center gap-2 mb-2">
