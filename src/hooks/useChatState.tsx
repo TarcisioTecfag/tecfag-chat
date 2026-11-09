@@ -948,10 +948,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           let changed = false;
           const next = previous.map((chat) => {
             const latest = byId.get(chat.id);
-            if (!latest || (chat.operatorId === latest.operatorId && chat.queue === latest.queueState && chat.version === latest.version)) return chat;
+            if (!latest) return chat;
+            const nextContactName =
+              typeof latest.contactName === "string" && latest.contactName.trim()
+                ? latest.contactName.trim()
+                : chat.name;
+            const nameChanged = nextContactName !== chat.name;
+            if (
+              !nameChanged &&
+              chat.operatorId === latest.operatorId &&
+              chat.queue === latest.queueState &&
+              chat.version === latest.version
+            ) {
+              return chat;
+            }
             changed = true;
+            const nextInitials = nameChanged
+              ? nextContactName
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((p: string) => p[0]?.toUpperCase() || "")
+                  .join("") || chat.initials
+              : chat.initials;
             return {
               ...chat,
+              name: nextContactName,
+              initials: nextInitials,
               operatorId: latest.operatorId,
               queue: latest.queueState,
               responsibleName: latest.responsibleName,
@@ -961,10 +984,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
           return changed ? next : previous;
         });
-        const knownIds = new Set(conversationsRef.current.map((chat) => chat.id));
-        const newlyAssigned = (data.ownership || []).filter((item: any) =>
-          item.queueState === "meus" && item.operatorId === currentOperatorIdRef.current && !knownIds.has(item.id)
-        ).slice(0, 10);
+        const knownById = new Map(conversationsRef.current.map((chat) => [chat.id, chat]));
+        const newlyAssigned = (data.ownership || []).filter((item: any) => {
+          if (item.queueState !== "meus" || item.operatorId !== currentOperatorIdRef.current) return false;
+          const existing = knownById.get(item.id);
+          if (!existing) return true;
+          if (
+            !existing.contactId ||
+            existing.name === "Contato" ||
+            (typeof item.contactName === "string" && item.contactName.trim() && existing.name !== item.contactName.trim())
+          ) {
+            return true;
+          }
+          return false;
+        }).slice(0, 10);
         for (const item of newlyAssigned) {
           if (disposed) break;
           await refreshAssignedChatRef.current(item.id).catch((error) =>
@@ -4700,7 +4733,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // 1. Tocar alerta sonoro cristalino sintetizado
             playNotificationSound();
 
-            const clientName = existingConv?.name || message.senderName || "Cliente";
+            const clientName =
+              existingConv?.name ||
+              (typeof message.contactName === "string" && message.contactName.trim()) ||
+              (message.senderType === "client" ? message.senderName : null) ||
+              "Cliente";
             const clientAvatar = existingConv?.avatar || message.avatar || "";
             const initials = clientName
             .split(" ")
@@ -4841,6 +4878,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               timeZone: "America/Sao_Paulo",
             });
             const isClientMsg = message.senderType === "client";
+            const explicitContactName =
+              typeof message.contactName === "string" && message.contactName.trim()
+                ? message.contactName.trim()
+                : "";
+            const resolvedContactName =
+              explicitContactName ||
+              (isClientMsg && typeof message.senderName === "string" && message.senderName.trim()
+                ? message.senderName.trim()
+                : "");
             const incomingMsg: Message = {
             id: message.id,
             conversationId: message.conversationId,
@@ -4911,9 +4957,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                   const isSystemMsg = incomingMsg.senderType === "system" || incomingMsg.author === "Sistema";
                   const shouldUpdatePreviewTime = !isSystemMsg || !c.lastMessageTime;
+                  const shouldHealName =
+                    Boolean(resolvedContactName) &&
+                    (!c.name ||
+                      c.name === "Contato" ||
+                      c.name === "Cliente" ||
+                      c.name === c.phone ||
+                      (Boolean(explicitContactName) && c.name !== explicitContactName));
+                  const nextName = shouldHealName ? resolvedContactName : c.name;
+                  const nextInitials = shouldHealName
+                    ? nextName
+                        .split(/\s+/)
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((w: string) => w[0]?.toUpperCase() || "")
+                        .join("") || c.initials
+                    : c.initials;
 
                   return {
                   ...c,
+                  name: nextName,
+                  initials: nextInitials,
                   lastMessageTime: shouldUpdatePreviewTime ? timeStr : c.lastMessageTime,
                   lastMessageAtISO: shouldUpdatePreviewTime ? sentAtIso : c.lastMessageAtISO || sentAtIso,
                   lastClientMessageAtISO: isClientMsg ? sentAtIso : c.lastClientMessageAtISO,
@@ -4929,12 +4993,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 return c;
               });
             } else {
-              const initials = String(message.senderName || "Contato")
-              .split(" ")
-              .map((w: string) => w[0])
-              .join("")
-              .toUpperCase()
-              .substring(0, 2);
+              const fallbackContactName =
+                resolvedContactName ||
+                (typeof message.phone === "string" && message.phone.trim()) ||
+                "Contato";
+              const initials =
+                String(fallbackContactName || "Contato")
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .map((w: string) => w[0])
+                  .join("")
+                  .toUpperCase()
+                  .substring(0, 2) || "C";
               const initialsBg = "";
 
               const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
@@ -4961,7 +5031,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               id: message.conversationId,
               contactId: message.contactId,
               whatsappConnectionId: message.whatsappConnectionId || null,
-              name: message.senderName || message.phone || "Contato",
+              name: fallbackContactName,
               avatar: message.avatar || "",
               initials,
               initialsBg,
@@ -4981,6 +5051,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return [newConv, ...prev];
             }
           });
+
+          if (!existingConv && message.conversationId) {
+            void refreshAssignedChatRef.current(message.conversationId).catch((error) =>
+              console.warn("Falha ao hidratar conversa criada via SSE:", error)
+            );
+          }
         } else if (data.type === "message_reaction") {
           const { conversationId, messageId, reactions } = data;
           setConversations((prev) =>
@@ -5046,6 +5122,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const {
             conversationId,
             contactId: eventContactId,
+            contactName: eventContactName,
             queueState,
             operatorId: newOperatorId,
             walletOperatorId: newWalletOperatorId,
@@ -5054,12 +5131,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             version,
           } = data;
 
-          if (queueState === "meus" && newOperatorId === currentOperatorIdRef.current &&
-            !conversationsRef.current.some((chat) => chat.id === conversationId)) {
-          void refreshAssignedChatRef.current(conversationId).catch((error) =>
-            console.warn("Falha ao carregar atendimento recebido:", error)
-          );
-        }
+          if (queueState === "meus" && newOperatorId === currentOperatorIdRef.current) {
+            void refreshAssignedChatRef.current(conversationId).catch((error) =>
+              console.warn("Falha ao carregar atendimento recebido:", error)
+            );
+          }
 
           const resolvedWalletOperatorId =
             newWalletOperatorId !== undefined
@@ -5068,11 +5144,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ? newOperatorId
                 : undefined;
 
+          const cleanEventContactName =
+            typeof eventContactName === "string" && eventContactName.trim()
+              ? eventContactName.trim()
+              : "";
+
           setConversations((prev) =>
             prev.map((c) => {
               if (c.id === conversationId) {
+                const nextName = cleanEventContactName || c.name;
+                const nextInitials = cleanEventContactName
+                  ? nextName
+                      .split(/\s+/)
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((w: string) => w[0]?.toUpperCase() || "")
+                      .join("") || c.initials
+                  : c.initials;
                 return {
                   ...c,
+                  name: nextName,
+                  initials: nextInitials,
                   queue: queueState,
                   operatorId: newOperatorId !== undefined ? newOperatorId : c.operatorId,
                   ...(resolvedWalletOperatorId !== undefined

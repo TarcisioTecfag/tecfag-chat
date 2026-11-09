@@ -119,6 +119,7 @@ export class InboundProcessor {
         const [contactRow] = conv?.contactId
           ? await db
               .select({
+                name: contacts.name,
                 walletOperatorId: contacts.walletOperatorId,
                 avatar: contacts.avatar,
                 responsibleName: contacts.responsibleName,
@@ -131,6 +132,7 @@ export class InboundProcessor {
           message: {
             ...msg,
             contactId: conv.contactId,
+            contactName: contactRow?.name || msg.senderName,
             phone: inbound.fromPhone,
             avatar: contactRow?.avatar || null,
             queue: conv.queueState,
@@ -143,6 +145,7 @@ export class InboundProcessor {
             type: "queue_update",
             conversationId: conv.id,
             contactId: conv.contactId,
+            contactName: contactRow?.name || undefined,
             queueState: conv.queueState,
             operatorId: conv.operatorId,
             walletOperatorId: contactRow?.walletOperatorId ?? null,

@@ -230,12 +230,33 @@ export const Route = createFileRoute("/api/chats")({
           if (!stored) return Response.json({ error: "O responsável pelo atendimento mudou. Atualize a conversa.", code: "FORBIDDEN" }, { status: 403 });
 
           try {
+            const [contactRow] = conv.contactId
+              ? await db
+                  .select({
+                    name: contacts.name,
+                    phone: contacts.phone,
+                    avatar: contacts.avatar,
+                    walletOperatorId: contacts.walletOperatorId,
+                  })
+                  .from(contacts)
+                  .where(
+                    and(
+                      eq(contacts.id, conv.contactId),
+                      eq(contacts.tenantId, session.tenantId),
+                    ),
+                  )
+                  .limit(1)
+              : [];
+
             SessionManager.getInstance().notifyPublic(session.tenantId, {
               type: "message",
               message: {
                 id: msgId,
                 conversationId,
                 contactId: conv.contactId,
+                contactName: contactRow?.name || undefined,
+                phone: conv.contactPhone || contactRow?.phone || undefined,
+                avatar: contactRow?.avatar || undefined,
                 whatsappConnectionId: conv.whatsappConnectionId,
                 senderType: (senderType || "agent") as any,
                 senderName: senderName || session.operator.name,
@@ -249,6 +270,7 @@ export const Route = createFileRoute("/api/chats")({
                 quotedMessageContent: quotedMessageContent ?? null,
                 queue: conv.queueState,
                 operatorId: conv.operatorId,
+                walletOperatorId: contactRow?.walletOperatorId ?? null,
               },
             });
           } catch (sseErr) {
@@ -332,7 +354,9 @@ export const Route = createFileRoute("/api/chats")({
               responsibleName: operators.name,
               sectorId: conversations.sectorId,
               version: conversations.version,
+              contactName: contacts.name,
             }).from(conversations)
+              .leftJoin(contacts, and(eq(contacts.id, conversations.contactId), eq(contacts.tenantId, session.tenantId)))
               .leftJoin(operators, and(eq(operators.id, conversations.operatorId), eq(operators.tenantId, session.tenantId)))
               .where(and(eq(conversations.tenantId, session.tenantId), conversationReadCondition(session)))
               .orderBy(desc(conversations.updatedAt))

@@ -208,6 +208,8 @@ export async function checkAndSendOperatorStatusAutoReply({
         message: {
           id: outboundResult.messageId,
           conversationId,
+          contactId: conv.contactId,
+          contactName: contact.name,
           senderType: "agent",
           senderName: op.name,
           content: OPERATOR_PAUSE_AUTO_REPLY_TEXT,

@@ -247,7 +247,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
 
               // Atualizar responsável e carteira no contato atomicamente
               if (convResult.contactId) {
-                await tx
+                const [updatedContact] = await tx
                   .update(contacts)
                   .set({
                     responsibleName: respName,
@@ -258,7 +258,11 @@ export const Route = createFileRoute("/api/chats/update-queue")({
                       eq(contacts.id, convResult.contactId),
                       eq(contacts.tenantId, session.tenantId)
                     )
-                  );
+                  )
+                  .returning({ name: contacts.name });
+                if (updatedContact?.name) {
+                  (convResult as any).contactName = updatedContact.name;
+                }
               }
 
               // Gravar mensagem de sistema atômica no histórico
@@ -361,6 +365,7 @@ export const Route = createFileRoute("/api/chats/update-queue")({
             type: "queue_update",
             conversationId,
             contactId: updatedConv.contactId,
+            contactName: updatedConv.contactName || undefined,
             queueState,
             operatorId: finalOperatorId,
             walletOperatorId: finalWalletOperatorId,

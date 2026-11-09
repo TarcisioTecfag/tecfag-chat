@@ -66,6 +66,9 @@ export type SessionEvent =
   | {
       type: "queue_update";
       conversationId: string;
+      contactId?: string | null;
+      contactName?: string | null;
+      walletOperatorId?: string | null;
       queueState: string;
       operatorId: string | null;
       sectorId: string | null;
@@ -1257,7 +1260,7 @@ export class SessionManager {
       phone = phone.split(":")[0];
     }
 
-    const name = rawMsg.pushName || `Cliente (${phone})`;
+    const name = !rawMsg.key?.fromMe && rawMsg.pushName ? rawMsg.pushName : `Cliente (${phone})`;
     const messageId = rawMsg.__localMessageId || rawMsg.key.id;
     const eventTime = new Date(Number(rawMsg.messageTimestamp || Date.now() / 1000) * 1000);
 
@@ -1898,7 +1901,7 @@ export class SessionManager {
           tenantId,
           conversationId: convId,
           contactId,
-          contactName: name,
+          contactName: contact?.name || name,
           contactPhone: resolvedPhoneJid.endsWith("@s.whatsapp.net")
             ? canonicalPhone
             : contact?.phone || null,
@@ -2049,6 +2052,7 @@ export class SessionManager {
           whatsappConnectionId: this.connectionId,
           provider: "baileys",
           contactId,
+          contactName: contact?.name || name,
           senderName: finalSenderName,
           content: text,
           phone: phone, // Enviar o telefone real extraído do JID para o frontend
