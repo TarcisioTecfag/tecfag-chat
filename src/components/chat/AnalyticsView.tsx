@@ -6,16 +6,30 @@ import {
   MessageSquare, RefreshCw, Percent, FileText, CheckCircle2,
   AlertTriangle, Info, Shield, HelpCircle, Activity, Star,
   TrendingUp, TrendingDown, Eye, Coins, Globe, Phone, Zap,
-  Search, ArrowUpDown, Filter, Award
+  Search, ArrowUpDown, Filter, Award, Briefcase, DollarSign,
+  Bot, Layers, PhoneCall, Building2, UserCheck, ListTodo,
+  Sparkles, Calendar, Mail, Smartphone, ArrowRight
 } from "lucide-react";
 // Componentes migrados do Monitoramento
 import { OverviewTab, CostsTab } from "@/components/chat/MonitorView";
 import { WhatsappLogo } from "@/components/chat/ChatList";
 import { SystemTooltip } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ReportsIATab } from "@/components/reports/ReportsIATab";
+import {
+  ContactsAnalyticsTab,
+  type ContactsAnalyticsPayload,
+} from "@/components/chat/ContactsAnalyticsTab";
 import { usePermissions } from "@/hooks/usePermissions";
 import { getInitialTabFromUrl, useSyncModuleTabWithUrl } from "@/lib/app-routes";
 import { enhanceLegacyAvatarSrc } from "@/lib/avatar-image";
+import { getAiPersona } from "@/lib/ai-persona";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, BarChart, Bar, Cell, PieChart, Pie
@@ -24,17 +38,34 @@ import {
 // ── Tipos ───────────────────────────────────────────────────────────────────
 type AnalyticsTab = "overview" | "performance" | "sla" | "contacts" | "reports" | "costs";
 
+type PerformancePeriod = "today" | "7d" | "15d" | "30d" | "month";
+type PerformanceChannelFilter = "all" | "meta_official" | "baileys_linked";
+
 type HistoricalVolume = {
   name: string;
+  dateKey?: string;
   chats: number;
+  novas?: number;
+  recorrentes?: number;
   atendidos: number;
+  respondidas?: number;
+  concluidas?: number;
+  mensagensRecebidas?: number;
+  mensagensEnviadas?: number;
   sla: number;
 };
 
 type ChannelVolume = {
+  key?: string;
   name: string;
   value: number;
+  activeNow?: number;
+  completed?: number;
   color: string;
+  subtitle?: string;
+  connectedCount?: number;
+  totalConnections?: number;
+  status?: "online" | "warning" | "offline" | "idle";
 };
 
 type SectorPerformance = {
@@ -42,6 +73,148 @@ type SectorPerformance = {
   avgResponse: number | null;
   completed: number;
   slaPct: number | null;
+};
+
+type SectorDetailPerformance = {
+  id: string;
+  name: string;
+  category?: "sector" | "division" | "unassigned";
+  operatorsTotal: number;
+  operatorsOnline: number;
+  inQueue: number;
+  inAttendance: number;
+  completed: number;
+  activeInPeriod: number;
+  messagesSent: number;
+  avgResponse: number | null;
+  slaPct: number | null;
+  withinSla: number;
+  overdueSla: number;
+  avgQaScore: number | null;
+  dealsOpen: number;
+  dealsWon: number;
+  wonValue: number;
+  pipelineValue: number;
+};
+
+type PerformanceKpis = {
+  activeConversationsInPeriod: number;
+  activeConversationsDeltaPct: number | null;
+  newConversationsInPeriod: number;
+  newConversationsDeltaPct: number | null;
+  recurringConversationsInPeriod: number;
+  attendedInPeriod: number;
+  completedInPeriod: number;
+  completedDeltaPct: number | null;
+  resolutionRatePct: number;
+  inQueueNow: number;
+  inAttendanceNow: number;
+  inAutomationNow: number;
+  unansweredOver15mCount: number;
+  inboundMessagesInPeriod: number;
+  outboundMessagesInPeriod: number;
+  totalMessagesInPeriod: number;
+  messagesDeltaPct: number | null;
+  avgResponseSeconds: number;
+  overallSlaPct: number;
+  withinSlaCount: number;
+  overdueSlaCount: number;
+  avgFirstPickupAfterTriageSeconds: number | null;
+  avgQaScore: number | null;
+  qaAuditedCount: number;
+  totalCallsInPeriod: number;
+  answeredCallsInPeriod: number;
+  missedCallsInPeriod: number;
+  totalCallDurationSeconds: number;
+  crmDealsCreatedInPeriod: number;
+  crmDealsCreatedDeltaPct: number | null;
+  openDealsCount: number;
+  openPipelineValue: number;
+  wonDealsInPeriod: number;
+  wonValueInPeriod: number;
+  wonValueDeltaPct: number | null;
+  lostDealsInPeriod: number;
+  lostValueInPeriod: number;
+  winRatePct: number;
+  avgTicketWon: number;
+};
+
+type OperationalFunnel = {
+  inAutomation: number;
+  inQueue: number;
+  inAttendance: number;
+  withOpenDeal: number;
+  completedInPeriod: number;
+  totalActiveNow: number;
+};
+
+type HourlyDemandPoint = {
+  hour: string;
+  hourNum: number;
+  recebidas: number;
+  respondidas: number;
+  slaOverdue: number;
+};
+
+type ConsultantProductivityItem = {
+  id: string;
+  name: string;
+  role: string;
+  avatar: string | null;
+  online: boolean;
+  sectorName: string;
+  divisionLabel: string;
+  activeChatsNow: number;
+  handledInPeriod: number;
+  completedInPeriod: number;
+  messagesSent: number;
+  messagesReceived: number;
+  callsTotal: number;
+  callsAnswered: number;
+  callSeconds: number;
+  tasksCompleted: number;
+  tasksOpen: number;
+  avgResponseSeconds: number;
+  slaPct: number | null;
+  overdueSlaCount: number;
+  avgQaScore: number | null;
+  dealsOpen: number;
+  pipelineValue: number;
+  dealsWon: number;
+  wonValue: number;
+  dealsLost: number;
+  conversionRatePct: number;
+};
+
+type TriageSummaryData = {
+  totalTriagedInPeriod: number;
+  inProgressNow: number;
+  completedTriageCount: number;
+  transferredToHuman: number;
+  qualificationRatePct: number;
+  avgPickupSeconds: number | null;
+  topFunnels: { name: string; count: number }[];
+};
+
+type PerformanceFilterOptions = {
+  sectors: { id: string; name: string }[];
+  divisions: { id: string; name: string }[];
+  channels: { id: string; name: string }[];
+};
+
+type PerformancePayload = {
+  period?: PerformancePeriod;
+  periodDays?: number;
+  volumes: HistoricalVolume[];
+  channels: ChannelVolume[];
+  sectors: SectorPerformance[];
+  sectorDetails?: SectorDetailPerformance[];
+  kpis?: PerformanceKpis;
+  operationalFunnel?: OperationalFunnel;
+  hourlyDemand?: HourlyDemandPoint[];
+  consultantProductivity?: ConsultantProductivityItem[];
+  triageSummary?: TriageSummaryData;
+  filterOptions?: PerformanceFilterOptions;
 };
 
 type OperatorPerformance = {
@@ -351,179 +524,745 @@ function parseMarkdown(md: string) {
 
 // ── Sub-Views ────────────────────────────────────────────────────────────────
 
-// 1. Aba: Desempenho e Volumes
-function PerformanceTab({ volumes, channels, sectors }: { 
-  volumes: HistoricalVolume[]; 
-  channels: ChannelVolume[]; 
-  sectors: SectorPerformance[];
-}) {
-  const totalVolume = channels.reduce((sum, c) => sum + c.value, 0);
-  const totalRecebidas7d = volumes.reduce((sum, v) => sum + (v.chats || 0), 0);
-  const totalFinalizadas7d = volumes.reduce((sum, v) => sum + (v.atendidos || 0), 0);
-  const resolutionRatePct =
-    totalRecebidas7d > 0 ? Math.min(100, Math.round((totalFinalizadas7d / totalRecebidas7d) * 100)) : 0;
+// 1. Aba: Desempenho Executivo & Visão da Diretoria
+function formatCurrencyBRL(value: number | null | undefined, compact = false): string {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num === 0) return "R$ 0";
+  if (compact && Math.abs(num) >= 1_000_000) {
+    return `R$ ${(num / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}M`;
+  }
+  if (compact && Math.abs(num) >= 10_000) {
+    return `R$ ${(num / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}k`;
+  }
+  return num.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
+}
 
-  const sortedSectors = useMemo(
-    () =>
-      [...sectors].sort((a, b) => {
+function DeltaPill({
+  delta,
+  inverse = false,
+}: {
+  delta: number | null | undefined;
+  inverse?: boolean;
+}) {
+  if (delta === null || delta === undefined) {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground text-[9px] font-bold border border-line">
+        Estável
+      </span>
+    );
+  }
+  if (delta === 0) {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground text-[9px] font-bold border border-line tabular-nums">
+        0%
+      </span>
+    );
+  }
+  const isPositiveGood = inverse ? delta < 0 : delta > 0;
+  const Icon = delta > 0 ? ArrowUpRight : ArrowDownRight;
+  return (
+    <SystemTooltip
+      content={`Variação de ${delta > 0 ? `+${delta}%` : `${delta}%`} em comparação com a janela equivalente anterior`}
+      side="top"
+    >
+      <span
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-extrabold border tabular-nums ${
+          isPositiveGood
+            ? "bg-primary/10 text-primary border-primary/25"
+            : "bg-muted text-muted-foreground border-border"
+        }`}
+      >
+        <Icon className="h-2.5 w-2.5" />
+        {delta > 0 ? `+${delta}%` : `${delta}%`}
+      </span>
+    </SystemTooltip>
+  );
+}
+
+function PerformanceTab({
+  tenant,
+  data,
+  period,
+  onChangePeriod,
+  sectorFilter,
+  onChangeSectorFilter,
+  channelFilter,
+  onChangeChannelFilter,
+  loading,
+}: {
+  tenant: string;
+  data: PerformancePayload;
+  period: PerformancePeriod;
+  onChangePeriod: (p: PerformancePeriod) => void;
+  sectorFilter: string;
+  onChangeSectorFilter: (s: string) => void;
+  channelFilter: PerformanceChannelFilter;
+  onChangeChannelFilter: (c: PerformanceChannelFilter) => void;
+  loading?: boolean;
+}) {
+  const {
+    volumes = [],
+    channels = [],
+    sectors = [],
+    sectorDetails = [],
+    kpis,
+    operationalFunnel,
+    hourlyDemand = [],
+    consultantProductivity = [],
+    triageSummary,
+    filterOptions,
+  } = data;
+
+  const persona = useMemo(() => getAiPersona(tenant), [tenant]);
+
+  const [volumeChartMode, setVolumeChartMode] = useState<"chats" | "messages">("chats");
+  const [consultantSearch, setConsultantSearch] = useState("");
+  const [consultantFilterMode, setConsultantFilterMode] = useState<"active" | "all">("active");
+  const [consultantSortBy, setConsultantSortBy] = useState<
+    "handled" | "messages" | "tme" | "sla" | "qa" | "won"
+  >("handled");
+
+  // Totais derivados para fallback se kpis não vier preenchido
+  const totalVolumeChannels = useMemo(
+    () => channels.reduce((sum, c) => sum + (c.value || 0), 0),
+    [channels]
+  );
+  const totalRecebidasPeriodo =
+    kpis?.activeConversationsInPeriod ??
+    volumes.reduce((sum, v) => sum + (v.chats || 0), 0);
+  const totalAtendidasPeriodo =
+    kpis?.attendedInPeriod ??
+    volumes.reduce((sum, v) => sum + (v.atendidos || 0), 0);
+  const totalConcluidasPeriodo =
+    kpis?.completedInPeriod ??
+    volumes.reduce((sum, v) => sum + (v.concluidas ?? v.atendidos ?? 0), 0);
+  const resolutionRatePct =
+    kpis?.resolutionRatePct ??
+    (totalRecebidasPeriodo > 0
+      ? Math.min(100, Math.round((totalAtendidasPeriodo / totalRecebidasPeriodo) * 100))
+      : 0);
+
+  const totalMsgsIn =
+    kpis?.inboundMessagesInPeriod ??
+    volumes.reduce((sum, v) => sum + (v.mensagensRecebidas || 0), 0);
+  const totalMsgsOut =
+    kpis?.outboundMessagesInPeriod ??
+    volumes.reduce((sum, v) => sum + (v.mensagensEnviadas || 0), 0);
+
+  // Horário de pico comercial detectado
+  const peakHourInfo = useMemo(() => {
+    if (!hourlyDemand || hourlyDemand.length === 0) return null;
+    let best = hourlyDemand[0];
+    for (const h of hourlyDemand) {
+      if ((h.recebidas || 0) > (best.recebidas || 0)) {
+        best = h;
+      }
+    }
+    return best && best.recebidas > 0 ? best : null;
+  }, [hourlyDemand]);
+
+  // Setores detalhados ou fallback para formato básico
+  const effectiveSectorDetails: SectorDetailPerformance[] = useMemo(() => {
+    if (sectorDetails && sectorDetails.length > 0) {
+      return [...sectorDetails].sort((a, b) => {
+        if (b.activeInPeriod !== a.activeInPeriod) return b.activeInPeriod - a.activeInPeriod;
         if (b.completed !== a.completed) return b.completed - a.completed;
         return (b.slaPct ?? -1) - (a.slaPct ?? -1);
-      }),
-    [sectors]
+      });
+    }
+    return [...sectors]
+      .sort((a, b) => {
+        if (b.completed !== a.completed) return b.completed - a.completed;
+        return (b.slaPct ?? -1) - (a.slaPct ?? -1);
+      })
+      .map((s, idx) => ({
+        id: `sec-${idx}`,
+        name: s.name,
+        category: "sector",
+        operatorsTotal: 0,
+        operatorsOnline: 0,
+        inQueue: 0,
+        inAttendance: 0,
+        completed: s.completed,
+        activeInPeriod: s.completed,
+        messagesSent: 0,
+        avgResponse: s.avgResponse,
+        slaPct: s.slaPct,
+        withinSla: 0,
+        overdueSla: 0,
+        avgQaScore: null,
+        dealsOpen: 0,
+        dealsWon: 0,
+        wonValue: 0,
+        pipelineValue: 0,
+      }));
+  }, [sectorDetails, sectors]);
+
+  const maxSectorActive = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...effectiveSectorDetails.map((s) => Math.max(s.activeInPeriod || 0, s.completed || 0))
+      ),
+    [effectiveSectorDetails]
   );
-  const maxSectorCompleted = useMemo(
-    () => Math.max(1, ...sortedSectors.map((s) => s.completed || 0)),
-    [sortedSectors]
-  );
+
+  // Produtividade por consultor filtrada e ordenada
+  const filteredConsultants = useMemo(() => {
+    const q = consultantSearch.trim().toLowerCase();
+    return consultantProductivity
+      .filter((c) => {
+        if (consultantFilterMode === "active") {
+          const hasActivity =
+            c.handledInPeriod > 0 ||
+            c.activeChatsNow > 0 ||
+            c.messagesSent > 0 ||
+            c.callsTotal > 0 ||
+            c.dealsOpen > 0 ||
+            c.dealsWon > 0;
+          if (!hasActivity) return false;
+        }
+        if (!q) return true;
+        return (
+          c.name.toLowerCase().includes(q) ||
+          c.sectorName.toLowerCase().includes(q) ||
+          c.divisionLabel.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        if (consultantSortBy === "won") {
+          if (b.wonValue !== a.wonValue) return b.wonValue - a.wonValue;
+          return b.dealsWon - a.dealsWon;
+        }
+        if (consultantSortBy === "messages") {
+          return b.messagesSent - a.messagesSent;
+        }
+        if (consultantSortBy === "tme") {
+          const aTme = a.avgResponseSeconds > 0 ? a.avgResponseSeconds : 999999;
+          const bTme = b.avgResponseSeconds > 0 ? b.avgResponseSeconds : 999999;
+          return aTme - bTme;
+        }
+        if (consultantSortBy === "sla") {
+          return (b.slaPct ?? -1) - (a.slaPct ?? -1);
+        }
+        if (consultantSortBy === "qa") {
+          return (b.avgQaScore ?? -1) - (a.avgQaScore ?? -1);
+        }
+        if (b.handledInPeriod !== a.handledInPeriod) return b.handledInPeriod - a.handledInPeriod;
+        return b.messagesSent - a.messagesSent;
+      });
+  }, [consultantProductivity, consultantSearch, consultantFilterMode, consultantSortBy]);
 
   const channelPalette = [
     "var(--primary)",
+    "color-mix(in srgb, var(--primary) 65%, var(--muted-foreground))",
     "var(--muted-foreground)",
-    "color-mix(in srgb, var(--primary) 45%, var(--muted-foreground))",
+    "color-mix(in srgb, var(--primary) 35%, var(--muted-foreground))",
+    "color-mix(in srgb, var(--muted-foreground) 65%, var(--border))",
   ];
 
+  const periodOptions: { id: PerformancePeriod; label: string; tip: string }[] = [
+    { id: "today", label: "Hoje", tip: "Indicadores consolidados de hoje (fuso de Brasília)" },
+    { id: "7d", label: "7 dias", tip: "Últimos 7 dias corridos comparado aos 7 dias anteriores" },
+    { id: "15d", label: "15 dias", tip: "Últimos 15 dias corridos comparado aos 15 dias anteriores" },
+    { id: "30d", label: "30 dias", tip: "Últimos 30 dias corridos comparado aos 30 dias anteriores" },
+    { id: "month", label: "Este Mês", tip: "Acumulado do mês vigente desde o dia 01" },
+  ];
+
+  const channelOptions: { id: PerformanceChannelFilter; label: string; tip: string }[] = [
+    { id: "all", label: "Todos os Canais", tip: "Consolidar todos os canais de comunicação" },
+    {
+      id: "meta_official",
+      label: "WhatsApp Oficial",
+      tip: "Filtrar apenas conversas do WhatsApp Oficial Corporativo (Meta Cloud API)",
+    },
+    {
+      id: "baileys_linked",
+      label: "Celulares Vinculados",
+      tip: "Filtrar apenas conversas de aparelhos celulares vinculados via QR Code (Baileys)",
+    },
+  ];
+
+  const funnelStages = useMemo(() => {
+    const f = operationalFunnel || {
+      inAutomation: kpis?.inAutomationNow ?? 0,
+      inQueue: kpis?.inQueueNow ?? 0,
+      inAttendance: kpis?.inAttendanceNow ?? 0,
+      withOpenDeal: kpis?.openDealsCount ?? 0,
+      completedInPeriod: totalConcluidasPeriodo,
+      totalActiveNow: 0,
+    };
+    const maxStage = Math.max(
+      1,
+      f.inAutomation,
+      f.inQueue,
+      f.inAttendance,
+      f.withOpenDeal,
+      f.completedInPeriod
+    );
+    return [
+      {
+        key: "automation",
+        label: `Triagem IA (${persona.name})`,
+        sub: "Recepção e qualificação ativa",
+        value: f.inAutomation,
+        pct: Math.round((f.inAutomation / maxStage) * 100),
+        icon: Bot,
+        highlight: false,
+      },
+      {
+        key: "queue",
+        label: "Na Fila de Espera",
+        sub: "Aguardando consultor assumir",
+        value: f.inQueue,
+        pct: Math.round((f.inQueue / maxStage) * 100),
+        icon: Clock,
+        highlight: f.inQueue > 5,
+      },
+      {
+        key: "attendance",
+        label: "Em Atendimento",
+        sub: "Carteira ativa com consultores",
+        value: f.inAttendance,
+        pct: Math.round((f.inAttendance / maxStage) * 100),
+        icon: MessageSquare,
+        highlight: false,
+      },
+      {
+        key: "crm",
+        label: "Com Negociação CRM",
+        sub: "Oportunidade comercial aberta",
+        value: f.withOpenDeal,
+        pct: Math.round((f.withOpenDeal / maxStage) * 100),
+        icon: Briefcase,
+        highlight: false,
+      },
+      {
+        key: "completed",
+        label: "Concluídos no Período",
+        sub: "Ciclo finalizado no período",
+        value: f.completedInPeriod,
+        pct: Math.round((f.completedInPeriod / maxStage) * 100),
+        icon: CheckCircle2,
+        highlight: false,
+      },
+    ];
+  }, [operationalFunnel, kpis, totalConcluidasPeriodo, persona.name]);
+
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 overflow-y-auto scrollbar-thin pr-1 pb-2">
-      {/* Gráfico de Volume de Conversas */}
-      <div className="xl:col-span-2 bg-card rounded-2xl p-5 border border-border shadow-soft flex flex-col min-h-[340px]">
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
-              <TrendingUp className="h-4 w-4" />
+    <div className="flex flex-col gap-5 overflow-y-auto scrollbar-thin pr-1 pb-4">
+      {/* ── 1. BARRA EXECUTIVA DE FILTROS DA DIRETORIA ─────────────────────────── */}
+      <div className="bg-card rounded-2xl p-3.5 border border-border shadow-soft flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+            <Layers className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-extrabold text-foreground">
+                Painel Executivo de Desempenho & Conversão
+              </h2>
+              {loading && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] font-bold">
+                  <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                  Atualizando
+                </span>
+              )}
             </div>
-            <div>
-              <h3 className="text-xs font-extrabold text-foreground">Volumetria Semanal</h3>
-              <p className="text-[10px] text-muted-foreground">Evolução diária de conversas recebidas vs. finalizadas (últimos 7 dias)</p>
-            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Visão consolidada para a Diretoria: atendimento, produtividade, SLA, triagem IA e resultado comercial no CRM
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Seletor de Período */}
+          <div className="flex items-center bg-muted/40 p-1 rounded-xl border border-line">
+            <Calendar className="h-3.5 w-3.5 text-muted-foreground ml-2 mr-1.5 shrink-0" />
+            {periodOptions.map((opt) => {
+              const active = period === opt.id;
+              return (
+                <SystemTooltip key={opt.id} content={opt.tip} side="bottom">
+                  <button
+                    type="button"
+                    onClick={() => onChangePeriod(opt.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      active
+                        ? "bg-primary text-primary-foreground shadow-soft"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                </SystemTooltip>
+              );
+            })}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="px-2.5 py-1 rounded-xl bg-muted/40 border border-line text-[10px] font-semibold text-muted-foreground">
-              Recebidas: <span className="font-extrabold text-foreground tabular-nums">{totalRecebidas7d}</span>
+          {/* Seletor de Setor / Divisão */}
+          <div className="w-[215px]">
+            <Select value={sectorFilter} onValueChange={onChangeSectorFilter}>
+              <SystemTooltip content="Filtrar indicadores por Divisão Comercial ou Setor" side="bottom">
+                <SelectTrigger className="h-8 text-[11px] font-bold rounded-xl bg-muted/40 border-line px-2.5">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <SelectValue placeholder="Todos os Setores" />
+                  </div>
+                </SelectTrigger>
+              </SystemTooltip>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs font-bold">
+                  Todos os Setores & Divisões
+                </SelectItem>
+                {(filterOptions?.divisions || [
+                  { id: "division:maquinas", name: "Divisão Máquinas" },
+                  { id: "division:personnalite", name: "Divisão Personnalité" },
+                ]).map((div) => (
+                  <SelectItem key={div.id} value={div.id} className="text-xs font-semibold">
+                    {div.name}
+                  </SelectItem>
+                ))}
+                {(filterOptions?.sectors || []).map((sec) => (
+                  <SelectItem key={sec.id} value={sec.id} className="text-xs">
+                    Setor: {sec.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Seletor de Canal */}
+          <div className="flex items-center bg-muted/40 p-1 rounded-xl border border-line">
+            {channelOptions.map((ch) => {
+              const active = channelFilter === ch.id;
+              return (
+                <SystemTooltip key={ch.id} content={ch.tip} side="bottom">
+                  <button
+                    type="button"
+                    onClick={() => onChangeChannelFilter(ch.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      active
+                        ? "bg-primary text-primary-foreground shadow-soft"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    {ch.label}
+                  </button>
+                </SystemTooltip>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 2. FAIXA EXECUTIVA DE 6 KPIs COM COMPARATIVO DE PERÍODO ────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3.5">
+        {/* KPI 1: Atendimentos Movimentados */}
+        <div className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                Atendimentos Ativos
+              </p>
+              <p className="text-2xl font-black text-foreground tabular-nums mt-1 leading-none">
+                {totalRecebidasPeriodo.toLocaleString("pt-BR")}
+              </p>
             </div>
-            <div className="px-2.5 py-1 rounded-xl bg-muted/40 border border-line text-[10px] font-semibold text-muted-foreground">
-              Finalizadas: <span className="font-extrabold text-foreground tabular-nums">{totalFinalizadas7d}</span>
+            <div className="flex flex-col items-end gap-1">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center">
+                <MessageSquare className="h-4 w-4" />
+              </div>
+              <DeltaPill delta={kpis?.activeConversationsDeltaPct} />
             </div>
-            <span className="text-[10px] font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-xl border border-primary/20 flex items-center gap-1 tabular-nums">
-              <CheckCircle2 className="h-3 w-3" />
-              {resolutionRatePct}% conclusão
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>
+              Novos:{" "}
+              <strong className="text-foreground tabular-nums">
+                {kpis?.newConversationsInPeriod ?? 0}
+              </strong>
+            </span>
+            <span>
+              Recorrentes:{" "}
+              <strong className="text-foreground tabular-nums">
+                {kpis?.recurringConversationsInPeriod ?? 0}
+              </strong>
             </span>
           </div>
         </div>
 
-        <div className="flex-1 w-full h-[230px]">
-          {volumes.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={volumes} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorChats" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.28} />
-                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="colorAtendidos" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--muted-foreground)" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="var(--muted-foreground)" stopOpacity={0.01} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
-                <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
-                <Tooltip content={<SystemChartTooltip />} />
-                <Legend verticalAlign="top" height={32} iconType="circle" wrapperStyle={{ fontSize: 11, fontWeight: 600 }} />
-                <Area
-                  type="monotone"
-                  dataKey="chats"
-                  name="Recebidas"
-                  stroke="var(--primary)"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
-                  activeDot={{ r: 5, fill: "var(--primary)", stroke: "var(--card)", strokeWidth: 2 }}
-                  fillOpacity={1}
-                  fill="url(#colorChats)"
-                  isAnimationActive={false}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="atendidos"
-                  name="Finalizadas"
-                  stroke="var(--muted-foreground)"
-                  strokeWidth={2}
-                  dot={{ r: 2.5, fill: "var(--muted-foreground)", strokeWidth: 0 }}
-                  activeDot={{ r: 4.5, fill: "var(--muted-foreground)", stroke: "var(--card)", strokeWidth: 2 }}
-                  fillOpacity={1}
-                  fill="url(#colorAtendidos)"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-              Sem dados de volumetria registrados nos últimos 7 dias.
+        {/* KPI 2: Taxa de Vazão & Fila */}
+        <div className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                Taxa de Vazão
+              </p>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <p className="text-2xl font-black text-foreground tabular-nums leading-none">
+                  {resolutionRatePct}%
+                </p>
+                <span className="text-[10px] font-bold text-muted-foreground tabular-nums">
+                  ({totalConcluidasPeriodo} concl.)
+                </span>
+              </div>
             </div>
-          )}
+            <div className="flex flex-col items-end gap-1">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center">
+                <CheckCircle2 className="h-4 w-4" />
+              </div>
+              <DeltaPill delta={kpis?.completedDeltaPct} />
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>
+              Na fila:{" "}
+              <strong className="text-foreground tabular-nums">
+                {kpis?.inQueueNow ?? 0}
+              </strong>
+            </span>
+            <span>
+              Espera &gt;15m:{" "}
+              <strong
+                className={`tabular-nums ${
+                  (kpis?.unansweredOver15mCount ?? 0) > 0 ? "text-primary font-extrabold" : "text-foreground"
+                }`}
+              >
+                {kpis?.unansweredOver15mCount ?? 0}
+              </strong>
+            </span>
+          </div>
+        </div>
+
+        {/* KPI 3: Volume de Interações & Ligações */}
+        <div className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                Interações Totais
+              </p>
+              <p className="text-2xl font-black text-foreground tabular-nums mt-1 leading-none">
+                {(kpis?.totalMessagesInPeriod ?? totalMsgsIn + totalMsgsOut).toLocaleString("pt-BR")}
+              </p>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center">
+                <Activity className="h-4 w-4" />
+              </div>
+              <DeltaPill delta={kpis?.messagesDeltaPct} />
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>
+              In/Out:{" "}
+              <strong className="text-foreground tabular-nums">
+                {totalMsgsIn}/{totalMsgsOut}
+              </strong>
+            </span>
+            <span>
+              Voz:{" "}
+              <strong className="text-foreground tabular-nums">
+                {kpis?.totalCallsInPeriod ?? 0} lig.
+              </strong>
+            </span>
+          </div>
+        </div>
+
+        {/* KPI 4: TME & Assunção Pós-Triagem */}
+        <div className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                TME de Resposta
+              </p>
+              <p className="text-2xl font-black text-foreground tabular-nums mt-1 leading-none">
+                {formatDurationHuman(kpis?.avgResponseSeconds)}
+              </p>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center">
+                <Clock className="h-4 w-4" />
+              </div>
+              <span
+                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-extrabold border tabular-nums ${
+                  (kpis?.overallSlaPct ?? 100) >= 90
+                    ? "bg-primary/10 text-primary border-primary/25"
+                    : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                SLA {kpis?.overallSlaPct ?? 100}%
+              </span>
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>
+              Assunção pós-IA:{" "}
+              <strong className="text-foreground tabular-nums">
+                {formatDurationHuman(kpis?.avgFirstPickupAfterTriageSeconds)}
+              </strong>
+            </span>
+            <span>
+              QA:{" "}
+              <strong className="text-foreground tabular-nums">
+                {kpis?.avgQaScore !== null && kpis?.avgQaScore !== undefined
+                  ? `${kpis.avgQaScore} pts`
+                  : "–"}
+              </strong>
+            </span>
+          </div>
+        </div>
+
+        {/* KPI 5: Geração de Negócios CRM */}
+        <div className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                Negócios no Período
+              </p>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <p className="text-2xl font-black text-foreground tabular-nums leading-none">
+                  {kpis?.crmDealsCreatedInPeriod ?? 0}
+                </p>
+                <span className="text-[10px] font-bold text-muted-foreground tabular-nums">
+                  ({kpis?.openDealsCount ?? 0} abertos)
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center">
+                <Briefcase className="h-4 w-4" />
+              </div>
+              <DeltaPill delta={kpis?.crmDealsCreatedDeltaPct} />
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>Pipeline aberto:</span>
+            <strong className="text-foreground font-extrabold tabular-nums">
+              {formatCurrencyBRL(kpis?.openPipelineValue, true)}
+            </strong>
+          </div>
+        </div>
+
+        {/* KPI 6: Receita Ganha vs. Perdida */}
+        <div className="bg-card rounded-2xl p-4 border border-border shadow-soft flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                Receita Ganha (CRM)
+              </p>
+              <p className="text-xl font-black text-primary tabular-nums mt-1 leading-none">
+                {formatCurrencyBRL(kpis?.wonValueInPeriod, true)}
+              </p>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center">
+                <DollarSign className="h-4 w-4" />
+              </div>
+              <DeltaPill delta={kpis?.wonValueDeltaPct} />
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>
+              Ganhas:{" "}
+              <strong className="text-foreground tabular-nums">
+                {kpis?.wonDealsInPeriod ?? 0} ({kpis?.winRatePct ?? 0}%)
+              </strong>
+            </span>
+            <SystemTooltip
+              content={`Perdidas no período: ${kpis?.lostDealsInPeriod ?? 0} (${formatCurrencyBRL(kpis?.lostValueInPeriod)}) | Ticket Médio Ganho: ${formatCurrencyBRL(kpis?.avgTicketWon)}`}
+              side="top"
+            >
+              <span className="cursor-help underline decoration-dotted">
+                Perd.: <strong className="text-foreground tabular-nums">{kpis?.lostDealsInPeriod ?? 0}</strong>
+              </span>
+            </SystemTooltip>
+          </div>
         </div>
       </div>
 
-      {/* Gráfico de Canais (Pie) */}
-      <div className="bg-card rounded-2xl p-5 border border-border shadow-soft flex flex-col justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
-            <MessageSquare className="h-4 w-4" />
+      {/* ── 3. RAIO-X DO FUNIL OPERACIONAL DE CARGA (5 ETAPAS) ─────────────────── */}
+      <div className="bg-card rounded-2xl p-5 border border-border shadow-soft">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+              <Filter className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-extrabold text-foreground">
+                Fluxo Operacional de Carga & Conversão
+              </h3>
+              <p className="text-[10px] text-muted-foreground">
+                Distribuição em tempo real das conversas desde a recepção automática até o fechamento
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-xs font-extrabold text-foreground">Distribuição por Canal</h3>
-            <p className="text-[10px] text-muted-foreground">Volume acumulado por meio de comunicação</p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {(kpis?.unansweredOver15mCount ?? 0) > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-primary/10 border border-primary/25 text-primary text-[10px] font-extrabold">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {kpis?.unansweredOver15mCount} aguardando resposta há +15 min
+              </span>
+            )}
+            <span className="text-[10px] font-bold text-muted-foreground bg-muted/40 px-2.5 py-1 rounded-xl border border-line tabular-nums">
+              Carga ativa agora:{" "}
+              <strong className="text-foreground">
+                {operationalFunnel?.totalActiveNow ??
+                  (kpis?.inAutomationNow ?? 0) +
+                    (kpis?.inQueueNow ?? 0) +
+                    (kpis?.inAttendanceNow ?? 0)}
+              </strong>{" "}
+              conversas
+            </span>
           </div>
         </div>
 
-        <div className="h-[155px] flex items-center justify-center relative my-3">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={channels}
-                cx="50%"
-                cy="50%"
-                innerRadius={48}
-                outerRadius={66}
-                paddingAngle={4}
-                cornerRadius={4}
-                dataKey="value"
-                stroke="var(--card)"
-                strokeWidth={2}
-                isAnimationActive={false}
-              >
-                {channels.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={channelPalette[index % channelPalette.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<SystemChartTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="absolute text-center pointer-events-none">
-            <p className="text-xl font-black text-foreground tabular-nums leading-none">{totalVolume}</p>
-            <p className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider mt-1">Chats</p>
-          </div>
-        </div>
-
-        <div className="space-y-2.5 pt-2 border-t border-line">
-          {channels.map((chan, index) => {
-            const dotColor = channelPalette[index % channelPalette.length];
-            const sharePct = totalVolume > 0 ? Math.round((chan.value / totalVolume) * 100) : 0;
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          {funnelStages.map((stage, idx) => {
+            const StageIcon = stage.icon;
             return (
-              <div key={chan.name} className="space-y-1">
-                <div className="flex items-center justify-between text-[11px] font-semibold">
+              <div
+                key={stage.key}
+                className={`relative rounded-xl p-3.5 border transition-all ${
+                  stage.highlight
+                    ? "bg-primary/5 border-primary/35"
+                    : "bg-muted/25 border-line"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: dotColor }} />
-                    <span className="text-foreground font-bold">{chan.name}</span>
+                    <div
+                      className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 border ${
+                        stage.highlight
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-card text-primary border-border"
+                      }`}
+                    >
+                      <StageIcon className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                      Etapa {idx + 1}
+                    </span>
                   </div>
-                  <span className="text-muted-foreground tabular-nums">
-                    <strong className="text-foreground">{chan.value}</strong> ({sharePct}%)
-                  </span>
+                  {idx < funnelStages.length - 1 && (
+                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50 hidden md:block" />
+                  )}
                 </div>
-                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+
+                <p className="text-xl font-black text-foreground tabular-nums leading-none">
+                  {stage.value.toLocaleString("pt-BR")}
+                </p>
+                <p className="text-[11px] font-bold text-foreground mt-1.5">{stage.label}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{stage.sub}</p>
+
+                <div className="mt-3 h-1.5 w-full rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${sharePct}%`, background: dotColor }}
+                    className="h-full rounded-full bg-primary transition-all duration-500"
+                    style={{ width: `${stage.value > 0 ? Math.max(stage.pct, 6) : 0}%` }}
                   />
                 </div>
               </div>
@@ -532,19 +1271,466 @@ function PerformanceTab({ volumes, channels, sectors }: {
         </div>
       </div>
 
-      {/* Tabela de Desempenho por Setores */}
-      <div className="xl:col-span-3 bg-card rounded-2xl border border-border shadow-soft overflow-hidden">
-        <div className="px-5 py-4 border-b border-line flex items-center justify-between">
-          <div>
-            <h3 className="text-xs font-extrabold text-foreground">Volume por Setor / Departamento</h3>
-            <p className="text-[10px] text-muted-foreground">Atendimento concluído, TME e cumprimento de SLA consolidado</p>
+      {/* ── 4. VOLUMETRIA DIÁRIA + MAPA HORÁRIO DE DEMANDA VS CAPACIDADE ──────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+        {/* Gráfico de Volumetria Diária (7 colunas) */}
+        <div className="xl:col-span-7 bg-card rounded-2xl p-5 border border-border shadow-soft flex flex-col min-h-[345px]">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+                <TrendingUp className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-extrabold text-foreground">
+                  Evolução Diária de Volumetria (Horário de Brasília)
+                </h3>
+                <p className="text-[10px] text-muted-foreground">
+                  {volumeChartMode === "chats"
+                    ? "Conversas movimentadas no dia (novas + recorrentes) vs. atendidas pela equipe"
+                    : "Volume diário de mensagens recebidas de clientes vs. enviadas pelos consultores"}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-muted/40 p-0.5 rounded-xl border border-line">
+                <button
+                  type="button"
+                  onClick={() => setVolumeChartMode("chats")}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                    volumeChartMode === "chats"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Conversas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVolumeChartMode("messages")}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                    volumeChartMode === "messages"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Mensagens
+                </button>
+              </div>
+
+              <span className="text-[10px] font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-xl border border-primary/20 flex items-center gap-1 tabular-nums">
+                <CheckCircle2 className="h-3 w-3" />
+                {resolutionRatePct}% vazão
+              </span>
+            </div>
           </div>
-          <span className="text-[10px] font-bold text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-xl border border-line">
-            {sortedSectors.length} {sortedSectors.length === 1 ? "setor" : "setores"}
+
+          <div className="flex-1 w-full h-[240px]">
+            {volumes.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={volumes} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorPrimaryMetric" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.28} />
+                      <stop offset="95%" stopColor="var(--primary)" stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="colorSecondaryMetric" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--muted-foreground)" stopOpacity={0.22} />
+                      <stop offset="95%" stopColor="var(--muted-foreground)" stopOpacity={0.01} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
+                  <XAxis
+                    dataKey="name"
+                    stroke="var(--muted-foreground)"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="var(--muted-foreground)"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip content={<SystemChartTooltip />} />
+                  <Legend
+                    verticalAlign="top"
+                    height={32}
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: 11, fontWeight: 600 }}
+                  />
+                  {volumeChartMode === "chats" ? (
+                    <>
+                      <Area
+                        type="monotone"
+                        dataKey="chats"
+                        name="Conversas Ativas"
+                        stroke="var(--primary)"
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
+                        activeDot={{ r: 5, fill: "var(--primary)", stroke: "var(--card)", strokeWidth: 2 }}
+                        fillOpacity={1}
+                        fill="url(#colorPrimaryMetric)"
+                        isAnimationActive={false}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="atendidos"
+                        name="Atendidas / Concluídas"
+                        stroke="var(--muted-foreground)"
+                        strokeWidth={2}
+                        dot={{ r: 2.5, fill: "var(--muted-foreground)", strokeWidth: 0 }}
+                        activeDot={{
+                          r: 4.5,
+                          fill: "var(--muted-foreground)",
+                          stroke: "var(--card)",
+                          strokeWidth: 2,
+                        }}
+                        fillOpacity={1}
+                        fill="url(#colorSecondaryMetric)"
+                        isAnimationActive={false}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Area
+                        type="monotone"
+                        dataKey="mensagensRecebidas"
+                        name="Msgs Recebidas (Clientes)"
+                        stroke="var(--primary)"
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: "var(--primary)", strokeWidth: 0 }}
+                        activeDot={{ r: 5, fill: "var(--primary)", stroke: "var(--card)", strokeWidth: 2 }}
+                        fillOpacity={1}
+                        fill="url(#colorPrimaryMetric)"
+                        isAnimationActive={false}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="mensagensEnviadas"
+                        name="Msgs Enviadas (Equipe)"
+                        stroke="var(--muted-foreground)"
+                        strokeWidth={2}
+                        dot={{ r: 2.5, fill: "var(--muted-foreground)", strokeWidth: 0 }}
+                        activeDot={{
+                          r: 4.5,
+                          fill: "var(--muted-foreground)",
+                          stroke: "var(--card)",
+                          strokeWidth: 2,
+                        }}
+                        fillOpacity={1}
+                        fill="url(#colorSecondaryMetric)"
+                        isAnimationActive={false}
+                      />
+                    </>
+                  )}
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+                Sem dados de volumetria registrados para os filtros selecionados.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mapa Horário de Demanda vs. Capacidade (5 colunas) */}
+        <div className="xl:col-span-5 bg-card rounded-2xl p-5 border border-border shadow-soft flex flex-col min-h-[345px]">
+          <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+                <Clock className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-extrabold text-foreground">
+                  Demanda por Faixa Horária (07h–22h)
+                </h3>
+                <p className="text-[10px] text-muted-foreground">
+                  Mensagens recebidas vs. respostas da equipe por hora do dia
+                </p>
+              </div>
+            </div>
+
+            {peakHourInfo && (
+              <SystemTooltip
+                content={`Maior concentração de mensagens recebidas às ${peakHourInfo.hour} (${peakHourInfo.recebidas} msgs)`}
+                side="top"
+              >
+                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-xl border border-primary/20 tabular-nums">
+                  Pico: {peakHourInfo.hour}
+                </span>
+              </SystemTooltip>
+            )}
+          </div>
+
+          <div className="flex-1 w-full h-[240px]">
+            {hourlyDemand.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={hourlyDemand} margin={{ top: 10, right: 8, left: -24, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
+                  <XAxis
+                    dataKey="hour"
+                    stroke="var(--muted-foreground)"
+                    fontSize={9}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="var(--muted-foreground)"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip content={<SystemChartTooltip />} />
+                  <Legend
+                    verticalAlign="top"
+                    height={32}
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: 11, fontWeight: 600 }}
+                  />
+                  <Bar
+                    dataKey="recebidas"
+                    name="Recebidas (Clientes)"
+                    fill="var(--primary)"
+                    radius={[4, 4, 0, 0]}
+                    isAnimationActive={false}
+                  />
+                  <Bar
+                    dataKey="respondidas"
+                    name="Respostas (Equipe)"
+                    fill="var(--muted-foreground)"
+                    radius={[4, 4, 0, 0]}
+                    isAnimationActive={false}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+                Sem tráfego horário registrado no período.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 5. CANAIS & SAÚDE DAS CONEXÕES + EFICIÊNCIA DA TRIAGEM IA ─────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+        {/* Canais Reais & Conexões (7 colunas) */}
+        <div className="xl:col-span-7 bg-card rounded-2xl p-5 border border-border shadow-soft flex flex-col justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+                <Smartphone className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-extrabold text-foreground">
+                  Canais de Comunicação & Saúde das Conexões
+                </h3>
+                <p className="text-[10px] text-muted-foreground">
+                  Volume real por meio de entrada (WhatsApp Oficial, Celulares Baileys, Site, Voz e E-mail)
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold text-muted-foreground bg-muted/40 px-2.5 py-1 rounded-xl border border-line tabular-nums">
+              Total movimentado: <strong className="text-foreground">{totalVolumeChannels}</strong>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+            <div className="md:col-span-4 h-[170px] flex items-center justify-center relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={channels.filter((c) => c.value > 0).length > 0 ? channels : [{ name: "Sem tráfego", value: 1 }]}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={46}
+                    outerRadius={66}
+                    paddingAngle={3}
+                    cornerRadius={4}
+                    dataKey="value"
+                    stroke="var(--card)"
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                  >
+                    {(channels.filter((c) => c.value > 0).length > 0 ? channels : [{ name: "Sem tráfego", value: 1 }]).map(
+                      (_, index) => (
+                        <Cell key={`cell-${index}`} fill={channelPalette[index % channelPalette.length]} />
+                      )
+                    )}
+                  </Pie>
+                  <Tooltip content={<SystemChartTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute text-center pointer-events-none">
+                <p className="text-xl font-black text-foreground tabular-nums leading-none">
+                  {totalVolumeChannels}
+                </p>
+                <p className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider mt-1">
+                  Interações
+                </p>
+              </div>
+            </div>
+
+            <div className="md:col-span-8 space-y-2.5">
+              {channels.map((chan, index) => {
+                const dotColor = channelPalette[index % channelPalette.length];
+                const sharePct =
+                  totalVolumeChannels > 0 ? Math.round((chan.value / totalVolumeChannels) * 100) : 0;
+                return (
+                  <div
+                    key={chan.name}
+                    className="p-2.5 rounded-xl bg-muted/25 border border-line space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ background: dotColor }}
+                        />
+                        <span className="text-foreground font-extrabold truncate">{chan.name}</span>
+                        {chan.totalConnections !== undefined && chan.totalConnections > 0 && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold border tabular-nums ${
+                              (chan.connectedCount ?? 0) > 0
+                                ? "bg-primary/10 text-primary border-primary/25"
+                                : "bg-muted text-muted-foreground border-border"
+                            }`}
+                          >
+                            {chan.connectedCount}/{chan.totalConnections} online
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-muted-foreground tabular-nums shrink-0">
+                        <strong className="text-foreground font-extrabold">{chan.value}</strong> ({sharePct}%)
+                      </span>
+                    </div>
+
+                    {chan.subtitle && (
+                      <p className="text-[10px] text-muted-foreground truncate">{chan.subtitle}</p>
+                    )}
+
+                    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${chan.value > 0 ? Math.max(sharePct, 3) : 0}%`, background: dotColor }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Eficiência da Triagem IA — Fagner / Valentina (5 colunas) */}
+        <div className="xl:col-span-5 bg-card rounded-2xl p-5 border border-border shadow-soft flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+                  <Bot className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-extrabold text-foreground">
+                    Eficiência da Triagem IA ({persona.name})
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground">
+                    Qualificação automática e repasse para os consultores
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] font-extrabold text-primary bg-primary/10 px-2.5 py-1 rounded-xl border border-primary/20 tabular-nums">
+                {triageSummary?.qualificationRatePct ?? 0}% qualificados
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 mb-4">
+              <div className="p-3 rounded-xl bg-muted/30 border border-line">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                  Acionados no Período
+                </p>
+                <p className="text-lg font-black text-foreground tabular-nums mt-0.5">
+                  {triageSummary?.totalTriagedInPeriod ?? 0}
+                </p>
+              </div>
+              <div className="p-3 rounded-xl bg-muted/30 border border-line">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                  Repassados p/ Equipe
+                </p>
+                <p className="text-lg font-black text-foreground tabular-nums mt-0.5">
+                  {triageSummary?.transferredToHuman ?? 0}
+                </p>
+              </div>
+              <div className="p-3 rounded-xl bg-muted/30 border border-line">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                  Em Triagem Agora
+                </p>
+                <p className="text-lg font-black text-foreground tabular-nums mt-0.5">
+                  {triageSummary?.inProgressNow ?? 0}
+                </p>
+              </div>
+              <div className="p-3 rounded-xl bg-muted/30 border border-line">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                  Assunção Humana
+                </p>
+                <p className="text-lg font-black text-foreground tabular-nums mt-0.5">
+                  {formatDurationHuman(triageSummary?.avgPickupSeconds)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-line">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground mb-2">
+              Principais Destinos / Funis Identificados
+            </p>
+            {(triageSummary?.topFunnels || []).length > 0 ? (
+              <div className="space-y-1.5">
+                {triageSummary!.topFunnels.slice(0, 3).map((tf) => (
+                  <div
+                    key={tf.name}
+                    className="flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-lg bg-muted/25 border border-line"
+                  >
+                    <span className="font-bold text-foreground truncate">{tf.name}</span>
+                    <span className="font-extrabold text-primary tabular-nums">{tf.count} leads</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground py-2">
+                Sem roteamentos de funil registrados no período selecionado.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 6. TABELA EXECUTIVA POR SETOR & DIVISÃO COMERCIAL ─────────────────── */}
+      <div className="bg-card rounded-2xl border border-border shadow-soft overflow-hidden">
+        <div className="px-5 py-4 border-b border-line flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+              <Building2 className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-extrabold text-foreground">
+                Desempenho Consolidado por Setor & Divisão
+              </h3>
+              <p className="text-[10px] text-muted-foreground">
+                Capacidade da equipe, fila em tempo real, volume atendido, TME, SLA, nota QA e geração de receita
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-xl border border-line tabular-nums">
+            {effectiveSectorDetails.length}{" "}
+            {effectiveSectorDetails.length === 1 ? "unidade" : "unidades"}
           </span>
         </div>
+
         <div className="overflow-x-auto">
-          {sortedSectors.length === 0 ? (
+          {effectiveSectorDetails.length === 0 ? (
             <div className="p-8 text-center text-xs text-muted-foreground">
               Nenhum setor cadastrado ou com atendimentos registrados.
             </div>
@@ -552,51 +1738,129 @@ function PerformanceTab({ volumes, channels, sectors }: {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-muted/40 text-muted-foreground font-semibold border-b border-line">
-                  <th className="px-5 py-3">Setor</th>
-                  <th className="px-5 py-3">Conversas Concluídas</th>
-                  <th className="px-5 py-3">TME de Resposta</th>
-                  <th className="px-5 py-3">SLA Cumprido</th>
+                  <th className="px-4 py-3">Setor / Divisão</th>
+                  <th className="px-3 py-3 text-center">Equipe</th>
+                  <th className="px-3 py-3 text-center">Na Fila</th>
+                  <th className="px-3 py-3 text-center">Em Carteira</th>
+                  <th className="px-4 py-3">Ativos / Concluídos</th>
+                  <th className="px-3 py-3 text-right">Msgs Env.</th>
+                  <th className="px-3 py-3">TME Resposta</th>
+                  <th className="px-4 py-3">SLA Cumprido</th>
+                  <th className="px-3 py-3 text-center">Score QA</th>
+                  <th className="px-4 py-3 text-right">Pipeline / Ganho (CRM)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {sortedSectors.map((sec) => {
-                  const volPct = Math.round(((sec.completed || 0) / maxSectorCompleted) * 100);
+                {effectiveSectorDetails.map((sec) => {
+                  const volPct = Math.round(
+                    (Math.max(sec.activeInPeriod || 0, sec.completed || 0) / maxSectorActive) * 100
+                  );
+                  const isDivision = sec.category === "division";
                   return (
-                    <tr key={sec.name} className="hover:bg-muted/30 transition font-medium">
-                      <td className="px-5 py-3 text-foreground font-bold">{sec.name}</td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-3">
-                          <span className="text-foreground font-extrabold tabular-nums w-10">{sec.completed}</span>
-                          <div className="h-1.5 w-24 rounded-full bg-muted overflow-hidden hidden sm:block">
+                    <tr
+                      key={sec.id || sec.name}
+                      className={`hover:bg-muted/30 transition font-medium ${
+                        isDivision ? "bg-primary/[0.03]" : ""
+                      }`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-foreground font-extrabold">{sec.name}</span>
+                          {isDivision && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20 text-[9px] font-bold">
+                              Divisão
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-3 text-center tabular-nums">
+                        {sec.operatorsTotal > 0 ? (
+                          <SystemTooltip
+                            content={`${sec.operatorsOnline} online de ${sec.operatorsTotal} vinculados`}
+                            side="top"
+                          >
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 border border-line text-[10px] font-bold">
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${
+                                  sec.operatorsOnline > 0 ? "bg-primary" : "bg-muted-foreground"
+                                }`}
+                              />
+                              {sec.operatorsOnline}/{sec.operatorsTotal}
+                            </span>
+                          </SystemTooltip>
+                        ) : (
+                          <span className="text-muted-foreground">–</span>
+                        )}
+                      </td>
+
+                      <td className="px-3 py-3 text-center tabular-nums">
+                        <span
+                          className={`font-bold ${
+                            sec.inQueue > 0 ? "text-primary font-extrabold" : "text-muted-foreground"
+                          }`}
+                        >
+                          {sec.inQueue}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-3 text-center tabular-nums font-bold text-foreground">
+                        {sec.inAttendance}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-16 tabular-nums">
+                            <span className="text-foreground font-extrabold">
+                              {sec.activeInPeriod}
+                            </span>
+                            <span className="text-muted-foreground text-[10px]">
+                              {" "}
+                              / {sec.completed}
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden hidden sm:block">
                             <div
-                              className="h-full rounded-full bg-primary/75"
-                              style={{ width: `${sec.completed > 0 ? Math.max(volPct, 4) : 0}%` }}
+                              className="h-full rounded-full bg-primary/80"
+                              style={{
+                                width: `${
+                                  sec.activeInPeriod > 0 || sec.completed > 0
+                                    ? Math.max(volPct, 5)
+                                    : 0
+                                }%`,
+                              }}
                             />
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3 text-foreground tabular-nums">
+
+                      <td className="px-3 py-3 text-right tabular-nums font-semibold text-foreground">
+                        {(sec.messagesSent || 0).toLocaleString("pt-BR")}
+                      </td>
+
+                      <td className="px-3 py-3 text-foreground tabular-nums">
                         {sec.avgResponse === null ? (
                           <span className="text-muted-foreground">Sem amostra</span>
                         ) : (
                           formatDurationHuman(sec.avgResponse)
                         )}
                       </td>
-                      <td className="px-5 py-3">
+
+                      <td className="px-4 py-3">
                         {sec.slaPct === null ? (
                           <span className="text-muted-foreground">Sem amostra</span>
                         ) : (
-                          <div className="flex items-center gap-2.5">
-                            <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden hidden sm:block">
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden hidden sm:block">
                               <div
                                 className={`h-full rounded-full ${
                                   sec.slaPct >= 90 ? "bg-primary" : "bg-muted-foreground"
                                 }`}
-                                style={{ width: `${Math.max(sec.slaPct, 3)}%` }}
+                                style={{ width: `${Math.max(sec.slaPct, 4)}%` }}
                               />
                             </div>
                             <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border tabular-nums ${
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border tabular-nums ${
                                 sec.slaPct >= 90
                                   ? "bg-primary/10 text-primary border-primary/20"
                                   : "bg-muted text-muted-foreground border-border"
@@ -607,9 +1871,304 @@ function PerformanceTab({ volumes, channels, sectors }: {
                           </div>
                         )}
                       </td>
+
+                      <td className="px-3 py-3 text-center tabular-nums">
+                        {sec.avgQaScore !== null ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-primary/10 text-primary border border-primary/20 text-[10px] font-extrabold">
+                            <Award className="h-3 w-3" />
+                            {sec.avgQaScore}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">–</span>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {sec.wonValue > 0 || sec.pipelineValue > 0 ? (
+                          <div>
+                            <p className="font-extrabold text-primary">
+                              {formatCurrencyBRL(sec.wonValue, true)}{" "}
+                              <span className="text-[10px] font-normal text-muted-foreground">
+                                ({sec.dealsWon} ganhas)
+                              </span>
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              Pipeline: {formatCurrencyBRL(sec.pipelineValue, true)} ({sec.dealsOpen})
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">R$ 0</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* ── 7. MATRIZ DE PRODUTIVIDADE & CONVERSÃO POR CONSULTOR ──────────────── */}
+      <div className="bg-card rounded-2xl border border-border shadow-soft overflow-hidden">
+        <div className="px-5 py-4 border-b border-line flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+              <UserCheck className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-extrabold text-foreground">
+                Matriz Individual de Produtividade & Conversão Comercial
+              </h3>
+              <p className="text-[10px] text-muted-foreground">
+                Cruzamento por consultor: conversas atendidas, mensagens, ligações, tarefas, TME, SLA, nota QA e vendas ganhas
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Busca por consultor */}
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={consultantSearch}
+                onChange={(e) => setConsultantSearch(e.target.value)}
+                placeholder="Buscar consultor ou setor..."
+                className="h-8 pl-8 pr-3 rounded-xl bg-muted/40 border border-line text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40 w-48"
+              />
+            </div>
+
+            {/* Filtro Ativos vs Todos */}
+            <div className="flex items-center bg-muted/40 p-0.5 rounded-xl border border-line">
+              <button
+                type="button"
+                onClick={() => setConsultantFilterMode("active")}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                  consultantFilterMode === "active"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Com Atividade
+              </button>
+              <button
+                type="button"
+                onClick={() => setConsultantFilterMode("all")}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                  consultantFilterMode === "all"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Todos ({consultantProductivity.length})
+              </button>
+            </div>
+
+            {/* Ordenação */}
+            <div className="w-[175px]">
+              <Select
+                value={consultantSortBy}
+                onValueChange={(v) => setConsultantSortBy(v as any)}
+              >
+                <SystemTooltip content="Ordenar ranking de consultores por critério" side="top">
+                  <SelectTrigger className="h-8 text-[11px] font-bold rounded-xl bg-muted/40 border-line px-2.5">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <ArrowUpDown className="h-3 w-3 text-primary shrink-0" />
+                      <SelectValue placeholder="Ordenar por" />
+                    </div>
+                  </SelectTrigger>
+                </SystemTooltip>
+                <SelectContent>
+                  <SelectItem value="handled" className="text-xs">
+                    Maior Volume Atendido
+                  </SelectItem>
+                  <SelectItem value="won" className="text-xs">
+                    Maior Receita Ganha (R$)
+                  </SelectItem>
+                  <SelectItem value="messages" className="text-xs">
+                    Mais Mensagens Enviadas
+                  </SelectItem>
+                  <SelectItem value="tme" className="text-xs">
+                    Menor TME de Resposta
+                  </SelectItem>
+                  <SelectItem value="sla" className="text-xs">
+                    Maior SLA Cumprido (%)
+                  </SelectItem>
+                  <SelectItem value="qa" className="text-xs">
+                    Maior Nota QA (IA)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          {filteredConsultants.length === 0 ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">
+              Nenhum consultor encontrado para os critérios selecionados.
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-muted/40 text-muted-foreground font-semibold border-b border-line">
+                  <th className="px-4 py-3">Consultor / Setor</th>
+                  <th className="px-3 py-3 text-center">Carteira / Período</th>
+                  <th className="px-3 py-3 text-center">Esforço (Msgs / Voz / Tarefas)</th>
+                  <th className="px-3 py-3">TME Resposta</th>
+                  <th className="px-3 py-3">SLA Cumprido</th>
+                  <th className="px-3 py-3 text-center">Nota QA</th>
+                  <th className="px-3 py-3 text-right">Pipeline Aberto</th>
+                  <th className="px-4 py-3 text-right">Vendas Ganhas & Conversão</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {filteredConsultants.map((op, index) => (
+                  <tr key={op.id} className="hover:bg-muted/30 transition font-medium">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="relative shrink-0">
+                          <OperatorAvatarBadge
+                            name={op.name}
+                            avatar={op.avatar}
+                            highlight={index < 3}
+                          />
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card ${
+                              op.online ? "bg-primary" : "bg-muted-foreground/50"
+                            }`}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-foreground font-extrabold truncate">{op.name}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {op.sectorName} • {op.divisionLabel}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-3 text-center tabular-nums">
+                      <span className="font-extrabold text-foreground">{op.handledInPeriod}</span>
+                      <span className="text-muted-foreground text-[10px]">
+                        {" "}
+                        atend. ({op.completedInPeriod} concl.)
+                      </span>
+                      <p className="text-[10px] text-muted-foreground">
+                        Ativos agora: <strong className="text-foreground">{op.activeChatsNow}</strong>
+                      </p>
+                    </td>
+
+                    <td className="px-3 py-3 text-center tabular-nums">
+                      <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-muted/35 border border-line text-[10px]">
+                        <SystemTooltip content={`${op.messagesSent} mensagens enviadas | ${op.messagesReceived} recebidas`} side="top">
+                          <span className="font-bold text-foreground">
+                            {op.messagesSent} msgs
+                          </span>
+                        </SystemTooltip>
+                        <span className="text-muted-foreground">•</span>
+                        <SystemTooltip
+                          content={`${op.callsAnswered}/${op.callsTotal} ligações atendidas (${formatDurationHuman(op.callSeconds)})`}
+                          side="top"
+                        >
+                          <span className="font-semibold text-muted-foreground">
+                            {op.callsTotal} lig.
+                          </span>
+                        </SystemTooltip>
+                        <span className="text-muted-foreground">•</span>
+                        <SystemTooltip
+                          content={`${op.tasksCompleted} tarefas concluídas | ${op.tasksOpen} abertas`}
+                          side="top"
+                        >
+                          <span className="font-semibold text-muted-foreground">
+                            {op.tasksCompleted} tar.
+                          </span>
+                        </SystemTooltip>
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-3 tabular-nums text-foreground font-semibold">
+                      {op.avgResponseSeconds > 0 ? (
+                        formatDurationHuman(op.avgResponseSeconds)
+                      ) : (
+                        <span className="text-muted-foreground">–</span>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-3 tabular-nums">
+                      {op.slaPct === null ? (
+                        <span className="text-muted-foreground">–</span>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              op.slaPct >= 90
+                                ? "bg-primary/10 text-primary border-primary/20"
+                                : "bg-muted text-muted-foreground border-border"
+                            }`}
+                          >
+                            {op.slaPct}%
+                          </span>
+                          {op.overdueSlaCount > 0 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              ({op.overdueSlaCount} est.)
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-3 text-center tabular-nums">
+                      {op.avgQaScore !== null ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-primary/10 text-primary border border-primary/20 text-[10px] font-extrabold">
+                          <Star className="h-2.5 w-2.5" />
+                          {op.avgQaScore}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">–</span>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {op.dealsOpen > 0 ? (
+                        <div>
+                          <p className="font-bold text-foreground">
+                            {formatCurrencyBRL(op.pipelineValue, true)}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {op.dealsOpen} {op.dealsOpen === 1 ? "negócio" : "negócios"}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">–</span>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {op.dealsWon > 0 || op.wonValue > 0 ? (
+                        <div>
+                          <p className="font-extrabold text-primary">
+                            {formatCurrencyBRL(op.wonValue, true)}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {op.dealsWon} ganhas •{" "}
+                            <strong className="text-foreground">{op.conversionRatePct}% conv.</strong>
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="text-muted-foreground font-semibold">R$ 0</span>
+                          {op.dealsLost > 0 && (
+                            <p className="text-[10px] text-muted-foreground">
+                              {op.dealsLost} perd.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
@@ -1462,14 +3021,19 @@ export function AnalyticsView() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [audits, setAudits] = useState<any[]>([]);
 
-  const [performanceData, setPerformanceData] = useState<{
-    volumes: HistoricalVolume[];
-    channels: ChannelVolume[];
-    sectors: SectorPerformance[];
-  }>({
+  // Filtros executivos da aba Desempenho
+  const [perfPeriod, setPerfPeriod] = useState<PerformancePeriod>("7d");
+  const [perfSectorFilter, setPerfSectorFilter] = useState<string>("all");
+  const [perfChannelFilter, setPerfChannelFilter] = useState<PerformanceChannelFilter>("all");
+  const [perfLoading, setPerfLoading] = useState(false);
+
+  const [performanceData, setPerformanceData] = useState<PerformancePayload>({
     volumes: [],
     channels: [],
     sectors: [],
+    sectorDetails: [],
+    hourlyDemand: [],
+    consultantProductivity: [],
   });
 
   const [slaData, setSlaData] = useState<{
@@ -1488,16 +3052,11 @@ export function AnalyticsView() {
     operators: [],
   });
 
-  const [contactsData, setContactsData] = useState<{
-    clientMetrics: ClientMetric[];
-    avgDaysWithoutService: number;
-    avgFrequency: number;
-    ragConversionPct: number;
-  }>({
+  const [contactsData, setContactsData] = useState<ContactsAnalyticsPayload>({
     clientMetrics: [],
     avgDaysWithoutService: 0,
     avgFrequency: 0,
-    ragConversionPct: 100,
+    ragConversionPct: 0,
   });
 
   const [reports, setReports] = useState<AiReportData[]>([]);
@@ -1510,16 +3069,64 @@ export function AnalyticsView() {
     conversionRate: number;
   } | null>(null);
 
+  const fetchPerformanceOnly = useCallback(
+    async (
+      periodArg: PerformancePeriod,
+      sectorArg: string,
+      channelArg: PerformanceChannelFilter
+    ) => {
+      setPerfLoading(true);
+      setPerformanceError(null);
+      try {
+        const params = new URLSearchParams({
+          tenantId: String(tenant || ""),
+          period: periodArg,
+          sectorId: sectorArg,
+          channel: channelArg,
+        });
+        const perfRes = await fetch(`/api/gestao/performance?${params.toString()}`);
+        if (perfRes.ok) {
+          const pData = await perfRes.json();
+          setPerformanceData({
+            ...pData,
+            volumes: pData.volumes || [],
+            channels: pData.channels || [],
+            sectors: pData.sectors || [],
+            sectorDetails: pData.sectorDetails || [],
+            hourlyDemand: pData.hourlyDemand || [],
+            consultantProductivity: pData.consultantProductivity || [],
+          });
+        } else {
+          setPerformanceData({ volumes: [], channels: [], sectors: [] });
+          setPerformanceError("Indicadores de desempenho indisponíveis. Tente atualizar novamente.");
+        }
+      } catch (e) {
+        console.error("[AnalyticsView] Erro ao atualizar aba Desempenho:", e);
+        setPerformanceError("Não foi possível atualizar os indicadores de desempenho.");
+      } finally {
+        setPerfLoading(false);
+      }
+    },
+    [tenant]
+  );
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setPerformanceError(null);
     try {
+      const perfParams = new URLSearchParams({
+        tenantId: String(tenant || ""),
+        period: perfPeriod,
+        sectorId: perfSectorFilter,
+        channel: perfChannelFilter,
+      });
+
       // Buscar dados reais de todas as APIs do módulo de estatísticas em paralelo
       const [ovRes, alRes, auRes, perfRes, slaRes, contRes, repRes] = await Promise.all([
         fetch(`/api/gestao/overview?tenantId=${tenant}`),
         fetch(`/api/gestao/alerts?tenantId=${tenant}`),
         fetch(`/api/gestao/audits?tenantId=${tenant}&limit=50`),
-        fetch(`/api/gestao/performance?tenantId=${tenant}`),
+        fetch(`/api/gestao/performance?${perfParams.toString()}`),
         fetch(`/api/gestao/sla?tenantId=${tenant}`),
         fetch(`/api/gestao/contacts-analytics?tenantId=${tenant}`),
         fetch(`/api/gestao/reports?tenantId=${tenant}`),
@@ -1532,9 +3139,13 @@ export function AnalyticsView() {
       if (perfRes.ok) {
         const pData = await perfRes.json();
         setPerformanceData({
+          ...pData,
           volumes: pData.volumes || [],
           channels: pData.channels || [],
           sectors: pData.sectors || [],
+          sectorDetails: pData.sectorDetails || [],
+          hourlyDemand: pData.hourlyDemand || [],
+          consultantProductivity: pData.consultantProductivity || [],
         });
       } else {
         setPerformanceData({ volumes: [], channels: [], sectors: [] });
@@ -1556,10 +3167,11 @@ export function AnalyticsView() {
       if (contRes.ok) {
         const cData = await contRes.json();
         setContactsData({
+          ...cData,
           clientMetrics: cData.clientMetrics || [],
           avgDaysWithoutService: cData.avgDaysWithoutService ?? 0,
           avgFrequency: cData.avgFrequency ?? 0,
-          ragConversionPct: cData.ragConversionPct ?? 100,
+          ragConversionPct: cData.ragConversionPct ?? 0,
         });
       }
 
@@ -1576,11 +3188,12 @@ export function AnalyticsView() {
     } finally {
       setLoading(false);
     }
-  }, [tenant]);
+  }, [tenant, perfPeriod, perfSectorFilter, perfChannelFilter]);
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenant]);
 
   useEffect(() => {
     const load = async () => {
@@ -1757,12 +3370,32 @@ export function AnalyticsView() {
           )}
 
           {activeTab === "performance" && (
-            performanceError ? <div role="alert" className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-foreground">{performanceError}</div> :
-            <PerformanceTab
-              volumes={performanceData.volumes}
-              channels={performanceData.channels}
-              sectors={performanceData.sectors}
-            />
+            performanceError ? (
+              <div role="alert" className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-foreground">
+                {performanceError}
+              </div>
+            ) : (
+              <PerformanceTab
+                tenant={String(tenant || "tecfag")}
+                data={performanceData}
+                period={perfPeriod}
+                onChangePeriod={(nextPeriod) => {
+                  setPerfPeriod(nextPeriod);
+                  fetchPerformanceOnly(nextPeriod, perfSectorFilter, perfChannelFilter);
+                }}
+                sectorFilter={perfSectorFilter}
+                onChangeSectorFilter={(nextSector) => {
+                  setPerfSectorFilter(nextSector);
+                  fetchPerformanceOnly(perfPeriod, nextSector, perfChannelFilter);
+                }}
+                channelFilter={perfChannelFilter}
+                onChangeChannelFilter={(nextChannel) => {
+                  setPerfChannelFilter(nextChannel);
+                  fetchPerformanceOnly(perfPeriod, perfSectorFilter, nextChannel);
+                }}
+                loading={loading || perfLoading}
+              />
+            )
           )}
           {activeTab === "sla" && (
             <SlaTab
@@ -1775,11 +3408,10 @@ export function AnalyticsView() {
             />
           )}
           {activeTab === "contacts" && (
-            <ContactsTab
-              clientMetrics={contactsData.clientMetrics}
-              avgDaysWithoutService={contactsData.avgDaysWithoutService}
-              avgFrequency={contactsData.avgFrequency}
-              ragConversionPct={contactsData.ragConversionPct}
+            <ContactsAnalyticsTab
+              initialData={contactsData}
+              tenant={tenant}
+              refreshTrigger={lastRefresh.getTime()}
             />
           )}
           {activeTab === "costs" && (

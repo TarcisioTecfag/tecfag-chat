@@ -8230,24 +8230,7 @@ function PlaceholderTab({ icon: Icon, title, description }: {
   );
 }
 
-// ── GlobalTasksTab ───────────────────────────────────────────────────────────
-
-interface GlobalTaskData {
-  id: string;
-  name: string;
-  type: string;
-  status: string;
-  dueDate: string | null;
-  description: string | null;
-  createdAt: string | null;
-  deal: { id: string; name: string | null } | null;
-  client: { name: string | null; phone: string | null };
-  chatContactId: string | null;
-  chatConversationId: string | null;
-  operatorEmail: string | null;
-  operatorName: string;
-  operatorAvatar: string | null;
-}
+// ── GlobalTasksTab (Cockpit Executivo 360º da Diretoria) ─────────────────────
 
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const MONTHS = [
@@ -8255,47 +8238,87 @@ const MONTHS = [
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
+type GlobalTaskViewMode = "queue" | "month" | "week" | "day";
+type GlobalTaskQueueSubTab = "overdue" | "today" | "upcoming7d" | "open_deals" | "completed" | "all";
+type GlobalTaskSortBy = "value_desc" | "overdue_desc" | "due_asc" | "operator_asc";
+
+const GLOBAL_TASK_TYPE_META: Record<string, { label: string; shortLabel: string }> = {
+  call:     { label: "Ligação",  shortLabel: "Ligação" },
+  whatsapp: { label: "WhatsApp", shortLabel: "WhatsApp" },
+  meeting:  { label: "Reunião",  shortLabel: "Reunião" },
+  visit:    { label: "Visita",   shortLabel: "Visita" },
+  email:    { label: "E-mail",   shortLabel: "E-mail" },
+  lunch:    { label: "Almoço",   shortLabel: "Almoço" },
+  task:     { label: "Tarefa",   shortLabel: "Tarefa" },
+};
+
+const TASK_SUPERVISOR_WHISPER_PRESETS = [
+  {
+    label: "Cobrar execução imediata",
+    buildText: (t: GlobalTaskItem) =>
+      `[Diretoria • Cobrança de Tarefa] Priorize agora a atividade "${t.name}" com ${t.client.name || "o cliente"}${t.deal?.name ? ` (${t.deal.name})` : ""} e atualize o retorno no CRM.`,
+  },
+  {
+    label: "Pedir status da negociação",
+    buildText: (t: GlobalTaskItem) =>
+      `[Diretoria • Alinhamento Comercial] Qual o status atualizado da tarefa "${t.name}"${t.deal?.name ? ` na oportunidade "${t.deal.name}"` : ""}? Precisamos de visibilidade hoje.`,
+  },
+  {
+    label: "Solicitar reagendamento formal",
+    buildText: (t: GlobalTaskItem) =>
+      `[Diretoria • Higiene de Agenda] A atividade "${t.name}" está vencida. Conclua com registro do que foi feito ou reagende para o próximo passo real com o cliente.`,
+  },
+];
+
 function getDaysInMonth(year: number, month: number): Date[] {
   const days: Date[] = [];
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
-
-  // Preencher dias anteriores
   const startDay = firstDay.getDay();
   for (let i = startDay - 1; i >= 0; i--) {
     days.push(new Date(year, month, -i));
   }
-
-  // Dias do mês
   for (let d = 1; d <= lastDay.getDate(); d++) {
     days.push(new Date(year, month, d));
   }
-
-  // Preencher dias seguintes
   const remaining = 42 - days.length;
   for (let i = 1; i <= remaining; i++) {
     days.push(new Date(year, month + 1, i));
   }
-
   return days;
+}
+
+function getWeekDays(anchorDate: Date): Date[] {
+  const start = new Date(anchorDate);
+  const day = start.getDay();
+  start.setDate(start.getDate() - day);
+  start.setHours(0, 0, 0, 0);
+  return Array.from({ length: 7 }, (_, idx) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + idx);
+    return d;
+  });
 }
 
 function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-function getTaskTypeIcon(type: string) {
-  switch (type) {
-    case "call": return <Phone className="h-3.5 w-3.5" />;
-    case "email": return <Mail className="h-3.5 w-3.5" />;
-    case "meeting": return <Users className="h-3.5 w-3.5" />;
-    case "whatsapp": return <MessageSquare className="h-3.5 w-3.5" />;
-    default: return <ClipboardCheck className="h-3.5 w-3.5" />;
+function getTaskTypeIcon(type: string, className = "h-3.5 w-3.5") {
+  switch ((type || "task").toLowerCase()) {
+    case "call":     return <Phone className={className} />;
+    case "email":    return <Mail className={className} />;
+    case "meeting":  return <Users className={className} />;
+    case "whatsapp": return <MessageSquare className={className} />;
+    case "visit":    return <MapPin className={className} />;
+    case "lunch":    return <Utensils className={className} />;
+    default:         return <ClipboardCheck className={className} />;
   }
 }
 
-function getTaskTypeColor(_type: string): string {
-  return "var(--primary)";
+function getTaskTypeLabel(type: string): string {
+  const key = (type || "task").toLowerCase();
+  return GLOBAL_TASK_TYPE_META[key]?.label || "Tarefa";
 }
 
 function formatTime(dateStr: string | null): string {
@@ -8312,62 +8335,722 @@ function formatPhone(phone: string | null): string {
   return phone;
 }
 
-function GlobalTasksTab() {
-  const { tenant, setSelectedChatId, setActiveView } = useChat();
+function formatBrlCompact(val: number | null | undefined): string {
+  const num = Number(val || 0);
+  if (!Number.isFinite(num) || num <= 0) return "R$ 0";
+  return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+}
 
-  const [tasks, setTasks] = useState<GlobalTaskData[]>([]);
+function formatRelativeDueBadge(dueDateStr: string | null, isCompleted: boolean): { label: string; isOverdue: boolean; overdueMinutes: number } {
+  if (!dueDateStr) return { label: "Sem prazo definido", isOverdue: false, overdueMinutes: 0 };
+  const due = new Date(dueDateStr);
+  const now = new Date();
+  const diffMs = due.getTime() - now.getTime();
+  const diffMin = Math.round(Math.abs(diffMs) / 60_000);
+  if (isCompleted) {
+    return {
+      label: `${due.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${formatTime(dueDateStr)}`,
+      isOverdue: false,
+      overdueMinutes: 0,
+    };
+  }
+  if (diffMs < 0) {
+    const overdueLabel = diffMin < 60
+      ? `Atrasada há ${Math.max(1, diffMin)}min`
+      : diffMin < 1440
+        ? `Atrasada há ${Math.floor(diffMin / 60)}h ${diffMin % 60}m`
+        : `Atrasada há ${Math.floor(diffMin / 1440)}d ${Math.floor((diffMin % 1440) / 60)}h`;
+    return { label: overdueLabel, isOverdue: true, overdueMinutes: diffMin };
+  }
+  if (isSameDay(due, now)) {
+    const inLabel = diffMin < 60 ? `Em ${Math.max(1, diffMin)}min` : `Hoje às ${formatTime(dueDateStr)}`;
+    return { label: inLabel, isOverdue: false, overdueMinutes: 0 };
+  }
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (isSameDay(due, tomorrow)) {
+    return { label: `Amanhã às ${formatTime(dueDateStr)}`, isOverdue: false, overdueMinutes: 0 };
+  }
+  return {
+    label: `${due.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às ${formatTime(dueDateStr)}`,
+    isOverdue: false,
+    overdueMinutes: 0,
+  };
+}
+
+function buildQuickReschedulePresetIso(preset: "plus_1h" | "today_16h" | "tomorrow_9h" | "next_mon_9h"): string {
+  const now = new Date();
+  if (preset === "plus_1h") {
+    return new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+  }
+  if (preset === "today_16h") {
+    const d = new Date(now);
+    d.setHours(16, 0, 0, 0);
+    if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);
+    return d.toISOString();
+  }
+  if (preset === "tomorrow_9h") {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    d.setHours(9, 0, 0, 0);
+    return d.toISOString();
+  }
+  const d = new Date(now);
+  const day = d.getDay();
+  const daysUntilMon = day === 0 ? 1 : 8 - day;
+  d.setDate(d.getDate() + daysUntilMon);
+  d.setHours(9, 0, 0, 0);
+  return d.toISOString();
+}
+
+function taskMatchesOperatorFilter(task: GlobalTaskItem, opFilter: string): boolean {
+  if (!opFilter || opFilter === "all") return true;
+  if (task.operatorId === opFilter) return true;
+  if (Array.isArray(task.assignedOperatorIds) && task.assignedOperatorIds.includes(opFilter)) return true;
+  if (Array.isArray(task.assignedOperators) && task.assignedOperators.some((op) => op.id === opFilter)) return true;
+  return false;
+}
+
+// ── GLOBAL TASK CARD 360º ──
+function GlobalTaskCard360({
+  task,
+  compact = false,
+  peekConvId,
+  peekMessages,
+  loadingPeekId,
+  whisperTaskId,
+  whisperText,
+  sendingWhisper,
+  startingChatTaskId,
+  reschedulingTaskId,
+  onToggleComplete,
+  onEditTask,
+  onRescheduleTask,
+  onCancelTask,
+  onDeleteTask,
+  onTogglePeek,
+  onToggleWhisper,
+  onChangeWhisperText,
+  onSendWhisper,
+  onOpenOrStartChat,
+  onNavigateDeal,
+}: {
+  task: GlobalTaskItem;
+  compact?: boolean;
+  peekConvId: string | null;
+  peekMessages: LiveMessage[];
+  loadingPeekId: string | null;
+  whisperTaskId: string | null;
+  whisperText: string;
+  sendingWhisper: boolean;
+  startingChatTaskId: string | null;
+  reschedulingTaskId: string | null;
+  onToggleComplete: (task: GlobalTaskItem) => void;
+  onEditTask: (task: GlobalTaskItem) => void;
+  onRescheduleTask: (task: GlobalTaskItem, newIso: string) => void;
+  onCancelTask: (task: GlobalTaskItem) => void;
+  onDeleteTask: (task: GlobalTaskItem) => void;
+  onTogglePeek: (task: GlobalTaskItem) => void;
+  onToggleWhisper: (task: GlobalTaskItem) => void;
+  onChangeWhisperText: (text: string) => void;
+  onSendWhisper: (task: GlobalTaskItem, textOverride?: string) => void;
+  onOpenOrStartChat: (task: GlobalTaskItem) => void;
+  onNavigateDeal: (dealId: string) => void;
+}) {
+  const [customRescheduleDate, setCustomRescheduleDate] = useState<string>(task.dueDate || new Date().toISOString());
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+
+  const isCompleted = task.status === "done" || task.status === "completed";
+  const dueBadge = formatRelativeDueBadge(task.dueDate, isCompleted);
+  const isOverdue = !isCompleted && dueBadge.isOverdue;
+  const isPeekOpen = Boolean(task.chatConversationId && peekConvId === task.chatConversationId);
+  const isWhisperOpen = whisperTaskId === task.id;
+  const dealValue = Number(task.deal?.numericValue || 0);
+  const dealStatus = (task.deal?.status || "open").toLowerCase();
+  const isZombieTask = isOverdue && (dealStatus === "won" || dealStatus === "lost");
+  const assignedList = Array.isArray(task.assignedOperators) && task.assignedOperators.length > 0
+    ? task.assignedOperators
+    : [{ id: task.operatorId || "unassigned", name: task.operatorName, email: task.operatorEmail, avatar: task.operatorAvatar }];
+
+  const peekMessagesToRender = useMemo(() => {
+    if (!isPeekOpen) return [];
+    if (peekMessages.length > 0) return peekMessages;
+    return (task.recentMessages || []) as LiveMessage[];
+  }, [isPeekOpen, peekMessages, task.recentMessages]);
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      className={`group rounded-2xl border transition-all ${
+        isOverdue
+          ? "border-primary/40 bg-primary/5 shadow-sm"
+          : isCompleted
+            ? "border-border/60 bg-card/70 opacity-80"
+            : "border-border bg-card hover:border-primary/30 hover:shadow-sm"
+      } ${compact ? "p-3" : "p-4"}`}
+    >
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+          <SystemTooltip content={isCompleted ? "Tarefa concluída" : "Concluir tarefa"}>
+            <button
+              type="button"
+              onClick={() => onToggleComplete(task)}
+              className="mt-0.5 shrink-0 cursor-pointer text-muted-foreground hover:text-primary transition-colors"
+            >
+              {isCompleted ? (
+                <CheckCircle2 className="h-4.5 w-4.5 text-primary" />
+              ) : (
+                <Circle className="h-4.5 w-4.5" />
+              )}
+            </button>
+          </SystemTooltip>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5 mb-1">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-primary/15 text-primary border border-primary/25 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider">
+                {getTaskTypeIcon(task.type, "h-3 w-3")}
+                {getTaskTypeLabel(task.type)}
+              </span>
+
+              <span
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-bold border ${
+                  isOverdue
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : isCompleted
+                      ? "bg-muted text-muted-foreground border-border"
+                      : "bg-muted/60 text-foreground border-border"
+                }`}
+              >
+                <Clock className="h-2.5 w-2.5" />
+                {dueBadge.label}
+              </span>
+
+              {isZombieTask && (
+                <SystemTooltip content="Esta tarefa está pendente em uma oportunidade já encerrada (Ganha ou Perdida). Recomendado concluir ou cancelar.">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 text-[9px] font-extrabold uppercase">
+                    <AlertTriangle className="h-2.5 w-2.5" />
+                    Negócio {dealStatus === "won" ? "Ganho" : "Perdido"}
+                  </span>
+                </SystemTooltip>
+              )}
+            </div>
+
+            <p className={`${compact ? "text-xs" : "text-sm"} font-extrabold leading-snug ${isCompleted ? "line-through text-muted-foreground" : "text-foreground"}`}>
+              {task.name}
+            </p>
+
+            {task.description && (
+              <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                {task.description}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Ações Rápidas da Diretoria */}
+        <div className="flex items-center gap-1 shrink-0">
+          {!isCompleted && (
+            <Popover open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+              <SystemTooltip content="Reagendar tarefa com 1 clique">
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={reschedulingTaskId === task.id}
+                    className="h-7 w-7 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-primary flex items-center justify-center transition cursor-pointer disabled:opacity-50"
+                  >
+                    {reschedulingTaskId === task.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
+                  </button>
+                </PopoverTrigger>
+              </SystemTooltip>
+              <PopoverContent align="end" className="w-72 p-3 rounded-2xl bg-card border border-border shadow-card space-y-2.5 z-50">
+                <p className="text-[11px] font-extrabold text-foreground flex items-center gap-1.5">
+                  <CalendarClock className="h-3.5 w-3.5 text-primary" />
+                  Reagendamento Rápido
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: "plus_1h" as const, label: "+1 Hora" },
+                    { id: "today_16h" as const, label: "Hoje 16:00" },
+                    { id: "tomorrow_9h" as const, label: "Amanhã 09:00" },
+                    { id: "next_mon_9h" as const, label: "Próx. Seg 09:00" },
+                  ].map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        onRescheduleTask(task, buildQuickReschedulePresetIso(preset.id));
+                        setRescheduleOpen(false);
+                      }}
+                      className="rounded-xl border border-border bg-muted/40 hover:bg-primary/10 hover:border-primary/30 hover:text-primary px-2.5 py-1.5 text-[10px] font-bold text-foreground transition cursor-pointer text-left"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="pt-1.5 border-t border-border space-y-1.5">
+                  <span className="text-[10px] font-bold text-muted-foreground block">Data e hora personalizada</span>
+                  <SystemDateTimePicker
+                    value={customRescheduleDate}
+                    onChange={(iso) => setCustomRescheduleDate(iso)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (customRescheduleDate) {
+                        onRescheduleTask(task, customRescheduleDate);
+                        setRescheduleOpen(false);
+                      }
+                    }}
+                    className="w-full rounded-xl bg-primary text-primary-foreground py-1.5 text-[11px] font-bold hover:opacity-90 transition cursor-pointer"
+                  >
+                    Salvar Novo Prazo
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
+          <SystemTooltip content="Editar ou reatribuir responsável">
+            <button
+              type="button"
+              onClick={() => onEditTask(task)}
+              className="h-7 w-7 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-primary flex items-center justify-center transition cursor-pointer"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </SystemTooltip>
+
+          {!isCompleted && (
+            <SystemTooltip content="Cancelar tarefa">
+              <button
+                type="button"
+                onClick={() => onCancelTask(task)}
+                className="h-7 w-7 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-primary flex items-center justify-center transition cursor-pointer"
+              >
+                <Ban className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
+          )}
+
+          <SystemTooltip content="Excluir tarefa permanentemente">
+            <button
+              type="button"
+              onClick={() => onDeleteTask(task)}
+              className="h-7 w-7 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-primary flex items-center justify-center transition cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </SystemTooltip>
+        </div>
+      </div>
+
+      {/* Deal & Client Strip */}
+      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="rounded-xl bg-muted/35 border border-border/60 px-3 py-2 flex items-center justify-between gap-2 min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <User className="h-3 w-3 text-primary shrink-0" />
+              <p className="text-[11px] font-bold text-foreground truncate">
+                {task.client.name || "Cliente sem nome"}
+              </p>
+            </div>
+            <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+              {task.client.companyName ? `${task.client.companyName} · ` : ""}
+              {formatPhone(task.client.phone)}
+            </p>
+          </div>
+          {task.unreadCount > 0 && (
+            <span className="shrink-0 rounded-full bg-primary text-primary-foreground px-2 py-0.5 text-[9px] font-extrabold">
+              {task.unreadCount} não lida{task.unreadCount > 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        {task.deal ? (
+          <button
+            type="button"
+            onClick={() => onNavigateDeal(task.deal!.id)}
+            className="rounded-xl bg-primary/5 hover:bg-primary/10 border border-primary/20 px-3 py-2 flex items-center justify-between gap-2 text-left transition cursor-pointer min-w-0"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <Briefcase className="h-3 w-3 text-primary shrink-0" />
+                <p className="text-[11px] font-extrabold text-foreground truncate">
+                  {task.deal.name || "Oportunidade CRM"}
+                </p>
+                <ExternalLink className="h-2.5 w-2.5 text-primary shrink-0" />
+              </div>
+              <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                {[task.deal.pipelineName, task.deal.stageName].filter(Boolean).join(" · ") || "Funil Comercial"}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              {dealValue > 0 && (
+                <p className="text-xs font-extrabold text-primary leading-none">
+                  {formatBrlCompact(dealValue)}
+                </p>
+              )}
+              <span className="inline-block mt-0.5 rounded px-1.5 py-0.2 text-[8px] font-extrabold uppercase bg-card border border-border text-muted-foreground">
+                {dealStatus === "won" ? "Ganha" : dealStatus === "lost" ? "Perdida" : "Em Aberto"}
+              </span>
+            </div>
+          </button>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border/70 px-3 py-2 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <Briefcase className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+            <span>Sem oportunidade CRM vinculada</span>
+          </div>
+        )}
+      </div>
+
+      {/* Última mensagem / Áudio / Transcrição */}
+      {(task.lastMessagePreview || task.lastMessageMediaType === "audio") && !isPeekOpen && (
+        <div className="mt-2.5 rounded-xl bg-muted/25 border border-border/50 px-3 py-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[9px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+              <MessageSquare className="h-2.5 w-2.5 text-primary" />
+              Última Interação ({task.lastMessageSenderType === "client" ? "Cliente" : "Consultor"})
+            </span>
+          </div>
+          {task.lastMessageMediaType === "audio" && task.lastMessageMediaId ? (
+            <div className="space-y-1">
+              <AudioWithSpeed src={`${LIVE_BACKEND_URL}/api/whatsapp/media/${task.lastMessageMediaId}`} />
+              {task.lastMessageTranscription && (
+                <p className="text-[10px] italic text-muted-foreground bg-card/80 rounded-lg px-2 py-1 border border-border/40">
+                  "{task.lastMessageTranscription}"
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-[11px] text-foreground/90 line-clamp-2">{task.lastMessagePreview}</p>
+          )}
+        </div>
+      )}
+
+      {/* Rodapé: Consultores Responsáveis + Ações de Supervisão */}
+      <div className="mt-3 pt-2.5 border-t border-border/60 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex -space-x-1.5 shrink-0">
+            {assignedList.slice(0, 3).map((op, idx) => {
+              const initials = (op.name || "OP").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+              return (
+                <SystemTooltip key={`${op.id}-${idx}`} content={`Responsável: ${op.name}`}>
+                  <div className="h-6 w-6 rounded-full bg-primary/15 text-primary border border-card flex items-center justify-center text-[8px] font-extrabold overflow-hidden">
+                    {op.avatar ? (
+                      <img src={op.avatar} alt={op.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <span>{initials}</span>
+                    )}
+                  </div>
+                </SystemTooltip>
+              );
+            })}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`h-2 w-2 rounded-full shrink-0 ${
+                  task.operatorIsOnline ? "bg-primary" : "bg-muted-foreground/40"
+                }`}
+              />
+              <span className="text-[11px] font-bold text-foreground truncate">
+                {assignedList.map((o) => o.name).join(", ")}
+              </span>
+            </div>
+            {task.delegatedBy && (
+              <p className="text-[9px] text-muted-foreground truncate">
+                Delegada por {task.delegatedBy}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {task.chatConversationId && (
+            <>
+              <button
+                type="button"
+                onClick={() => onTogglePeek(task)}
+                className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-[10px] font-bold border transition cursor-pointer ${
+                  isPeekOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-foreground border-border hover:bg-muted"
+                }`}
+              >
+                <Eye className="h-3 w-3" />
+                {isPeekOpen ? "Fechar Conversa" : "Espiar Conversa"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onToggleWhisper(task)}
+                className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-[10px] font-bold border transition cursor-pointer ${
+                  isWhisperOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary border-primary/25 hover:bg-primary/15"
+                }`}
+              >
+                <Lock className="h-3 w-3" />
+                Cobrar Consultor
+              </button>
+            </>
+          )}
+
+          {(task.chatConversationId || task.chatContactId) && (
+            <button
+              type="button"
+              disabled={startingChatTaskId === task.id}
+              onClick={() => onOpenOrStartChat(task)}
+              className="inline-flex items-center gap-1 rounded-xl bg-primary text-primary-foreground px-3 py-1.5 text-[10px] font-extrabold shadow-xs hover:opacity-90 transition cursor-pointer disabled:opacity-50"
+            >
+              {startingChatTaskId === task.id ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <MessageSquare className="h-3 w-3" />
+              )}
+              {task.chatConversationId ? "Abrir Atendimento" : "Iniciar Atendimento"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Gaveta Inline: Sussurro / Cobrança da Diretoria */}
+      <AnimatePresence>
+        {isWhisperOpen && task.chatConversationId && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-3 rounded-2xl border border-primary/30 bg-primary/5 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                  <Lock className="h-3 w-3" />
+                  Orientação Interna para {task.operatorName} (Invisível ao cliente)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onToggleWhisper(task)}
+                  className="text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {TASK_SUPERVISOR_WHISPER_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    disabled={sendingWhisper}
+                    onClick={() => onSendWhisper(task, preset.buildText(task))}
+                    className="rounded-lg border border-primary/25 bg-card hover:bg-primary/10 px-2.5 py-1 text-[10px] font-bold text-primary transition cursor-pointer disabled:opacity-50"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={whisperText}
+                  onChange={(e) => onChangeWhisperText(e.target.value)}
+                  placeholder="Escreva uma cobrança ou orientação interna sobre esta tarefa..."
+                  className="h-8 flex-1 rounded-xl bg-card border border-border px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <button
+                  type="button"
+                  disabled={sendingWhisper || !whisperText.trim()}
+                  onClick={() => onSendWhisper(task)}
+                  className="inline-flex items-center gap-1 rounded-xl bg-primary text-primary-foreground px-3 h-8 text-[11px] font-bold hover:opacity-90 transition cursor-pointer disabled:opacity-50"
+                >
+                  {sendingWhisper ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Enviar
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Gaveta Inline: Espiar Conversa Completa */}
+      <AnimatePresence>
+        {isPeekOpen && task.chatConversationId && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-3 rounded-2xl border border-border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                  <Eye className="h-3 w-3 text-primary" />
+                  Histórico Recente do Atendimento
+                </span>
+                {loadingPeekId === task.chatConversationId && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Carregando histórico...
+                  </span>
+                )}
+              </div>
+
+              <div className="max-h-60 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+                {peekMessagesToRender.length === 0 ? (
+                  <p className="text-center text-xs text-muted-foreground py-4">
+                    Nenhuma mensagem registrada nesta conversa.
+                  </p>
+                ) : (
+                  peekMessagesToRender.map((msg, idx) => {
+                    const prev = idx > 0 ? peekMessagesToRender[idx - 1] : null;
+                    const showSep = !prev || getMessageDateKey(prev.sentAt) !== getMessageDateKey(msg.sentAt);
+                    return (
+                      <React.Fragment key={msg.id}>
+                        {showSep && (
+                          <div className="flex justify-center my-1.5">
+                            <span className="rounded-full bg-card border border-border px-2.5 py-0.5 text-[9px] font-bold text-muted-foreground">
+                              {formatMessageDateSeparator(msg.sentAt)}
+                            </span>
+                          </div>
+                        )}
+                        <LiveMessageBubble msg={msg} />
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function GlobalTasksTab({
+  demoMode,
+  refreshTick,
+  onOverdueCountChange,
+}: {
+  demoMode?: boolean;
+  refreshTick?: number;
+  onOverdueCountChange?: (count: number) => void;
+}) {
+  const { tenant, setSelectedChatId, setActiveView } = useChat();
+  const navigate = useNavigate();
+
+  const [tasks, setTasks] = useState<GlobalTaskItem[]>([]);
+  const [summary, setSummary] = useState<GlobalTasksExecutiveSummary | null>(null);
+  const [operatorBreakdown, setOperatorBreakdown] = useState<GlobalTaskOperatorBreakdown[]>([]);
+  const [pipelines, setPipelines] = useState<Array<{ id: string; name: string }>>([]);
+  const [operatorsCatalog, setOperatorsCatalog] = useState<Array<{ id: string; name: string; email: string | null; avatar: string | null; isOnline: boolean }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Estados do Modal "Todos" (Filtro e Busca global)
-  const [isAllTasksModalOpen, setIsAllTasksModalOpen] = useState(false);
+  // Modos de Visão & Filtros Globais
+  const [viewMode, setViewMode] = useState<GlobalTaskViewMode>("queue");
+  const [queueSubTab, setQueueSubTab] = useState<GlobalTaskQueueSubTab>("overdue");
+  const [sortBy, setSortBy] = useState<GlobalTaskSortBy>("value_desc");
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "completed">("all");
-  const [dateFilter, setDateFilter] = useState("");
   const [operatorFilter, setOperatorFilter] = useState("all");
+  const [pipelineFilter, setPipelineFilter] = useState("all");
+  const [dealStatusFilter, setDealStatusFilter] = useState<"all" | "open" | "won" | "lost">("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [showOperatorMatrix, setShowOperatorMatrix] = useState(true);
 
-  const today = new Date();
+  // Estados do Modal "Lista Completa"
+  const [isAllTasksModalOpen, setIsAllTasksModalOpen] = useState(false);
+  const [modalStatusFilter, setModalStatusFilter] = useState<"all" | "open" | "completed">("all");
+  const [modalDateFilter, setModalDateFilter] = useState("");
+
+  // Navegação Temporal (Mês / Semana / Dia)
+  const today = useMemo(() => new Date(), []);
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date>(today);
 
-  const days = getDaysInMonth(currentYear, currentMonth);
+  const days = useMemo(() => getDaysInMonth(currentYear, currentMonth), [currentYear, currentMonth]);
+  const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
 
-  // ─── Fetch tasks from local API ─────────────────────────────────────────
+  // Modais de Criação / Edição / Conclusão
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingTaskData, setEditingTaskData] = useState<EditingTaskData | null>(null);
+  const [taskToComplete, setTaskToComplete] = useState<GlobalTaskItem | null>(null);
+  const [completionNote, setCompletionNote] = useState("");
+  const [scheduleNextFollowUp, setScheduleNextFollowUp] = useState(false);
+  const [nextFollowUpDate, setNextFollowUpDate] = useState<string>(() => buildQuickReschedulePresetIso("tomorrow_9h"));
+  const [isConfirmingComplete, setIsConfirmingComplete] = useState(false);
+
+  // Interações de Supervisão Inline
+  const [peekConvId, setPeekConvId] = useState<string | null>(null);
+  const [peekMessages, setPeekMessages] = useState<LiveMessage[]>([]);
+  const [loadingPeekId, setLoadingPeekId] = useState<string | null>(null);
+  const [whisperTaskId, setWhisperTaskId] = useState<string | null>(null);
+  const [whisperText, setWhisperText] = useState("");
+  const [sendingWhisper, setSendingWhisper] = useState(false);
+  const [startingChatTaskId, setStartingChatTaskId] = useState<string | null>(null);
+  const [reschedulingTaskId, setReschedulingTaskId] = useState<string | null>(null);
+  const [bulkRescheduling, setBulkRescheduling] = useState(false);
+
+  // ─── Carregar Tarefas Globais ──────────────────────────────────────────
   const fetchTasks = useCallback(async () => {
     setLoading(true);
     setError(null);
+    if (demoMode) {
+      setTasks(MOCK_GLOBAL_TASKS_RESPONSE.tasks);
+      setSummary(MOCK_GLOBAL_TASKS_RESPONSE.summary);
+      setOperatorBreakdown(MOCK_GLOBAL_TASKS_RESPONSE.operatorBreakdown);
+      setPipelines(MOCK_GLOBAL_TASKS_RESPONSE.pipelines);
+      setOperatorsCatalog(MOCK_GLOBAL_TASKS_RESPONSE.operators);
+      onOverdueCountChange?.(MOCK_GLOBAL_TASKS_RESPONSE.summary.overdueTasksCount);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`/api/gestao/tasks?tenantId=${tenant}`);
       const data = await res.json();
-      if (data.error) {
-        setError(data.error);
+      if (!res.ok || data.error) {
+        setError(data.error || "Não foi possível carregar as tarefas globais.");
         setTasks([]);
       } else {
-        setTasks(data.tasks || []);
+        const fetchedTasks: GlobalTaskItem[] = Array.isArray(data.tasks) ? data.tasks : [];
+        setTasks(fetchedTasks);
+        setSummary(data.summary ?? null);
+        setOperatorBreakdown(Array.isArray(data.operatorBreakdown) ? data.operatorBreakdown : []);
+        setPipelines(Array.isArray(data.pipelines) ? data.pipelines : []);
+        setOperatorsCatalog(Array.isArray(data.operators) ? data.operators : []);
+        const overdueCnt =
+          data.summary?.overdueTasksCount ??
+          fetchedTasks.filter((t) => t.status !== "done" && t.status !== "completed" && t.dueDate && new Date(t.dueDate) < new Date()).length;
+        onOverdueCountChange?.(overdueCnt);
       }
     } catch (e: any) {
-      setError(e.message || "Erro ao carregar tarefas globais");
+      setError(e.message || "Erro ao carregar tarefas globais.");
       setTasks([]);
     } finally {
       setLoading(false);
     }
-  }, [tenant]);
+  }, [tenant, demoMode, onOverdueCountChange]);
 
-  // Fetch on mount
   useEffect(() => {
     fetchTasks();
-  }, [fetchTasks]);
+  }, [fetchTasks, refreshTick]);
 
-  const [taskToComplete, setTaskToComplete] = useState<GlobalTaskData | null>(null);
-  const [isConfirmingComplete, setIsConfirmingComplete] = useState(false);
-
-  // ─── Task completion (sem reativação de tarefas já concluídas + modal de confirmação) ───
-  const toggleTaskStatus = (task: GlobalTaskData) => {
+  // ─── Conclusão de Tarefa com Observação e Próximo Follow-up ─────────────
+  const toggleTaskStatus = (task: GlobalTaskItem) => {
     if (task.status === "done" || task.status === "completed") {
-      toast.info("Esta tarefa já foi concluída e não pode ser reativada.");
+      toast.info("Esta tarefa já foi concluída.");
       return;
     }
+    setCompletionNote("");
+    setScheduleNextFollowUp(false);
+    setNextFollowUpDate(buildQuickReschedulePresetIso("tomorrow_9h"));
     setTaskToComplete(task);
   };
 
@@ -8376,409 +9059,1415 @@ function GlobalTasksTab() {
     setIsConfirmingComplete(true);
     const target = taskToComplete;
     try {
-      const response = await fetch("/api/tasks", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId: tenant, taskId: target.id, status: "done" }),
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result.error || "Não foi possível concluir a tarefa.");
+      const updatedDescription = completionNote.trim()
+        ? `${target.description ? `${target.description}\n\n` : ""}[Concluída pela Supervisão: ${completionNote.trim()}]`
+        : target.description;
+
+      if (!demoMode) {
+        const response = await fetch("/api/tasks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            taskId: target.id,
+            status: "done",
+            description: updatedDescription,
+          }),
+        });
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}));
+          throw new Error(result.error || "Não foi possível concluir a tarefa.");
+        }
+
+        if (scheduleNextFollowUp && nextFollowUpDate) {
+          await fetch("/api/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tenantId: tenant,
+              title: `Follow-up: ${target.name}`,
+              type: target.type || "whatsapp",
+              dueAt: nextFollowUpDate,
+              dealId: target.deal?.id || null,
+              contactId: target.chatContactId || null,
+              conversationId: target.chatConversationId || null,
+              assignedOperatorIds:
+                target.assignedOperatorIds?.length > 0
+                  ? target.assignedOperatorIds
+                  : target.operatorId
+                    ? [target.operatorId]
+                    : [],
+              notes: `Continuidade agendada após conclusão de "${target.name}".`,
+            }),
+          });
+        }
       }
-      setTasks((prev) =>
-        prev.map((t) => (t.id === target.id ? { ...t, status: "done" } : t))
+
+      toast.success(
+        scheduleNextFollowUp
+          ? "Tarefa concluída e próximo follow-up agendado!"
+          : "Tarefa concluída com sucesso!"
       );
-      toast.success("Tarefa concluída com sucesso!");
       setTaskToComplete(null);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível atualizar a tarefa.");
+      await fetchTasks();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não foi possível atualizar a tarefa.");
     } finally {
       setIsConfirmingComplete(false);
     }
   };
 
-  // ─── Open chat for a task ───────────────────────────────────────────────
-  const openChat = (task: GlobalTaskData) => {
+  // ─── Reagendamento Rápido (1 Clique) ────────────────────────────────────
+  const handleRescheduleTask = async (task: GlobalTaskItem, newIso: string) => {
+    setReschedulingTaskId(task.id);
+    try {
+      if (!demoMode) {
+        const res = await fetch("/api/tasks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            taskId: task.id,
+            dueAt: newIso,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Erro ao reagendar tarefa.");
+        }
+      } else {
+        setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, dueDate: newIso } : t)));
+      }
+      toast.success("Prazo da tarefa atualizado!");
+      if (!demoMode) await fetchTasks();
+    } catch (err: any) {
+      toast.error(err.message || "Não foi possível reagendar.");
+    } finally {
+      setReschedulingTaskId(null);
+    }
+  };
+
+  // ─── Reagendamento em Lote (Bulk Reschedule) ────────────────────────────
+  const handleBulkReschedule = async (targetTasks: GlobalTaskItem[], preset: "today_16h" | "tomorrow_9h" | "next_mon_9h") => {
+    if (targetTasks.length === 0) return;
+    setBulkRescheduling(true);
+    const newIso = buildQuickReschedulePresetIso(preset);
+    try {
+      if (!demoMode) {
+        const res = await fetch("/api/tasks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            action: "bulk_reschedule",
+            taskIds: targetTasks.map((t) => t.id),
+            dueAt: newIso,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Falha ao reagendar lote.");
+        }
+      } else {
+        const idSet = new Set(targetTasks.map((t) => t.id));
+        setTasks((prev) => prev.map((t) => (idSet.has(t.id) ? { ...t, dueDate: newIso } : t)));
+      }
+      toast.success(`${targetTasks.length} tarefa(s) reagendada(s) com sucesso!`);
+      if (!demoMode) await fetchTasks();
+    } catch (err: any) {
+      toast.error(err.message || "Falha ao reagendar tarefas em lote.");
+    } finally {
+      setBulkRescheduling(false);
+    }
+  };
+
+  // ─── Cancelar / Excluir / Editar Tarefa ─────────────────────────────────
+  const handleCancelTask = async (task: GlobalTaskItem) => {
+    try {
+      if (!demoMode) {
+        const res = await fetch("/api/tasks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            taskId: task.id,
+            action: "cancel",
+          }),
+        });
+        if (!res.ok) throw new Error("Não foi possível cancelar a tarefa.");
+      } else {
+        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      }
+      toast.success("Tarefa cancelada.");
+      if (!demoMode) await fetchTasks();
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao cancelar tarefa.");
+    }
+  };
+
+  const handleDeleteTask = async (task: GlobalTaskItem) => {
+    try {
+      if (!demoMode) {
+        const res = await fetch(`/api/tasks?id=${encodeURIComponent(task.id)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error("Não foi possível excluir a tarefa.");
+      } else {
+        setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      }
+      toast.success("Tarefa excluída permanentemente.");
+      if (!demoMode) await fetchTasks();
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao excluir tarefa.");
+    }
+  };
+
+  const handleEditTask = (task: GlobalTaskItem) => {
+    setEditingTaskData({
+      id: task.id,
+      title: task.name,
+      type: task.type || "task",
+      dueDate: task.dueDate,
+      description: task.description,
+      dealId: task.deal?.id || null,
+      dealName: task.deal?.name || null,
+      contactId: task.chatContactId || null,
+      contactName: task.client.name || null,
+      conversationId: task.chatConversationId || null,
+      assignedOperatorIds:
+        task.assignedOperatorIds?.length > 0
+          ? task.assignedOperatorIds
+          : task.operatorId
+            ? [task.operatorId]
+            : [],
+    });
+    setIsCreateModalOpen(true);
+  };
+
+  // ─── Espiar Conversa Inline ─────────────────────────────────────────────
+  const handleTogglePeek = async (task: GlobalTaskItem) => {
+    if (!task.chatConversationId) return;
+    if (peekConvId === task.chatConversationId) {
+      setPeekConvId(null);
+      setPeekMessages([]);
+      return;
+    }
+    setPeekConvId(task.chatConversationId);
+    setPeekMessages((task.recentMessages || []) as LiveMessage[]);
+    if (demoMode) return;
+    setLoadingPeekId(task.chatConversationId);
+    try {
+      const res = await fetch(`/api/gestao/messages?conversationId=${encodeURIComponent(task.chatConversationId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.messages)) {
+          setPeekMessages(data.messages);
+        }
+      }
+    } catch {
+      // Fallback silencioso para recentMessages
+    } finally {
+      setLoadingPeekId(null);
+    }
+  };
+
+  // ─── Enviar Sussurro / Cobrança ao Consultor ────────────────────────────
+  const handleToggleWhisper = (task: GlobalTaskItem) => {
+    if (whisperTaskId === task.id) {
+      setWhisperTaskId(null);
+      setWhisperText("");
+    } else {
+      setWhisperTaskId(task.id);
+      setWhisperText("");
+    }
+  };
+
+  const handleSendWhisper = async (task: GlobalTaskItem, textOverride?: string) => {
+    if (!task.chatConversationId) return;
+    const content = (textOverride ?? whisperText).trim();
+    if (!content) return;
+    setSendingWhisper(true);
+    try {
+      if (!demoMode) {
+        const res = await fetch("/api/gestao/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: task.chatConversationId,
+            content,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Não foi possível enviar a orientação.");
+        }
+      }
+      toast.success(`Orientação interna enviada para ${task.operatorName}!`);
+      setWhisperText("");
+      setWhisperTaskId(null);
+    } catch (err: any) {
+      toast.error(err.message || "Falha ao enviar orientação.");
+    } finally {
+      setSendingWhisper(false);
+    }
+  };
+
+  // ─── Abrir ou Iniciar Atendimento WhatsApp ──────────────────────────────
+  const handleOpenOrStartChat = async (task: GlobalTaskItem) => {
     if (task.chatConversationId) {
       setSelectedChatId(task.chatConversationId);
       setActiveView("chat");
+      return;
+    }
+    if (!task.chatContactId) return;
+    setStartingChatTaskId(task.id);
+    try {
+      const res = await fetch(`/api/contacts/${encodeURIComponent(task.chatContactId)}/conversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: "whatsapp" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.conversation?.id) {
+        throw new Error(data.error || "Não foi possível iniciar o atendimento.");
+      }
+      setSelectedChatId(data.conversation.id);
+      setActiveView("chat");
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao iniciar conversa.");
+    } finally {
+      setStartingChatTaskId(null);
     }
   };
 
-  // ─── Navigation ─────────────────────────────────────────────────────────
-  const prevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentMonth(11);
-      setCurrentYear((y) => y - 1);
+  const handleNavigateDeal = (dealId: string) => {
+    navigate({ to: "/crm/deals/$dealId", params: { dealId } });
+  };
+
+  // ─── Navegação de Calendário (Mês / Semana / Dia) ───────────────────────
+  const prevPeriod = () => {
+    if (viewMode === "month") {
+      if (currentMonth === 0) {
+        setCurrentMonth(11);
+        setCurrentYear((y) => y - 1);
+      } else {
+        setCurrentMonth((m) => m - 1);
+      }
+    } else if (viewMode === "week") {
+      const d = new Date(selectedDate);
+      d.setDate(d.getDate() - 7);
+      setSelectedDate(d);
+      setCurrentMonth(d.getMonth());
+      setCurrentYear(d.getFullYear());
     } else {
-      setCurrentMonth((m) => m - 1);
+      const d = new Date(selectedDate);
+      d.setDate(d.getDate() - 1);
+      setSelectedDate(d);
+      setCurrentMonth(d.getMonth());
+      setCurrentYear(d.getFullYear());
     }
   };
 
-  const nextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentMonth(0);
-      setCurrentYear((y) => y + 1);
+  const nextPeriod = () => {
+    if (viewMode === "month") {
+      if (currentMonth === 11) {
+        setCurrentMonth(0);
+        setCurrentYear((y) => y + 1);
+      } else {
+        setCurrentMonth((m) => m + 1);
+      }
+    } else if (viewMode === "week") {
+      const d = new Date(selectedDate);
+      d.setDate(d.getDate() + 7);
+      setSelectedDate(d);
+      setCurrentMonth(d.getMonth());
+      setCurrentYear(d.getFullYear());
     } else {
-      setCurrentMonth((m) => m + 1);
+      const d = new Date(selectedDate);
+      d.setDate(d.getDate() + 1);
+      setSelectedDate(d);
+      setCurrentMonth(d.getMonth());
+      setCurrentYear(d.getFullYear());
     }
   };
 
   const goToday = () => {
-    setCurrentMonth(today.getMonth());
-    setCurrentYear(today.getFullYear());
-    setSelectedDate(today);
+    const now = new Date();
+    setCurrentMonth(now.getMonth());
+    setCurrentYear(now.getFullYear());
+    setSelectedDate(now);
   };
 
-  // ─── Filter tasks for selected date ─────────────────────────────────────
-  const getTasksForDate = (date: Date) =>
-    tasks.filter((t) => {
-      if (!t.dueDate) return false;
-      return isSameDay(new Date(t.dueDate), date);
+  // ─── Lista Unificada de Consultores (por operatorId) ────────────────────
+  const uniqueOperatorsList = useMemo(() => {
+    if (operatorsCatalog.length > 0) {
+      return operatorsCatalog;
+    }
+    const map = new Map<string, { id: string; name: string; email: string | null; avatar: string | null; isOnline: boolean }>();
+    for (const t of tasks) {
+      const ops = t.assignedOperators?.length
+        ? t.assignedOperators
+        : [{ id: t.operatorId || "unassigned", name: t.operatorName, email: t.operatorEmail, avatar: t.operatorAvatar }];
+      for (const op of ops) {
+        if (!map.has(op.id)) {
+          map.set(op.id, {
+            id: op.id,
+            name: op.name,
+            email: op.email,
+            avatar: op.avatar,
+            isOnline: Boolean(t.operatorIsOnline),
+          });
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [operatorsCatalog, tasks]);
+
+  // ─── Filtragem Global Base (respeitada por TODAS as visões e calendário) ─
+  const filteredBaseTasks = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return tasks.filter((t) => {
+      if (!taskMatchesOperatorFilter(t, operatorFilter)) return false;
+      if (pipelineFilter !== "all") {
+        if (pipelineFilter === "__with_deal__" && !t.deal) return false;
+        if (pipelineFilter === "__without_deal__" && t.deal) return false;
+        if (pipelineFilter !== "__with_deal__" && pipelineFilter !== "__without_deal__" && t.deal?.pipelineId !== pipelineFilter) {
+          return false;
+        }
+      }
+      if (dealStatusFilter !== "all") {
+        if (!t.deal) return false;
+        if ((t.deal.status || "open").toLowerCase() !== dealStatusFilter) return false;
+      }
+      if (typeFilter !== "all" && (t.type || "task").toLowerCase() !== typeFilter) return false;
+      if (q) {
+        const matchTitle = t.name.toLowerCase().includes(q);
+        const matchDesc = t.description?.toLowerCase().includes(q) || false;
+        const matchClient = t.client.name?.toLowerCase().includes(q) || false;
+        const matchCompany = t.client.companyName?.toLowerCase().includes(q) || false;
+        const matchPhone = t.client.phone?.toLowerCase().includes(q) || false;
+        const matchDeal = t.deal?.name?.toLowerCase().includes(q) || false;
+        const matchOp = t.operatorName.toLowerCase().includes(q);
+        if (!matchTitle && !matchDesc && !matchClient && !matchCompany && !matchPhone && !matchDeal && !matchOp) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [tasks, operatorFilter, pipelineFilter, dealStatusFilter, typeFilter, searchQuery]);
+
+  // ─── Tarefas da Visão "Fila & Risco" + Ordenação ────────────────────────
+  const queueTasks = useMemo(() => {
+    const now = new Date();
+    const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const subFiltered = filteredBaseTasks.filter((t) => {
+      const isDone = t.status === "done" || t.status === "completed";
+      const due = t.dueDate ? new Date(t.dueDate) : null;
+      const isOverdue = !isDone && Boolean(due && due < now);
+      const isTodayTask = Boolean(due && isSameDay(due, now));
+
+      if (queueSubTab === "overdue") return isOverdue;
+      if (queueSubTab === "today") return !isDone && isTodayTask;
+      if (queueSubTab === "upcoming7d") return !isDone && Boolean(due && due >= now && due <= in7d);
+      if (queueSubTab === "open_deals") return !isDone && Boolean(t.deal && (t.deal.status || "open") === "open");
+      if (queueSubTab === "completed") return isDone;
+      return true;
     });
 
-  // Operadores únicos da lista geral para preencher o filtro
-  const uniqueOperatorsList = Array.from(
-    new Map(
-      tasks
-        .filter((t) => t.operatorEmail)
-        .map((t) => [t.operatorEmail, t.operatorName])
-    ).entries()
-  ).map(([email, name]) => ({ email, name }));
+    return [...subFiltered].sort((a, b) => {
+      if (sortBy === "value_desc") {
+        const valDiff = Number(b.deal?.numericValue || 0) - Number(a.deal?.numericValue || 0);
+        if (valDiff !== 0) return valDiff;
+      }
+      if (sortBy === "overdue_desc") {
+        const aDue = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+        const bDue = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+        return aDue - bDue;
+      }
+      if (sortBy === "operator_asc") {
+        return a.operatorName.localeCompare(b.operatorName, "pt-BR");
+      }
+      const aDue = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const bDue = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return aDue - bDue;
+    });
+  }, [filteredBaseTasks, queueSubTab, sortBy]);
 
-  // Aplica filtro de operador na lista diária
-  const selectedTasks = getTasksForDate(selectedDate).filter((t) => {
-    if (operatorFilter !== "all" && t.operatorEmail !== operatorFilter) {
-      return false;
-    }
-    return true;
-  });
+  const getTasksForDate = useCallback(
+    (date: Date) =>
+      filteredBaseTasks.filter((t) => {
+        if (!t.dueDate) return false;
+        return isSameDay(new Date(t.dueDate), date);
+      }),
+    [filteredBaseTasks]
+  );
 
-  const pendingCount = tasks.filter((t) => t.status !== "done").length;
+  const selectedDateTasks = useMemo(() => getTasksForDate(selectedDate), [getTasksForDate, selectedDate]);
+
+  const overdueCount = summary?.overdueTasksCount ?? filteredBaseTasks.filter((t) => t.status !== "done" && t.status !== "completed" && t.dueDate && new Date(t.dueDate) < new Date()).length;
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden h-full">
-      {/* Header interno de Filtros */}
-      <div className="flex flex-col md:flex-row items-center justify-between border-b border-border pb-4 mb-4 gap-4">
-        <div>
-          <h2 className="text-sm font-extrabold text-foreground flex items-center gap-2">
-            <ClipboardCheck className="h-4.5 w-4.5 text-primary" />
-            Tarefas Globais da Operação
-          </h2>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {pendingCount > 0 ? `${pendingCount} tarefa${pendingCount > 1 ? "s" : ""} pendente${pendingCount > 1 ? "s" : ""}` : "Nenhuma tarefa pendente"}
-          </p>
+    <div className="flex flex-col flex-1 overflow-y-auto pr-1 space-y-4 scrollbar-thin">
+      {/* 1. COCKPIT EXECUTIVO DE DISCIPLINA COMERCIAL (4 KPIs) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 shrink-0">
+        {/* Card 1: Atrasadas & Risco no Pipeline */}
+        <motion.button
+          type="button"
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.99 }}
+          onClick={() => {
+            setViewMode("queue");
+            setQueueSubTab("overdue");
+            setSortBy("value_desc");
+          }}
+          className={`text-left rounded-2xl border p-3.5 transition-all cursor-pointer ${
+            viewMode === "queue" && queueSubTab === "overdue"
+              ? "border-primary bg-primary/10 shadow-sm"
+              : "border-border bg-card hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Atrasadas & Risco Pipeline
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/15 text-primary flex items-center justify-center">
+              <AlertTriangle className="h-3.5 w-3.5" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline justify-between gap-2">
+            <span className="text-xl font-black text-foreground">{overdueCount}</span>
+            <span className="text-xs font-extrabold text-primary">
+              {formatBrlCompact(summary?.overduePipelineValueAtRisk || 0)} em risco
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>{summary?.overdueOpenDealsTasksCount ?? 0} em negócios abertos</span>
+            <span>Média: {summary?.avgOverdueHours ?? 0}h atraso</span>
+          </div>
+        </motion.button>
+
+        {/* Card 2: Execução da Agenda de Hoje */}
+        <motion.button
+          type="button"
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.99 }}
+          onClick={() => {
+            goToday();
+            setViewMode("day");
+          }}
+          className={`text-left rounded-2xl border p-3.5 transition-all cursor-pointer ${
+            viewMode === "day" && isSameDay(selectedDate, today)
+              ? "border-primary bg-primary/10 shadow-sm"
+              : "border-border bg-card hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Execução da Agenda de Hoje
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/15 text-primary flex items-center justify-center">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline justify-between gap-2">
+            <span className="text-xl font-black text-foreground">
+              {summary?.todayCompletedCount ?? 0}/{summary?.todayTotalCount ?? 0}
+            </span>
+            <span className="text-xs font-extrabold text-primary">
+              {summary?.todayExecutionRatePct ?? 0}% concluído
+            </span>
+          </div>
+          <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full bg-primary rounded-full transition-all"
+              style={{ width: `${Math.min(100, summary?.todayExecutionRatePct ?? 0)}%` }}
+            />
+          </div>
+        </motion.button>
+
+        {/* Card 3: Saúde de Agendamento da Carteira */}
+        <motion.button
+          type="button"
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.99 }}
+          onClick={() => {
+            setViewMode("queue");
+            setQueueSubTab("upcoming7d");
+          }}
+          className={`text-left rounded-2xl border p-3.5 transition-all cursor-pointer ${
+            viewMode === "queue" && queueSubTab === "upcoming7d"
+              ? "border-primary bg-primary/10 shadow-sm"
+              : "border-border bg-card hover:border-primary/40"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Cobertura de Follow-up
+            </span>
+            <div className="h-7 w-7 rounded-xl bg-primary/15 text-primary flex items-center justify-center">
+              <Target className="h-3.5 w-3.5" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline justify-between gap-2">
+            <span className="text-xl font-black text-foreground">
+              {summary?.openDealsWithoutTasksCount ?? 0}
+            </span>
+            <span className="text-[11px] font-bold text-primary">
+              deals abertos s/ tarefa
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>{summary?.consultantsWithoutFutureTasksCount ?? 0} consultor(es) s/ agenda</span>
+            <span>Próx. 7d: {summary?.upcoming7dCount ?? 0}</span>
+          </div>
+        </motion.button>
+
+        {/* Card 4: Mix de Atividades da Operação */}
+        <div className="rounded-2xl border border-border bg-card p-3.5 flex flex-col justify-between">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+              Mix de Atividades Pendentes
+            </span>
+            {typeFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => setTypeFilter("all")}
+                className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
+              >
+                Limpar tipo
+              </button>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {(["call", "whatsapp", "meeting", "visit", "email", "lunch", "task"] as const).map((tKey) => {
+              const count = summary?.byType?.[tKey] ?? 0;
+              const isSelected = typeFilter === tKey;
+              return (
+                <button
+                  key={tKey}
+                  type="button"
+                  onClick={() => setTypeFilter(isSelected ? "all" : tKey)}
+                  className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold border transition cursor-pointer ${
+                    isSelected
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted/50 text-foreground border-border hover:border-primary/30"
+                  }`}
+                >
+                  {getTaskTypeIcon(tKey, "h-2.5 w-2.5")}
+                  <span>{GLOBAL_TASK_TYPE_META[tKey]?.shortLabel}</span>
+                  <span className="opacity-80">({count})</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 2. MATRIZ EXECUTIVA DE DISCIPLINA POR CONSULTOR */}
+      {operatorBreakdown.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card p-3.5 shrink-0">
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" />
+              <h3 className="text-xs font-extrabold text-foreground">
+                Disciplina & Cobertura de Agenda por Consultor
+              </h3>
+              {operatorFilter !== "all" && (
+                <button
+                  type="button"
+                  onClick={() => setOperatorFilter("all")}
+                  className="rounded-lg bg-primary/10 text-primary border border-primary/25 px-2 py-0.5 text-[10px] font-bold cursor-pointer"
+                >
+                  Filtro ativo · Mostrar todos
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowOperatorMatrix((v) => !v)}
+              className="text-[11px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              {showOperatorMatrix ? "Recolher matriz" : "Expandir matriz"}
+            </button>
+          </div>
+
+          {showOperatorMatrix && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+              {operatorBreakdown.map((op) => {
+                const isSelected = operatorFilter === op.operatorId;
+                const initials = op.operatorName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                return (
+                  <button
+                    key={op.operatorId}
+                    type="button"
+                    onClick={() => setOperatorFilter(isSelected ? "all" : op.operatorId)}
+                    className={`text-left rounded-xl border p-2.5 transition-all cursor-pointer ${
+                      isSelected
+                        ? "border-primary bg-primary/10 shadow-xs"
+                        : "border-border bg-muted/20 hover:bg-muted/40 hover:border-primary/30"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="relative h-7 w-7 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[10px] font-extrabold shrink-0 overflow-hidden">
+                          {op.operatorAvatar ? (
+                            <img src={op.operatorAvatar} alt={op.operatorName} className="h-full w-full object-cover" />
+                          ) : (
+                            <span>{initials}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`h-2 w-2 rounded-full shrink-0 ${op.isOnline ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                            <p className="text-xs font-extrabold text-foreground truncate">{op.operatorName}</p>
+                          </div>
+                          <p className="text-[9px] text-muted-foreground truncate">
+                            Hoje: {op.todayDone}/{op.todayTotal} ({op.executionRatePct}%)
+                          </p>
+                        </div>
+                      </div>
+
+                      {op.overdueCount > 0 ? (
+                        <span className="shrink-0 rounded-lg bg-primary text-primary-foreground px-2 py-0.5 text-[10px] font-extrabold">
+                          {op.overdueCount} atrasada{op.overdueCount > 1 ? "s" : ""}
+                        </span>
+                      ) : (
+                        <span className="shrink-0 rounded-lg bg-muted text-muted-foreground px-2 py-0.5 text-[9px] font-bold">
+                          Em dia
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-3 gap-1 text-[9px] text-muted-foreground border-t border-border/50 pt-1.5">
+                      <div>
+                        <span className="block text-[8px] uppercase">Risco R$</span>
+                        <span className="font-extrabold text-foreground">{formatBrlCompact(op.overdueValueAtRisk)}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[8px] uppercase">Próx. 7d</span>
+                        <span className={`font-extrabold ${op.upcoming7dCount === 0 ? "text-primary" : "text-foreground"}`}>
+                          {op.upcoming7dCount === 0 ? "Sem agenda" : `${op.upcoming7dCount} ativ.`}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-[8px] uppercase">Deals s/ Task</span>
+                        <span className="font-extrabold text-foreground">
+                          {op.openDealsWithoutTaskCount}/{op.openDealsCount}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. BARRA DE CONTROLES UNIFICADA (4 VISÕES + FILTROS + DELEGAR TAREFA) */}
+      <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 rounded-2xl border border-border bg-card p-3 shrink-0">
+        {/* Seletor de Modo de Visão */}
+        <div className="flex items-center gap-1 bg-muted p-1 rounded-xl shrink-0 overflow-x-auto">
+          {([
+            { id: "queue" as const, label: "Fila & Risco", icon: ListTodo },
+            { id: "month" as const, label: "Mês", icon: Calendar },
+            { id: "week" as const, label: "Semana", icon: Columns3 },
+            { id: "day" as const, label: "Dia / Turnos", icon: Clock },
+          ]).map((mode) => {
+            const Icon = mode.icon;
+            const active = viewMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setViewMode(mode.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer whitespace-nowrap ${
+                  active
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {mode.label}
+              </button>
+            );
+          })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto justify-start md:justify-end">
-          {/* Seletor de Operador */}
+        {/* Filtros Globais */}
+        <div className="flex flex-wrap items-center gap-2 flex-1 justify-end">
+          {/* Busca Rápida */}
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar tarefa, cliente, negócio..."
+              className="h-9 w-full rounded-xl bg-muted/60 border border-border pl-8 pr-7 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Consultor */}
           <Select value={operatorFilter} onValueChange={setOperatorFilter}>
-            <SelectTrigger className="h-9 w-[160px] sm:w-[180px] rounded-xl bg-card border border-border px-3 text-xs text-foreground focus:ring-1 focus:ring-primary">
-              <SelectValue placeholder="Todos Operadores" />
+            <SelectTrigger className="h-9 w-[160px] rounded-xl bg-card border border-border px-3 text-xs text-foreground">
+              <SelectValue placeholder="Todos Consultores" />
             </SelectTrigger>
             <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
-              <SelectItem value="all" className="cursor-pointer text-xs">Todos Operadores</SelectItem>
+              <SelectItem value="all" className="cursor-pointer text-xs">Todos Consultores</SelectItem>
               {uniqueOperatorsList.map((op) => (
-                <SelectItem key={op.email || op.name} value={op.email || op.name} className="cursor-pointer text-xs">
+                <SelectItem key={op.id} value={op.id} className="cursor-pointer text-xs">
                   {op.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
 
+          {/* Funil CRM */}
+          <Select value={pipelineFilter} onValueChange={setPipelineFilter}>
+            <SelectTrigger className="h-9 w-[150px] rounded-xl bg-card border border-border px-3 text-xs text-foreground">
+              <SelectValue placeholder="Todos os Funis" />
+            </SelectTrigger>
+            <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+              <SelectItem value="all" className="cursor-pointer text-xs">Todos os Funis</SelectItem>
+              <SelectItem value="__with_deal__" className="cursor-pointer text-xs">Com Oportunidade</SelectItem>
+              <SelectItem value="__without_deal__" className="cursor-pointer text-xs">Sem Oportunidade</SelectItem>
+              {pipelines.map((p) => (
+                <SelectItem key={p.id} value={p.id} className="cursor-pointer text-xs">
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Status do Negócio */}
+          <Select value={dealStatusFilter} onValueChange={(v) => setDealStatusFilter(v as any)}>
+            <SelectTrigger className="h-9 w-[140px] rounded-xl bg-card border border-border px-3 text-xs text-foreground">
+              <SelectValue placeholder="Status Deal" />
+            </SelectTrigger>
+            <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+              <SelectItem value="all" className="cursor-pointer text-xs">Todos Negócios</SelectItem>
+              <SelectItem value="open" className="cursor-pointer text-xs">Deals em Aberto</SelectItem>
+              <SelectItem value="won" className="cursor-pointer text-xs">Deals Ganhos</SelectItem>
+              <SelectItem value="lost" className="cursor-pointer text-xs">Deals Perdidos</SelectItem>
+            </SelectContent>
+          </Select>
+
           <button
+            type="button"
             onClick={() => setIsAllTasksModalOpen(true)}
-            className="rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground transition-all hover:bg-muted/50 flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="h-9 rounded-xl border border-border bg-card px-3 text-xs font-bold text-foreground hover:bg-muted/50 flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <Filter className="h-3.5 w-3.5" />
-            Todos
+            Lista Completa
           </button>
+
           <button
-            onClick={goToday}
-            className="rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground transition-all hover:bg-muted/50 cursor-pointer shrink-0"
+            type="button"
+            onClick={() => {
+              setEditingTaskData(null);
+              setIsCreateModalOpen(true);
+            }}
+            className="h-9 rounded-xl bg-primary text-primary-foreground px-3.5 text-xs font-extrabold flex items-center gap-1.5 shadow-xs hover:opacity-90 transition cursor-pointer shrink-0"
           >
-            Hoje
+            <Plus className="h-3.5 w-3.5" />
+            Nova / Delegar
           </button>
-          <button
-            onClick={fetchTasks}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-white transition-all disabled:opacity-60 cursor-pointer bg-primary shrink-0"
-          >
-            {loading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-            Atualizar
-          </button>
+
+          <SystemTooltip content="Atualizar tarefas globais">
+            <button
+              type="button"
+              onClick={fetchTasks}
+              disabled={loading}
+              className="h-9 w-9 rounded-xl border border-border bg-card hover:bg-muted text-foreground flex items-center justify-center transition cursor-pointer shrink-0 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            </button>
+          </SystemTooltip>
         </div>
       </div>
 
-      {/* Content Grid */}
-      <div className="flex flex-col lg:flex-row flex-1 overflow-y-auto lg:overflow-hidden gap-4 lg:gap-0">
-        {/* Calendar */}
-        <div className="flex-1 flex flex-col overflow-visible lg:overflow-auto border-b lg:border-b-0 lg:border-r border-border pb-4 lg:pb-0 lg:pr-4">
-          {/* Month Navigation */}
-          <div className="flex items-center justify-between mb-4">
-            <button onClick={prevMonth} className="rounded-xl p-1.5 hover:bg-muted transition-colors cursor-pointer border border-border bg-card">
-              <ChevronLeft className="h-4.5 w-4.5 text-foreground" />
-            </button>
-            <h3 className="text-sm font-bold text-foreground">
-              {MONTHS[currentMonth]} {currentYear}
-            </h3>
-            <button onClick={nextMonth} className="rounded-xl p-1.5 hover:bg-muted transition-colors cursor-pointer border border-border bg-card">
-              <ChevronRight className="h-4.5 w-4.5 text-foreground" />
-            </button>
+      {error && (
+        <div className="flex items-center gap-2 rounded-2xl border border-primary/30 bg-primary/10 p-3 text-xs text-primary shrink-0">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* 4A. VISÃO: FILA & RISCO (TRIAGEM EXECUTIVA) */}
+      {viewMode === "queue" && (
+        <div className="flex flex-col space-y-3">
+          {/* Sub-abas da Fila + Ordenação + Ações em Lote */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card px-3.5 py-2.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {([
+                { id: "overdue" as const, label: "Atrasadas Críticas" },
+                { id: "today" as const, label: "Vencem Hoje" },
+                { id: "upcoming7d" as const, label: "Próximos 7 Dias" },
+                { id: "open_deals" as const, label: "Negócios Abertos" },
+                { id: "completed" as const, label: "Concluídas" },
+                { id: "all" as const, label: "Todas" },
+              ]).map((sub) => {
+                const active = queueSubTab === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => setQueueSubTab(sub.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      active
+                        ? "bg-primary text-primary-foreground shadow-xs"
+                        : "bg-muted/50 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {sub.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {queueSubTab === "overdue" && queueTasks.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={bulkRescheduling}
+                      className="h-8 rounded-xl bg-primary/15 text-primary border border-primary/30 px-3 text-[11px] font-extrabold flex items-center gap-1.5 hover:bg-primary/20 transition cursor-pointer disabled:opacity-50"
+                    >
+                      {bulkRescheduling ? <Loader2 className="h-3 w-3 animate-spin" /> : <CalendarClock className="h-3 w-3" />}
+                      Reagendar {queueTasks.length} em lote
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-60 p-2.5 rounded-2xl bg-card border border-border shadow-card space-y-1.5 z-50">
+                    <p className="text-[10px] font-extrabold text-muted-foreground px-1">
+                      Reagendar {queueTasks.length} tarefas listadas para:
+                    </p>
+                    {[
+                      { id: "today_16h" as const, label: "Hoje às 16:00" },
+                      { id: "tomorrow_9h" as const, label: "Amanhã às 09:00" },
+                      { id: "next_mon_9h" as const, label: "Próxima Segunda às 09:00" },
+                    ].map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleBulkReschedule(queueTasks, preset.id)}
+                        className="w-full text-left rounded-xl px-2.5 py-1.5 text-xs font-bold text-foreground hover:bg-primary/10 hover:text-primary transition cursor-pointer"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              )}
+
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as GlobalTaskSortBy)}>
+                <SelectTrigger className="h-8 w-[195px] rounded-xl bg-muted/50 border border-border px-2.5 text-[11px] font-bold text-foreground">
+                  <SelectValue placeholder="Ordenar por" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
+                  <SelectItem value="value_desc" className="cursor-pointer text-xs">Maior Valor R$ em Risco</SelectItem>
+                  <SelectItem value="overdue_desc" className="cursor-pointer text-xs">Maior Tempo de Atraso</SelectItem>
+                  <SelectItem value="due_asc" className="cursor-pointer text-xs">Prazo Mais Próximo</SelectItem>
+                  <SelectItem value="operator_asc" className="cursor-pointer text-xs">Consultor (A-Z)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          {/* Weekday Headers */}
-          <div className="grid grid-cols-7 gap-1.5 mb-2 border-b border-border pb-2 bg-muted/20 dark:bg-muted/5 rounded-xl px-2 py-1 shadow-xs">
-            {WEEKDAYS.map((day) => (
-              <div key={day} className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground/85">
-                {day}
+          {queueTasks.length === 0 ? (
+            <div className="rounded-2xl border border-border bg-card py-14 px-4 flex flex-col items-center justify-center text-center">
+              <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3">
+                <ClipboardCheck className="h-6 w-6" />
               </div>
-            ))}
-          </div>
+              <p className="text-sm font-extrabold text-foreground">
+                Nenhuma tarefa nesta visão
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md">
+                Não há atividades correspondentes aos filtros atuais. Você pode alternar a sub-aba ou delegar uma nova tarefa para a equipe.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {queueTasks.map((task) => (
+                <GlobalTaskCard360
+                  key={task.id}
+                  task={task}
+                  peekConvId={peekConvId}
+                  peekMessages={peekMessages}
+                  loadingPeekId={loadingPeekId}
+                  whisperTaskId={whisperTaskId}
+                  whisperText={whisperText}
+                  sendingWhisper={sendingWhisper}
+                  startingChatTaskId={startingChatTaskId}
+                  reschedulingTaskId={reschedulingTaskId}
+                  onToggleComplete={toggleTaskStatus}
+                  onEditTask={handleEditTask}
+                  onRescheduleTask={handleRescheduleTask}
+                  onCancelTask={handleCancelTask}
+                  onDeleteTask={handleDeleteTask}
+                  onTogglePeek={handleTogglePeek}
+                  onToggleWhisper={handleToggleWhisper}
+                  onChangeWhisperText={setWhisperText}
+                  onSendWhisper={handleSendWhisper}
+                  onOpenOrStartChat={handleOpenOrStartChat}
+                  onNavigateDeal={handleNavigateDeal}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-          {/* Day Grid */}
-          <div className="grid grid-cols-7 gap-1.5 flex-1 min-h-[380px]">
-            {days.map((date, i) => {
-              const isCurrentMonth = date.getMonth() === currentMonth;
-              const isToday = isSameDay(date, today);
-              const isSelected = isSameDay(date, selectedDate);
-              
-              // Filtra tarefas globais por dia (independentemente do filtro de operador na barra)
-              const dayTasks = getTasksForDate(date);
-              
-              // Agrupa operadores únicos para este dia
-              const uniqueOpsMap = new Map<string, { name: string; avatar: string | null }>();
-              for (const t of dayTasks) {
-                const email = t.operatorEmail || "";
-                if (!uniqueOpsMap.has(email)) {
-                  uniqueOpsMap.set(email, { name: t.operatorName, avatar: t.operatorAvatar });
-                }
-              }
-              const uniqueOps = Array.from(uniqueOpsMap.values());
-
-              return (
+      {/* 4B. VISÃO: MÊS (CALENDÁRIO ENRIQUECIDO + PAINEL LATERAL 360º) */}
+      {viewMode === "month" && (
+        <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex-1 rounded-2xl border border-border bg-card p-4 flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
                 <button
-                  key={i}
-                  onClick={() => setSelectedDate(date)}
-                  className="relative flex flex-col items-center justify-start rounded-xl p-1.5 transition-all min-h-[70px] border w-full overflow-hidden cursor-pointer"
-                  style={{
-                    background: isSelected
-                      ? "var(--primary)"
-                      : isToday
-                        ? "var(--primary-soft)"
-                        : "var(--card)",
-                    borderColor: isSelected
-                      ? "var(--primary)"
-                      : isToday
-                        ? "var(--primary-soft)"
-                        : "var(--border)",
-                    color: isSelected
-                      ? "white"
-                      : isCurrentMonth
-                        ? "var(--foreground)"
-                        : "var(--muted-foreground)",
-                    opacity: isCurrentMonth ? 1 : 0.45,
-                    borderWidth: isToday && !isSelected ? "2px" : "1px",
-                  }}
+                  type="button"
+                  onClick={prevPeriod}
+                  className="rounded-xl p-1.5 hover:bg-muted transition-colors cursor-pointer border border-border bg-card"
                 >
-                  <span className={`text-[11px] font-bold ${isSelected ? "text-white" : "text-foreground/80"} mb-1`}>
-                    {date.getDate()}
-                  </span>
+                  <ChevronLeft className="h-4 w-4 text-foreground" />
+                </button>
+                <h3 className="text-sm font-extrabold text-foreground min-w-[140px] text-center">
+                  {MONTHS[currentMonth]} {currentYear}
+                </h3>
+                <button
+                  type="button"
+                  onClick={nextPeriod}
+                  className="rounded-xl p-1.5 hover:bg-muted transition-colors cursor-pointer border border-border bg-card"
+                >
+                  <ChevronRight className="h-4 w-4 text-foreground" />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={goToday}
+                className="rounded-xl border border-border bg-muted/40 hover:bg-muted px-3 py-1.5 text-xs font-bold text-foreground cursor-pointer"
+              >
+                Ir para Hoje
+              </button>
+            </div>
 
-                  {/* Fotos dos operadores com tarefas no dia */}
-                  {uniqueOps.length > 0 && (
-                    <div className="flex flex-wrap items-center justify-center gap-0.5 mt-1 w-full max-w-full">
-                      {uniqueOps.slice(0, 3).map((op, j) => {
-                        const initials = op.name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-                        return (
-                          <div
-                            key={j}
-                            className="relative h-5 w-5 rounded-full border border-card flex items-center justify-center text-[7px] font-extrabold shadow-sm shrink-0"
-                            style={{
-                              background: isSelected ? "rgba(255,255,255,0.2)" : "var(--primary-soft)",
-                              color: isSelected ? "white" : "var(--primary)",
-                            }}
-                            title={op.name}
-                          >
-                            {op.avatar ? (
-                              <img
-                                src={op.avatar}
-                                alt={op.name}
-                                className="h-full w-full rounded-full object-cover"
-                              />
-                            ) : (
-                              <span>{initials}</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {uniqueOps.length > 3 && (
+            <div className="grid grid-cols-7 gap-1.5 mb-2 border-b border-border pb-2 bg-muted/20 rounded-xl px-2 py-1">
+              {WEEKDAYS.map((day) => (
+                <div key={day} className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1.5 flex-1 min-h-[420px]">
+              {days.map((date, i) => {
+                const isCurrentMonth = date.getMonth() === currentMonth;
+                const isTodayDate = isSameDay(date, today);
+                const isSelected = isSameDay(date, selectedDate);
+                const dayTasks = getTasksForDate(date);
+                const doneCount = dayTasks.filter((t) => t.status === "done" || t.status === "completed").length;
+                const overdueDayCount = dayTasks.filter(
+                  (t) => t.status !== "done" && t.status !== "completed" && t.dueDate && new Date(t.dueDate) < new Date()
+                ).length;
+
+                const uniqueOpsMap = new Map<string, { id: string; name: string; avatar: string | null }>();
+                for (const t of dayTasks) {
+                  const ops = t.assignedOperators?.length
+                    ? t.assignedOperators
+                    : [{ id: t.operatorId || t.operatorName, name: t.operatorName, email: t.operatorEmail, avatar: t.operatorAvatar }];
+                  for (const op of ops) {
+                    if (!uniqueOpsMap.has(op.id)) {
+                      uniqueOpsMap.set(op.id, { id: op.id, name: op.name, avatar: op.avatar });
+                    }
+                  }
+                }
+                const uniqueOps = Array.from(uniqueOpsMap.values());
+
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setSelectedDate(date)}
+                    className={`relative flex flex-col justify-between rounded-xl p-2 transition-all min-h-[78px] border w-full overflow-hidden cursor-pointer ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : isTodayDate
+                          ? "bg-primary/10 text-foreground border-primary/40 border-2"
+                          : "bg-card text-foreground border-border hover:border-primary/30"
+                    } ${isCurrentMonth ? "opacity-100" : "opacity-45"}`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className={`text-[11px] font-extrabold ${isSelected ? "text-primary-foreground" : "text-foreground"}`}>
+                        {date.getDate()}
+                      </span>
+                      {dayTasks.length > 0 && (
                         <span
-                          className={`text-[8px] font-bold ml-0.5 shrink-0 ${
-                            isSelected ? "text-white/80" : "text-muted-foreground"
+                          className={`rounded-md px-1.5 py-0.2 text-[9px] font-extrabold ${
+                            isSelected
+                              ? "bg-primary-foreground/20 text-primary-foreground"
+                              : overdueDayCount > 0
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted text-foreground"
                           }`}
                         >
-                          +{uniqueOps.length - 3}
+                          {dayTasks.length}
                         </span>
                       )}
                     </div>
-                  )}
-                </button>
+
+                    {uniqueOps.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-center gap-0.5 my-1 w-full">
+                        {uniqueOps.slice(0, 3).map((op, j) => {
+                          const initials = op.name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+                          return (
+                            <SystemTooltip key={j} content={op.name}>
+                              <div
+                                className={`h-5 w-5 rounded-full border flex items-center justify-center text-[7px] font-extrabold shrink-0 overflow-hidden ${
+                                  isSelected
+                                    ? "bg-primary-foreground/20 text-primary-foreground border-primary-foreground/30"
+                                    : "bg-primary/15 text-primary border-card"
+                                }`}
+                              >
+                                {op.avatar ? (
+                                  <img src={op.avatar} alt={op.name} className="h-full w-full object-cover" />
+                                ) : (
+                                  <span>{initials}</span>
+                                )}
+                              </div>
+                            </SystemTooltip>
+                          );
+                        })}
+                        {uniqueOps.length > 3 && (
+                          <span className={`text-[8px] font-bold ml-0.5 ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                            +{uniqueOps.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {dayTasks.length > 0 && (
+                      <div className="w-full h-1 rounded-full bg-muted/60 overflow-hidden mt-0.5">
+                        <div
+                          className={`h-full rounded-full ${isSelected ? "bg-primary-foreground" : "bg-primary"}`}
+                          style={{ width: `${Math.round((doneCount / dayTasks.length) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Painel Lateral do Dia Selecionado */}
+          <div className="w-full lg:w-[430px] rounded-2xl border border-border bg-card p-4 flex flex-col max-h-[640px]">
+            <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+              <div>
+                <h4 className="text-xs font-extrabold text-foreground capitalize">
+                  {selectedDate.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
+                </h4>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {selectedDateTasks.length === 0
+                    ? "Nenhuma atividade agendada"
+                    : `${selectedDateTasks.length} atividade(s) neste dia`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewMode("day")}
+                className="rounded-xl bg-primary/10 text-primary border border-primary/25 px-2.5 py-1 text-[10px] font-extrabold hover:bg-primary/15 cursor-pointer"
+              >
+                Abrir Turnos do Dia
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+              {selectedDateTasks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+                  <Calendar className="h-10 w-10 text-muted-foreground/30 mb-2" />
+                  <p className="text-xs font-semibold">Nenhuma tarefa para esta data</p>
+                </div>
+              ) : (
+                selectedDateTasks.map((task) => (
+                  <GlobalTaskCard360
+                    key={task.id}
+                    task={task}
+                    compact
+                    peekConvId={peekConvId}
+                    peekMessages={peekMessages}
+                    loadingPeekId={loadingPeekId}
+                    whisperTaskId={whisperTaskId}
+                    whisperText={whisperText}
+                    sendingWhisper={sendingWhisper}
+                    startingChatTaskId={startingChatTaskId}
+                    reschedulingTaskId={reschedulingTaskId}
+                    onToggleComplete={toggleTaskStatus}
+                    onEditTask={handleEditTask}
+                    onRescheduleTask={handleRescheduleTask}
+                    onCancelTask={handleCancelTask}
+                    onDeleteTask={handleDeleteTask}
+                    onTogglePeek={handleTogglePeek}
+                    onToggleWhisper={handleToggleWhisper}
+                    onChangeWhisperText={setWhisperText}
+                    onSendWhisper={handleSendWhisper}
+                    onOpenOrStartChat={handleOpenOrStartChat}
+                    onNavigateDeal={handleNavigateDeal}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4C. VISÃO: SEMANA (GRADE DE 7 COLUNAS DE CARGA SEMANAL) */}
+      {viewMode === "week" && (
+        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={prevPeriod}
+                className="rounded-xl p-1.5 hover:bg-muted border border-border bg-card cursor-pointer"
+              >
+                <ChevronLeft className="h-4 w-4 text-foreground" />
+              </button>
+              <h3 className="text-sm font-extrabold text-foreground">
+                Semana de {weekDays[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} a{" "}
+                {weekDays[6].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+              </h3>
+              <button
+                type="button"
+                onClick={nextPeriod}
+                className="rounded-xl p-1.5 hover:bg-muted border border-border bg-card cursor-pointer"
+              >
+                <ChevronRight className="h-4 w-4 text-foreground" />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={goToday}
+              className="rounded-xl border border-border bg-muted/40 hover:bg-muted px-3 py-1.5 text-xs font-bold text-foreground cursor-pointer"
+            >
+              Semana Atual
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-7 gap-2.5">
+            {weekDays.map((d, idx) => {
+              const dayTasks = getTasksForDate(d);
+              const isTodayDate = isSameDay(d, today);
+              return (
+                <div
+                  key={idx}
+                  className={`rounded-2xl border p-2.5 flex flex-col min-h-[340px] ${
+                    isTodayDate ? "border-primary bg-primary/5" : "border-border bg-muted/15"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate(d);
+                      setViewMode("day");
+                    }}
+                    className="flex items-center justify-between pb-2 mb-2 border-b border-border/60 text-left cursor-pointer"
+                  >
+                    <div>
+                      <p className="text-[10px] font-extrabold uppercase text-muted-foreground">
+                        {WEEKDAYS[d.getDay()]}
+                      </p>
+                      <p className="text-sm font-black text-foreground">
+                        {d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+                      </p>
+                    </div>
+                    <span className="rounded-lg bg-card border border-border px-2 py-0.5 text-[10px] font-extrabold text-foreground">
+                      {dayTasks.length}
+                    </span>
+                  </button>
+
+                  <div className="flex-1 space-y-2 overflow-y-auto max-h-[420px] pr-0.5 scrollbar-thin">
+                    {dayTasks.length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground text-center py-8">Livre</p>
+                    ) : (
+                      dayTasks.map((t) => {
+                        const isDone = t.status === "done" || t.status === "completed";
+                        const isOv = !isDone && t.dueDate && new Date(t.dueDate) < new Date();
+                        return (
+                          <div
+                            key={t.id}
+                            onClick={() => {
+                              setSelectedDate(d);
+                              setViewMode("day");
+                            }}
+                            className={`rounded-xl border p-2 text-left transition cursor-pointer ${
+                              isOv
+                                ? "border-primary/40 bg-primary/10"
+                                : isDone
+                                  ? "border-border/50 bg-card/60 opacity-75"
+                                  : "border-border bg-card hover:border-primary/30"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-primary uppercase">
+                                {getTaskTypeIcon(t.type, "h-2.5 w-2.5")}
+                                {formatTime(t.dueDate)}
+                              </span>
+                              <span className="text-[9px] font-bold text-muted-foreground truncate max-w-[70px]">
+                                {t.operatorName.split(" ")[0]}
+                              </span>
+                            </div>
+                            <p className={`text-[11px] font-bold mt-1 line-clamp-2 ${isDone ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                              {t.name}
+                            </p>
+                            {t.client.name && (
+                              <p className="text-[9px] text-muted-foreground truncate mt-0.5">
+                                {t.client.name}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
         </div>
+      )}
 
-        {/* Task Details Panel */}
-        <div className="w-full lg:w-[320px] min-h-[260px] lg:min-h-0 flex flex-col overflow-visible lg:overflow-hidden shrink-0 lg:pl-4">
-          <div className="pb-3 border-b border-border mb-3">
-            <h4 className="text-xs font-bold text-foreground">
-              {selectedDate.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
-            </h4>
-            <p className="text-[10px] text-muted-foreground mt-0.5">
-              {selectedTasks.length === 0 ? "Nenhuma tarefa" : `${selectedTasks.length} tarefa${selectedTasks.length > 1 ? "s" : ""}`}
-            </p>
-          </div>
-
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
-            {error && (
-              <div className="flex items-center gap-2 rounded-xl bg-red-50 dark:bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-400">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {selectedTasks.length === 0 && !error && (
-              <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground">
-                <Calendar className="h-10 w-10 text-muted-foreground/30 mb-2" />
-                <p className="text-xs">Nenhuma tarefa para esta data</p>
-              </div>
-            )}
-
-            {selectedTasks.map((task) => (
-              <div
-                key={task.id}
-                className="group rounded-xl border border-border bg-card p-3.5 transition-all hover:shadow-sm hover:border-primary/30"
-                style={{
-                  borderLeft: `3px solid ${getTaskTypeColor(task.type)}`,
-                }}
+      {/* 4D. VISÃO: DIA / TURNOS (MANHÃ, TARDE, NOITE & CONCLUÍDAS) */}
+      {viewMode === "day" && (
+        <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={prevPeriod}
+                className="rounded-xl p-1.5 hover:bg-muted border border-border bg-card cursor-pointer"
               >
-                {/* Task Header */}
-                <div className="flex items-start gap-2.5">
-                  <button
-                    onClick={() => toggleTaskStatus(task)}
-                    className="mt-0.5 shrink-0 cursor-pointer"
-                  >
-                    {task.status === "done" ? (
-                      <CheckCircle2 className="h-4.5 w-4.5 text-primary" />
-                    ) : (
-                      <Circle className="h-4.5 w-4.5 text-muted-foreground hover:text-foreground transition-colors" />
-                    )}
-                  </button>
-
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={`text-xs font-bold leading-tight ${
-                        task.status === "done" ? "line-through text-muted-foreground" : "text-foreground"
-                      }`}
-                    >
-                      {task.name}
-                    </p>
-
-                    {/* Type & Time */}
-                    <div className="flex items-center gap-2 mt-1">
-                      <span
-                        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-white"
-                        style={{ background: getTaskTypeColor(task.type) }}
-                      >
-                        {getTaskTypeIcon(task.type)}
-                        {task.type}
-                      </span>
-                      {task.dueDate && (() => {
-                        const isOverdue = task.status !== "done" && new Date(task.dueDate) < new Date();
-                        return (
-                          <span className={`flex items-center gap-0.5 text-[10px] ${isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
-                            <Clock className="h-2.5 w-2.5" />
-                            {formatTime(task.dueDate)} {isOverdue && "(Atrasada)"}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Operator Assigned */}
-                <div className="mt-2.5 flex items-center gap-2 bg-muted/40 dark:bg-muted/10 rounded-lg p-2 border border-border/30">
-                  <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-[8px] font-extrabold shrink-0">
-                    {task.operatorAvatar ? (
-                      <img
-                        src={task.operatorAvatar}
-                        alt={task.operatorName}
-                        className="h-full w-full rounded-full object-cover"
-                      />
-                    ) : (
-                      <span>{task.operatorName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)}</span>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] text-muted-foreground">Responsável</p>
-                    <p className="text-xs font-semibold text-foreground truncate leading-tight">{task.operatorName}</p>
-                  </div>
-                </div>
-
-                {/* Client Info */}
-                {(task.client.name || task.client.phone) && (
-                  <div className="mt-2.5 rounded-lg bg-background/50 p-2 border border-border/20">
-                    {task.client.name && (
-                      <p className="text-[10px] font-bold text-foreground truncate">{task.client.name}</p>
-                    )}
-                    {task.client.phone && (
-                      <p className="text-[9px] text-muted-foreground mt-0.5">{formatPhone(task.client.phone)}</p>
-                    )}
-                  </div>
-                )}
-
-                {/* Deal Info */}
-                {task.deal?.name && (
-                  <div className="mt-2 flex items-center gap-1 text-[9px] text-muted-foreground">
-                    <ExternalLink className="h-2.5 w-2.5" />
-                    <span className="truncate">{task.deal.name}</span>
-                  </div>
-                )}
-
-                {/* Description */}
-                {task.description && (
-                  <p className="mt-2 text-[10px] text-muted-foreground leading-normal line-clamp-2">
-                    {task.description}
-                  </p>
-                )}
-
-                {/* Action Button */}
-                {task.chatConversationId ? (
-                  <button
-                    onClick={() => openChat(task)}
-                    className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-[10px] font-bold text-white bg-primary cursor-pointer shadow-xs hover:opacity-90 transition-opacity"
-                  >
-                    <MessageSquare className="h-3 w-3" />
-                    Abrir Atendimento
-                  </button>
-                ) : (
-                  <div className="mt-2.5 flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-2 text-[9px] text-muted-foreground select-none">
-                    <MessageSquare className="h-3 w-3" />
-                    Sem conversa ativa
-                  </div>
-                )}
+                <ChevronLeft className="h-4 w-4 text-foreground" />
+              </button>
+              <div>
+                <h3 className="text-sm font-extrabold text-foreground capitalize">
+                  {selectedDate.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+                </h3>
+                <p className="text-[11px] text-muted-foreground">
+                  {selectedDateTasks.length} atividade(s) programada(s) para o dia
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
+              <button
+                type="button"
+                onClick={nextPeriod}
+                className="rounded-xl p-1.5 hover:bg-muted border border-border bg-card cursor-pointer"
+              >
+                <ChevronRight className="h-4 w-4 text-foreground" />
+              </button>
+            </div>
 
-      {/* MODAL: TODAS AS TAREFAS (LISTA GLOBAL) */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={goToday}
+                className="rounded-xl border border-border bg-muted/40 hover:bg-muted px-3 py-1.5 text-xs font-bold text-foreground cursor-pointer"
+              >
+                Hoje
+              </button>
+              {selectedDateTasks.some((t) => t.status !== "done" && t.status !== "completed") && (
+                <button
+                  type="button"
+                  disabled={bulkRescheduling}
+                  onClick={() =>
+                    handleBulkReschedule(
+                      selectedDateTasks.filter((t) => t.status !== "done" && t.status !== "completed"),
+                      "tomorrow_9h"
+                    )
+                  }
+                  className="rounded-xl bg-primary/15 text-primary border border-primary/30 px-3 py-1.5 text-xs font-extrabold hover:bg-primary/20 cursor-pointer disabled:opacity-50"
+                >
+                  Mover Pendentes p/ Amanhã 09h
+                </button>
+              )}
+            </div>
+          </div>
+
+          {(() => {
+            const pendingDay = selectedDateTasks.filter((t) => t.status !== "done" && t.status !== "completed");
+            const doneDay = selectedDateTasks.filter((t) => t.status === "done" || t.status === "completed");
+            const morning = pendingDay.filter((t) => !t.dueDate || new Date(t.dueDate).getHours() < 12);
+            const afternoon = pendingDay.filter((t) => t.dueDate && new Date(t.dueDate).getHours() >= 12 && new Date(t.dueDate).getHours() < 18);
+            const evening = pendingDay.filter((t) => t.dueDate && new Date(t.dueDate).getHours() >= 18);
+
+            const shifts = [
+              { id: "morning", label: "Turno da Manhã (até 12h)", items: morning },
+              { id: "afternoon", label: "Turno da Tarde (12h às 18h)", items: afternoon },
+              { id: "evening", label: "Turno da Noite (após 18h)", items: evening },
+              { id: "done", label: "Concluídas no Dia", items: doneDay },
+            ];
+
+            return (
+              <div className="space-y-4">
+                {shifts.map((shift) => (
+                  <div key={shift.id} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-primary" />
+                        {shift.label} ({shift.items.length})
+                      </h4>
+                    </div>
+                    {shift.items.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border/60 py-4 text-center text-xs text-muted-foreground">
+                        Sem atividades neste bloco
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        {shift.items.map((task) => (
+                          <GlobalTaskCard360
+                            key={task.id}
+                            task={task}
+                            peekConvId={peekConvId}
+                            peekMessages={peekMessages}
+                            loadingPeekId={loadingPeekId}
+                            whisperTaskId={whisperTaskId}
+                            whisperText={whisperText}
+                            sendingWhisper={sendingWhisper}
+                            startingChatTaskId={startingChatTaskId}
+                            reschedulingTaskId={reschedulingTaskId}
+                            onToggleComplete={toggleTaskStatus}
+                            onEditTask={handleEditTask}
+                            onRescheduleTask={handleRescheduleTask}
+                            onCancelTask={handleCancelTask}
+                            onDeleteTask={handleDeleteTask}
+                            onTogglePeek={handleTogglePeek}
+                            onToggleWhisper={handleToggleWhisper}
+                            onChangeWhisperText={setWhisperText}
+                            onSendWhisper={handleSendWhisper}
+                            onOpenOrStartChat={handleOpenOrStartChat}
+                            onNavigateDeal={handleNavigateDeal}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* MODAL 1: LISTA COMPLETA DE TAREFAS (COM CRMDATEPICKER CUSTOMIZADO) */}
       <AnimatePresence>
         {isAllTasksModalOpen && (
           <motion.div
@@ -8792,237 +10481,137 @@ function GlobalTasksTab() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
               transition={{ type: "spring", damping: 25, stiffness: 280 }}
-              className="w-full max-w-3xl rounded-3xl bg-card border border-border shadow-card flex flex-col max-h-[90vh] overflow-hidden"
+              className="w-full max-w-4xl rounded-3xl bg-card border border-border shadow-card flex flex-col max-h-[90vh] overflow-hidden"
             >
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-line px-6 py-4.5">
+              <div className="flex items-center justify-between border-b border-line px-6 py-4">
                 <div>
                   <h3 className="text-base font-extrabold text-foreground flex items-center gap-2">
                     <ClipboardCheck className="h-5 w-5 text-primary" />
-                    Lista Completa de Tarefas
+                    Auditoria & Lista Completa de Tarefas Globais
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Visualize e filtre todas as tarefas cadastradas no sistema.
+                    Consulte, filtre por data específica e execute ações diretas em qualquer atividade do tenant.
                   </p>
                 </div>
                 <button
-                  onClick={() => {
-                    setIsAllTasksModalOpen(false);
-                    setSearchQuery("");
-                    setStatusFilter("all");
-                    setDateFilter("");
-                    setOperatorFilter("all");
-                  }}
+                  type="button"
+                  onClick={() => setIsAllTasksModalOpen(false)}
                   className="grid h-8 w-8 place-items-center rounded-full hover:bg-muted text-muted-foreground transition cursor-pointer"
                 >
                   <X className="h-4.5 w-4.5" />
                 </button>
               </div>
 
-              {/* Filters Bar */}
-              <div className="p-6 border-b border-line bg-background/30 flex flex-wrap md:flex-nowrap gap-4 items-center">
-                {/* Search Input */}
-                <div className="relative w-full md:flex-1">
+              <div className="p-4 border-b border-line bg-muted/20 flex flex-wrap gap-3 items-center">
+                <div className="relative flex-1 min-w-[200px]">
                   <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder="Pesquisar por título ou cliente..."
+                    placeholder="Pesquisar por título, cliente, empresa ou oportunidade..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="h-10 w-full rounded-xl bg-muted pl-10 pr-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent"
+                    className="h-10 w-full rounded-xl bg-card pl-10 pr-4 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-border"
                   />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery("")}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
                 </div>
 
-                {/* Operator Selector */}
                 <Select value={operatorFilter} onValueChange={setOperatorFilter}>
-                  <SelectTrigger className="h-10 w-full md:w-44 shrink-0 rounded-xl bg-muted px-3 text-xs text-foreground border border-transparent focus:ring-1 focus:ring-primary">
-                    <SelectValue placeholder="Todos Operadores" />
+                  <SelectTrigger className="h-10 w-48 shrink-0 rounded-xl bg-card px-3 text-xs text-foreground border border-border">
+                    <SelectValue placeholder="Todos Consultores" />
                   </SelectTrigger>
-                  <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-50">
-                    <SelectItem value="all" className="cursor-pointer text-xs">Todos Operadores</SelectItem>
+                  <SelectContent className="bg-card border-line rounded-xl text-xs shadow-soft z-[120]">
+                    <SelectItem value="all" className="cursor-pointer text-xs">Todos Consultores</SelectItem>
                     {uniqueOperatorsList.map((op) => (
-                      <SelectItem key={op.email || op.name} value={op.email || op.name} className="cursor-pointer text-xs">
+                      <SelectItem key={op.id} value={op.id} className="cursor-pointer text-xs">
                         {op.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
 
-                {/* Status Toggle */}
-                <div className="flex bg-muted rounded-xl p-1 shrink-0 w-full md:w-auto">
+                <div className="flex bg-muted rounded-xl p-1 shrink-0">
                   {(["all", "open", "completed"] as const).map((status) => (
                     <button
                       key={status}
-                      onClick={() => setStatusFilter(status)}
-                      className={`flex-1 md:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
-                        statusFilter === status
+                      type="button"
+                      onClick={() => setModalStatusFilter(status)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        modalStatusFilter === status
                           ? "bg-card text-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      {status === "all" ? "Todas" : status === "open" ? "Em aberto" : "Concluídas"}
+                      {status === "all" ? "Todas" : status === "open" ? "Em Aberto" : "Concluídas"}
                     </button>
                   ))}
                 </div>
 
-                {/* Date Filter */}
-                <div className="relative w-full md:w-40 shrink-0">
-                  <input
-                    type="date"
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                    className="h-10 w-full rounded-xl bg-muted px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary border border-transparent cursor-pointer"
+                <div className="w-48 shrink-0">
+                  <CrmDatePicker
+                    value={modalDateFilter}
+                    onChange={setModalDateFilter}
+                    placeholder="Filtrar por data"
                   />
-                  {dateFilter && (
-                    <button
-                      onClick={() => setDateFilter("")}
-                      className="absolute right-8 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
                 </div>
               </div>
 
-              {/* Tasks List */}
-              <div className="flex-1 overflow-y-auto p-6 bg-background/10 space-y-3 scrollbar-thin">
+              <div className="flex-1 overflow-y-auto p-5 space-y-3 scrollbar-thin">
                 {(() => {
-                  const filtered = tasks.filter((t) => {
-                    if (searchQuery.trim()) {
-                      const q = searchQuery.toLowerCase().trim();
-                      const matchName = t.name.toLowerCase().includes(q);
-                      const matchDesc = t.description?.toLowerCase().includes(q) || false;
-                      const matchClient = t.client.name?.toLowerCase().includes(q) || false;
-                      if (!matchName && !matchDesc && !matchClient) return false;
-                    }
-                    if (statusFilter === "open") {
-                      if (t.status === "done" || t.status === "completed") return false;
-                    } else if (statusFilter === "completed") {
-                      if (t.status !== "done" && t.status !== "completed") return false;
-                    }
-                    if (dateFilter) {
+                  const modalFiltered = filteredBaseTasks.filter((t) => {
+                    const isDone = t.status === "done" || t.status === "completed";
+                    if (modalStatusFilter === "open" && isDone) return false;
+                    if (modalStatusFilter === "completed" && !isDone) return false;
+                    if (modalDateFilter) {
                       if (!t.dueDate) return false;
                       const localDateStr = new Date(t.dueDate).toLocaleDateString("sv-SE");
-                      if (localDateStr !== dateFilter) return false;
-                    }
-                    if (operatorFilter !== "all" && t.operatorEmail !== operatorFilter) {
-                      return false;
+                      if (localDateStr !== modalDateFilter) return false;
                     }
                     return true;
                   });
 
-                  if (filtered.length === 0) {
+                  if (modalFiltered.length === 0) {
                     return (
-                      <div className="flex flex-col items-center justify-center py-16 text-center">
-                        <Filter className="h-12 w-12 text-muted-foreground/30 mb-3" />
-                        <p className="text-sm font-semibold text-muted-foreground">Nenhuma tarefa encontrada</p>
-                        <p className="text-xs text-muted-foreground/80 mt-1">Experimente ajustar os filtros ou pesquisar outro termo.</p>
+                      <div className="flex flex-col items-center justify-center py-14 text-center">
+                        <Filter className="h-10 w-10 text-muted-foreground/30 mb-2" />
+                        <p className="text-sm font-bold text-foreground">Nenhuma tarefa encontrada</p>
+                        <p className="text-xs text-muted-foreground mt-1">Ajuste os filtros acima para visualizar outras atividades.</p>
                       </div>
                     );
                   }
 
-                  return filtered.map((task) => {
-                    const isOverdue = task.status !== "done" && task.dueDate && new Date(task.dueDate) < new Date();
-                    return (
-                      <div
-                        key={task.id}
-                        className="rounded-2xl border border-border bg-card p-4 transition-all hover:shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4"
-                        style={{ borderLeft: `3.5px solid ${getTaskTypeColor(task.type)}` }}
-                      >
-                        {/* Task Title & Time Info */}
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <button
-                            onClick={() => toggleTaskStatus(task)}
-                            className="mt-0.5 shrink-0 cursor-pointer"
-                          >
-                            {task.status === "done" || task.status === "completed" ? (
-                              <CheckCircle2 className="h-5 w-5" style={{ color: "var(--primary)" }} />
-                            ) : (
-                              <Circle className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
-                            )}
-                          </button>
-
-                          <div className="min-w-0 flex-1">
-                            <p
-                              className={`text-sm font-semibold leading-tight ${
-                                task.status === "done" || task.status === "completed"
-                                  ? "line-through text-muted-foreground"
-                                  : "text-foreground"
-                              }`}
-                            >
-                              {task.name}
-                            </p>
-
-                            <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                              <span
-                                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white"
-                                style={{ background: getTaskTypeColor(task.type) }}
-                              >
-                                {getTaskTypeIcon(task.type)}
-                                {task.type}
-                              </span>
-                              {task.dueDate && (
-                                <span className={`flex items-center gap-1 text-[11px] ${isOverdue ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
-                                  <Clock className="h-3 w-3" />
-                                  {new Date(task.dueDate).toLocaleDateString("pt-BR")} às {formatTime(task.dueDate)}
-                                  {isOverdue && " (Atrasada)"}
-                                </span>
-                              )}
-                              <span className="text-[11px] text-muted-foreground font-medium">
-                                · Responsável: <span className="text-foreground">{task.operatorName}</span>
-                              </span>
-                            </div>
-
-                            {task.description && (
-                              <p className="mt-1.5 text-[11px] text-muted-foreground line-clamp-1 leading-relaxed">
-                                {task.description}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Client Info & Action Button */}
-                        <div className="flex items-center gap-4 shrink-0">
-                          {(task.client.name || task.client.phone) && (
-                            <div className="text-right hidden sm:block">
-                              {task.client.name && (
-                                <p className="text-xs font-semibold text-foreground">{task.client.name}</p>
-                              )}
-                              {task.client.phone && (
-                                <p className="text-[10px] text-muted-foreground mt-0.5">{formatPhone(task.client.phone)}</p>
-                              )}
-                            </div>
-                          )}
-
-                          {task.chatConversationId ? (
-                            <button
-                              onClick={() => {
-                                openChat(task);
-                                setIsAllTasksModalOpen(false);
-                              }}
-                              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition-all cursor-pointer shadow-sm bg-primary"
-                            >
-                              <MessageSquare className="h-3.5 w-3.5" />
-                              Atendimento
-                            </button>
-                          ) : (
-                            <div className="flex items-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-2 text-xs text-muted-foreground select-none">
-                              <MessageSquare className="h-3.5 w-3.5" />
-                              Sem Chat
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  });
+                  return modalFiltered.map((task) => (
+                    <GlobalTaskCard360
+                      key={task.id}
+                      task={task}
+                      peekConvId={peekConvId}
+                      peekMessages={peekMessages}
+                      loadingPeekId={loadingPeekId}
+                      whisperTaskId={whisperTaskId}
+                      whisperText={whisperText}
+                      sendingWhisper={sendingWhisper}
+                      startingChatTaskId={startingChatTaskId}
+                      reschedulingTaskId={reschedulingTaskId}
+                      onToggleComplete={toggleTaskStatus}
+                      onEditTask={(t) => {
+                        setIsAllTasksModalOpen(false);
+                        handleEditTask(t);
+                      }}
+                      onRescheduleTask={handleRescheduleTask}
+                      onCancelTask={handleCancelTask}
+                      onDeleteTask={handleDeleteTask}
+                      onTogglePeek={handleTogglePeek}
+                      onToggleWhisper={handleToggleWhisper}
+                      onChangeWhisperText={setWhisperText}
+                      onSendWhisper={handleSendWhisper}
+                      onOpenOrStartChat={(t) => {
+                        setIsAllTasksModalOpen(false);
+                        handleOpenOrStartChat(t);
+                      }}
+                      onNavigateDeal={(dealId) => {
+                        setIsAllTasksModalOpen(false);
+                        handleNavigateDeal(dealId);
+                      }}
+                    />
+                  ));
                 })()}
               </div>
             </motion.div>
@@ -9030,7 +10619,7 @@ function GlobalTasksTab() {
         )}
       </AnimatePresence>
 
-      {/* Modal de Confirmação de Conclusão de Tarefa */}
+      {/* MODAL 2: CONFIRMAÇÃO DE CONCLUSÃO + AGENDAMENTO DO PRÓXIMO PASSO */}
       <AnimatePresence>
         {taskToComplete && (
           <motion.div
@@ -9054,10 +10643,10 @@ function GlobalTasksTab() {
                   </div>
                   <div>
                     <h3 className="text-base font-extrabold text-foreground">
-                      Concluir Tarefa?
+                      Concluir Atividade
                     </h3>
                     <p className="text-xs text-muted-foreground">
-                      Confirme a conclusão desta atividade
+                      Registre o desfecho e mantenha o negócio ativo
                     </p>
                   </div>
                 </div>
@@ -9070,11 +10659,51 @@ function GlobalTasksTab() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="p-6 space-y-3">
+
+              <div className="p-6 space-y-4">
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Tem certeza que deseja marcar a tarefa <strong>"{taskToComplete.name}"</strong> como concluída? Após concluída, ela não poderá ser reativada.
+                  Confirmar conclusão da tarefa <strong className="text-foreground">"{taskToComplete.name}"</strong> ({taskToComplete.operatorName})?
                 </p>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-foreground block">
+                    Observação de Conclusão (Opcional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={completionNote}
+                    onChange={(e) => setCompletionNote(e.target.value)}
+                    placeholder="Ex.: Cliente confirmou recebimento da proposta..."
+                    className="w-full rounded-xl bg-muted/50 border border-border p-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                  />
+                </div>
+
+                <div className="rounded-2xl border border-border bg-muted/20 p-3 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="schedule-next-followup"
+                      checked={scheduleNextFollowUp}
+                      onCheckedChange={(v) => setScheduleNextFollowUp(Boolean(v))}
+                    />
+                    <label
+                      htmlFor="schedule-next-followup"
+                      className="text-xs font-extrabold text-foreground cursor-pointer select-none"
+                    >
+                      Agendar próximo follow-up automaticamente
+                    </label>
+                  </div>
+
+                  {scheduleNextFollowUp && (
+                    <div className="pt-1">
+                      <SystemDateTimePicker
+                        value={nextFollowUpDate}
+                        onChange={setNextFollowUpDate}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
+
               <div className="px-6 py-4 bg-muted/30 border-t border-border flex items-center justify-end gap-2.5">
                 <button
                   type="button"
@@ -9091,13 +10720,24 @@ function GlobalTasksTab() {
                   className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 text-xs font-bold shadow-sm transition cursor-pointer disabled:opacity-60"
                 >
                   {isConfirmingComplete && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Sim, concluir tarefa
+                  Concluir Tarefa
                 </button>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* MODAL 3: CRIAR / DELEGAR OU EDITAR TAREFA */}
+      <CreateTaskModal
+        open={isCreateModalOpen}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setEditingTaskData(null);
+        }}
+        onCreated={fetchTasks}
+        editingTask={editingTaskData}
+      />
     </div>
   );
 }
@@ -10398,13 +12038,14 @@ export function MonitorView() {
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
   const [historyModalOperator, setHistoryModalOperator] = useState<{ id: string; name: string } | null>(null);
+  const [overdueGlobalTasksBadge, setOverdueGlobalTasksBadge] = useState<number>(DEMO_MODE ? 5 : 0);
 
   const allTabs: { id: MonitorTab; label: string; icon: React.ElementType; badge?: number }[] = [
     { id: "live",      label: "Ao Vivo",        icon: Activity, badge: DEMO_MODE ? 4 : undefined },
     { id: "alerts",    label: "Alertas",         icon: Bell, badge: alerts.filter((a: AlertItem) => a.isOverdue).length },
     { id: "operators", label: "Operadores",      icon: Users },
     { id: "audits",    label: "Auditorias IA",   icon: Zap },
-    { id: "tasks",     label: "Tarefas Globais", icon: ClipboardCheck },
+    { id: "tasks",     label: "Tarefas Globais", icon: ClipboardCheck, badge: overdueGlobalTasksBadge > 0 ? overdueGlobalTasksBadge : undefined },
     { id: "site",      label: "Visitantes",      icon: Globe },
   ];
 
@@ -10592,7 +12233,11 @@ export function MonitorView() {
               />
             )}
             {activeTab === "tasks" && (
-              <GlobalTasksTab />
+              <GlobalTasksTab
+                demoMode={DEMO_MODE}
+                refreshTick={lastRefresh.getTime()}
+                onOverdueCountChange={setOverdueGlobalTasksBadge}
+              />
             )}
             {activeTab === "site" && <SiteVisitorsTab tenantId={tenant} />}
 
