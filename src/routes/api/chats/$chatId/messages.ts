@@ -81,6 +81,8 @@ export const Route = createFileRoute("/api/chats/$chatId/messages")({
             side: r.direction === "inbound" || r.senderType === "client" ? "in" : "out",
             senderType: r.senderType,
             isInternalNote: r.isInternalNote,
+            isSupervisorWhisper: Boolean((r.metaDetails as any)?.supervisorWhisper),
+            metaDetails: (r.metaDetails as Record<string, any> | null) || null,
             status: r.status,
             provider: r.provider,
             errorMessage: r.errorMessage,

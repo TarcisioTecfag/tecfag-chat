@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { db } from "../../../db";
-import { conversations, messages } from "../../../db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { contacts, conversations, messages, operators } from "../../../db/schema";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { requireSession } from "../../../lib/auth-session";
 import { requireConversationAccess } from "../../../lib/access-control/conversation-access";
 
@@ -10,6 +10,18 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
+
+function canAccessSupervisorMessages(session: any): boolean {
+  if (session?.operator?.role === "admin") return true;
+  if (session?.permissions?.views?.monitor !== true) return false;
+  const mon = session?.permissions?.monitor;
+  return Boolean(
+    mon?.canAccessLive === true ||
+      mon?.canAccessAlerts === true ||
+      mon?.canAccessAudits === true ||
+      mon?.canAccessTasks === true
+  );
+}
 
 /**
  * GET /api/gestao/messages?tenantId=&conversationId=
@@ -49,7 +61,7 @@ export const Route = createFileRoute("/api/gestao/messages")({
         }
 
         try {
-          if (session.permissions?.views?.monitor !== true || session.permissions?.monitor?.canAccessLive !== true) {
+          if (!canAccessSupervisorMessages(session)) {
             return Response.json({ error: "Permissão insuficiente." }, { status: 403 });
           }
           const denied = await requireConversationAccess(session, conversationId);
@@ -116,7 +128,7 @@ export const Route = createFileRoute("/api/gestao/messages")({
         const { session } = auth;
         const tenantId = session.tenantId;
 
-        if (session.permissions?.views?.monitor !== true || session.permissions?.monitor?.canAccessLive !== true) {
+        if (!canAccessSupervisorMessages(session)) {
           return new Response(
             JSON.stringify({ error: "Permissão insuficiente para enviar orientação de supervisão.", code: "FORBIDDEN" }),
             { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -127,10 +139,14 @@ export const Route = createFileRoute("/api/gestao/messages")({
           const body = (await request.json().catch(() => ({}))) as {
             conversationId?: string;
             content?: string;
+            targetOperatorId?: string | null;
           };
 
           const conversationId = String(body.conversationId || "").trim();
           const rawContent = String(body.content || "").trim();
+          const requestedTargetOpId = body.targetOperatorId
+            ? String(body.targetOperatorId).trim()
+            : null;
 
           if (!conversationId || !rawContent) {
             return new Response(
@@ -153,8 +169,22 @@ export const Route = createFileRoute("/api/gestao/messages")({
             .select({
               id: conversations.id,
               operatorId: conversations.operatorId,
+              queueState: conversations.queueState,
+              sectorId: conversations.sectorId,
+              version: conversations.version,
+              contactName: contacts.name,
+              contactPhone: contacts.phone,
+              contactAvatar: contacts.avatar,
+              walletOperatorId: contacts.operatorId,
             })
             .from(conversations)
+            .leftJoin(
+              contacts,
+              and(
+                eq(conversations.contactId, contacts.id),
+                eq(contacts.tenantId, tenantId)
+              )
+            )
             .where(
               and(
                 eq(conversations.id, conversationId),
@@ -170,9 +200,101 @@ export const Route = createFileRoute("/api/gestao/messages")({
             );
           }
 
+          let effectiveOperatorId = conv.operatorId || null;
+          let effectiveOperatorName: string | null = null;
+          let effectiveQueueState = conv.queueState;
+          let didAssignOperator = false;
+          let systemAssignMessage: {
+            id: string;
+            conversationId: string;
+            senderType: "system";
+            senderName: string;
+            content: string;
+            sentAt: string;
+            isInternalNote: boolean;
+            status: string;
+          } | null = null;
+
+          const targetLookupId = requestedTargetOpId || conv.operatorId || conv.walletOperatorId || null;
+          if (targetLookupId) {
+            const [opRow] = await db
+              .select({ id: operators.id, name: operators.name })
+              .from(operators)
+              .where(
+                and(
+                  eq(operators.id, targetLookupId),
+                  eq(operators.tenantId, tenantId)
+                )
+              )
+              .limit(1);
+            if (opRow) {
+              effectiveOperatorName = opRow.name;
+              if (requestedTargetOpId) {
+                if (conv.operatorId !== opRow.id || conv.queueState !== "meus") {
+                  didAssignOperator = true;
+                }
+                effectiveOperatorId = opRow.id;
+                effectiveQueueState = "meus";
+              } else if (!effectiveOperatorId) {
+                effectiveOperatorId = opRow.id;
+              }
+            }
+          }
+
           const now = new Date();
           const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const senderLabel = `${session.operator.name} (Supervisão)`;
+
+          const whisperMetaDetails = {
+            supervisorWhisper: true,
+            targetOperatorId: effectiveOperatorId,
+            targetOperatorName: effectiveOperatorName,
+            attendanceActor: {
+              name: session.operator.name,
+              operatorId: session.operator.id,
+              role: session.operator.role,
+            },
+          };
+
+          if (didAssignOperator && effectiveOperatorId && effectiveOperatorName) {
+            const sysMsgId = `msg-${Date.now() - 1}-${Math.random().toString(36).slice(2, 7)}`;
+            const sysText = `Atendimento atribuído para ${effectiveOperatorName} pela Supervisão (${session.operator.name}).`;
+            const sysTime = new Date(now.getTime() - 50);
+
+            await db.insert(messages).values({
+              id: sysMsgId,
+              tenantId,
+              conversationId,
+              senderType: "system",
+              senderName: "Sistema",
+              content: sysText,
+              isInternalNote: false,
+              provider: "internal",
+              direction: "outbound",
+              status: "accepted",
+              metaDetails: {
+                supervisorIntervention: "transfer",
+                attendanceActor: {
+                  name: session.operator.name,
+                  operatorId: session.operator.id,
+                  role: session.operator.role,
+                },
+              },
+              sentAt: sysTime,
+              updatedAt: sysTime,
+            });
+
+            systemAssignMessage = {
+              id: sysMsgId,
+              conversationId,
+              senderType: "system",
+              senderName: "Sistema",
+              content: sysText,
+              sentAt: sysTime.toISOString(),
+              isInternalNote: false,
+              status: "accepted",
+            };
+          }
 
           await db.insert(messages).values({
             id: msgId,
@@ -185,21 +307,25 @@ export const Route = createFileRoute("/api/gestao/messages")({
             provider: "internal",
             direction: "outbound",
             status: "accepted",
-            metaDetails: {
-              supervisorWhisper: true,
-              attendanceActor: {
-                name: session.operator.name,
-                operatorId: session.operator.id,
-                role: session.operator.role,
-              },
-            },
+            metaDetails: whisperMetaDetails,
             sentAt: now,
             updatedAt: now,
           });
 
           await db
             .update(conversations)
-            .set({ updatedAt: now })
+            .set({
+              ...(didAssignOperator && effectiveOperatorId
+                ? {
+                    operatorId: effectiveOperatorId,
+                    queueState: "meus",
+                    version: sql`COALESCE(${conversations.version}, 1) + 1`,
+                  }
+                : {}),
+              lastMessageTime: now,
+              unreadCount: sql`COALESCE(${conversations.unreadCount}, 0) + 1`,
+              updatedAt: now,
+            })
             .where(
               and(
                 eq(conversations.id, conversationId),
@@ -207,9 +333,26 @@ export const Route = createFileRoute("/api/gestao/messages")({
               )
             );
 
-          // Notificar via SSE para aparecer instantaneamente na tela do operador
+          // Notificar via SSE para aparecer instantaneamente (com alerta sonoro + toast) na tela do consultor
           try {
             const { SessionManager } = await import("../../../lib/baileys/session-manager");
+            if (didAssignOperator && effectiveOperatorId) {
+              SessionManager.getInstance().notifyPublic(tenantId, {
+                type: "queue_update",
+                conversationId,
+                queueState: "meus",
+                operatorId: effectiveOperatorId,
+                sectorId: conv.sectorId,
+                responsibleName: effectiveOperatorName || undefined,
+                version: (conv.version || 1) + 1,
+              });
+            }
+            if (systemAssignMessage) {
+              SessionManager.getInstance().notifyPublic(tenantId, {
+                type: "message",
+                message: systemAssignMessage,
+              });
+            }
             SessionManager.getInstance().notifyPublic(tenantId, {
               type: "message",
               message: {
@@ -219,11 +362,16 @@ export const Route = createFileRoute("/api/gestao/messages")({
                 senderName: senderLabel,
                 content: rawContent,
                 isInternalNote: true,
+                isSupervisorWhisper: true,
                 sentAt: now.toISOString(),
                 status: "accepted",
-                metaDetails: {
-                  supervisorWhisper: true,
-                },
+                operatorId: effectiveOperatorId,
+                walletOperatorId: conv.walletOperatorId ?? null,
+                queue: effectiveQueueState,
+                phone: conv.contactPhone ?? undefined,
+                avatar: conv.contactAvatar ?? undefined,
+                contactName: conv.contactName ?? "Cliente",
+                metaDetails: whisperMetaDetails,
               },
             });
           } catch (sseErr: any) {
@@ -233,6 +381,10 @@ export const Route = createFileRoute("/api/gestao/messages")({
           return new Response(
             JSON.stringify({
               success: true,
+              assignedOperatorId: effectiveOperatorId,
+              assignedOperatorName: effectiveOperatorName,
+              assignedQueueState: effectiveQueueState,
+              didAssignOperator,
               message: {
                 id: msgId,
                 conversationId,
@@ -241,10 +393,9 @@ export const Route = createFileRoute("/api/gestao/messages")({
                 content: rawContent,
                 sentAt: now.toISOString(),
                 isInternalNote: true,
+                isSupervisorWhisper: true,
                 status: "accepted",
-                metaDetails: {
-                  supervisorWhisper: true,
-                },
+                metaDetails: whisperMetaDetails,
               },
             }),
             { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

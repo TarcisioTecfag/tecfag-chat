@@ -4555,11 +4555,148 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const isAssignedToMe = Boolean(currentOperatorId && operatorId === currentOperatorId);
           const isInMyWallet = Boolean(currentOperatorId && walletOperatorId === currentOperatorId);
 
+          const isSupervisorWhisper = Boolean(
+            message.isSupervisorWhisper ||
+              message.metaDetails?.supervisorWhisper ||
+              /\(Supervisão\)/i.test(String(message.senderName || ""))
+          );
+          const whisperSenderOperatorId =
+            message.metaDetails?.attendanceActor?.operatorId || null;
+          const whisperTargetOperatorId =
+            message.metaDetails?.targetOperatorId || operatorId || walletOperatorId || null;
+          const isSentByMe = Boolean(
+            currentOperatorId && whisperSenderOperatorId === currentOperatorId
+          );
+          const isWhisperTargetedToMe = Boolean(
+            currentOperatorId &&
+              (whisperTargetOperatorId === currentOperatorId || isAssignedToMe || isInMyWallet)
+          );
+
           // Notificar o operador se o atendimento está com ele ou se é cliente da sua carteira
           const shouldNotify = isAssignedToMe || isInMyWallet;
           const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
 
-          if (shouldNotify && message.senderType === "client" && !isCurrentOpen) {
+          if (isSupervisorWhisper && isWhisperTargetedToMe && !isSentByMe) {
+            playNotificationSound();
+
+            const clientName =
+              existingConv?.name || message.contactName || "Atendimento";
+            const supervisorName =
+              message.metaDetails?.attendanceActor?.name ||
+              String(message.senderName || "Supervisão").replace(/\s*\(Supervisão\)\s*$/i, "");
+            const whisperText = cleanPlainNotificationText(message.content || "", {
+              maxLength: 180,
+            });
+            const isTecfag = tenantRef.current === "tecfag";
+
+            if (
+              typeof window !== "undefined" &&
+              "Notification" in window &&
+              Notification.permission === "granted" &&
+              document.hidden
+            ) {
+              try {
+                const n = new Notification(`Supervisão (${supervisorName}) · ${clientName}`, {
+                  body: whisperText,
+                  icon: isTecfag ? "/logo_tecfag.png" : "/logo_valem.jpg",
+                  tag: `whisper-${message.conversationId}`,
+                });
+                n.onclick = () => {
+                  window.focus();
+                  setSelectedChatId(message.conversationId);
+                  setActiveView("chat");
+                  markAsRead(message.conversationId);
+                  n.close();
+                };
+              } catch (err) {
+                console.warn("[Notification] Erro ao disparar notificação de supervisão:", err);
+              }
+            }
+
+            toast.custom(
+              (t) => (
+                <div className="flex flex-col gap-2.5 w-[396px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border border-primary/40 rounded-2xl p-3.5 shadow-card animate-in slide-in-from-top-3 duration-200 border-l-[4px] border-l-primary text-foreground">
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/15 border border-primary/30 text-primary shadow-2xs">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+
+                    <div className="flex-1 min-w-0 pr-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="px-1.5 py-0.5 rounded bg-primary text-primary-foreground text-[9px] font-black uppercase tracking-wider shrink-0">
+                            Supervisão
+                          </span>
+                          <p className="text-xs font-extrabold text-foreground truncate">
+                            {clientName}
+                          </p>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                          Agora
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-bold text-primary mt-0.5 truncate">
+                        Orientação de {supervisorName}
+                      </p>
+                      <p className="text-[11px] text-foreground line-clamp-3 mt-1 leading-relaxed font-medium">
+                        {whisperText}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => toast.dismiss(t)}
+                      className="h-6 w-6 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
+                    <button
+                      onClick={() => {
+                        setSelectedChatId(message.conversationId);
+                        markAsRead(message.conversationId);
+                        window.dispatchEvent(
+                          new CustomEvent("crm:open-mini-chat", {
+                            detail: { conversationId: message.conversationId },
+                          }),
+                        );
+                        toast.dismiss(t);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/80 transition shadow-2xs cursor-pointer"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5 text-primary" />
+                      Abrir Mini Chat
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setSelectedChatId(message.conversationId);
+                        setActiveView("chat");
+                        markAsRead(message.conversationId);
+                        if (
+                          typeof window !== "undefined" &&
+                          window.location.pathname.startsWith("/crm/deals/")
+                        ) {
+                          window.location.href = `/?chatId=${message.conversationId}`;
+                        }
+                        toast.dismiss(t);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition shadow-2xs cursor-pointer"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Abrir Atendimento
+                    </button>
+                  </div>
+                </div>
+              ),
+              {
+                id: `whisper-msg-${message.id || message.conversationId}`,
+                duration: 12000,
+                position: "top-right",
+              },
+            );
+          } else if (shouldNotify && message.senderType === "client" && !isCurrentOpen) {
             // 1. Tocar alerta sonoro cristalino sintetizado
             playNotificationSound();
 
@@ -4715,6 +4852,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             sentAtISO: sentAtIso,
             side: isClientMsg ? "in" : "out",
             isInternalNote: !!message.isInternalNote,
+            isSupervisorWhisper,
+            metaDetails: message.metaDetails || null,
             senderType: message.senderType,
             quotedMessageId: message.quotedMessageId || null,
             quotedMessageSender: message.quotedMessageSender || null,
@@ -4734,14 +4873,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
 
                   const isCurrentOpen = isCurrentlyViewingConversation(message.conversationId);
+                  const shouldCountUnread =
+                    isClientMsg || (isSupervisorWhisper && !isSentByMe);
                   const newUnread =
-                    isClientMsg
+                    shouldCountUnread
                       ? isCurrentOpen
                         ? 0
                         : c.unreadCount + 1
                       : c.unreadCount;
 
-                  if (isCurrentOpen && isClientMsg) {
+                  if (isCurrentOpen && shouldCountUnread) {
                   fetch(`${BACKEND_URL}/api/chats`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },

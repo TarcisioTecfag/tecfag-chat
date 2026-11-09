@@ -682,7 +682,13 @@ export function ChatList({ embedded = false }: { embedded?: boolean }) {
                         <div className="flex items-center justify-between mt-0.5">
                           <p className="truncate text-[10px] text-muted-foreground pr-2 flex items-center gap-1">
                             {lastMsg?.isInternalNote && (
-                              <span className="text-primary font-semibold shrink-0">[Nota]</span>
+                              <span className="text-primary font-semibold shrink-0">
+                                {lastMsg.isSupervisorWhisper ||
+                                Boolean((lastMsg as any).metaDetails?.supervisorWhisper) ||
+                                /\(Supervisão\)/i.test(lastMsg.author || "")
+                                  ? "[Supervisão]"
+                                  : "[Nota]"}
+                              </span>
                             )}
                             {renderMediaIcon(msgMediaType)}
                             <span className="truncate">{msgLabel}</span>

@@ -235,6 +235,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
               contactPhone: contacts.phone,
               contactEmail: contacts.email,
               contactAvatar: contacts.avatar,
+              walletOperatorId: contacts.operatorId,
               crmCardUrl: contacts.rdCrmDealLink,
               accountName: crmAccounts.name,
               accountTradeName: crmAccounts.tradeName,
@@ -301,6 +302,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
           // 4. Buscar últimas 18 mensagens por conversa ativa via Window Function (zero N+1)
           const messagesByConv = new Map<string, LiveMessage[]>();
           const dealByConvMap = new Map<string, LiveDealSummary>();
+          const dealOwnerByConvMap = new Map<string, string>();
           const tasksByConvMap = new Map<
             string,
             { openCount: number; overdueCount: number; nextTitle: string | null }
@@ -352,6 +354,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
                       d.value AS "value",
                       d.status AS "status",
                       d.rating AS "rating",
+                      d.owner_id AS "ownerId",
                       p.name AS "pipelineName",
                       s.name AS "stageName"
                     FROM (
@@ -449,6 +452,9 @@ export const Route = createFileRoute("/api/gestao/alerts")({
             }
 
             for (const row of extractRows(dealRowsResult)) {
+              if (row.ownerId) {
+                dealOwnerByConvMap.set(row.conversationId, String(row.ownerId));
+              }
               dealByConvMap.set(row.conversationId, {
                 id: row.dealId,
                 title: row.title,
@@ -707,6 +713,13 @@ export const Route = createFileRoute("/api/gestao/alerts")({
 
             // Dados do Operador
             const opInfo = conv.operatorId ? opMap.get(conv.operatorId) : undefined;
+            const fallbackSuggestedOpId =
+              !conv.operatorId
+                ? dealOwnerByConvMap.get(conv.id) || conv.walletOperatorId || null
+                : null;
+            const suggestedOpInfo = fallbackSuggestedOpId
+              ? opMap.get(fallbackSuggestedOpId)
+              : undefined;
             const operatorName = opInfo
               ? opInfo.name
               : isUnassignedQueue
@@ -745,6 +758,8 @@ export const Route = createFileRoute("/api/gestao/alerts")({
               accountName: conv.accountTradeName || conv.accountName || null,
               accountDocument: conv.accountDocument ?? null,
               operatorId: conv.operatorId ?? null,
+              suggestedOperatorId: suggestedOpInfo?.id ?? null,
+              suggestedOperatorName: suggestedOpInfo?.name ?? null,
               operatorName,
               operatorAvatar: opInfo?.avatar ?? null,
               operatorIsOnline: opInfo ? Boolean(opInfo.isOnline) : false,

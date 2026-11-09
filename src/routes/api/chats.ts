@@ -647,6 +647,8 @@ export const Route = createFileRoute("/api/chats")({
                 sentAtISO: new Date(m.sentAt).toISOString(),
                 side: m.senderType === "client" ? "in" : "out",
                 isInternalNote: m.isInternalNote,
+                isSupervisorWhisper: Boolean((m.metaDetails as any)?.supervisorWhisper),
+                metaDetails: (m.metaDetails as Record<string, any> | null) || null,
                 senderType: m.senderType,
                 quotedMessageId: m.quotedMessageId,
                 quotedMessageSender: m.quotedMessageSender,

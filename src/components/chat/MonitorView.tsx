@@ -2009,87 +2009,28 @@ function AlertsTab({
                   )}
                 </AnimatePresence>
 
-                {/* 5. Gaveta Expansível: Cobrar / Orientar Consultor (Sussurro Interno 1-Clique) */}
-                <AnimatePresence>
-                  {isWhisperOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="rounded-2xl border border-primary/30 bg-primary/5 p-3.5 space-y-2.5 mt-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 text-xs font-extrabold text-primary">
-                            <Lock className="h-3.5 w-3.5 shrink-0" />
-                            <span>
-                              Enviar Orientação / Cobrança Interna para{" "}
-                              {alert.operatorName}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground">
-                            Invisível para o cliente · Aparece em destaque no chat do
-                            consultor
-                          </span>
-                        </div>
-
-                        {/* Pílulas de 1 clique */}
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {SUPERVISOR_ALERT_PRESETS.map((preset) => (
-                            <button
-                              key={preset}
-                              type="button"
-                              disabled={sendingWhisperConvId === alert.conversationId}
-                              onClick={() =>
-                                handleSendAlertWhisper(alert.conversationId, preset)
-                              }
-                              className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-card hover:bg-primary hover:text-primary-foreground text-foreground border border-border transition cursor-pointer disabled:opacity-50"
-                            >
-                              {preset}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Campo livre de sussurro */}
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            void handleSendAlertWhisper(
-                              alert.conversationId,
-                              whisperDraft
-                            );
-                          }}
-                          className="flex items-center gap-2"
-                        >
-                          <input
-                            type="text"
-                            placeholder={`Escreva uma orientação direta para ${alert.operatorName}...`}
-                            value={whisperDraft}
-                            onChange={(e) => setWhisperDraft(e.target.value)}
-                            className="flex-1 bg-card border border-border rounded-xl px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                          />
-                          <button
-                            type="submit"
-                            disabled={
-                              !whisperDraft.trim() ||
-                              sendingWhisperConvId === alert.conversationId
-                            }
-                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition cursor-pointer disabled:opacity-50 shrink-0"
-                          >
-                            {sendingWhisperConvId === alert.conversationId ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Send className="h-3.5 w-3.5" />
-                            )}
-                            Enviar Sussurro
-                          </button>
-                        </form>
+                {/* Selo de Confirmação de Cobrança da Supervisão (visível mesmo com Espiar Conversa fechado) */}
+                {lastSupervisorWhisper && (
+                  <div className="rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-2 flex items-start justify-between gap-2 text-xs">
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-primary block">
+                          Consultor Cobrado / Orientado ({lastSupervisorWhisper.senderName}) ·{" "}
+                          {new Date(lastSupervisorWhisper.sentAt).toLocaleTimeString("pt-BR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                        <p className="text-[11px] font-medium text-foreground truncate">
+                          &ldquo;{lastSupervisorWhisper.content}&rdquo;
+                        </p>
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                    </div>
+                  </div>
+                )}
 
-                {/* 6. Rodapé de Ações Executivas */}
+                {/* 5. Rodapé de Ações Executivas */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-line/60">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -2124,19 +2065,39 @@ function AlertsTab({
                     <button
                       type="button"
                       onClick={() => {
-                        setWhisperOpenConvId((prev) =>
-                          prev === alert.conversationId ? null : alert.conversationId
-                        );
-                        setWhisperDraft("");
+                        const willOpen = whisperOpenConvId !== alert.conversationId;
+                        setWhisperOpenConvId(willOpen ? alert.conversationId : null);
+                        if (willOpen) {
+                          setWhisperDraft("");
+                          if (!whisperTargetOpByConv[alert.conversationId]) {
+                            const defaultTarget =
+                              effectiveOperatorId ||
+                              alert.suggestedOperatorId ||
+                              availableConsultants[0]?.id ||
+                              "";
+                            if (defaultTarget) {
+                              setWhisperTargetOpByConv((prev) => ({
+                                ...prev,
+                                [alert.conversationId]: defaultTarget,
+                              }));
+                            }
+                          }
+                        }
                       }}
                       className={`inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl border transition cursor-pointer ${
                         isWhisperOpen
-                          ? "bg-primary/15 text-primary border-primary/35"
+                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
                           : "bg-card hover:bg-muted text-foreground border-border"
                       }`}
                     >
-                      <Lock className="h-3.5 w-3.5 text-primary" />
-                      Cobrar / Orientar Consultor
+                      <Lock
+                        className={`h-3.5 w-3.5 ${
+                          isWhisperOpen ? "text-primary-foreground" : "text-primary"
+                        }`}
+                      />
+                      {hasHumanConsultant
+                        ? "Cobrar / Orientar Consultor"
+                        : "Atribuir & Cobrar Consultor"}
                     </button>
                   </div>
 
@@ -2183,6 +2144,171 @@ function AlertsTab({
                     )}
                   </div>
                 </div>
+
+                {/* 6. Gaveta Expansível (abaixo dos botões): Cobrar / Orientar Consultor em Tempo Real */}
+                <AnimatePresence>
+                  {isWhisperOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="rounded-2xl border border-primary/35 bg-primary/5 p-3.5 space-y-3 mt-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 text-xs font-extrabold text-primary">
+                            <Lock className="h-3.5 w-3.5 shrink-0" />
+                            <span>
+                              {hasHumanConsultant &&
+                              selectedWhisperOpId === effectiveOperatorId
+                                ? `Enviar Cobrança / Orientação Direta para ${effectiveOperatorName}`
+                                : `Atribuir Atendimento & Cobrar ${selectedWhisperOpLabel}`}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground">
+                              Dispara alerta sonoro + pop-up na tela do consultor · Invisível ao cliente
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setWhisperOpenConvId(null)}
+                              className="text-muted-foreground hover:text-foreground cursor-pointer"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Seletor de Consultor Destinatário (obrigatório quando sem consultor humano, opcional para reatribuir) */}
+                        {availableConsultants.length > 0 && (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
+                              {hasHumanConsultant
+                                ? "Consultor destinatário (clique em outro caso queira transferir e cobrar):"
+                                : `Atendimento atualmente em ${effectiveOperatorName} — escolha qual consultor vai assumir e receber a cobrança:`}
+                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {availableConsultants.map((c) => {
+                                const isSelected = selectedWhisperOpId === c.id;
+                                return (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setWhisperTargetOpByConv((prev) => ({
+                                        ...prev,
+                                        [alert.conversationId]: c.id,
+                                      }))
+                                    }
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
+                                      isSelected
+                                        ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                                        : "bg-card hover:bg-muted text-foreground border-border"
+                                    }`}
+                                  >
+                                    <span
+                                      className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                        isSelected
+                                          ? "bg-primary-foreground"
+                                          : c.isOnline
+                                          ? "bg-emerald-500"
+                                          : "bg-muted-foreground/45"
+                                      }`}
+                                    />
+                                    <span>{c.name}</span>
+                                    {c.id === alert.suggestedOperatorId && !hasHumanConsultant && (
+                                      <span
+                                        className={`text-[8px] font-extrabold uppercase px-1 rounded ${
+                                          isSelected
+                                            ? "bg-white/25 text-white"
+                                            : "bg-primary/15 text-primary"
+                                        }`}
+                                      >
+                                        Dono CRM
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pílulas de 1 clique */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {SUPERVISOR_ALERT_PRESETS.map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              disabled={sendingWhisperConvId === alert.conversationId}
+                              onClick={() => {
+                                if (!hasHumanConsultant && !selectedWhisperOpId) {
+                                  toast.error(
+                                    "Selecione acima qual consultor deve assumir e receber a orientação."
+                                  );
+                                  return;
+                                }
+                                void handleSendAlertWhisper(
+                                  alert.conversationId,
+                                  preset,
+                                  selectedWhisperOpId || effectiveOperatorId
+                                );
+                              }}
+                              className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1.5 rounded-xl bg-card hover:bg-primary hover:text-primary-foreground text-foreground border border-border transition cursor-pointer disabled:opacity-50"
+                            >
+                              <Zap className="h-3 w-3 shrink-0 text-primary" />
+                              <span>{preset}</span>
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Campo livre de sussurro */}
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (!hasHumanConsultant && !selectedWhisperOpId) {
+                              toast.error(
+                                "Selecione acima qual consultor deve assumir e receber a orientação."
+                              );
+                              return;
+                            }
+                            void handleSendAlertWhisper(
+                              alert.conversationId,
+                              whisperDraft,
+                              selectedWhisperOpId || effectiveOperatorId
+                            );
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <input
+                            type="text"
+                            placeholder={`Escreva uma orientação direta para ${selectedWhisperOpLabel}...`}
+                            value={whisperDraft}
+                            onChange={(e) => setWhisperDraft(e.target.value)}
+                            className="flex-1 bg-card border border-border rounded-xl px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                          <button
+                            type="submit"
+                            disabled={
+                              !whisperDraft.trim() ||
+                              sendingWhisperConvId === alert.conversationId
+                            }
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition cursor-pointer disabled:opacity-50 shrink-0"
+                          >
+                            {sendingWhisperConvId === alert.conversationId ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Send className="h-3.5 w-3.5" />
+                            )}
+                            {hasHumanConsultant && selectedWhisperOpId === effectiveOperatorId
+                              ? "Cobrar Agora"
+                              : "Atribuir & Cobrar"}
+                          </button>
+                        </form>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             );
           })}
@@ -12363,6 +12489,7 @@ export function MonitorView() {
                 alerts={alerts}
                 summary={alertsSummary}
                 operatorBottlenecks={alertBottlenecks}
+                operators={overview?.operators ?? []}
                 loading={loadingAlerts}
                 onRefresh={fetchData}
               />

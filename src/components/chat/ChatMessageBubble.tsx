@@ -904,8 +904,44 @@ function ChatMessageBubbleComponent({
     );
   }
 
-  // ── 2. Notas Internas ──
+  // ── 2. Notas Internas & Orientações da Supervisão ──
   if (m.isInternalNote) {
+    const isSupervisorWhisper = Boolean(
+      m.isSupervisorWhisper ||
+        (m.metaDetails as any)?.supervisorWhisper ||
+        /\(Supervisão\)/i.test(m.author || "")
+    );
+
+    if (isSupervisorWhisper) {
+      return (
+        <div key={m.clientMessageId || m.id} className="w-full">
+          {dateLabel && (
+            <div className="flex justify-center my-3 select-none">
+              <span className="rounded-full bg-muted/80 dark:bg-muted/50 px-4 py-1 text-[11px] font-bold text-muted-foreground/90 border border-border/60 shadow-2xs">
+                {dateLabel}
+              </span>
+            </div>
+          )}
+          <div className={`flex flex-col items-center ${gap} w-full`}>
+            <div className="max-w-[88%] rounded-2xl border-2 border-primary/35 bg-primary/10 px-5 py-3.5 shadow-soft text-left">
+              <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-primary">
+                  <Lock className="h-3.5 w-3.5 shrink-0" />
+                  <span>Orientação / Cobrança da Supervisão — {m.author}</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-extrabold uppercase tracking-wider">
+                  Invisível ao cliente · {m.time}
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed font-semibold text-foreground">
+                {renderTextWithLinks(safeText, false, true)}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div key={m.clientMessageId || m.id} className="w-full">
         {dateLabel && (

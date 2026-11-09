@@ -3039,16 +3039,34 @@ export function CrmChatWidget() {
                               );
                             }
 
-                            // Nota Interna
+                            // Nota Interna / Orientação da Supervisão
                             if (message.isInternalNote) {
+                              const isSupervisorWhisper = Boolean(
+                                message.isSupervisorWhisper ||
+                                  (message.metaDetails as any)?.supervisorWhisper ||
+                                  /\(Supervisão\)/i.test(message.author || "")
+                              );
                               return (
                                 <div key={message.id || i} className="flex justify-center my-1 w-full">
-                                  <div className="w-full max-w-[92%] rounded-xl border border-primary/25 bg-primary/10 px-3.5 py-2.5 text-xs text-foreground shadow-xs">
-                                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary mb-1">
-                                      <Lock className="h-3 w-3 shrink-0" />
-                                      Nota interna · {message.time}
+                                  <div
+                                    className={`w-full max-w-[92%] rounded-xl px-3.5 py-2.5 text-xs text-foreground shadow-xs ${
+                                      isSupervisorWhisper
+                                        ? "border-2 border-primary/40 bg-primary/12"
+                                        : "border border-primary/25 bg-primary/10"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary mb-1">
+                                      <span className="flex items-center gap-1.5">
+                                        <Lock className="h-3 w-3 shrink-0" />
+                                        {isSupervisorWhisper
+                                          ? `Orientação da Supervisão (${message.author || "Supervisão"})`
+                                          : "Nota interna"}
+                                      </span>
+                                      <span>{message.time}</span>
                                     </div>
-                                    <p className="leading-relaxed whitespace-pre-wrap">{message.text}</p>
+                                    <p className="leading-relaxed whitespace-pre-wrap font-medium">
+                                      {message.text}
+                                    </p>
                                   </div>
                                 </div>
                               );

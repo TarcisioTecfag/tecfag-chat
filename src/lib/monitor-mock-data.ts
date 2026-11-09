@@ -209,6 +209,8 @@ export type AlertItem = {
   accountName?: string | null;
   accountDocument?: string | null;
   operatorId?: string | null;
+  suggestedOperatorId?: string | null;
+  suggestedOperatorName?: string | null;
   operatorName: string;
   operatorAvatar?: string | null;
   operatorIsOnline?: boolean;

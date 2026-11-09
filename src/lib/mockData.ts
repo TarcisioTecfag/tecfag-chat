@@ -61,6 +61,8 @@ export type Message = {
   sentAtISO?: string;
   side: "in" | "out";
   isInternalNote?: boolean;
+  isSupervisorWhisper?: boolean;
+  metaDetails?: Record<string, any> | null;
   avatar?: string;
   externalId?: string | null;
   quotedMessageId?: string | null;
