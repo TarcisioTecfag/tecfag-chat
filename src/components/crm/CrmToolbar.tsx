@@ -19,7 +19,11 @@ import { useNavigate } from "@tanstack/react-router";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useChat } from "@/hooks/useChatState";
 import { OperatorFilterPopover } from "./OperatorFilterPopover";
-import { AdvancedFiltersState, countActiveAdvancedFilters } from "./AdvancedFiltersModal";
+import {
+  AdvancedFiltersState,
+  CRM_FILTER_ANY_VALUE,
+  countActiveAdvancedFilters,
+} from "./AdvancedFiltersModal";
 import {
   Select,
   SelectContent,
@@ -203,9 +207,11 @@ export function CrmToolbar({
       continue;
     const displayValue = Array.isArray(value)
       ? `${value.length} selecionado(s)`
-      : typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
-        ? dateLabel(value)
-        : value;
+      : value === CRM_FILTER_ANY_VALUE
+        ? "Todos"
+        : typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+          ? dateLabel(value)
+          : value;
     filterChips.push({
       key,
       label:

@@ -23,6 +23,8 @@ import {
 } from "./deal-status-config";
 import type { LucideIcon } from "lucide-react";
 
+export const CRM_FILTER_ANY_VALUE = "__any__";
+
 export interface AdvancedFiltersState {
   stageIds?: string[];
   minValue?: number;
@@ -1025,13 +1027,19 @@ export function AdvancedFiltersModal({
           <FilterSelect
             label="Campanha"
             value={draft.campaign}
-            options={campaigns}
+            options={[
+              { value: CRM_FILTER_ANY_VALUE, label: "Todos" },
+              ...campaigns.filter((item) => item.value !== CRM_FILTER_ANY_VALUE),
+            ]}
             onChange={(value) => update("campaign", value)}
           />
           <FilterSelect
             label="Fonte"
             value={draft.source}
-            options={sources}
+            options={[
+              { value: CRM_FILTER_ANY_VALUE, label: "Todos" },
+              ...sources.filter((item) => item.value !== CRM_FILTER_ANY_VALUE),
+            ]}
             onChange={(value) => update("source", value)}
           />
           <FilterSelect

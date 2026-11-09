@@ -374,10 +374,30 @@ export function buildDealFilterConditions(tenantId: string, filters: CrmDealFilt
     conditions.push(eq(crmDeals.accountId, filters.companyId.trim()));
   }
   if (typeof filters.campaign === "string" && filters.campaign.trim()) {
-    conditions.push(eq(crmDeals.campaign, filters.campaign.trim()));
+    const campaignVal = filters.campaign.trim();
+    if (campaignVal === "__any__") {
+      conditions.push(sql`NULLIF(TRIM(${crmDeals.campaign}), '') IS NOT NULL`);
+    } else {
+      conditions.push(
+        or(
+          eq(crmDeals.campaign, campaignVal),
+          sql`TRIM(${crmDeals.campaign}) = ${campaignVal}`,
+        )!,
+      );
+    }
   }
   if (typeof filters.source === "string" && filters.source.trim()) {
-    conditions.push(eq(crmDeals.source, filters.source.trim()));
+    const sourceVal = filters.source.trim();
+    if (sourceVal === "__any__") {
+      conditions.push(sql`NULLIF(TRIM(${crmDeals.source}), '') IS NOT NULL`);
+    } else {
+      conditions.push(
+        or(
+          eq(crmDeals.source, sourceVal),
+          sql`TRIM(${crmDeals.source}) = ${sourceVal}`,
+        )!,
+      );
+    }
   }
   if (typeof filters.productId === "string" && filters.productId.trim()) {
     conditions.push(sql`EXISTS (SELECT 1 FROM crm_deal_products dp WHERE dp.deal_id = ${crmDeals.id} AND dp.tenant_id = ${tenantId} AND dp.product_id = ${filters.productId.trim()})`);
