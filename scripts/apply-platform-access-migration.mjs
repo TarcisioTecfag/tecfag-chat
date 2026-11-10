@@ -250,6 +250,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0057_crm_note_edit_history",
+    url: new URL(
+      "../src/db/migrations/0057_crm_note_edit_history.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

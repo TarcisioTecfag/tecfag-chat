@@ -18,8 +18,8 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities/$activit
 
       /**
        * PATCH /api/crm/deals/:dealId/activities/:activityId
-       * Atualiza tarefa/atividade comercial (concluir, reabrir, reagendar, cancelar ou editar).
-       * Regra E3: Notas comerciais imutáveis não podem ser alteradas.
+       * Atualiza tarefa/atividade comercial (concluir, reabrir, reagendar, cancelar ou editar)
+       * ou edita o conteúdo de uma anotação comercial registrando histórico cumulativo de edições.
        */
       PATCH: async ({ request, params }) => {
         try {
@@ -53,6 +53,22 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/activities/$activit
                 : undefined,
             }
           );
+
+          if (activity.type === "note") {
+            await recordCrmAction({
+              tenantId,
+              operatorId: session.operator.id,
+              operatorName: session.operator.name,
+              action: "edit_deal_note",
+              entityType: "deal_activity",
+              itemCount: 1,
+              details: {
+                dealId,
+                activityId,
+                editCount: Array.isArray(activity.editHistory) ? activity.editHistory.length : 1,
+              },
+            });
+          }
 
           return new Response(JSON.stringify({ activity }), {
             status: 200,

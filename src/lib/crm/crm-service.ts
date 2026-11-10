@@ -48,6 +48,7 @@ import type {
   CrmDealContact,
   CrmConversationDeal,
   CrmDealActivity,
+  CrmNoteEditEntry,
   CrmActivityMessage,
   CrmDealEvent,
   CrmProduct,
@@ -5928,9 +5929,29 @@ export class CrmService {
         actorAvatar = null;
       }
 
+      const normalizedEditHistory: CrmNoteEditEntry[] = Array.isArray(r.activity.editHistory)
+        ? r.activity.editHistory
+            .filter(
+              (entry): entry is CrmNoteEditEntry =>
+                Boolean(entry && typeof entry === "object" && typeof entry.editedAt === "string")
+            )
+            .map((entry) => ({
+              editedAt: String(entry.editedAt),
+              operatorId: entry.operatorId || null,
+              operatorName:
+                (entry.operatorName && entry.operatorName !== "Operador"
+                  ? entry.operatorName
+                  : null) ||
+                (entry.operatorId ? opNameMap.get(entry.operatorId) : null) ||
+                entry.operatorName ||
+                "Operador",
+            }))
+        : [];
+
       return {
         ...r.activity,
         assignedToOperatorIds: uniqueIds,
+        editHistory: normalizedEditHistory,
         operatorName: r.operatorName || null,
         operatorAvatar: (r as any).operatorAvatar || null,
         assignedToOperatorName:
@@ -5943,8 +5964,9 @@ export class CrmService {
   }
 
   /**
-   * Atualiza uma atividade ou tarefa comercial com validação de ciclo de vida e autoria.
-   * Regra Inviolável E3: Notas comerciais ('note') são imutáveis e permanentes — não podem ser alteradas, concluídas ou canceladas.
+   * Atualiza uma atividade, tarefa ou anotação comercial com validação de ciclo de vida e autoria.
+   * Notas comerciais ('note') podem ter seu conteúdo editado com histórico cumulativo permanente (editHistory),
+   * mas não podem ter status/prazo/atribuição alterados nem ser excluídas.
    */
   async updateDealActivity(
     tenantId: string,
@@ -5995,12 +6017,165 @@ export class CrmService {
         throw new CrmNotFoundError("Atividade não encontrada.");
       }
 
-      // 3. Regra Inviolável de E3: Notas comerciais são imutáveis!
+      // 3. Notas comerciais ('note'): permite editar o texto com trilha cumulativa de edições,
+      // bloqueando alterações de status, prazo, responsável ou conversão de tipo.
       if (current.type === "note") {
-        throw new CrmValidationError(
-          "Notas comerciais são registros históricos permanentes e não podem ser alteradas.",
-          "NOTE_IS_IMMUTABLE"
-        );
+        if (
+          updates.status !== undefined ||
+          updates.dueDate !== undefined ||
+          updates.assignedToOperatorId !== undefined ||
+          updates.assignedToOperatorIds !== undefined
+        ) {
+          throw new CrmValidationError(
+            "Notas comerciais não possuem ciclo de status, prazo ou atribuição alteráveis.",
+            "NOTE_IS_IMMUTABLE"
+          );
+        }
+        if (updates.type !== undefined && updates.type !== "note") {
+          throw new CrmValidationError(
+            "Não é permitido converter uma nota comercial em outro tipo de atividade.",
+            "INVALID_TYPE_CONVERSION"
+          );
+        }
+
+        const hasDescriptionInput = updates.description !== undefined;
+        const hasTitleInput = updates.title !== undefined;
+        if (!hasDescriptionInput && !hasTitleInput) {
+          throw new CrmValidationError(
+            "Informe o conteúdo atualizado da anotação.",
+            "EMPTY_NOTE_CONTENT"
+          );
+        }
+
+        const prevEffectiveContent = String(current.description || current.title || "").trim();
+        const nextDescription = hasDescriptionInput
+          ? String(updates.description ?? "").trim()
+          : current.description?.trim() || "";
+
+        if (hasDescriptionInput && !nextDescription) {
+          throw new CrmValidationError(
+            "O conteúdo da anotação não pode ficar vazio.",
+            "EMPTY_NOTE_CONTENT"
+          );
+        }
+
+        if (hasTitleInput && !String(updates.title ?? "").trim()) {
+          throw new CrmValidationError(
+            "O título da anotação não pode ser vazio.",
+            "EMPTY_NOTE_CONTENT"
+          );
+        }
+
+        const nextTitle = hasTitleInput
+          ? String(updates.title ?? "").trim()
+          : !current.description && current.title !== "Anotação" && hasDescriptionInput
+          ? "Anotação"
+          : current.title;
+
+        const nextEffectiveContent = hasDescriptionInput ? nextDescription : nextTitle;
+        const contentChanged =
+          nextEffectiveContent !== prevEffectiveContent ||
+          (hasTitleInput && nextTitle !== current.title);
+
+        let editorName = "Operador";
+        if (operatorId) {
+          const [editorOp] = await tx
+            .select({ id: operators.id, name: operators.name })
+            .from(operators)
+            .where(and(eq(operators.id, operatorId), eq(operators.tenantId, tenantId)))
+            .limit(1);
+          if (editorOp?.name) {
+            editorName = editorOp.name;
+          }
+        }
+
+        const previousHistory: CrmNoteEditEntry[] = Array.isArray(current.editHistory)
+          ? current.editHistory.filter(
+              (entry): entry is CrmNoteEditEntry =>
+                Boolean(entry && typeof entry === "object" && typeof entry.editedAt === "string")
+            )
+          : [];
+
+        const now = new Date();
+        let finalNote = current;
+
+        if (contentChanged) {
+          const nextEditEntry: CrmNoteEditEntry = {
+            editedAt: now.toISOString(),
+            operatorId: operatorId || null,
+            operatorName: editorName,
+          };
+          const nextEditHistory = [...previousHistory, nextEditEntry];
+
+          const [updatedNoteRow] = await tx
+            .update(crmDealActivities)
+            .set({
+              title: nextTitle,
+              description: hasDescriptionInput ? nextDescription : current.description,
+              editHistory: nextEditHistory,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(crmDealActivities.id, activityId),
+                eq(crmDealActivities.dealId, dealId),
+                eq(crmDealActivities.tenantId, tenantId)
+              )
+            )
+            .returning();
+
+          if (updatedNoteRow) {
+            finalNote = updatedNoteRow;
+          }
+
+          await tx
+            .update(crmDeals)
+            .set({ lastActivityAt: now, updatedAt: now })
+            .where(and(eq(crmDeals.id, dealId), eq(crmDeals.tenantId, tenantId)));
+
+          await this.logDealEvent(
+            tenantId,
+            dealId,
+            "note_updated",
+            operatorId,
+            {
+              activityId,
+              activityTitle: nextTitle,
+              previousDescription: prevEffectiveContent,
+              newDescription: nextEffectiveContent,
+              editCount: nextEditHistory.length,
+              editedByName: editorName,
+              editedAt: now.toISOString(),
+            },
+            tx
+          );
+        }
+
+        const creatorOp = alias(operators, "upd_note_creator_op");
+        const assignedOp = alias(operators, "upd_note_assigned_op");
+        const [fullNote] = await tx
+          .select({
+            activity: crmDealActivities,
+            operatorName: creatorOp.name,
+            assignedToOperatorName: assignedOp.name,
+          })
+          .from(crmDealActivities)
+          .leftJoin(creatorOp, eq(crmDealActivities.operatorId, creatorOp.id))
+          .leftJoin(assignedOp, eq(crmDealActivities.assignedToOperatorId, assignedOp.id))
+          .where(and(eq(crmDealActivities.id, finalNote.id), eq(crmDealActivities.tenantId, tenantId)))
+          .limit(1);
+
+        const baseNote = fullNote?.activity || finalNote;
+        const finalAssignedIds = Array.isArray(baseNote.assignedToOperatorIds)
+          ? baseNote.assignedToOperatorIds
+          : [];
+
+        return {
+          ...baseNote,
+          assignedToOperatorIds: finalAssignedIds,
+          operatorName: fullNote?.operatorName || null,
+          assignedToOperatorName: fullNote?.assignedToOperatorName || null,
+        };
       }
 
       const now = new Date();

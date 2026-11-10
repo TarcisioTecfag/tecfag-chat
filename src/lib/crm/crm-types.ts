@@ -195,6 +195,7 @@ export type CrmDealEventType =
   | "conversation_unlinked"
   | "activity_created"
   | "note_created"
+  | "note_updated"
   | "activity_completed"
   | "activity_reopened"
   | "activity_cancelled"

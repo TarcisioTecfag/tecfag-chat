@@ -993,6 +993,12 @@ export const conversationDealContexts = pgTable("conversation_deal_contexts", {
 }));
 
 // ─── 14.8. ATIVIDADES DA NEGOCIAÇÃO (Tarefas, Notas, Reuniões) ───────────────
+export interface CrmNoteEditEntry {
+  editedAt: string;
+  operatorId: string | null;
+  operatorName: string;
+}
+
 export const crmDealActivities = pgTable("crm_deal_activities", {
   rdMarketingCycle: integer("rd_marketing_cycle").default(0).notNull(),
   id: text("id").primaryKey(),
@@ -1008,6 +1014,7 @@ export const crmDealActivities = pgTable("crm_deal_activities", {
   operatorId: text("operator_id").references(() => operators.id, { onDelete: "set null" }),
   assignedToOperatorId: text("assigned_to_operator_id").references(() => operators.id, { onDelete: "set null" }),
   assignedToOperatorIds: jsonb("assigned_to_operator_ids").$type<string[]>().default([]).notNull(),
+  editHistory: jsonb("edit_history").$type<CrmNoteEditEntry[]>().default([]).notNull(),
   rdTaskId: text("rd_task_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

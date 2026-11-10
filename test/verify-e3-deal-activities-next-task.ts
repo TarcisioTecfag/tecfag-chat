@@ -373,16 +373,45 @@ async function runE3TestSuite() {
     }
     assert(noteCancelBlocked, "Tentativa de cancelar nota comercial bloqueada com NOTE_IS_IMMUTABLE.");
 
-    // 3.3 Tentativa de editar título ou descrição de nota comercial
-    let noteEditBlocked = false;
+    // 3.3 Edição de texto de nota comercial registra histórico cumulativo permanente (editHistory)
+    const editedOnce = await crmService.updateDealActivity(tenantA, dealA1.id, note1.id, opA1, {
+      description: "Requisitos logísticos revisados: 12 unidades alinhadas por pacote.",
+    });
+    assert(
+      editedOnce.description === "Requisitos logísticos revisados: 12 unidades alinhadas por pacote.",
+      "Conteúdo da nota comercial atualizado na 1ª edição."
+    );
+    assert(
+      Array.isArray(editedOnce.editHistory) && editedOnce.editHistory.length === 1,
+      "1ª edição registrada em editHistory."
+    );
+    assert(
+      editedOnce.editHistory[0]?.operatorName === "Vendedor Alpha",
+      "1ª edição registra o nome do usuário que editou."
+    );
+
+    const editedTwice = await crmService.updateDealActivity(tenantA, dealA1.id, note1.id, opA2, {
+      description: "Requisitos logísticos revisados: 12 unidades alinhadas ou soltas em pacote.",
+    });
+    assert(
+      Array.isArray(editedTwice.editHistory) && editedTwice.editHistory.length === 2,
+      "2ª edição acumulada em editHistory (histórico cumulativo)."
+    );
+    assert(
+      editedTwice.editHistory[0]?.operatorName === "Vendedor Alpha" &&
+        editedTwice.editHistory[1]?.operatorName === "Vendedora Beta",
+      "Histórico cumulativo preserva todas as edições em ordem cronológica."
+    );
+
+    let emptyNoteBlocked = false;
     try {
       await crmService.updateDealActivity(tenantA, dealA1.id, note1.id, opA1, {
-        title: "Tentativa de adulterar histórico",
+        description: "   ",
       });
     } catch (e: any) {
-      noteEditBlocked = e instanceof CrmValidationError && e.code === "NOTE_IS_IMMUTABLE";
+      emptyNoteBlocked = e instanceof CrmValidationError && e.code === "EMPTY_NOTE_CONTENT";
     }
-    assert(noteEditBlocked, "Tentativa de editar texto de nota comercial bloqueada com NOTE_IS_IMMUTABLE.");
+    assert(emptyNoteBlocked, "Edição de nota com conteúdo vazio bloqueada com EMPTY_NOTE_CONTENT.");
 
     // 3.4 Tentativa de converter uma tarefa em nota
     let conversionBlocked = false;

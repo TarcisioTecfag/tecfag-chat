@@ -432,6 +432,24 @@ export function renderCrmMediaOrTextContent(
   return cleaned;
 }
 
+export interface DealNoteEditEntry {
+  editedAt: string;
+  operatorId: string | null;
+  operatorName: string;
+}
+
+export function formatNoteEditTimestamp(iso: string): string {
+  const parsed = new Date(iso);
+  if (!Number.isFinite(parsed.getTime())) return "Data não informada";
+  return parsed.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function renderMarkdownContent(text: string) {
   if (!text) return null;
 
@@ -1376,6 +1394,427 @@ export function DealDetailModal({
       setNoteActiveFormats({ bold: false, italic: false, bullet: false, numbered: false });
     }
   }, [isCreatingNote]);
+
+  // ── Edição inline de anotações já publicadas no card (com histórico cumulativo) ──
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const [editingNoteOriginalText, setEditingNoteOriginalText] = useState("");
+  const [isSavingEditedNote, setIsSavingEditedNote] = useState(false);
+  const [isUploadingEditNoteFile, setIsUploadingEditNoteFile] = useState(false);
+  const editNoteTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const editNoteFileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const canEditDealNotes =
+    chatContext?.sessionRole === "admin" ||
+    (chatContext?.sessionPermissions?.crm?.canEditDeals ??
+      chatContext?.currentGroup?.permissions?.crm?.canEditDeals ??
+      true);
+
+  useEffect(() => {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+    setEditingNoteOriginalText("");
+    setIsSavingEditedNote(false);
+    setIsUploadingEditNoteFile(false);
+  }, [dealId, isOpen]);
+
+  const adjustEditNoteTextareaHeight = (el?: HTMLTextAreaElement | null) => {
+    const target = el || editNoteTextareaRef.current;
+    if (!target) return;
+    target.style.height = "auto";
+    target.style.height = `${Math.min(Math.max(target.scrollHeight, 120), 420)}px`;
+  };
+
+  const handleStartEditNote = (activityId: string, currentText: string) => {
+    const cleanText = String(currentText || "");
+    setEditingNoteId(activityId);
+    setEditingNoteText(cleanText);
+    setEditingNoteOriginalText(cleanText);
+    setTimeout(() => {
+      const el = editNoteTextareaRef.current;
+      if (el) {
+        adjustEditNoteTextareaHeight(el);
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    }, 15);
+  };
+
+  const handleCancelEditNote = () => {
+    if (isSavingEditedNote) return;
+    setEditingNoteId(null);
+    setEditingNoteText("");
+    setEditingNoteOriginalText("");
+  };
+
+  const handleApplyEditNoteFormat = (format: "bold" | "italic" | "bullet" | "numbered") => {
+    const el = editNoteTextareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const current = editingNoteText;
+    const selected = current.slice(start, end);
+
+    if (format === "bold" || format === "italic") {
+      const marker = format === "bold" ? "**" : "*";
+      const placeholder = format === "bold" ? "texto em negrito" : "texto em itálico";
+      const inner = selected || placeholder;
+      const next = `${current.slice(0, start)}${marker}${inner}${marker}${current.slice(end)}`;
+      setEditingNoteText(next);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start + marker.length, start + marker.length + inner.length);
+        adjustEditNoteTextareaHeight(el);
+      }, 0);
+      return;
+    }
+
+    const lineStart = current.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const nextNewline = current.indexOf("\n", end);
+    const lineEnd = nextNewline === -1 ? current.length : nextNewline;
+    const block = current.slice(lineStart, lineEnd);
+    const lines = block.split("\n");
+    const transformed = lines
+      .map((line, idx) => {
+        const stripped = line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "");
+        return format === "bullet" ? `- ${stripped}` : `${idx + 1}. ${stripped}`;
+      })
+      .join("\n");
+    const next = `${current.slice(0, lineStart)}${transformed}${current.slice(lineEnd)}`;
+    setEditingNoteText(next);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(lineStart, lineStart + transformed.length);
+      adjustEditNoteTextareaHeight(el);
+    }, 0);
+  };
+
+  const handleUploadFilesIntoEditedNote = async (incoming: FileList | File[]) => {
+    const activeDeal = dealRef.current || deal;
+    if (!activeDeal) return;
+    const MAX_SIZE = 100 * 1024 * 1024;
+    const validFiles: File[] = [];
+    for (let i = 0; i < incoming.length; i++) {
+      const f = incoming[i];
+      if (!f || f.size === 0) continue;
+      if (f.size > MAX_SIZE) {
+        toast.error(`O arquivo "${f.name}" excede o limite de 100MB.`);
+        continue;
+      }
+      if (!f.name || f.name === "image.png" || f.name === "blob") {
+        const ext = (f.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        validFiles.push(new File([f], `anexo-${stamp}-${i + 1}.${ext}`, { type: f.type || "image/png" }));
+      } else {
+        validFiles.push(f);
+      }
+    }
+    if (validFiles.length === 0) return;
+
+    setIsUploadingEditNoteFile(true);
+    try {
+      const formData = new FormData();
+      for (const f of validFiles) {
+        formData.append("files", f);
+      }
+      const uploadRes = await fetch(`/api/crm/deals/${activeDeal.id}/files`, {
+        method: "POST",
+        body: formData,
+      });
+      const uploadData = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.error || "Erro ao anexar arquivo na anotação.");
+      }
+      const uploadedFiles = Array.isArray(uploadData.files) ? uploadData.files : [];
+      const snippets: string[] = [];
+      for (const uf of uploadedFiles) {
+        const cat = getFileCategory(uf.fileName || "", uf.mimeType || "");
+        if (cat === "image") {
+          snippets.push(`![${uf.fileName || "Imagem"}](${uf.url || uf.downloadUrl})`);
+        } else {
+          const sizeLabel = uf.fileSize ? ` (${formatBytes(uf.fileSize)})` : "";
+          snippets.push(`[📎 ${uf.fileName || "Arquivo"}${sizeLabel}](${uf.downloadUrl || uf.url})`);
+        }
+      }
+      if (snippets.length > 0) {
+        const el = editNoteTextareaRef.current;
+        const insertPos = el?.selectionStart ?? editingNoteText.length;
+        const snippetBlock = snippets.join("\n");
+        setEditingNoteText((prev) => {
+          const before = prev.slice(0, insertPos);
+          const after = prev.slice(insertPos);
+          const prefix = before && !before.endsWith("\n") ? "\n" : "";
+          const suffix = after && !after.startsWith("\n") ? "\n" : "";
+          return `${before}${prefix}${snippetBlock}${suffix}${after}`;
+        });
+        setTimeout(() => adjustEditNoteTextareaHeight(), 10);
+      }
+      void loadDealDetail(true, true);
+    } catch (err: any) {
+      toast.error(err.message || "Não foi possível anexar o arquivo.");
+    } finally {
+      setIsUploadingEditNoteFile(false);
+    }
+  };
+
+  const handleEditNotePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboard = e.clipboardData;
+    if (!clipboard) return;
+    const files: File[] = [];
+    if (clipboard.files && clipboard.files.length > 0) {
+      for (let i = 0; i < clipboard.files.length; i++) {
+        const f = clipboard.files[i];
+        if (f && f.size > 0) files.push(f);
+      }
+    } else if (clipboard.items && clipboard.items.length > 0) {
+      for (let i = 0; i < clipboard.items.length; i++) {
+        const item = clipboard.items[i];
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f && f.size > 0) files.push(f);
+        }
+      }
+    }
+    if (files.length > 0) {
+      const plainText = clipboard.getData("text/plain") || "";
+      const htmlText = clipboard.getData("text/html") || "";
+      const isRichTableCopy = plainText.trim().length > 0 && htmlText.includes("<table");
+      if (!isRichTableCopy) {
+        e.preventDefault();
+        void handleUploadFilesIntoEditedNote(files);
+      }
+    }
+  };
+
+  const handleSaveEditedNote = async (activityId: string) => {
+    const activeDeal = dealRef.current || deal;
+    if (!activeDeal || !activityId) return;
+    const trimmed = editingNoteText.trim();
+    if (!trimmed) {
+      toast.error("O conteúdo da anotação não pode ficar vazio.");
+      return;
+    }
+    if (trimmed === editingNoteOriginalText.trim()) {
+      handleCancelEditNote();
+      return;
+    }
+
+    setIsSavingEditedNote(true);
+    try {
+      const res = await fetch(`/api/crm/deals/${activeDeal.id}/activities/${activityId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description: trimmed,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Erro ao salvar edição da anotação.");
+      }
+
+      if (data.activity) {
+        setDeal((prev: any) => {
+          if (!prev || !Array.isArray(prev.activities)) return prev;
+          return {
+            ...prev,
+            activities: prev.activities.map((act: any) =>
+              act.id === activityId
+                ? {
+                    ...act,
+                    ...data.activity,
+                    editHistory: Array.isArray(data.activity.editHistory)
+                      ? data.activity.editHistory
+                      : act.editHistory || [],
+                  }
+                : act
+            ),
+          };
+        });
+      }
+
+      toast.success("Anotação editada com sucesso!");
+      setEditingNoteId(null);
+      setEditingNoteText("");
+      setEditingNoteOriginalText("");
+      void loadDealDetail(true, true);
+    } catch (err: any) {
+      console.error("[DealDetailModal] Erro ao editar anotação:", err);
+      toast.error(err.message || "Falha ao atualizar anotação.");
+    } finally {
+      setIsSavingEditedNote(false);
+    }
+  };
+
+  const renderNoteEditHistory = (editHistory?: DealNoteEditEntry[] | null) => {
+    if (!Array.isArray(editHistory) || editHistory.length === 0) return null;
+    return (
+      <div
+        data-testid="crm-note-edit-history"
+        className="mt-3 pt-2 border-t border-border/50 space-y-1"
+      >
+        {editHistory.map((entry, idx) => (
+          <div
+            key={`${entry.editedAt}-${entry.operatorId || "op"}-${idx}`}
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 leading-snug"
+          >
+            <Pencil className="h-2.5 w-2.5 shrink-0 opacity-65" />
+            <span>
+              Editado por{" "}
+              <span className="font-semibold text-foreground/90">
+                {entry.operatorName || "Operador"}
+              </span>{" "}
+              em {formatNoteEditTimestamp(entry.editedAt)}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderInlineNoteEditEditor = (
+    activityId: string,
+    editHistory?: DealNoteEditEntry[] | null
+  ) => {
+    const hasChanges =
+      Boolean(editingNoteText.trim()) &&
+      editingNoteText.trim() !== editingNoteOriginalText.trim();
+
+    return (
+      <div className="mt-3 rounded-sm border border-primary/40 bg-card p-3 space-y-2.5 shadow-xs">
+        <input
+          type="file"
+          multiple
+          ref={editNoteFileInputRef}
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) {
+              void handleUploadFilesIntoEditedNote(e.target.files);
+              e.target.value = "";
+            }
+          }}
+          className="hidden"
+        />
+
+        {/* Barra de formatação compacta */}
+        <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 flex-wrap">
+          <div className="flex items-center gap-1">
+            <SystemTooltip content="Negrito (Ctrl+B)">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleApplyEditNoteFormat("bold")}
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <Bold className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
+            <SystemTooltip content="Itálico (Ctrl+I)">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleApplyEditNoteFormat("italic")}
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <Italic className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
+            <SystemTooltip content="Lista com marcadores">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleApplyEditNoteFormat("bullet")}
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <List className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
+            <SystemTooltip content="Lista numerada">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleApplyEditNoteFormat("numbered")}
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <ListOrdered className="h-3.5 w-3.5" />
+              </button>
+            </SystemTooltip>
+          </div>
+
+          <SystemTooltip content="Anexar imagem ou arquivo na anotação">
+            <button
+              type="button"
+              onClick={() => editNoteFileInputRef.current?.click()}
+              disabled={isUploadingEditNoteFile}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-2.5 py-1 text-[11px] font-semibold text-foreground hover:bg-muted hover:border-primary/40 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {isUploadingEditNoteFile ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              ) : (
+                <Paperclip className="h-3.5 w-3.5 text-primary" />
+              )}
+              <span>{isUploadingEditNoteFile ? "Anexando..." : "Anexar arquivo"}</span>
+            </button>
+          </SystemTooltip>
+        </div>
+
+        <textarea
+          ref={editNoteTextareaRef}
+          value={editingNoteText}
+          onChange={(e) => {
+            setEditingNoteText(e.target.value);
+            adjustEditNoteTextareaHeight(e.target);
+          }}
+          onPaste={handleEditNotePaste}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+              e.preventDefault();
+              handleApplyEditNoteFormat("bold");
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "i") {
+              e.preventDefault();
+              handleApplyEditNoteFormat("italic");
+            } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+              e.preventDefault();
+              if (hasChanges && !isSavingEditedNote) {
+                void handleSaveEditedNote(activityId);
+              }
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              handleCancelEditNote();
+            }
+          }}
+          placeholder="Digite o conteúdo atualizado da anotação..."
+          className="w-full resize-y bg-transparent text-xs text-foreground outline-none min-h-[120px] max-h-[420px] leading-relaxed"
+        />
+
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/40 flex-wrap">
+          <span className="text-[10px] text-muted-foreground">
+            Ctrl+Enter para salvar • Esc para cancelar
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCancelEditNote}
+              disabled={isSavingEditedNote}
+              className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSaveEditedNote(activityId)}
+              disabled={isSavingEditedNote || !hasChanges}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground shadow-xs hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
+            >
+              {isSavingEditedNote && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Salvar edição</span>
+            </button>
+          </div>
+        </div>
+
+        {renderNoteEditHistory(editHistory)}
+      </div>
+    );
+  };
 
   // Lista de funis para troca rápida pelo cabeçalho (inclui funis de destino sem visualização quando permitido)
   const [availablePipelines, setAvailablePipelines] = useState<
@@ -2555,6 +2994,8 @@ export function DealDetailModal({
       iconType: string;
       badgeColor: string;
       isNote?: boolean;
+      activityId?: string;
+      editHistory?: DealNoteEditEntry[];
       source: "conversas" | "crm" | "marketing";
       marketingEvent?: JourneyEvent;
       conversationWindow24h?: {
@@ -2575,8 +3016,14 @@ export function DealDetailModal({
       ),
     );
     (deal.events || []).forEach((evt: any) => {
-      // Ignorar evento de auditoria se for criação de nota comercial (já é exibido com o card de anotação da atividade)
+      // Ignorar evento de auditoria se for criação/edição de nota comercial (já é exibido com histórico cumulativo no próprio card de anotação)
       if (evt.eventType === "note_created") return;
+      if (
+        evt.eventType === "note_updated" &&
+        deal.activities?.some((a: any) => a.id === evt.metadata?.activityId)
+      ) {
+        return;
+      }
       if (evt.eventType === "conversation_action" && deal.activities?.some((activity: any) => activity.id === `chat-${evt.metadata?.messageId}` || activity.id === `brief-${evt.metadata?.messageId}`)) return;
       const rawActionType = String(
         evt.metadata?.attendanceEventType || evt.metadata?.actionType || ""
@@ -2734,6 +3181,8 @@ export function DealDetailModal({
 
       items.push({
         id: `act-${act.id}`,
+        activityId: act.id,
+        editHistory: Array.isArray(act.editHistory) ? act.editHistory : [],
         category: "activity",
         title: isNote
           ? "Anotação"
@@ -4318,20 +4767,29 @@ export function DealDetailModal({
                                             </span>
                                           )}
 
-                                          {/* Selo de Nota Imutável */}
+                                          {/* Selo de Nota Comercial */}
                                           {isNote && (
                                             <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-muted-foreground">
-                                              Histórico Permanente
+                                              Histórico Registrado
                                             </span>
                                           )}
                                         </div>
 
-                                        {act.description && (
-                                          isNote ? (
-                                            <div className="text-xs text-foreground leading-relaxed break-words">
-                                              {renderMarkdownContent(act.description)}
-                                            </div>
+                                        {isNote ? (
+                                          editingNoteId === act.id ? (
+                                            renderInlineNoteEditEditor(act.id, act.editHistory)
                                           ) : (
+                                            (act.description || act.title || (Array.isArray(act.editHistory) && act.editHistory.length > 0)) && (
+                                              <div className="text-xs text-foreground leading-relaxed break-words">
+                                                {(act.description || act.title)
+                                                  ? renderMarkdownContent(act.description || act.title)
+                                                  : null}
+                                                {renderNoteEditHistory(act.editHistory)}
+                                              </div>
+                                            )
+                                          )
+                                        ) : (
+                                          act.description && (
                                             <p className="text-xs text-muted-foreground whitespace-pre-wrap">{act.description}</p>
                                           )
                                         )}
@@ -4339,6 +4797,18 @@ export function DealDetailModal({
 
                                       {/* Ações Rápidas por Tipo */}
                                       <div data-tour="deal.task-actions" className="flex items-center gap-1.5 shrink-0">
+                                        {isNote && canEditDealNotes && editingNoteId !== act.id && (
+                                          <SystemTooltip content="Editar anotação">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleStartEditNote(act.id, act.description || act.title || "")}
+                                              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                                              aria-label="Editar anotação"
+                                            >
+                                              <Pencil className="h-3.5 w-3.5" />
+                                            </button>
+                                          </SystemTooltip>
+                                        )}
                                         {isPending && !isNote && (
                                           <>
                                             <SystemTooltip content="Marcar como concluída">
@@ -6893,18 +7363,32 @@ export function DealDetailModal({
                                     </div>
                                   </div>
 
-                                  {/* Data / Hora alinhada */}
-                                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 font-medium shrink-0">
-                                    <Clock className="h-3 w-3 opacity-60" />
-                                    <span>
-                                      {Number.isFinite(item.date.getTime()) ? item.date.toLocaleDateString("pt-BR", {
-                                        day: "2-digit",
-                                        month: "2-digit",
-                                        year: "numeric",
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                      }) : "Data não informada"}
-                                    </span>
+                                  {/* Ícone discreto de lápis para editar anotação + Data / Hora alinhada */}
+                                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground/80 font-medium shrink-0">
+                                    {item.isNote && item.activityId && canEditDealNotes && editingNoteId !== item.activityId && (
+                                      <SystemTooltip content="Editar anotação">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleStartEditNote(item.activityId!, item.description || "")}
+                                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted/70 transition-colors cursor-pointer"
+                                          aria-label="Editar anotação"
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </button>
+                                      </SystemTooltip>
+                                    )}
+                                    <div className="flex items-center gap-1.5">
+                                      <Clock className="h-3 w-3 opacity-60" />
+                                      <span>
+                                        {Number.isFinite(item.date.getTime()) ? item.date.toLocaleDateString("pt-BR", {
+                                          day: "2-digit",
+                                          month: "2-digit",
+                                          year: "numeric",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        }) : "Data não informada"}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
 
@@ -6967,17 +7451,23 @@ export function DealDetailModal({
                                       </p>
                                     )}
                                   </div>
-                                ) : (
-                                  item.description &&
-                                  (item.isNote ? (
-                                    <div className="mt-3 rounded-sm border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed font-normal break-words shadow-2xs">
-                                      {renderMarkdownContent(item.description)}
-                                    </div>
+                                ) : item.isNote ? (
+                                  editingNoteId === item.activityId && item.activityId ? (
+                                    renderInlineNoteEditEditor(item.activityId, item.editHistory)
                                   ) : (
+                                    (item.description || (item.editHistory && item.editHistory.length > 0)) && (
+                                      <div className="mt-3 rounded-sm border border-primary/20 bg-primary/[0.03] p-3.5 text-xs text-foreground leading-relaxed font-normal break-words shadow-2xs">
+                                        {item.description ? renderMarkdownContent(item.description) : null}
+                                        {renderNoteEditHistory(item.editHistory)}
+                                      </div>
+                                    )
+                                  )
+                                ) : (
+                                  item.description && (
                                     <div className="mt-2 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pl-9 break-words">
                                       {renderCrmMediaOrTextContent(item.description)}
                                     </div>
-                                  ))
+                                  )
                                 )}
                               </div>
                             </div>

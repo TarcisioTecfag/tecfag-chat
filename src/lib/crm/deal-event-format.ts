@@ -452,6 +452,21 @@ export function formatDealEvent(
     case "note_created":
       return { title: "Nota comercial registrada", description: text(meta.activityTitle) };
 
+    case "note_updated": {
+      const editedBy = text(meta.editedByName);
+      const editCount = typeof meta.editCount === "number" && meta.editCount > 0 ? meta.editCount : null;
+      const suffix = [
+        editedBy ? `Por: ${editedBy}` : null,
+        editCount ? `Edição #${editCount}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return {
+        title: "Anotação editada",
+        description: suffix || text(meta.activityTitle) || null,
+      };
+    }
+
     case "activity_completed":
       return {
         title: `Tarefa concluída${text(meta.activityTitle) ? `: ${text(meta.activityTitle)}` : ""}`,
