@@ -114,7 +114,7 @@ export const DESTINATION_DETAILS: Record<
       "Acionado quando o Decisor IA confirma um equipamento ativo da linha Semi-Industrial com confiança ≥ 95% e capacidade compatível.",
     flowBadge: "Fluxo 1 • Comercial",
     fluxosFolderName: "Pasta Máquinas",
-    sectorKeywords: ["comercial", "maquina", "vendas", "tecfag"],
+    sectorKeywords: ["maquinas", "maquina", "comercial", "vendas", "tecfag"],
     pipelineKeywords: ["funil maquinas", "maquinas", "semi"],
   },
   PERSONNALITE: {
@@ -124,7 +124,7 @@ export const DESTINATION_DETAILS: Record<
       "Acionado quando o Decisor IA confirma um equipamento ativo da linha Personnalité com confiança ≥ 95% e capacidade compatível.",
     flowBadge: "Fluxo 1 • Industrial",
     fluxosFolderName: "Pasta Personnalité",
-    sectorKeywords: ["personnalite", "personalite", "comercial", "projetos", "tecfag"],
+    sectorKeywords: ["personnalite", "personalite", "projetos", "comercial", "tecfag"],
     pipelineKeywords: ["personnalite", "personalite", "projetos"],
   },
   PECAS: {
@@ -134,7 +134,7 @@ export const DESTINATION_DETAILS: Record<
       "Acionado quando o cliente solicita compra de peças de reposição ou componentes avulsos para equipamentos.",
     flowBadge: "Fluxo 1 • Peças",
     fluxosFolderName: "Pasta Peças",
-    sectorKeywords: ["pecas", "comercial", "pos-venda", "assistencia", "tecfag"],
+    sectorKeywords: ["pecas", "peca", "pos-venda", "assistencia", "comercial", "tecfag"],
     pipelineKeywords: ["pecas", "insumos"],
   },
   FINANCEIRO: {
@@ -154,7 +154,7 @@ export const DESTINATION_DETAILS: Record<
       "Acionado quando o cliente relata defeito técnico, precisa de suporte operacional ou manutenção de máquina já adquirida.",
     flowBadge: "Fluxo 3 • Suporte Técnico",
     fluxosFolderName: "Pasta Assistência Técnica",
-    sectorKeywords: ["assistencia", "tecnica", "suporte", "manutencao", "pos-venda", "comercial"],
+    sectorKeywords: ["suporte", "assistencia", "tecnica", "manutencao", "pos-venda", "comercial"],
     pipelineKeywords: ["assistencia", "suporte", "tecnica", "pos-venda", "pos venda"],
   },
   POS_VENDA: {
@@ -174,7 +174,7 @@ export const DESTINATION_DETAILS: Record<
       "Acionado quando o Fagner não tem certeza da classificação, em casos de licitação/revenda, capital social ≥ R$ 350 mil em equipamento Semi-Industrial, máquina não comercializada, capacidade acima do catálogo ou quando o cliente pede atendente humano. Abre o card no Funil e Etapa configurados abaixo (ex: Funil SDR).",
     flowBadge: "Fluxo 5 • Revisão Humana",
     fluxosFolderName: "Pasta Análise e revisão humana",
-    sectorKeywords: ["comercial", "sdr", "recepcao", "triagem", "atendimento", "tecfag"],
+    sectorKeywords: ["sdr", "analise", "revisao", "recepcao", "triagem", "atendimento", "comercial", "tecfag"],
     pipelineKeywords: ["funil sdr", "sdr", "triagem", "analise", "revisao"],
   },
 };
@@ -188,11 +188,12 @@ export function resolveAutomaticSectorId(
     return existingSectorId;
   }
   const meta = DESTINATION_DETAILS[key];
-  const matched = sectors.find((s) => {
-    const sNorm = norm(s.name);
-    return meta.sectorKeywords.some((kw) => sNorm.includes(norm(kw)));
-  });
-  return matched?.id || sectors[0]?.id || existingSectorId || "";
+  for (const kw of meta.sectorKeywords) {
+    const kwNorm = norm(kw);
+    const matched = sectors.find((s) => norm(s.name).includes(kwNorm));
+    if (matched) return matched.id;
+  }
+  return sectors[0]?.id || existingSectorId || "";
 }
 
 export function autoMatchIndustrialDestinations(
@@ -214,7 +215,11 @@ export function autoMatchIndustrialDestinations(
     const meta = DESTINATION_DETAILS[key];
     const policy = INDUSTRIAL_DESTINATIONS[key];
 
-    const matchedSectorId = resolveAutomaticSectorId(key, choices.sectors, existing.destination?.sectorId);
+    const matchedSectorId = resolveAutomaticSectorId(
+      key,
+      choices.sectors,
+      overwriteExisting ? undefined : existing.destination?.sectorId,
+    );
     if (!matchedSectorId) continue;
 
     // 2. Encontrar melhor funil CRM

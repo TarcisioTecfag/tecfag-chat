@@ -84,7 +84,8 @@ export type SessionEvent =
   | { type: "presence_update"; id: string; conversationId?: string; presences: Record<string, any> }
   | { type: "force_logout"; operatorId: string; reason?: string }
   | { type: "onboarding_updated"; operatorId?: string }
-  | { type: "operators_updated" };
+  | { type: "operators_updated" }
+  | { type: "sectors_updated" };
 
 export type SessionListener = (event: SessionEvent) => void;
 

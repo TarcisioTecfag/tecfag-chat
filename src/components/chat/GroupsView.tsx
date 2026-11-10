@@ -434,6 +434,8 @@ export function GroupsView() {
     createSector,
     updateSector,
     deleteSector,
+    setOperatorSectors,
+    refreshSectors,
     conversations,
     updateContactWallet,
     quickResponses,
@@ -454,13 +456,15 @@ export function GroupsView() {
   const [togglingResetOpId, setTogglingResetOpId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (activeTab !== "users") return;
+    if (activeTab !== "users" && activeTab !== "sectors") return;
     void refreshOperators();
+    void refreshSectors();
     const interval = window.setInterval(() => {
       void refreshOperators();
+      void refreshSectors();
     }, 20_000);
     return () => window.clearInterval(interval);
-  }, [activeTab, refreshOperators]);
+  }, [activeTab, refreshOperators, refreshSectors]);
 
   const formatOperatorUsageToday = (seconds?: number) => {
     const safe = Math.max(0, Math.floor(Number(seconds || 0)));
@@ -925,12 +929,7 @@ export function GroupsView() {
 
       const createdId = result.operator?.id;
       if (createdId && opForm.sectorIds.length > 0) {
-        for (const sectorId of opForm.sectorIds) {
-          const sec = sectors.find((s) => s.id === sectorId);
-          if (sec && !sec.operatorIds.includes(createdId)) {
-            updateSector(sec.id, { operatorIds: [...sec.operatorIds, createdId] });
-          }
-        }
+        await setOperatorSectors(createdId, [opForm.sectorIds[opForm.sectorIds.length - 1]]);
       }
 
       setOpForm({
@@ -959,7 +958,7 @@ export function GroupsView() {
       groupId: op.groupId || accessGroups[0]?.id || "",
       status: op.status || "disponivel",
       password: "",
-      sectorIds: opSectorIds,
+      sectorIds: opSectorIds.slice(0, 1),
     });
     setShowEditPassword(false);
   };
@@ -986,18 +985,8 @@ export function GroupsView() {
 
       if (!res.success) return;
 
-      // Sincronizar vínculo com setores (pastas)
-      for (const sec of sectors) {
-        const currentlyIn = sec.operatorIds.includes(editingOperator.id);
-        const shouldBeIn = editingOperator.sectorIds.includes(sec.id);
-        if (shouldBeIn && !currentlyIn) {
-          updateSector(sec.id, { operatorIds: [...sec.operatorIds, editingOperator.id] });
-        } else if (!shouldBeIn && currentlyIn) {
-          updateSector(sec.id, {
-            operatorIds: sec.operatorIds.filter((id) => id !== editingOperator.id),
-          });
-        }
-      }
+      // Sincronizar vínculo exclusivo com o setor selecionado (remove automaticamente de qualquer outro setor)
+      await setOperatorSectors(editingOperator.id, editingOperator.sectorIds);
 
       toast.success(
         cleanPassword
@@ -1897,12 +1886,12 @@ export function GroupsView() {
                     </div>
                   </div>
 
-                  {/* Seletor de Pastas / Setores já na criação */}
+                  {/* Seletor de Pasta / Setor já na criação */}
                   {sectors.length > 0 && (
                     <div className="pt-3 border-t border-border/60 space-y-2">
                       <label className="text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
                         <Folder className="h-3 w-3 text-primary" />
-                        Vincular às Pastas de Setores (Opcional):
+                        Vincular ao Setor de Atendimento (1 setor por operador):
                       </label>
                       <div className="flex flex-wrap gap-2">
                         {sectors.map((sec) => {
@@ -1914,9 +1903,7 @@ export function GroupsView() {
                               onClick={() =>
                                 setOpForm((prev) => ({
                                   ...prev,
-                                  sectorIds: selected
-                                    ? prev.sectorIds.filter((id) => id !== sec.id)
-                                    : [...prev.sectorIds, sec.id],
+                                  sectorIds: selected ? [] : [sec.id],
                                 }))
                               }
                               className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border transition cursor-pointer ${
@@ -3512,6 +3499,9 @@ export function GroupsView() {
             <div className="space-y-2">
               {sectors.map((s) => {
                 const isSelected = s.id === selectedSectorId;
+                const validMembersCount = operators.filter((op) =>
+                  s.operatorIds.includes(op.id),
+                ).length;
                 
                 return (
                   <button
@@ -3531,7 +3521,7 @@ export function GroupsView() {
                       </div>
                       <div>
                         <span className="font-extrabold text-xs block text-foreground">{s.name}</span>
-                        <span className="text-[10px] text-muted-foreground">{s.operatorIds.length} operador(es)</span>
+                        <span className="text-[10px] text-muted-foreground">{validMembersCount} operador(es)</span>
                       </div>
                     </div>
                     
@@ -3749,81 +3739,178 @@ export function GroupsView() {
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <Users className="h-4 w-4 text-primary" />
-                        <h5 className="text-xs font-black text-foreground uppercase tracking-wide">Membros do Setor</h5>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        Selecione quais operadores realizam atendimentos neste setor. Eles aparecerão na pasta deste setor e receberão o Copiloto configurado acima.
-                      </p>
-                    </div>
-                    <div className="relative w-full sm:w-64">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                      <input
-                        type="text"
-                        placeholder="Buscar operador no setor..."
-                        value={sectorMemberSearch}
-                        onChange={(e) => setSectorMemberSearch(e.target.value)}
-                        className="h-9 w-full rounded-xl bg-muted/60 pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground outline-none border border-border focus:border-primary focus:bg-card transition"
-                      />
-                      {sectorMemberSearch && (
-                        <button
-                          type="button"
-                          onClick={() => setSectorMemberSearch("")}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                {(() => {
+                  const validOpIdsSet = new Set(operators.map((o) => o.id));
+                  const cleanSelectedSectorOpIds = Array.from(
+                    new Set(
+                      (selectedSectorObj.operatorIds || []).filter((id) => validOpIdsSet.has(id)),
+                    ),
+                  );
+                  const selectedSectorMembers = operators.filter((op) =>
+                    cleanSelectedSectorOpIds.includes(op.id),
+                  );
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {operators
-                      .filter((op) => {
-                        const q = sectorMemberSearch.toLowerCase().trim();
-                        if (!q) return true;
-                        const group = accessGroups.find(g => g.id === op.groupId);
-                        return (
-                          op.name.toLowerCase().includes(q) ||
-                          op.email.toLowerCase().includes(q) ||
-                          (group?.name || "").toLowerCase().includes(q)
-                        );
-                      })
-                      .map((op) => {
-                        const isMember = selectedSectorObj.operatorIds.includes(op.id);
-                        const group = accessGroups.find(g => g.id === op.groupId);
-                        
-                        return (
-                          <label
-                            key={op.id}
-                            className={`flex items-center gap-3 rounded-xl border p-3 hover:bg-muted/30 transition cursor-pointer ${
-                              isMember ? "border-primary bg-primary/10" : "border-border bg-card"
-                            }`}
-                          >
-                            <Checkbox
-                              checked={isMember}
-                              onCheckedChange={(checked) => {
-                                const isChecked = !!checked;
-                                const newOperatorIds = isChecked
-                                  ? [...selectedSectorObj.operatorIds, op.id]
-                                  : selectedSectorObj.operatorIds.filter(id => id !== op.id);
-                                updateSector(selectedSectorObj.id, { operatorIds: newOperatorIds });
-                              }}
-                            />
-                            <img src={op.avatar} alt={op.name} className="h-8 w-8 rounded-full object-cover shrink-0 border border-border" />
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold block text-foreground truncate">{op.name}</span>
-                              <span className="text-[10px] text-muted-foreground block truncate">{group?.name || "Sem Grupo"}</span>
-                            </div>
-                          </label>
-                        );
-                      })}
-                  </div>
-                </div>
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Users className="h-4 w-4 text-primary" />
+                            <h5 className="text-xs font-black text-foreground uppercase tracking-wide">
+                              Membros do Setor
+                            </h5>
+                            <span className="inline-flex items-center rounded-full bg-primary/15 border border-primary/25 px-2.5 py-0.5 text-[10px] font-extrabold text-primary">
+                              {selectedSectorMembers.length} operador(es) atribuído(s)
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            Selecione quais operadores realizam atendimentos neste setor. Eles aparecerão na pasta deste setor e receberão o Copiloto configurado acima.
+                          </p>
+                        </div>
+                        <div className="relative w-full sm:w-64">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="Buscar operador no setor..."
+                            value={sectorMemberSearch}
+                            onChange={(e) => setSectorMemberSearch(e.target.value)}
+                            className="h-9 w-full rounded-xl bg-muted/60 pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground outline-none border border-border focus:border-primary focus:bg-card transition"
+                          />
+                          {sectorMemberSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setSectorMemberSearch("")}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Resumo visual imediato dos operadores atribuídos ao setor */}
+                      <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                            Atribuídos a {selectedSectorObj.name} ({selectedSectorMembers.length})
+                          </span>
+                        </div>
+                        {selectedSectorMembers.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {selectedSectorMembers.map((member) => (
+                              <div
+                                key={member.id}
+                                className="inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-bold text-foreground"
+                              >
+                                <img
+                                  src={member.avatar}
+                                  alt={member.name}
+                                  className="h-5 w-5 rounded-full object-cover border border-border shrink-0"
+                                />
+                                <span className="truncate max-w-[180px]">{member.name}</span>
+                                <SystemTooltip content={`Remover ${member.name} do setor ${selectedSectorObj.name}`}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextIds = cleanSelectedSectorOpIds.filter(
+                                        (id) => id !== member.id,
+                                      );
+                                      void updateSector(selectedSectorObj.id, {
+                                        operatorIds: nextIds,
+                                      });
+                                    }}
+                                    className="grid h-4 w-4 place-items-center rounded-full hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition cursor-pointer"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </SystemTooltip>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground italic">
+                            Nenhum operador atribuído a este setor no momento.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {[...operators]
+                          .filter((op) => {
+                            const q = sectorMemberSearch.toLowerCase().trim();
+                            if (!q) return true;
+                            const group = accessGroups.find((g) => g.id === op.groupId);
+                            return (
+                              op.name.toLowerCase().includes(q) ||
+                              op.email.toLowerCase().includes(q) ||
+                              (group?.name || "").toLowerCase().includes(q)
+                            );
+                          })
+                          .sort((a, b) => {
+                            const aMember = cleanSelectedSectorOpIds.includes(a.id) ? 0 : 1;
+                            const bMember = cleanSelectedSectorOpIds.includes(b.id) ? 0 : 1;
+                            if (aMember !== bMember) return aMember - bMember;
+                            return a.name.localeCompare(b.name, "pt-BR");
+                          })
+                          .map((op) => {
+                            const isMember = cleanSelectedSectorOpIds.includes(op.id);
+                            const group = accessGroups.find((g) => g.id === op.groupId);
+                            const otherSector = !isMember
+                              ? sectors.find(
+                                  (s) =>
+                                    s.id !== selectedSectorObj.id &&
+                                    s.operatorIds.includes(op.id),
+                                )
+                              : undefined;
+
+                            return (
+                              <label
+                                key={op.id}
+                                className={`flex items-center gap-3 rounded-xl border p-3 hover:bg-muted/30 transition cursor-pointer ${
+                                  isMember
+                                    ? "border-primary bg-primary/10"
+                                    : "border-border bg-card"
+                                }`}
+                              >
+                                <Checkbox
+                                  checked={isMember}
+                                  onCheckedChange={(checked) => {
+                                    const isChecked = !!checked;
+                                    const newOperatorIds = isChecked
+                                      ? Array.from(new Set([...cleanSelectedSectorOpIds, op.id]))
+                                      : cleanSelectedSectorOpIds.filter((id) => id !== op.id);
+                                    void updateSector(selectedSectorObj.id, {
+                                      operatorIds: newOperatorIds,
+                                    });
+                                  }}
+                                />
+                                <img
+                                  src={op.avatar}
+                                  alt={op.name}
+                                  className="h-8 w-8 rounded-full object-cover shrink-0 border border-border"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-xs font-bold block text-foreground truncate">
+                                    {op.name}
+                                  </span>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[10px] text-muted-foreground truncate">
+                                      {group?.name || "Sem Grupo"}
+                                    </span>
+                                    {otherSector && (
+                                      <span className="text-[9px] font-bold text-muted-foreground bg-muted px-1.5 py-0.2 rounded border border-border/60 truncate">
+                                        Setor atual: {otherSector.name}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
@@ -4202,15 +4289,17 @@ export function GroupsView() {
                   </div>
                 </div>
 
-                {/* Pastas / Setores de Atendimento */}
+                {/* Pasta / Setor de Atendimento */}
                 <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3.5">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-extrabold uppercase text-foreground tracking-wider flex items-center gap-1.5">
                       <Folder className="h-3.5 w-3.5 text-primary" />
-                      Pastas de Setores Vinculadas
+                      Setor de Atendimento (Pasta)
                     </label>
                     <span className="text-[10px] font-semibold text-muted-foreground">
-                      {editingOperator.sectorIds.length} selecionado(s)
+                      {editingOperator.sectorIds.length > 0
+                        ? sectors.find((s) => s.id === editingOperator.sectorIds[0])?.name || "1 selecionado"
+                        : "Sem setor"}
                     </span>
                   </div>
                   {sectors.length > 0 ? (
@@ -4224,9 +4313,7 @@ export function GroupsView() {
                             onClick={() => {
                               setEditingOperator({
                                 ...editingOperator,
-                                sectorIds: isSelected
-                                  ? editingOperator.sectorIds.filter((id) => id !== sec.id)
-                                  : [...editingOperator.sectorIds, sec.id],
+                                sectorIds: isSelected ? [] : [sec.id],
                               });
                             }}
                             className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold border transition cursor-pointer ${

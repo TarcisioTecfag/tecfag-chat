@@ -2564,6 +2564,10 @@ export async function executeMcpTool(
         ? sdrConfig.flowOperators
         : [];
 
+      const validOperatorIdsSet = new Set<string>(
+        operatorsRows.map((op: any) => String(op.id)),
+      );
+
       return {
         tenantId,
         sdrEnabled: Boolean(sdrConfigRows[0]?.enabled),
@@ -2579,11 +2583,24 @@ export async function executeMcpTool(
           compensationBalance: Number(fo.compensation || 0),
           activeChatsNow: activeMap.get(fo.operatorId) || 0,
         })),
-        sectors: sectorsRows.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          operatorCount: Array.isArray(s.operator_ids) ? s.operator_ids.length : 0,
-        })),
+        sectors: sectorsRows.map((s: any) => {
+          const validIds = Array.isArray(s.operator_ids)
+            ? Array.from(
+                new Set(
+                  s.operator_ids.filter(
+                    (id: unknown): id is string =>
+                      typeof id === "string" && validOperatorIdsSet.has(id),
+                  ),
+                ),
+              )
+            : [];
+          return {
+            id: s.id,
+            name: s.name,
+            operatorCount: validIds.length,
+            operatorIds: validIds,
+          };
+        }),
         operators: operatorsRows.map((op: any) => ({
           id: op.id,
           name: op.name,

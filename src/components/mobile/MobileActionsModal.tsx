@@ -274,7 +274,7 @@ export const MobileActionsModal: React.FC<MobileActionsModalProps> = ({
                               {sec.name}
                             </span>
                             <span className="text-[10px] text-muted-foreground">
-                              {sec.operatorIds.length} atendente(s)
+                              {operators.filter((op) => sec.operatorIds.includes(op.id)).length} atendente(s)
                             </span>
                           </div>
                           <span className="text-[10px] font-bold text-primary">

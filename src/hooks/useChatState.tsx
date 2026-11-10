@@ -208,9 +208,11 @@ type ChatContextType = {
   createAccessGroup: (group: Omit<AccessGroup, "id">) => void;
   updateAccessGroup: (id: string, fields: Partial<AccessGroup>) => Promise<boolean>;
   deleteAccessGroup: (id: string) => void;
-  createSector: (name: string) => void;
-  updateSector: (id: string, fields: Partial<Sector>) => void;
-  deleteSector: (id: string) => void;
+  createSector: (name: string) => Promise<void>;
+  updateSector: (id: string, fields: Partial<Sector>) => Promise<void>;
+  deleteSector: (id: string) => Promise<void>;
+  setOperatorSectors: (operatorId: string, sectorIds: string[]) => Promise<boolean>;
+  refreshSectors: () => Promise<void>;
 
   // Quick Responses State & Operations
   quickResponses: QuickResponse[];
@@ -842,11 +844,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [isAuthenticated]);
 
+  const refreshSectors = useCallback(async () => {
+    if (typeof window === "undefined" || !isAuthenticated) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/sectors`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setSectors(data);
+      }
+    } catch (err) {
+      console.error("Erro ao sincronizar setores do banco:", err);
+    }
+  }, [isAuthenticated]);
+
   // Sincronizar grupos, setores, respostas rápidas e operadores do banco de dados quando o tenant mudar.
   // O tenantId não é mais enviado na URL — o servidor usa a sessão autenticada como autoridade.
   useEffect(() => {
     if (typeof window !== "undefined" && isAuthenticated && tenant) {
       void refreshOperators();
+      void refreshSectors();
 
       fetch(`${BACKEND_URL}/api/groups`, { credentials: "include" })
         .then((res) => res.json())
@@ -857,15 +877,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch((err) => console.error("Erro ao sincronizar grupos do banco:", err));
 
-      fetch(`${BACKEND_URL}/api/sectors`, { credentials: "include" })
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setSectors(data);
-          }
-        })
-        .catch((err) => console.error("Erro ao sincronizar setores do banco:", err));
-
       fetch(`${BACKEND_URL}/api/quick-responses`, { credentials: "include", cache: "no-store" })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
@@ -875,7 +886,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch((err) => console.error("Erro ao sincronizar respostas rápidas do banco:", err));
     }
-  }, [tenant, isAuthenticated, refreshOperators]);
+  }, [tenant, isAuthenticated, refreshOperators, refreshSectors]);
 
   // Sincronizar templates individuais do operador quando o tenant ou o operador ativo mudar.
   // tenantId e operatorId são resolvidos pelo servidor a partir da sessão autenticada.
@@ -1346,6 +1357,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const data = await res.json().catch(() => ({ success: true }));
+      // Remover operador excluído dos setores no estado local
+      setSectors((prev) =>
+        prev.map((s) =>
+          s.operatorIds.includes(id)
+            ? { ...s, operatorIds: s.operatorIds.filter((opId) => opId !== id) }
+            : s,
+        ),
+      );
       // Atualizar lista de conversas no estado local
       if (transferToOperatorId && transferToOperatorId !== "unassign") {
         setConversations((prev) =>
@@ -1612,6 +1631,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const id = `sec-${Date.now()}`;
     const newSector: Sector = {
       id,
+      tenantId: tenant ?? undefined,
       name,
       operatorIds: [],
     };
@@ -1626,7 +1646,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ ...newSector, tenantId: tenant }),
       });
       const data = await res.json().catch(() => null);
-      if (data?.sector) {
+      if (Array.isArray(data?.sectors)) {
+        setSectors(data.sectors);
+      } else if (data?.sector) {
         setSectors((prev) => prev.map((s) => (s.id === id ? { ...s, ...data.sector } : s)));
       }
       toast.success("Setor criado com sucesso!");
@@ -1637,9 +1659,34 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateSector = async (id: string, fields: Partial<Sector>) => {
-    setSectors((prev) => prev.map((s) => (s.id === id ? { ...s, ...fields } : s)));
+    let payloadSector: Sector | undefined;
+    const nextOpIds = Array.isArray(fields.operatorIds)
+      ? Array.from(new Set(fields.operatorIds))
+      : undefined;
+    const assignedSet = nextOpIds ? new Set(nextOpIds) : null;
 
-    const targetSector = sectors.find((s) => s.id === id);
+    setSectors((prev) =>
+      prev.map((s) => {
+        if (s.id === id) {
+          const updated: Sector = {
+            ...s,
+            ...fields,
+            ...(nextOpIds ? { operatorIds: nextOpIds } : {}),
+          };
+          payloadSector = updated;
+          return updated;
+        }
+        if (assignedSet && assignedSet.size > 0 && s.tenantId === tenant) {
+          const filtered = s.operatorIds.filter((opId) => !assignedSet.has(opId));
+          if (filtered.length !== s.operatorIds.length) {
+            return { ...s, operatorIds: filtered };
+          }
+        }
+        return s;
+      }),
+    );
+
+    const targetSector = payloadSector || sectors.find((s) => s.id === id);
     if (targetSector) {
       try {
         const res = await fetch(`${BACKEND_URL}/api/sectors`, {
@@ -1649,16 +1696,71 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({
             ...targetSector,
             ...fields,
+            ...(nextOpIds ? { operatorIds: nextOpIds } : {}),
             tenantId: tenant,
           }),
         });
         const data = await res.json().catch(() => null);
-        if (data?.sector) {
+        if (Array.isArray(data?.sectors)) {
+          setSectors(data.sectors);
+        } else if (data?.sector) {
           setSectors((prev) => prev.map((s) => (s.id === id ? { ...s, ...data.sector } : s)));
         }
       } catch (err) {
         console.error("Erro ao atualizar setor no DB:", err);
       }
+    }
+  };
+
+  const setOperatorSectors = async (
+    operatorId: string,
+    sectorIds: string[],
+  ): Promise<boolean> => {
+    const cleanSectorIds = Array.isArray(sectorIds)
+      ? sectorIds.filter((s) => typeof s === "string" && s.trim().length > 0)
+      : [];
+    const targetSectorId =
+      cleanSectorIds.length > 0 ? cleanSectorIds[cleanSectorIds.length - 1] : null;
+
+    // Atualização otimista: garante exclusividade de 1 setor por operador
+    setSectors((prev) =>
+      prev.map((s) => {
+        if (s.tenantId && tenant && s.tenantId !== tenant) return s;
+        if (s.id === targetSectorId) {
+          return s.operatorIds.includes(operatorId)
+            ? s
+            : { ...s, operatorIds: [...s.operatorIds, operatorId] };
+        }
+        return s.operatorIds.includes(operatorId)
+          ? { ...s, operatorIds: s.operatorIds.filter((id) => id !== operatorId) }
+          : s;
+      }),
+    );
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/sectors`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_operator_sectors",
+          operatorId,
+          sectorIds: targetSectorId ? [targetSectorId] : [],
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        void refreshSectors();
+        return false;
+      }
+      if (Array.isArray(data?.sectors)) {
+        setSectors(data.sectors);
+      }
+      return true;
+    } catch (err) {
+      console.error("Erro ao atualizar setor do operador no DB:", err);
+      void refreshSectors();
+      return false;
     }
   };
 
@@ -5460,6 +5562,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           void refreshOperators();
         } else if (data.type === "operators_updated") {
           void refreshOperators();
+        } else if (data.type === "sectors_updated") {
+          void refreshSectors();
         }
       } catch (err) {
         console.error("Erro ao processar dados recebidos do SSE:", err);
@@ -5471,6 +5575,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mapInternalRowToMessage,
       markAsRead,
       refreshOperators,
+      refreshSectors,
       setActiveView,
       setConversations,
       setSelectedChatId,
@@ -5844,7 +5949,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         completeOperatorWizard,
         toggleOperatorPasswordReset,
         accessGroups: accessGroups.filter((g) => g.tenantId === tenant),
-        sectors: sectors.filter((s) => s.tenantId === tenant),
+        sectors: (() => {
+          const tenantOps = operators.filter((op) => op.tenantId === tenant);
+          const validOpIdsSet = new Set(tenantOps.map((op) => op.id));
+          return sectors
+            .filter((s) => s.tenantId === tenant)
+            .map((s) => {
+              const rawIds = Array.isArray(s.operatorIds) ? s.operatorIds : [];
+              const cleanIds =
+                validOpIdsSet.size > 0
+                  ? Array.from(new Set(rawIds.filter((id) => validOpIdsSet.has(id))))
+                  : Array.from(new Set(rawIds));
+              return cleanIds.length === rawIds.length ? s : { ...s, operatorIds: cleanIds };
+            });
+        })(),
         currentOperatorId,
         currentGroup,
         sessionPermissions,
@@ -5862,6 +5980,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createSector,
         updateSector,
         deleteSector,
+        setOperatorSectors,
+        refreshSectors,
         
         quickResponses: quickResponses.filter((qr) => qr.tenantId === tenant),
         createQuickResponse,

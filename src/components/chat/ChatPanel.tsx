@@ -3353,20 +3353,25 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             <div className="px-3 py-1.5 text-[10px] font-extrabold uppercase text-muted-foreground tracking-wider border-t border-line mt-1">
                               Ou escolha um setor
                             </div>
-                            {sectors.map((sec) => (
-                              <button
-                                key={sec.id}
-                                onClick={() => {
-                                  setSelectedTransferSectorId(sec.id);
-                                }}
-                                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
-                              >
-                                <span>{sec.name}</span>
-                                <span className="text-[10px] text-muted-foreground font-normal">
-                                  {sec.operatorIds.length} atendente(s)
-                                </span>
-                              </button>
-                            ))}
+                            {sectors.map((sec) => {
+                              const validOpsCount = operators.filter((op) =>
+                                sec.operatorIds.includes(op.id),
+                              ).length;
+                              return (
+                                <button
+                                  key={sec.id}
+                                  onClick={() => {
+                                    setSelectedTransferSectorId(sec.id);
+                                  }}
+                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted transition cursor-pointer"
+                                >
+                                  <span>{sec.name}</span>
+                                  <span className="text-[10px] text-muted-foreground font-normal">
+                                    {validOpsCount} atendente(s)
+                                  </span>
+                                </button>
+                              );
+                            })}
                           </>
                         ) : (
                           (() => {
@@ -5330,7 +5335,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                                 {sec.name}
                               </div>
                               <div className="truncate text-[10px] text-muted-foreground">
-                                {sec.operatorIds.length} atendente(s)
+                                {operators.filter((op) => sec.operatorIds.includes(op.id)).length} atendente(s)
                               </div>
                             </div>
                           </div>

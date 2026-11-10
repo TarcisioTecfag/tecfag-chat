@@ -478,6 +478,55 @@ if (!databaseUrl) {
     } else {
       console.log(`[platform migration] ${tecfagFullRdCrmMigrationName} já aplicada anteriormente.`);
     }
+
+    // 8. Higienização contínua de sectors.operator_ids (remove IDs de operadores órfãos/excluídos e deduplica por setor)
+    try {
+      const [allSectors, allOperators] = await Promise.all([
+        sql`SELECT id, tenant_id, name, operator_ids FROM sectors`,
+        sql`SELECT id, tenant_id FROM operators`,
+      ]);
+      const validByTenant = new Map();
+      for (const op of allOperators) {
+        const tId = String(op.tenant_id || "");
+        if (!validByTenant.has(tId)) validByTenant.set(tId, new Set());
+        validByTenant.get(tId).add(String(op.id));
+      }
+
+      let sectorsCleanedCount = 0;
+      let orphanRefsRemovedCount = 0;
+      for (const sec of allSectors) {
+        const tId = String(sec.tenant_id || "");
+        const validSet = validByTenant.get(tId) || new Set();
+        const rawIds = Array.isArray(sec.operator_ids) ? sec.operator_ids : [];
+        const cleanIds = Array.from(
+          new Set(
+            rawIds.filter((id) => typeof id === "string" && validSet.has(id)),
+          ),
+        );
+        const changed =
+          rawIds.length !== cleanIds.length ||
+          rawIds.some((id, idx) => id !== cleanIds[idx]);
+        if (changed) {
+          orphanRefsRemovedCount += Math.max(0, rawIds.length - cleanIds.length);
+          sectorsCleanedCount++;
+          await sql`
+            UPDATE sectors
+            SET operator_ids = ${sql.json(cleanIds)}
+            WHERE id = ${sec.id} AND tenant_id = ${tId}
+          `;
+        }
+      }
+      if (sectorsCleanedCount > 0) {
+        console.log(
+          `[platform migration] Higienização de setores concluída: ${sectorsCleanedCount} setor(es) atualizado(s), ${orphanRefsRemovedCount} referência(s) órfã(s)/duplicada(s) removida(s).`,
+        );
+      }
+    } catch (secCleanErr) {
+      console.warn(
+        "[platform migration] Aviso ao higienizar sectors.operator_ids:",
+        secCleanErr?.message || secCleanErr,
+      );
+    }
   } catch (error) {
     console.error(
       "[platform migration] Falha crítica ao aplicar migrações estruturais DDL:",

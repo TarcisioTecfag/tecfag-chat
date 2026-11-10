@@ -109,8 +109,12 @@ export class RodizioEngine {
       // Se já existem flowOperators salvos, usamos exclusivamente os configurados
       if (Array.isArray(configData.flowOperators)) {
         const todayBrt = getBrtTodayYmd();
+        let needsIdHeal = false;
         const mappedOps: FlowOperator[] = configData.flowOperators.map((flowOp: FlowOperator) => {
           const matchedDbOp = matchDbOp(flowOp);
+          if (matchedDbOp && matchedDbOp.id !== flowOp.id) {
+            needsIdHeal = true;
+          }
           const areaKey = flowOp.area || "maquinas";
           const activeLeave = isOperatorOnLeaveToday(flowOp, todayBrt);
 
@@ -135,7 +139,22 @@ export class RodizioEngine {
             recentLeads: flowOp.recentLeads || [],
           };
         });
-        await this.ensureFluxosOperatorsInSectors(tenantId, mappedOps);
+        if (needsIdHeal && configRow) {
+          const seenIds = new Set<string>();
+          const healedOps = mappedOps.filter((op) => {
+            if (seenIds.has(op.id)) return false;
+            seenIds.add(op.id);
+            return true;
+          });
+          db.update(agentConfigs)
+            .set({
+              config: { ...configData, flowOperators: healedOps },
+              updatedAt: new Date(),
+            })
+            .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.id, configRow.id)))
+            .catch(() => {});
+          return healedOps;
+        }
         return mappedOps;
       }
 
@@ -175,31 +194,11 @@ export class RodizioEngine {
   }
 
   /**
-   * Sincroniza automaticamente os operadores das Pastas de Fluxos nos setores do tenant
-   * para que o handoff siga 100% a ordem do Rodízio das pastas sem travar por setor ausente.
+   * Desativado: operadores não devem ser injetados em massa em todos os setores do tenant.
+   * Cada operador deve pertencer exclusivamente ao seu setor real definido em Equipe / Setores.
    */
-  static async ensureFluxosOperatorsInSectors(tenantId: string, flowOps: FlowOperator[]): Promise<void> {
-    if (getAiPersona(tenantId).triagePolicy !== "industrial" || !flowOps.length) return;
-    try {
-      const flowIds = Array.from(new Set(flowOps.map((op) => op.id).filter(Boolean)));
-      if (!flowIds.length) return;
-      const tenantSectors = await db
-        .select()
-        .from(sectors)
-        .where(eq(sectors.tenantId, tenantId));
-      for (const sec of tenantSectors) {
-        const currentIds = Array.isArray(sec.operatorIds) ? sec.operatorIds : [];
-        const missing = flowIds.filter((id) => !currentIds.includes(id));
-        if (missing.length > 0) {
-          await db
-            .update(sectors)
-            .set({ operatorIds: [...currentIds, ...missing] })
-            .where(and(eq(sectors.tenantId, tenantId), eq(sectors.id, sec.id)));
-        }
-      }
-    } catch {
-      // Silencioso para não afetar consultas do rodízio
-    }
+  static async ensureFluxosOperatorsInSectors(_tenantId: string, _flowOps: FlowOperator[]): Promise<void> {
+    return;
   }
 
   /**
@@ -208,11 +207,10 @@ export class RodizioEngine {
   static async saveFlowOperators(tenantId: string, flowOps: FlowOperator[]): Promise<boolean> {
     try {
       if (getAiPersona(tenantId).triagePolicy === "industrial") {
-        const nextOps = await mutateIndustrialRodizio(db, tenantId, (current) => flowOps.map((op) => {
+        await mutateIndustrialRodizio(db, tenantId, (current) => flowOps.map((op) => {
           const previous = current.find((item) => item.id === op.id);
           return previous ? mergeIndustrialOperatorSettings(previous, op) : { ...op, leadsReceivedCount: 0, compensation: 0, recentLeads: [] };
         }));
-        await this.ensureFluxosOperatorsInSectors(tenantId, nextOps);
         return true;
       }
       const existingConfig = await db.query.agentConfigs.findFirst({

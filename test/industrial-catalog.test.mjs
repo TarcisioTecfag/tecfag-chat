@@ -24,6 +24,7 @@ import {
   assessIndustrialReadiness,
   canFinishIndustrialTriage,
 } from "../src/lib/triage/industrial-policy.ts";
+import { resolveAutomaticSectorId } from "../src/lib/triage/tecfag-default-catalog.ts";
 
 const settings = () =>
   industrialSettingsSchema.parse({
@@ -509,6 +510,28 @@ describe("destinos unificados e compatibilidade de configuração", () => {
       assert.equal(route.subflow, subflow);
       assert.equal(route.targetFunnel, targetFunnel);
     }
+  });
+  it("resolveAutomaticSectorId prioriza o setor específico de cada destino antes do genérico Comercial Tecfag", () => {
+    const alphabeticalSectors = [
+      { id: "sec-admin", name: "Administradores" },
+      { id: "sec-comercial", name: "Comercial Tecfag" },
+      { id: "sec-fin", name: "Financeiro" },
+      { id: "sec-maq", name: "Máquinas" },
+      { id: "sec-pec", name: "Peças" },
+      { id: "sec-pers", name: "Personnalité" },
+      { id: "sec-pos", name: "Pós venda" },
+      { id: "sec-proj", name: "Projetos" },
+      { id: "sec-rec", name: "Recepção" },
+      { id: "sec-sdr", name: "Sdr" },
+      { id: "sec-sup", name: "Suporte Técnico" },
+    ];
+    assert.equal(resolveAutomaticSectorId("MAQUINAS", alphabeticalSectors), "sec-maq");
+    assert.equal(resolveAutomaticSectorId("PERSONNALITE", alphabeticalSectors), "sec-pers");
+    assert.equal(resolveAutomaticSectorId("PECAS", alphabeticalSectors), "sec-pec");
+    assert.equal(resolveAutomaticSectorId("FINANCEIRO", alphabeticalSectors), "sec-fin");
+    assert.equal(resolveAutomaticSectorId("3_AT", alphabeticalSectors), "sec-sup");
+    assert.equal(resolveAutomaticSectorId("POS_VENDA", alphabeticalSectors), "sec-pos");
+    assert.equal(resolveAutomaticSectorId("REVIEW", alphabeticalSectors), "sec-sdr");
   });
 });
 
