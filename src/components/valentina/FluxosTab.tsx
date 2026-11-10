@@ -477,7 +477,9 @@ export function FluxosTab() {
         (op.funnels && op.funnels.some((f) => f.toLowerCase().includes(query)));
 
       const matchesArea =
-        selectedAreaFilter === "all" || op.area === selectedAreaFilter;
+        selectedAreaFilter === "all" ||
+        op.area === selectedAreaFilter ||
+        (selectedAreaFilter === "outros" && op.area === "sdr");
 
       return matchesQuery && matchesArea;
     });
@@ -490,12 +492,12 @@ export function FluxosTab() {
       map[area.id] = [];
     }
     for (const op of filteredOperators) {
-      const areaKey = op.area || "maquinas";
+      const areaKey = op.area === "sdr" && map["outros"] ? "outros" : op.area || "maquinas";
       if (!map[areaKey]) map[areaKey] = [];
       map[areaKey].push(op);
     }
     return map;
-  }, [filteredOperators]);
+  }, [filteredOperators, FLOW_AREAS]);
 
   // Contadores globais
   const totalEnrolled = operators.length;
@@ -647,7 +649,9 @@ export function FluxosTab() {
 
           {FLOW_AREAS.map((area) => {
             const isSelected = selectedAreaFilter === area.id;
-            const countInArea = operators.filter((o) => o.area === area.id).length;
+            const countInArea = operators.filter(
+              (o) => o.area === area.id || (area.id === "outros" && o.area === "sdr"),
+            ).length;
 
             return (
               <SystemTooltip key={area.id} content={`Filtrar apenas rodízio de ${area.name}`}>

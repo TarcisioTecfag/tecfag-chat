@@ -59,6 +59,66 @@ export function getBrtTodayYmd(referenceDate: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+export function resolveRodizioOpTimeWindow(
+  options: { opDays?: number; dateFrom?: string; dateTo?: string } = {},
+  now: Date = new Date(),
+): {
+  startMs: number | null;
+  endMs: number | null;
+  startDate: Date | null;
+  endDate: Date | null;
+} {
+  if (options.dateFrom && options.dateTo) {
+    const startDate = new Date(`${options.dateFrom}T00:00:00.000-03:00`);
+    const endDate = new Date(`${options.dateTo}T23:59:59.999-03:00`);
+    const startMs = Number.isFinite(startDate.getTime()) ? startDate.getTime() : null;
+    const endMs = Number.isFinite(endDate.getTime()) ? endDate.getTime() : null;
+    return {
+      startMs,
+      endMs,
+      startDate: startMs !== null ? startDate : null,
+      endDate: endMs !== null ? endDate : null,
+    };
+  }
+
+  if (options.dateFrom) {
+    const startDate = new Date(`${options.dateFrom}T00:00:00.000-03:00`);
+    const endDate = new Date(`${options.dateFrom}T23:59:59.999-03:00`);
+    const startMs = Number.isFinite(startDate.getTime()) ? startDate.getTime() : null;
+    const endMs = Number.isFinite(endDate.getTime()) ? endDate.getTime() : null;
+    return {
+      startMs,
+      endMs,
+      startDate: startMs !== null ? startDate : null,
+      endDate: endMs !== null ? endDate : null,
+    };
+  }
+
+  const effectiveOpDays =
+    typeof options.opDays === "number" && Number.isFinite(options.opDays) && options.opDays > 0
+      ? options.opDays
+      : 1;
+
+  if (effectiveOpDays >= 3650) {
+    return { startMs: null, endMs: null, startDate: null, endDate: null };
+  }
+
+  const todayYmd = getBrtTodayYmd(now);
+  const todayNoon = new Date(`${todayYmd}T12:00:00.000-03:00`);
+  const startNoon = new Date(todayNoon.getTime() - (effectiveOpDays - 1) * 24 * 60 * 60 * 1000);
+  const startYmd = getBrtTodayYmd(startNoon);
+
+  const startDate = new Date(`${startYmd}T00:00:00.000-03:00`);
+  const endDate = new Date(`${todayYmd}T23:59:59.999-03:00`);
+
+  return {
+    startMs: startDate.getTime(),
+    endMs: endDate.getTime(),
+    startDate,
+    endDate,
+  };
+}
+
 export function isOperatorOnLeaveToday(
   op: { isOnLeave?: boolean; leaveDate?: string | null },
   todayBrt: string = getBrtTodayYmd(),
@@ -86,7 +146,7 @@ export function getDefaultRoleTagForArea(area?: string, currentRoleTag?: string)
   const normArea = (area || "").toLowerCase();
   const normRole = (currentRoleTag || "").trim().toUpperCase();
   if (normRole && normRole !== "SDR") return normRole;
-  if (normArea === "sdr") return "SDR";
+  if (normArea === "sdr" || normArea === "outros") return "SDR";
   if (normArea === "tecnica" || normArea === "assistencia_tecnica") return "TÉCNICO";
   if (normArea === "pos_venda") return "PÓS-VENDA";
   if (normArea === "financeiro") return "FINANCEIRO";
@@ -184,11 +244,11 @@ export function getFlowConfiguration(tenantId: string): {
       ),
       {
         id: "outros",
-        name: "Análise e revisão humana",
-        description: "Solicitações sem área definida, atendimento humano e revisão",
+        name: "SDR / Análise",
+        description: "Triagem SDR, análise e revisão humana",
         defaultFunnels: ["Análise e revisão humana"],
         icon: "Folder",
-        color: "#64748b",
+        color: "#8b5cf6",
       },
     ],
     funnels: INDUSTRIAL_FUNNELS,

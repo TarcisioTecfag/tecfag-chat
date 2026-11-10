@@ -435,51 +435,29 @@ export function createIndustrialHandoffStore(
 
               if (rodizio) {
                 const inFlow = all.some((op) => op.id === operator.id);
-                const next = inFlow
-                  ? all.map((op) =>
-                      op.id !== operator.id
-                        ? op
-                        : {
-                            ...op,
-                            compensation: Math.max(0, (op.compensation || 0) - 1),
-                            leadsReceivedCount: (op.leadsReceivedCount || 0) + 1,
-                            recentLeads: [
-                              {
-                                chatId: key.conversationId,
-                                clientName: request.clientName,
-                                receivedAt: new Date().toISOString(),
-                              },
-                              ...(op.recentLeads || []).slice(0, 9),
-                            ],
-                          },
-                    )
-                  : [
-                      ...all,
-                      {
-                        id: operator.id,
-                        name: operator.name,
-                        isParticipating: true,
-                        isOnLeave: isAbsent,
-                        isPenalized: false,
-                        area: "maquinas",
-                        funnels: request.route.targetFunnel
-                          ? [request.route.targetFunnel]
-                          : ["Máquinas"],
-                        compensation: 0,
-                        leadsReceivedCount: 1,
-                        recentLeads: [
-                          {
-                            chatId: key.conversationId,
-                            clientName: request.clientName,
-                            receivedAt: new Date().toISOString(),
-                          },
-                        ],
-                      },
-                    ];
-                await writeIndustrialRodizio(tx, key.tenantId, rodizio.id, {
-                  ...config,
-                  flowOperators: next,
-                });
+                if (inFlow) {
+                  const next = all.map((op) =>
+                    op.id !== operator.id
+                      ? op
+                      : {
+                          ...op,
+                          compensation: Math.max(0, (op.compensation || 0) - 1),
+                          leadsReceivedCount: (op.leadsReceivedCount || 0) + 1,
+                          recentLeads: [
+                            {
+                              chatId: key.conversationId,
+                              clientName: request.clientName,
+                              receivedAt: new Date().toISOString(),
+                            },
+                            ...(op.recentLeads || []).slice(0, 9),
+                          ],
+                        },
+                  );
+                  await writeIndustrialRodizio(tx, key.tenantId, rodizio.id, {
+                    ...config,
+                    flowOperators: next,
+                  });
+                }
               }
 
               result = {

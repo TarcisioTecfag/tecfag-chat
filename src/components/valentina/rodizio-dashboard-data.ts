@@ -131,11 +131,35 @@ export function getOperatorSector(op: {
   allowed_subflows?: string[] | null;
   is_sdr?: boolean;
 }): string {
+  // 1. Área explícita configurada na escala de Fluxos (fonte primária e soberana)
+  if (op.rawArea) {
+    const a = op.rawArea.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    if (a === "sdr" || a === "outros" || a.includes("sdr") || a.includes("triagem") || a.includes("analise")) {
+      return "sdr";
+    }
+    if (a.includes("personalite") || a.includes("personnalite")) return "personalite";
+    if (a.includes("maquina")) return "maquinas";
+    if (
+      a.includes("pos venda") ||
+      a.includes("pos-venda") ||
+      a.includes("pos_venda") ||
+      a.includes("posvenda") ||
+      a.includes("assistencia") ||
+      a.includes("tecnica") ||
+      a.includes("suporte")
+    ) {
+      return "pos venda";
+    }
+    if (a.includes("financeiro") || a.includes("faturamento") || a.includes("cobranca") || a.includes("boleto")) {
+      return "financeiro";
+    }
+    if (a.includes("peca")) return "pecas";
+  }
+
   if (op.is_sdr) return "sdr";
 
-  const sectorSource = op.rawArea || op.sector;
-  if (sectorSource) {
-    const s = sectorSource.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  if (op.sector) {
+    const s = op.sector.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
     if (s === "sdr" || s.includes("sdr") || s.includes("triagem") || s.includes("analise") || s === "outros") return "sdr";
     if (s.includes("personalite") || s.includes("personnalite")) return "personalite";
     if (s.includes("maquina")) return "maquinas";

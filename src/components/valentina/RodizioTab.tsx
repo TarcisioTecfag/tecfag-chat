@@ -1803,8 +1803,8 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
   const [period, setPeriod] = useState("3650");
   const days = parseInt(period, 10);
 
-  // Filtros específicos da seção Leads por Operador
-  const [opPeriod, setOpPeriod] = useState("30");
+  // Filtros específicos da seção Leads por Operador (inicia em "Hoje" por padrão)
+  const [opPeriod, setOpPeriod] = useState("1");
   const [opFilterMode, setOpFilterMode] = useState<"preset" | "single" | "range">("preset");
   const [opDateFrom, setOpDateFrom] = useState("");
   const [opDateTo, setOpDateTo] = useState("");
@@ -1960,10 +1960,14 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
       if (res.ok) {
         toast.success(`Atendimento de "${leadName}" removido.`);
         setOperators((prev) =>
-          prev.map((op) => ({
-            ...op,
-            cards: (op.cards || []).filter((c) => c.id !== cardId),
-          }))
+          prev.map((op) => {
+            const nextCards = (op.cards || []).filter((c) => c.id !== cardId);
+            return {
+              ...op,
+              count: nextCards.length,
+              cards: nextCards,
+            };
+          })
         );
       } else {
         toast.error("Erro ao remover atendimento.");
@@ -2242,28 +2246,29 @@ export function RodizioTab({ onOpenTriage }: RodizioTabProps = {}) {
             {/* Atalhos Rápidos */}
             <div className="flex items-center gap-0.5 bg-muted/60 rounded-xl p-0.5 border border-border">
               {[
-                { v: "1", l: "1d" },
-                { v: "3", l: "3d" },
-                { v: "7", l: "7d" },
-                { v: "30", l: "30d" },
-                { v: "3650", l: "Tudo" },
+                { v: "1", l: "Hoje", tip: "Leads alocados hoje (00:00 às 23:59)" },
+                { v: "3", l: "3d", tip: "Leads alocados nos últimos 3 dias" },
+                { v: "7", l: "7d", tip: "Leads alocados nos últimos 7 dias" },
+                { v: "30", l: "30d", tip: "Leads alocados nos últimos 30 dias" },
+                { v: "3650", l: "Tudo", tip: "Todo o histórico de leads alocados" },
               ].map((d) => (
-                <button
-                  key={d.v}
-                  onClick={() => {
-                    setOpPeriod(d.v);
-                    setOpFilterMode("preset");
-                    setOpDateFrom("");
-                    setOpDateTo("");
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                    opFilterMode === "preset" && opPeriod === d.v
-                      ? "bg-card text-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {d.l}
-                </button>
+                <SystemTooltip key={d.v} content={d.tip}>
+                  <button
+                    onClick={() => {
+                      setOpPeriod(d.v);
+                      setOpFilterMode("preset");
+                      setOpDateFrom("");
+                      setOpDateTo("");
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      opFilterMode === "preset" && opPeriod === d.v
+                        ? "bg-card text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {d.l}
+                  </button>
+                </SystemTooltip>
               ))}
             </div>
 

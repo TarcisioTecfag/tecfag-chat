@@ -17,7 +17,7 @@ import {
   crmAccounts,
   aiUsageLogs,
 } from "../../db/schema";
-import { eq, and, asc, desc, inArray, gte, isNull, ne } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, gte, isNull, ne, sql } from "drizzle-orm";
 import { getAiPersona } from "../ai-persona";
 import { isEligibleIndustrialOperator, normalizeIndustrialFunnel, normalizeIndustrialFunnels } from "../triage/industrial-policy";
 import { mutateIndustrialRodizio, mergeIndustrialOperatorSettings } from "../triage/industrial-rodizio-store";
@@ -28,6 +28,7 @@ import {
   ALL_FLOW_FUNNELS,
   DEFAULT_TECFAG_FLOW_OPERATORS,
   getBrtTodayYmd,
+  resolveRodizioOpTimeWindow,
   isOperatorOnLeaveToday,
   getDefaultRoleTagForArea,
   getDefaultDepartmentForArea,
@@ -81,20 +82,42 @@ export class RodizioEngine {
    */
   static async getRodizioState(tenantId: string = "valem"): Promise<FlowOperator[]> {
     try {
-      // 1. Buscar todos os operadores do tenant no banco (para atualizar avatares e emails em tempo real)
-      const dbOperators = await db
-        .select()
-        .from(operators)
-        .where(eq(operators.tenantId, tenantId))
-        .orderBy(asc(operators.name));
-
-      // 2. Buscar a configuração salva do rodízio no agentConfigs
-      const configRow = await db.query.agentConfigs.findFirst({
-        where: (t, { eq: dEq, and: dAnd }) =>
-          dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
-      });
+      // 1. Buscar todos os operadores, setores e configuração salva do rodízio do tenant no banco
+      const [dbOperators, dbSectors, configRow] = await Promise.all([
+        db
+          .select()
+          .from(operators)
+          .where(eq(operators.tenantId, tenantId))
+          .orderBy(asc(operators.name)),
+        db
+          .select()
+          .from(sectors)
+          .where(eq(sectors.tenantId, tenantId)),
+        db.query.agentConfigs.findFirst({
+          where: (t, { eq: dEq, and: dAnd }) =>
+            dAnd(dEq(t.tenantId, tenantId), dEq(t.agentType, "rodizio")),
+        }),
+      ]);
 
       const configData = (configRow?.config as any) || {};
+
+      // Identificar membros reais dos setores SDR vs Peças para corrigir SDR alocado por engano em Peças
+      const sdrSectorOpIds = new Set<string>();
+      const pecasSectorOpIds = new Set<string>();
+      for (const sec of dbSectors) {
+        const normSecName = (sec.name || "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .trim();
+        const opIds = Array.isArray(sec.operatorIds) ? sec.operatorIds : [];
+        if (normSecName === "sdr" || normSecName.includes("sdr") || normSecName.includes("triagem")) {
+          for (const id of opIds) sdrSectorOpIds.add(id);
+        }
+        if (normSecName.includes("peca")) {
+          for (const id of opIds) pecasSectorOpIds.add(id);
+        }
+      }
 
       const matchDbOp = (flowOp: { id: string; name: string; email?: string }) => {
         const normFlowName = normalizeOpName(flowOp.name);
@@ -109,18 +132,34 @@ export class RodizioEngine {
       // Se já existem flowOperators salvos, usamos exclusivamente os configurados
       if (Array.isArray(configData.flowOperators)) {
         const todayBrt = getBrtTodayYmd();
+        const isIndustrialPolicy = getAiPersona(tenantId).triagePolicy === "industrial";
         let needsIdHeal = false;
         const mappedOps: FlowOperator[] = configData.flowOperators.map((flowOp: FlowOperator) => {
           const matchedDbOp = matchDbOp(flowOp);
+          const resolvedId = matchedDbOp?.id || flowOp.id;
           if (matchedDbOp && matchedDbOp.id !== flowOp.id) {
             needsIdHeal = true;
           }
-          const areaKey = flowOp.area || "maquinas";
+
+          let areaKey = flowOp.area || "maquinas";
+          let rawFunnels = Array.isArray(flowOp.funnels) ? flowOp.funnels : [];
+          let rawRoleTag = flowOp.roleTag;
+
+          // Auto-heal: se o colaborador pertence ao setor SDR (e não pertence ao setor Peças),
+          // mas estava salvo na pasta "pecas" por falta de área SDR anterior, realoca para SDR / Análise
+          const isPureSdrMember = sdrSectorOpIds.has(resolvedId) && !pecasSectorOpIds.has(resolvedId);
+          if (isPureSdrMember && areaKey === "pecas") {
+            areaKey = isIndustrialPolicy ? "outros" : "sdr";
+            rawFunnels = isIndustrialPolicy ? ["Análise e revisão humana"] : ["SDR"];
+            rawRoleTag = "SDR";
+            needsIdHeal = true;
+          }
+
           const activeLeave = isOperatorOnLeaveToday(flowOp, todayBrt);
 
           return {
             ...flowOp,
-            id: matchedDbOp?.id || flowOp.id,
+            id: resolvedId,
             name: matchedDbOp?.name || flowOp.name,
             email: matchedDbOp?.email || flowOp.email,
             avatar: matchedDbOp?.avatar || flowOp.avatar,
@@ -130,10 +169,10 @@ export class RodizioEngine {
             isPenalized: flowOp.isPenalized ?? false,
             area: areaKey,
             departmentTag: flowOp.departmentTag || getDefaultDepartmentForArea(areaKey),
-            roleTag: getDefaultRoleTagForArea(areaKey, flowOp.roleTag),
-            funnels: getAiPersona(tenantId).triagePolicy === "industrial"
-              ? normalizeIndustrialFunnels(Array.isArray(flowOp.funnels) ? flowOp.funnels : [])
-              : Array.isArray(flowOp.funnels) && flowOp.funnels.length > 0 ? flowOp.funnels : ["Máquinas"],
+            roleTag: getDefaultRoleTagForArea(areaKey, rawRoleTag),
+            funnels: isIndustrialPolicy
+              ? normalizeIndustrialFunnels(rawFunnels)
+              : rawFunnels.length > 0 ? rawFunnels : ["Máquinas"],
             compensation: flowOp.compensation ?? 0,
             leadsReceivedCount: flowOp.leadsReceivedCount ?? 0,
             recentLeads: flowOp.recentLeads || [],
@@ -146,13 +185,31 @@ export class RodizioEngine {
             seenIds.add(op.id);
             return true;
           });
-          db.update(agentConfigs)
-            .set({
-              config: { ...configData, flowOperators: healedOps },
-              updatedAt: new Date(),
-            })
-            .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.id, configRow.id)))
-            .catch(() => {});
+          if (isIndustrialPolicy) {
+            mutateIndustrialRodizio(db, tenantId, (current) =>
+              current.map((cur) => {
+                const healed = healedOps.find(
+                  (h) => h.id === cur.id || normalizeOpName(h.name) === normalizeOpName(cur.name),
+                );
+                if (!healed) return cur;
+                return {
+                  ...cur,
+                  id: healed.id,
+                  area: healed.area,
+                  funnels: healed.funnels,
+                  roleTag: healed.roleTag,
+                };
+              }),
+            ).catch(() => {});
+          } else {
+            db.update(agentConfigs)
+              .set({
+                config: { ...configData, flowOperators: healedOps },
+                updatedAt: new Date(),
+              })
+              .where(and(eq(agentConfigs.tenantId, tenantId), eq(agentConfigs.id, configRow.id)))
+              .catch(() => {});
+          }
           return healedOps;
         }
         return mappedOps;
@@ -764,39 +821,39 @@ export class RodizioEngine {
       const statsDays = options.days && options.days > 0 ? options.days : 3650;
       const statsCutoff = new Date(now.getTime() - statsDays * 24 * 60 * 60 * 1000);
 
-      // Filtro de janela de tempo para a seção "Leads por Operador"
-      let opStartMs: number | null = null;
-      let opEndMs: number | null = null;
-
-      if (options.dateFrom && options.dateTo) {
-        const start = new Date(`${options.dateFrom}T00:00:00.000-03:00`).getTime();
-        const end = new Date(`${options.dateTo}T23:59:59.999-03:00`).getTime();
-        if (Number.isFinite(start)) opStartMs = start;
-        if (Number.isFinite(end)) opEndMs = end;
-      } else if (options.dateFrom) {
-        const start = new Date(`${options.dateFrom}T00:00:00.000-03:00`).getTime();
-        const end = new Date(`${options.dateFrom}T23:59:59.999-03:00`).getTime();
-        if (Number.isFinite(start)) opStartMs = start;
-        if (Number.isFinite(end)) opEndMs = end;
-      } else if (options.opDays && options.opDays > 0 && options.opDays < 3650) {
-        opStartMs = now.getTime() - options.opDays * 24 * 60 * 60 * 1000;
-      }
+      // Filtro de janela de tempo para a seção "Leads por Operador" (padrão: Hoje no fuso de Brasília)
+      const {
+        startMs: opStartMs,
+        endMs: opEndMs,
+        startDate: opStartDate,
+        endDate: opEndDate,
+      } = resolveRodizioOpTimeWindow(options, now);
+      const opStartIso = opStartDate ? opStartDate.toISOString() : null;
+      const opEndIso = opEndDate ? opEndDate.toISOString() : null;
 
       const isWithinOpWindow = (dateVal: Date | string | null | undefined): boolean => {
         if (opStartMs === null && opEndMs === null) return true;
-        if (!dateVal) return true;
+        if (!dateVal) return false;
         const ms = dateVal instanceof Date ? dateVal.getTime() : new Date(dateVal).getTime();
-        if (!Number.isFinite(ms)) return true;
+        if (!Number.isFinite(ms)) return false;
         if (opStartMs !== null && ms < opStartMs) return false;
         if (opEndMs !== null && ms > opEndMs) return false;
         return true;
       };
 
       const isWithinStatsWindow = (dateVal: Date | string | null | undefined): boolean => {
-        if (!dateVal) return true;
+        if (!dateVal) return false;
         const ms = dateVal instanceof Date ? dateVal.getTime() : new Date(dateVal).getTime();
-        if (!Number.isFinite(ms)) return true;
+        if (!Number.isFinite(ms)) return false;
         return ms >= statsCutoff.getTime();
+      };
+
+      const extractQueryRows = <T = any>(res: unknown): T[] => {
+        if (Array.isArray(res)) return res as T[];
+        if (res && typeof res === "object" && Array.isArray((res as any).rows)) {
+          return (res as any).rows as T[];
+        }
+        return [];
       };
 
       // 1. Buscar operadores reais do tenant, setores e escala atual
@@ -821,13 +878,13 @@ export class RodizioEngine {
       const storedOpsMap: Record<string, RodizioOperatorConfig> = configData.operatorsMap || {};
       const compensations: Record<string, number> = configData.compensations || {};
       const removedCards: string[] = configData.removedCards || [];
-      const reassignments: Array<{ cardId: string; toOperatorId: string; toOperatorName?: string }> =
+      const reassignments: Array<{ cardId: string; toOperatorId: string; toOperatorName?: string; at?: string }> =
         configData.reassignments || [];
 
-      const reassignMap = new Map<string, { toOperatorId: string; toOperatorName?: string }>();
+      const reassignMap = new Map<string, { toOperatorId: string; toOperatorName?: string; at?: string }>();
       for (const r of reassignments) {
         if (!reassignMap.has(r.cardId)) {
-          reassignMap.set(r.cardId, { toOperatorId: r.toOperatorId, toOperatorName: r.toOperatorName });
+          reassignMap.set(r.cardId, { toOperatorId: r.toOperatorId, toOperatorName: r.toOperatorName, at: r.at });
         }
       }
 
@@ -937,117 +994,312 @@ export class RodizioEngine {
         return aliasToCanonicalId.get(rawId) || rawId;
       };
 
-      // 2. Buscar negociações reais vinculadas a conversas/triagens no CRM Local
-      const realDealsRows = await db
-        .select({
-          dealId: crmDeals.id,
-          title: crmDeals.title,
-          operatorId: crmDeals.operatorId,
-          rating: crmDeals.rating,
-          createdAt: crmDeals.createdAt,
-          funnelName: crmPipelines.name,
-          accountName: crmAccounts.name,
-          accountDoc: crmAccounts.document,
-          accountPhone: crmAccounts.phone,
-          conversationId: crmConversationDeals.conversationId,
-          origin: crmConversationDeals.origin,
-          convOperatorId: conversations.operatorId,
-          contactName: contacts.name,
-          contactPhone: contacts.phone,
-          contactCnpj: contacts.cnpj,
-          contactCpf: contacts.cpf,
-          contactCnpjDetails: contacts.cnpjDetails,
-        })
-        .from(crmConversationDeals)
-        .innerJoin(
-          crmDeals,
-          and(
-            eq(crmConversationDeals.dealId, crmDeals.id),
-            eq(crmDeals.tenantId, tenantId)
-          )
-        )
-        .leftJoin(
-          crmPipelines,
-          and(
-            eq(crmDeals.pipelineId, crmPipelines.id),
-            eq(crmPipelines.tenantId, tenantId)
-          )
-        )
-        .leftJoin(
-          crmAccounts,
-          and(
-            eq(crmDeals.accountId, crmAccounts.id),
-            eq(crmAccounts.tenantId, tenantId)
-          )
-        )
-        .leftJoin(
-          conversations,
-          and(
-            eq(crmConversationDeals.conversationId, conversations.id),
-            eq(conversations.tenantId, tenantId)
-          )
-        )
-        .leftJoin(
-          contacts,
-          and(
-            eq(conversations.contactId, contacts.id),
-            eq(contacts.tenantId, tenantId)
-          )
-        )
-        .where(
-          and(
-            eq(crmConversationDeals.tenantId, tenantId),
-            eq(crmConversationDeals.isActive, true)
-          )
-        )
-        .orderBy(desc(crmDeals.createdAt))
-        .limit(500);
+      const opSectorById = new Map<string, string>();
+      for (const op of canonicalOpsMap.values()) {
+        const normSec = (op.sector || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        opSectorById.set(
+          op.id,
+          getOperatorSector({
+            name: op.name,
+            sector: op.sector,
+            rawArea: op.rawArea,
+            allowed_subflows: op.allowed_subflows,
+            is_sdr: !op.rawArea && (normSec === "sdr" || normSec.includes("sdr") || normSec.includes("triagem")),
+          }),
+        );
+      }
 
-      // 3. Buscar sessões reais de triagem da IA em agentFlowStates
-      const realFlowStates = await db
-        .select({
-          id: agentFlowStates.id,
-          conversationId: agentFlowStates.conversationId,
-          currentStep: agentFlowStates.currentStep,
-          collectedData: agentFlowStates.collectedData,
-          metadata: agentFlowStates.metadata,
-          startedAt: agentFlowStates.startedAt,
-          lastInteractionAt: agentFlowStates.lastInteractionAt,
-          completedAt: agentFlowStates.completedAt,
-          outcome: agentFlowStates.outcome,
-          convOperatorId: conversations.operatorId,
-          convQueueState: conversations.queueState,
-          contactName: contacts.name,
-          contactPhone: contacts.phone,
-          contactCnpj: contacts.cnpj,
-          contactCpf: contacts.cpf,
-          contactCnpjDetails: contacts.cnpjDetails,
-        })
-        .from(agentFlowStates)
-        .leftJoin(
-          conversations,
-          and(
-            eq(agentFlowStates.conversationId, conversations.id),
-            eq(conversations.tenantId, tenantId)
-          )
-        )
-        .leftJoin(
-          contacts,
-          and(
-            eq(conversations.contactId, contacts.id),
-            eq(contacts.tenantId, tenantId)
-          )
-        )
-        .where(eq(agentFlowStates.tenantId, tenantId))
-        .orderBy(desc(agentFlowStates.lastInteractionAt))
-        .limit(500);
+      // Cutoffs para buscar os deals de Visão Geral + janela de operadores sem truncamento prematuro
+      const dealsFetchStartDate =
+        opStartDate === null
+          ? statsDays >= 3650
+            ? null
+            : statsCutoff
+          : opStartDate.getTime() < statsCutoff.getTime()
+            ? opStartDate
+            : statsCutoff;
+      const dealsFetchStartIso = dealsFetchStartDate ? dealsFetchStartDate.toISOString() : null;
 
-      // 4. Processar cards reais dos operadores e lista de Deals no CRM
+      // 2. Consultas parametrizadas por tenantId para capturar APENAS leads alocados/transferidos
+      // (excluindo aberturas manuais próprias e negociações legadas importadas do RD Station CRM `deal-rd-*`)
+      const [transferredDealsRes, createdDealsRes, attendanceTransfersRes, realFlowStates] = await Promise.all([
+        // 2A. Negociações transferidas/alocadas para um operador na janela (owner_changed / operator_changed)
+        db.execute(sql`
+          SELECT DISTINCT ON (ev.deal_id, COALESCE(ev.metadata->>'toOperatorId', ''))
+            ev.id AS event_id,
+            ev.deal_id,
+            ev.operator_id AS actor_operator_id,
+            ev.metadata->>'fromOperatorId' AS from_operator_id,
+            ev.metadata->>'toOperatorId' AS to_operator_id,
+            ev.created_at AS allocated_at,
+            d.title,
+            d.operator_id AS current_deal_operator_id,
+            d.rating,
+            d.source,
+            d.created_at AS deal_created_at,
+            p.name AS funnel_name,
+            acc.name AS account_name,
+            acc.document AS account_doc,
+            acc.phone AS account_phone,
+            conv_link.conversation_id,
+            ct.id AS contact_id,
+            ct.name AS contact_name,
+            ct.phone AS contact_phone,
+            ct.cnpj AS contact_cnpj,
+            ct.cpf AS contact_cpf,
+            ct.cnpj_details AS contact_cnpj_details
+          FROM crm_deal_events ev
+          INNER JOIN crm_deals d
+            ON d.tenant_id = ev.tenant_id AND d.id = ev.deal_id
+          LEFT JOIN crm_pipelines p
+            ON p.tenant_id = d.tenant_id AND p.id = d.pipeline_id
+          LEFT JOIN crm_accounts acc
+            ON acc.tenant_id = d.tenant_id AND acc.id = d.account_id
+          LEFT JOIN LATERAL (
+            SELECT cd.conversation_id
+            FROM crm_conversation_deals cd
+            WHERE cd.tenant_id = d.tenant_id AND cd.deal_id = d.id AND cd.is_active = true
+            ORDER BY cd.created_at DESC
+            LIMIT 1
+          ) conv_link ON true
+          LEFT JOIN conversations conv
+            ON conv.tenant_id = d.tenant_id AND conv.id = conv_link.conversation_id
+          LEFT JOIN LATERAL (
+            SELECT dc.contact_id
+            FROM crm_deal_contacts dc
+            WHERE dc.tenant_id = d.tenant_id AND dc.deal_id = d.id
+            ORDER BY dc.is_primary DESC, dc.created_at ASC
+            LIMIT 1
+          ) deal_ct ON true
+          LEFT JOIN contacts ct
+            ON ct.tenant_id = d.tenant_id AND ct.id = COALESCE(conv.contact_id, deal_ct.contact_id)
+          WHERE ev.tenant_id = ${tenantId}
+            AND ev.event_type IN ('owner_changed', 'operator_changed')
+            AND d.id NOT LIKE 'deal-rd-%'
+            AND COALESCE(ev.metadata->>'toOperatorId', '') <> ''
+            AND (${opStartIso}::timestamptz IS NULL OR ev.created_at >= ${opStartIso}::timestamptz)
+            AND (${opEndIso}::timestamptz IS NULL OR ev.created_at <= ${opEndIso}::timestamptz)
+          ORDER BY ev.deal_id, COALESCE(ev.metadata->>'toOperatorId', ''), ev.created_at DESC
+          LIMIT 2000
+        `),
+
+        // 2B. Negociações criadas no CRM Local (excluindo importações `deal-rd-*`)
+        db.execute(sql`
+          SELECT
+            d.id AS deal_id,
+            d.title,
+            d.operator_id AS current_deal_operator_id,
+            d.rating,
+            d.source,
+            d.custom_fields,
+            d.created_at AS deal_created_at,
+            p.name AS funnel_name,
+            acc.name AS account_name,
+            acc.document AS account_doc,
+            acc.phone AS account_phone,
+            conv_link.conversation_id,
+            conv_link.origin AS conv_deal_origin,
+            conv_link.created_by_operator_id AS conv_deal_creator_id,
+            conv.operator_id AS conv_operator_id,
+            ct.id AS contact_id,
+            ct.name AS contact_name,
+            ct.phone AS contact_phone,
+            ct.cnpj AS contact_cnpj,
+            ct.cpf AS contact_cpf,
+            ct.cnpj_details AS contact_cnpj_details,
+            created_ev.operator_id AS created_event_operator_id,
+            created_ev.metadata->>'actorType' AS created_actor_type,
+            first_tr.from_op AS first_transfer_from_op,
+            last_tr.to_op AS last_transfer_to_op,
+            EXISTS (
+              SELECT 1 FROM rd_marketing_receipts r
+              WHERE r.tenant_id = d.tenant_id AND r.deal_id = d.id
+            ) AS has_rd_receipt
+          FROM crm_deals d
+          LEFT JOIN crm_pipelines p
+            ON p.tenant_id = d.tenant_id AND p.id = d.pipeline_id
+          LEFT JOIN crm_accounts acc
+            ON acc.tenant_id = d.tenant_id AND acc.id = d.account_id
+          LEFT JOIN LATERAL (
+            SELECT cd.conversation_id, cd.origin, cd.created_by_operator_id
+            FROM crm_conversation_deals cd
+            WHERE cd.tenant_id = d.tenant_id AND cd.deal_id = d.id AND cd.is_active = true
+            ORDER BY cd.created_at DESC
+            LIMIT 1
+          ) conv_link ON true
+          LEFT JOIN conversations conv
+            ON conv.tenant_id = d.tenant_id AND conv.id = conv_link.conversation_id
+          LEFT JOIN LATERAL (
+            SELECT dc.contact_id
+            FROM crm_deal_contacts dc
+            WHERE dc.tenant_id = d.tenant_id AND dc.deal_id = d.id
+            ORDER BY dc.is_primary DESC, dc.created_at ASC
+            LIMIT 1
+          ) deal_ct ON true
+          LEFT JOIN contacts ct
+            ON ct.tenant_id = d.tenant_id AND ct.id = COALESCE(conv.contact_id, deal_ct.contact_id)
+          LEFT JOIN LATERAL (
+            SELECT ev.operator_id, ev.metadata
+            FROM crm_deal_events ev
+            WHERE ev.tenant_id = d.tenant_id AND ev.deal_id = d.id AND ev.event_type = 'created'
+            ORDER BY ev.created_at ASC
+            LIMIT 1
+          ) created_ev ON true
+          LEFT JOIN LATERAL (
+            SELECT ev.metadata->>'fromOperatorId' AS from_op
+            FROM crm_deal_events ev
+            WHERE ev.tenant_id = d.tenant_id AND ev.deal_id = d.id
+              AND ev.event_type IN ('owner_changed', 'operator_changed')
+            ORDER BY ev.created_at ASC
+            LIMIT 1
+          ) first_tr ON true
+          LEFT JOIN LATERAL (
+            SELECT ev.metadata->>'toOperatorId' AS to_op
+            FROM crm_deal_events ev
+            WHERE ev.tenant_id = d.tenant_id AND ev.deal_id = d.id
+              AND ev.event_type IN ('owner_changed', 'operator_changed')
+              AND COALESCE(ev.metadata->>'toOperatorId', '') <> ''
+              AND COALESCE(ev.operator_id, '') <> COALESCE(ev.metadata->>'toOperatorId', '')
+            ORDER BY ev.created_at DESC
+            LIMIT 1
+          ) last_tr ON true
+          WHERE d.tenant_id = ${tenantId}
+            AND d.id NOT LIKE 'deal-rd-%'
+            AND (${dealsFetchStartIso}::timestamptz IS NULL OR d.created_at >= ${dealsFetchStartIso}::timestamptz)
+          ORDER BY d.created_at DESC
+          LIMIT 2500
+        `),
+
+        // 2C. Transferências de atendimento no chat (ex: Pós-Venda, Suporte Técnico, Financeiro, Peças sem deal)
+        db.execute(sql`
+          SELECT
+            ae.id AS event_id,
+            ae.conversation_id,
+            ae.operator_id AS actor_operator_id,
+            ae.metadata->>'operatorId' AS to_operator_id,
+            ae.deal_id AS event_deal_id,
+            ae.created_at AS transferred_at,
+            conv.contact_id,
+            ct.name AS contact_name,
+            ct.phone AS contact_phone,
+            ct.cnpj AS contact_cnpj,
+            ct.cpf AS contact_cpf,
+            ct.cnpj_details AS contact_cnpj_details,
+            sec.name AS sector_name,
+            ctx.current_deal_id
+          FROM attendance_events ae
+          INNER JOIN conversations conv
+            ON conv.tenant_id = ae.tenant_id AND conv.id = ae.conversation_id
+          LEFT JOIN contacts ct
+            ON ct.tenant_id = conv.tenant_id AND ct.id = conv.contact_id
+          LEFT JOIN sectors sec
+            ON sec.tenant_id = ae.tenant_id
+            AND sec.id = COALESCE(NULLIF(ae.metadata->>'sectorId', ''), conv.sector_id)
+          LEFT JOIN conversation_deal_contexts ctx
+            ON ctx.tenant_id = ae.tenant_id AND ctx.conversation_id = ae.conversation_id
+          WHERE ae.tenant_id = ${tenantId}
+            AND ae.event_type = 'attendance.transferred'
+            AND COALESCE(ae.metadata->>'operatorId', '') <> ''
+            AND COALESCE(ae.operator_id, '') <> COALESCE(ae.metadata->>'operatorId', '')
+            AND (${opStartIso}::timestamptz IS NULL OR ae.created_at >= ${opStartIso}::timestamptz)
+            AND (${opEndIso}::timestamptz IS NULL OR ae.created_at <= ${opEndIso}::timestamptz)
+          ORDER BY ae.created_at DESC
+          LIMIT 2000
+        `),
+
+        // 3. Sessões reais de triagem da IA em agentFlowStates
+        db
+          .select({
+            id: agentFlowStates.id,
+            conversationId: agentFlowStates.conversationId,
+            currentStep: agentFlowStates.currentStep,
+            collectedData: agentFlowStates.collectedData,
+            metadata: agentFlowStates.metadata,
+            startedAt: agentFlowStates.startedAt,
+            lastInteractionAt: agentFlowStates.lastInteractionAt,
+            completedAt: agentFlowStates.completedAt,
+            outcome: agentFlowStates.outcome,
+            convOperatorId: conversations.operatorId,
+            convQueueState: conversations.queueState,
+            contactId: conversations.contactId,
+            contactName: contacts.name,
+            contactPhone: contacts.phone,
+            contactCnpj: contacts.cnpj,
+            contactCpf: contacts.cpf,
+            contactCnpjDetails: contacts.cnpjDetails,
+          })
+          .from(agentFlowStates)
+          .leftJoin(
+            conversations,
+            and(
+              eq(agentFlowStates.conversationId, conversations.id),
+              eq(conversations.tenantId, tenantId)
+            )
+          )
+          .leftJoin(
+            contacts,
+            and(
+              eq(conversations.contactId, contacts.id),
+              eq(contacts.tenantId, tenantId)
+            )
+          )
+          .where(eq(agentFlowStates.tenantId, tenantId))
+          .orderBy(desc(agentFlowStates.lastInteractionAt))
+          .limit(500),
+      ]);
+
+      const transferredDealsRows = extractQueryRows(transferredDealsRes);
+      const createdDealsRows = extractQueryRows(createdDealsRes);
+      const attendanceTransferRows = extractQueryRows(attendanceTransfersRes);
+
+      // 4. Processar cards alocados por operador (deduplicados por dealId / conversationId / contactId)
       const realCardsByOpId = new Map<string, any[]>();
+      const seenDealIdsByOp = new Map<string, Set<string>>();
+      const seenConvIdsByOp = new Map<string, Set<string>>();
+      const seenContactIdsByOp = new Map<string, Set<string>>();
+
+      const addCardToOperator = (
+        targetOpId: string,
+        card: any,
+        dedup: { dealId?: string | null; conversationId?: string | null; contactId?: string | null },
+      ): boolean => {
+        if (!targetOpId) return false;
+        const targetOp = canonicalOpsMap.get(targetOpId);
+        if (!targetOp || !targetOp.isInFlow) return false;
+
+        let dealSet = seenDealIdsByOp.get(targetOpId);
+        if (!dealSet) {
+          dealSet = new Set<string>();
+          seenDealIdsByOp.set(targetOpId, dealSet);
+        }
+        let convSet = seenConvIdsByOp.get(targetOpId);
+        if (!convSet) {
+          convSet = new Set<string>();
+          seenConvIdsByOp.set(targetOpId, convSet);
+        }
+        let contactSet = seenContactIdsByOp.get(targetOpId);
+        if (!contactSet) {
+          contactSet = new Set<string>();
+          seenContactIdsByOp.set(targetOpId, contactSet);
+        }
+
+        if (dedup.dealId && dealSet.has(dedup.dealId)) return false;
+        if (dedup.conversationId && convSet.has(dedup.conversationId)) return false;
+        if (dedup.contactId && contactSet.has(dedup.contactId)) return false;
+
+        if (dedup.dealId) dealSet.add(dedup.dealId);
+        if (dedup.conversationId) convSet.add(dedup.conversationId);
+        if (dedup.contactId) contactSet.add(dedup.contactId);
+
+        const list = realCardsByOpId.get(targetOpId) || [];
+        list.push(card);
+        realCardsByOpId.set(targetOpId, list);
+        return true;
+      };
+
       const activeAiTriageCards: any[] = [];
       const realCrmDealsList: any[] = [];
-      const seenDealIds = new Set<string>();
-      const seenConvIdsInOpCards = new Set<string>();
+      const seenStatsDealIds = new Set<string>();
 
       // Mapa unificado de leads capturados na janela de estatísticas (Visão Geral)
       const leadsInStatsWindow = new Map<
@@ -1061,73 +1313,171 @@ export class RodizioEngine {
         }
       >();
 
-      for (const row of realDealsRows) {
-        if (seenDealIds.has(row.dealId)) continue;
-        seenDealIds.add(row.dealId);
+      // 4A. Processar transferências de negociações (SDR / Operador / Rodízio -> Operador de destino)
+      for (const row of transferredDealsRows) {
+        const dealId = String(row.deal_id || "");
+        if (!dealId || dealId.startsWith("deal-rd-")) continue;
 
-        const reassigned =
-          reassignMap.get(row.dealId) ||
-          (row.conversationId ? reassignMap.get(row.conversationId) : undefined);
-
-        const rawOpId = reassigned?.toOperatorId || row.operatorId || row.convOperatorId || "";
-        const effectiveOpId = resolveOpId(rawOpId);
-        const effectiveOpName =
-          reassigned?.toOperatorName ||
-          (effectiveOpId ? canonicalOpsMap.get(effectiveOpId)?.name : null) ||
-          "Operador";
-
-        const createdAtDate = row.createdAt ? new Date(row.createdAt) : now;
-        const createdAtIso = createdAtDate.toISOString();
-
-        const companyName =
-          row.accountName ||
-          (row.contactCnpjDetails as any)?.razaoSocial ||
-          (row.contactCnpjDetails as any)?.nomeFantasia ||
-          null;
-        const phoneStr = row.accountPhone || row.contactPhone || null;
-        const cardDisplayName = row.contactName || row.title;
-        const funnelKey = normalizeFunnelKey(row.funnelName || "maquinas");
-
+        const convId = row.conversation_id ? String(row.conversation_id) : undefined;
+        const contactId = row.contact_id ? String(row.contact_id) : undefined;
         const isCardRemoved =
-          removedCards.includes(row.dealId) ||
-          (row.conversationId ? removedCards.includes(row.conversationId) : false);
+          removedCards.includes(dealId) || (convId ? removedCards.includes(convId) : false);
+        if (isCardRemoved) continue;
 
-        if (effectiveOpId && !isCardRemoved && isWithinOpWindow(createdAtDate)) {
-          const opCards = realCardsByOpId.get(effectiveOpId) || [];
-          opCards.push({
-            id: row.conversationId || row.dealId,
+        const rawToOp = resolveOpId(row.to_operator_id);
+        const actorOp = resolveOpId(row.actor_operator_id || row.from_operator_id);
+        if (!rawToOp || actorOp === rawToOp) continue;
+
+        const reassigned = reassignMap.get(dealId) || (convId ? reassignMap.get(convId) : undefined);
+        const toOpSector = opSectorById.get(rawToOp);
+        const currentDealOp = resolveOpId(row.current_deal_operator_id);
+
+        // Se houve reatribuição manual no rodízio ou transferência corretiva dentro da mesma área comercial,
+        // manter o lead apenas no destinatário vigente daquela área
+        let effectiveOpId = rawToOp;
+        if (reassigned && toOpSector !== "sdr") {
+          const reassignedOpId = resolveOpId(reassigned.toOperatorId);
+          if (reassignedOpId && reassignedOpId !== rawToOp) {
+            continue;
+          }
+        } else if (
+          toOpSector !== "sdr" &&
+          currentDealOp &&
+          currentDealOp !== rawToOp &&
+          opSectorById.get(currentDealOp) === toOpSector
+        ) {
+          continue;
+        }
+
+        const allocatedAtDate = row.allocated_at ? new Date(row.allocated_at) : now;
+        if (!isWithinOpWindow(allocatedAtDate)) continue;
+
+        const cnpjDetails = (row.contact_cnpj_details || {}) as Record<string, any>;
+        const companyName =
+          row.account_name || cnpjDetails.razaoSocial || cnpjDetails.nomeFantasia || null;
+        const phoneStr = row.account_phone || row.contact_phone || null;
+        const cardDisplayName = row.contact_name || row.title || "Cliente";
+
+        addCardToOperator(
+          effectiveOpId,
+          {
+            id: convId || dealId,
             name: cardDisplayName,
             company: companyName,
-            created_at: createdAtIso,
-            chatId: row.conversationId || undefined,
-            rdDealId: row.dealId,
+            created_at: allocatedAtDate.toISOString(),
+            chatId: convId,
+            rdDealId: dealId,
             phone: phoneStr,
-            subject: row.funnelName || null,
-          });
-          realCardsByOpId.set(effectiveOpId, opCards);
-          if (row.conversationId) {
-            seenConvIdsInOpCards.add(row.conversationId);
+            subject: row.funnel_name || null,
+          },
+          { dealId, conversationId: convId, contactId },
+        );
+      }
+
+      // 4B. Processar negociações automáticas/inbound ou abertas por terceiros (nunca auto-aberturas manuais)
+      for (const row of createdDealsRows) {
+        const dealId = String(row.deal_id || "");
+        if (!dealId || dealId.startsWith("deal-rd-")) continue;
+
+        const convId = row.conversation_id ? String(row.conversation_id) : undefined;
+        const contactId = row.contact_id ? String(row.contact_id) : undefined;
+        const createdAtDate = row.deal_created_at ? new Date(row.deal_created_at) : now;
+        const createdAtIso = createdAtDate.toISOString();
+
+        const initialOwnerOpId = resolveOpId(
+          row.first_transfer_from_op || row.current_deal_operator_id || row.conv_operator_id,
+        );
+        const creatorOpId = resolveOpId(row.created_event_operator_id || row.conv_deal_creator_id);
+
+        const cf = (row.custom_fields || {}) as Record<string, any>;
+        const normSource = String(row.source || "").trim().toLowerCase();
+        const normActorType = String(row.created_actor_type || "").trim().toLowerCase();
+
+        const isAutomatedInbound =
+          Boolean(row.has_rd_receipt) ||
+          normSource.startsWith("whatsapp sdr") ||
+          row.conv_deal_origin === "auto_sdr" ||
+          (String(cf.autoCreatedFromLinkedDevice) === "true" &&
+            String(cf.initialDirection || "") === "inbound") ||
+          ["rd_marketing", "system", "ai", "webhook", "rodizio"].includes(normActorType);
+
+        const isThirdPartyAssignedAtCreation = Boolean(
+          creatorOpId && initialOwnerOpId && creatorOpId !== initialOwnerOpId,
+        );
+
+        const wasTransferredToAnotherOp = Boolean(row.last_transfer_to_op);
+
+        const cnpjDetails = (row.contact_cnpj_details || {}) as Record<string, any>;
+        const companyName =
+          row.account_name || cnpjDetails.razaoSocial || cnpjDetails.nomeFantasia || null;
+        const phoneStr = row.account_phone || row.contact_phone || null;
+        const cardDisplayName = row.contact_name || row.title || "Cliente";
+        const funnelKey = normalizeFunnelKey(row.funnel_name || "maquinas");
+
+        // Atribuir na criação SOMENTE se foi entrada automática (RD Marketing / SDR IA / Inbound Auto)
+        // ou atribuída diretamente por outro operador (excluindo auto-abertura manual onde creator === owner)
+        const isCardRemoved =
+          removedCards.includes(dealId) || (convId ? removedCards.includes(convId) : false);
+
+        if ((isAutomatedInbound || isThirdPartyAssignedAtCreation) && !isCardRemoved && isWithinOpWindow(createdAtDate)) {
+          const reassigned = reassignMap.get(dealId) || (convId ? reassignMap.get(convId) : undefined);
+          const targetOpId =
+            reassigned && opSectorById.get(initialOwnerOpId) !== "sdr"
+              ? resolveOpId(reassigned.toOperatorId)
+              : initialOwnerOpId;
+
+          if (targetOpId) {
+            addCardToOperator(
+              targetOpId,
+              {
+                id: convId || dealId,
+                name: cardDisplayName,
+                company: companyName,
+                created_at: createdAtIso,
+                chatId: convId,
+                rdDealId: dealId,
+                phone: phoneStr,
+                subject: row.funnel_name || null,
+              },
+              { dealId, conversationId: convId, contactId },
+            );
           }
         }
 
-        if (isWithinStatsWindow(createdAtDate)) {
+        // Lista de negociações da Visão Geral (apenas leads reais de triagem/automação/transferência, sem manuais puros ou RD legado)
+        if (
+          (isAutomatedInbound || isThirdPartyAssignedAtCreation || wasTransferredToAnotherOp) &&
+          !seenStatsDealIds.has(dealId) &&
+          isWithinStatsWindow(createdAtDate)
+        ) {
+          seenStatsDealIds.add(dealId);
+          const currentOwnerId = resolveOpId(
+            (reassignMap.get(dealId) || (convId ? reassignMap.get(convId) : undefined))?.toOperatorId ||
+              row.current_deal_operator_id ||
+              row.last_transfer_to_op ||
+              initialOwnerOpId,
+          );
+          const effectiveOpName =
+            (currentOwnerId ? canonicalOpsMap.get(currentOwnerId)?.name : null) || "Operador";
+
           realCrmDealsList.push({
-            id: row.dealId,
+            id: dealId,
             name: row.title,
             company: companyName,
             phone: phoneStr,
-            rd_deal_id: row.dealId,
+            rd_deal_id: dealId,
             operator_name: effectiveOpName,
-            sector: row.funnelName || "Comercial",
+            sector: row.funnel_name || "Comercial",
             funnel: funnelKey,
             created_at: createdAtIso,
           });
 
-          const leadKey = row.conversationId || `deal:${row.dealId}`;
-          const hasDoc = Boolean(row.accountDoc || row.contactCnpj || row.contactCpf);
+          const leadKey = convId || `deal:${dealId}`;
+          const hasDoc = Boolean(row.account_doc || row.contact_cnpj || row.contact_cpf);
+          const ratingNum = Number(row.rating || 0);
           const dealRatingScore =
-            typeof row.rating === "number" && row.rating > 0
-              ? Math.min(3, (row.rating / 5) * 3)
+            ratingNum > 0
+              ? Math.min(3, (ratingNum / 5) * 3)
               : companyName && hasDoc
                 ? 2.7
                 : companyName
@@ -1135,7 +1485,7 @@ export class RodizioEngine {
                   : 1.8;
 
           leadsInStatsWindow.set(leadKey, {
-            dateIso: createdAtIso.slice(0, 10),
+            dateIso: getBrtTodayYmd(createdAtDate),
             funnelKey,
             isTriageDone: true,
             lmsScore: dealRatingScore,
@@ -1144,20 +1494,77 @@ export class RodizioEngine {
         }
       }
 
+      // 4C. Processar transferências diretas de conversa (Pós-Venda, Suporte Técnico, Financeiro, Peças, etc.)
+      for (const row of attendanceTransferRows) {
+        const convId = String(row.conversation_id || "");
+        if (!convId) continue;
+
+        const rawDealId = String(row.event_deal_id || row.current_deal_id || "");
+        const validDealId = rawDealId && !rawDealId.startsWith("deal-rd-") ? rawDealId : undefined;
+        const contactId = row.contact_id ? String(row.contact_id) : undefined;
+
+        const isCardRemoved =
+          removedCards.includes(convId) || (validDealId ? removedCards.includes(validDealId) : false);
+        if (isCardRemoved) continue;
+
+        const rawToOp = resolveOpId(row.to_operator_id);
+        const actorOp = resolveOpId(row.actor_operator_id);
+        if (!rawToOp || actorOp === rawToOp) continue;
+
+        const reassigned =
+          (validDealId ? reassignMap.get(validDealId) : undefined) || reassignMap.get(convId);
+        if (reassigned && opSectorById.get(rawToOp) !== "sdr") {
+          const reassignedOpId = resolveOpId(reassigned.toOperatorId);
+          if (reassignedOpId && reassignedOpId !== rawToOp) {
+            continue;
+          }
+        }
+
+        const transferredAtDate = row.transferred_at ? new Date(row.transferred_at) : now;
+        if (!isWithinOpWindow(transferredAtDate)) continue;
+
+        const cnpjDetails = (row.contact_cnpj_details || {}) as Record<string, any>;
+        const companyName = cnpjDetails.razaoSocial || cnpjDetails.nomeFantasia || null;
+
+        addCardToOperator(
+          rawToOp,
+          {
+            id: convId,
+            name: row.contact_name || "Cliente WhatsApp",
+            company: companyName,
+            created_at: transferredAtDate.toISOString(),
+            chatId: convId,
+            rdDealId: validDealId,
+            phone: row.contact_phone || null,
+            subject: row.sector_name || null,
+          },
+          { dealId: validDealId, conversationId: convId, contactId },
+        );
+      }
+
       // 5. Processar sessões de triagem reais (agentFlowStates)
       let activeRealSessions = 0;
+      const seenActiveAiConvIds = new Set<string>();
 
       for (const fs of realFlowStates) {
         const collected = (fs.collectedData as Record<string, any>) || {};
         const meta = (fs.metadata as Record<string, any>) || {};
 
+        const handoffOpIdRaw =
+          meta.handoffReceipt?.result?.operator?.id ||
+          meta.allocatedOperatorId ||
+          (fs.outcome === "transferred" ? fs.convOperatorId : "") ||
+          "";
+
         const isActiveSession =
-          fs.outcome === "in_progress" ||
-          (!fs.outcome && fs.currentStep !== "Concluído");
+          !handoffOpIdRaw &&
+          fs.convQueueState === "automacao" &&
+          (fs.outcome === "in_progress" || (!fs.outcome && fs.currentStep !== "Concluído"));
         const isCompletedSession =
           fs.outcome === "completed" ||
           fs.outcome === "transferred" ||
-          fs.currentStep === "Concluído";
+          fs.currentStep === "Concluído" ||
+          Boolean(handoffOpIdRaw);
 
         if (isActiveSession) {
           activeRealSessions += 1;
@@ -1189,7 +1596,6 @@ export class RodizioEngine {
           (isActiveSession ? "triagem" : "maquinas");
         const funnelKey = normalizeFunnelKey(rawFunnel);
 
-        // Calcular Score LMS real (0.0 a 3.0) baseado no preenchimento real dos campos de triagem
         const filledFieldsCount = Object.entries(collected).filter(
           ([k, v]) =>
             !k.startsWith("_") &&
@@ -1201,26 +1607,30 @@ export class RodizioEngine {
         ).length;
         const lmsScore = Math.min(3.0, Math.max(0.5, (filledFieldsCount / 6) * 3.0));
 
-        const refDate = fs.lastInteractionAt || fs.startedAt || now;
-        const refDateObj = refDate instanceof Date ? refDate : new Date(refDate);
+        const handoffRefDate =
+          fs.completedAt ||
+          meta.handoffReceipt?.completedAt ||
+          fs.lastInteractionAt ||
+          fs.startedAt ||
+          now;
+        const refDateObj = handoffRefDate instanceof Date ? handoffRefDate : new Date(handoffRefDate);
         const refDateIso = refDateObj.toISOString();
 
-        // Se a conversa da triagem ainda não gerou card via realDealsRows, incluir no painel
         const isCardRemoved = removedCards.includes(fs.conversationId) || removedCards.includes(fs.id);
-        if (!seenConvIdsInOpCards.has(fs.conversationId) && !isCardRemoved && isWithinOpWindow(refDateObj)) {
+        if (!isCardRemoved && isWithinOpWindow(refDateObj)) {
           const reassigned = reassignMap.get(fs.conversationId);
-          const rawOpId =
-            reassigned?.toOperatorId ||
-            fs.convOperatorId ||
-            meta.allocatedOperatorId ||
-            "";
-          const effectiveOpId = resolveOpId(rawOpId);
+          const effectiveOpId = resolveOpId(reassigned?.toOperatorId || handoffOpIdRaw);
 
-          const dealIdFromMeta =
+          const rawDealIdFromMeta = String(
             meta.localCrmDealId ||
-            meta.handoffReceipt?.result?.deal?.dealId ||
-            meta.dealId ||
-            undefined;
+              meta.handoffReceipt?.result?.deal?.dealId ||
+              meta.dealId ||
+              "",
+          );
+          const validDealIdFromMeta =
+            rawDealIdFromMeta && !rawDealIdFromMeta.startsWith("deal-rd-")
+              ? rawDealIdFromMeta
+              : undefined;
 
           const cardObj = {
             id: fs.conversationId,
@@ -1228,27 +1638,29 @@ export class RodizioEngine {
             company: companyName && companyName !== "Aguardando..." ? companyName : null,
             created_at: refDateIso,
             chatId: fs.conversationId,
-            rdDealId: dealIdFromMeta,
+            rdDealId: validDealIdFromMeta,
             phone: fs.contactPhone || null,
             subject: meta.targetFunnel || null,
           };
 
-          if (effectiveOpId && canonicalOpsMap.has(effectiveOpId)) {
-            const opCards = realCardsByOpId.get(effectiveOpId) || [];
-            opCards.push(cardObj);
-            realCardsByOpId.set(effectiveOpId, opCards);
-            seenConvIdsInOpCards.add(fs.conversationId);
-          } else if (isActiveSession) {
+          if (effectiveOpId && canonicalOpsMap.get(effectiveOpId)?.isInFlow) {
+            addCardToOperator(effectiveOpId, cardObj, {
+              dealId: validDealIdFromMeta,
+              conversationId: fs.conversationId,
+              contactId: fs.contactId || undefined,
+            });
+          } else if (isActiveSession && !seenActiveAiConvIds.has(fs.conversationId)) {
+            seenActiveAiConvIds.add(fs.conversationId);
             activeAiTriageCards.push(cardObj);
-            seenConvIdsInOpCards.add(fs.conversationId);
           }
         }
 
         // Registrar na janela de estatísticas da Visão Geral
         if (isWithinStatsWindow(fs.startedAt || refDateObj)) {
           const existingLead = leadsInStatsWindow.get(fs.conversationId);
+          const statDate = fs.startedAt ? new Date(fs.startedAt) : refDateObj;
           leadsInStatsWindow.set(fs.conversationId, {
-            dateIso: (fs.startedAt ? new Date(fs.startedAt) : refDateObj).toISOString().slice(0, 10),
+            dateIso: getBrtTodayYmd(statDate),
             funnelKey: existingLead?.funnelKey && existingLead.funnelKey !== "maquinas" ? existingLead.funnelKey : funnelKey,
             isTriageDone: Boolean(existingLead?.isTriageDone || isCompletedSession),
             lmsScore: existingLead ? Math.max(existingLead.lmsScore, lmsScore) : lmsScore,
@@ -1257,10 +1669,9 @@ export class RodizioEngine {
         }
       }
 
-      // 6. Montar a lista de operadores 100% real para as 6 colunas
+      // 6. Montar a lista de operadores para as 6 colunas — ESTRITAMENTE quem está cadastrado em cada fluxo (inclusive com 0 leads)
       const operatorRows: any[] = [];
 
-      // Se houver sessões ativas em triagem na IA (ou para exibir a fila viva do Fagner/Valentina na coluna SDR / Análise)
       if (activeAiTriageCards.length > 0) {
         operatorRows.push({
           id: `ai-sdr-${tenantId}`,
@@ -1279,38 +1690,15 @@ export class RodizioEngine {
         });
       }
 
-      const hasConfiguredFlowScale = flowOps.length > 0;
-
       for (const op of canonicalOpsMap.values()) {
-        const opCards = realCardsByOpId.get(op.id) || [];
-        const normOpSector = (op.sector || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const normOpNameStr = normalizeOpName(op.name);
-        const isSdrAnalyst =
-          normOpSector === "sdr" ||
-          normOpSector.includes("sdr") ||
-          normOpSector.includes("triagem") ||
-          normOpNameStr.includes("rafaela lima");
-
-        if (hasConfiguredFlowScale) {
-          // Quando a escala em Fluxos está configurada, exibir apenas os operadores da escala (+ analista SDR)
-          // evitando que operadores de setores gerais do chat (ex: Leticia Cardoso em "Comercial") caiam no fallback de Máquinas
-          if (!op.isInFlow && !isSdrAnalyst) {
-            continue;
-          }
-        } else if (!op.isInFlow && !op.sector && opCards.length === 0) {
+        if (!op.isInFlow) {
           continue;
         }
 
-        // Se o operador não tem setor explícito, inferir pelo funil dos cards reais dele ou pelo classificador de setor
-        const dominantCardSector = opCards.find((c) => c.subject)?.subject || null;
-        const resolvedSector = getOperatorSector({
-          name: op.name,
-          sector: op.sector || dominantCardSector,
-          rawArea: op.rawArea,
-          allowed_subflows: op.allowed_subflows,
-          is_sdr: op.sector === "sdr" || isSdrAnalyst,
-        });
-
+        const opCards = (realCardsByOpId.get(op.id) || []).sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
+        const resolvedSector = opSectorById.get(op.id) || "maquinas";
         const subTeam =
           resolvedSector === "pos venda"
             ? getPosVendaSubTeam({
@@ -1360,13 +1748,14 @@ export class RodizioEngine {
       const triageRate = totalLeads > 0 ? Math.round((triageDone / totalLeads) * 100) : 0;
       const avgScore = totalLeads > 0 ? (totalScoreSum / totalLeads).toFixed(1) : "0.0";
 
-      // Série temporal real para o gráfico "Leads por Dia" (últimos N dias até 30 barras)
+      // Série temporal real para o gráfico "Leads por Dia" (últimos N dias até 30 barras no fuso de Brasília)
       const chartDaysCount = Math.min(statsDays, 30);
+      const todayYmd = getBrtTodayYmd(now);
+      const todayNoon = new Date(`${todayYmd}T12:00:00.000-03:00`);
       const byDay: Array<{ day: string; count: number }> = [];
       for (let i = chartDaysCount - 1; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const dayKey = d.toISOString().slice(0, 10);
+        const d = new Date(todayNoon.getTime() - i * 24 * 60 * 60 * 1000);
+        const dayKey = getBrtTodayYmd(d);
         byDay.push({
           day: dayKey,
           count: dayCountsMap.get(dayKey) || 0,

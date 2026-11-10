@@ -2543,10 +2543,9 @@ export async function executeMcpTool(
           ORDER BY name ASC
         `,
         sql`
-          SELECT config, enabled, updated_at
+          SELECT agent_type, config, enabled, updated_at
           FROM agent_configs
-          WHERE tenant_id = ${tenantId} AND agent_type = 'sdr'
-          LIMIT 1
+          WHERE tenant_id = ${tenantId} AND agent_type IN ('rodizio', 'sdr')
         `,
         sql`
           SELECT operator_id, COUNT(*)::int AS active_chats
@@ -2559,9 +2558,11 @@ export async function executeMcpTool(
       const activeMap = new Map<string, number>(
         activeChatsByOp.map((r: any) => [String(r.operator_id), Number(r.active_chats)]),
       );
-      const sdrConfig = sdrConfigRows[0]?.config || {};
-      const flowOperators = Array.isArray(sdrConfig.flowOperators)
-        ? sdrConfig.flowOperators
+      const rodizioRow = sdrConfigRows.find((r: any) => r.agent_type === "rodizio");
+      const sdrRow = sdrConfigRows.find((r: any) => r.agent_type === "sdr");
+      const rodizioConfig = rodizioRow?.config || sdrRow?.config || {};
+      const flowOperators = Array.isArray(rodizioConfig.flowOperators)
+        ? rodizioConfig.flowOperators
         : [];
 
       const validOperatorIdsSet = new Set<string>(
@@ -2570,19 +2571,22 @@ export async function executeMcpTool(
 
       return {
         tenantId,
-        sdrEnabled: Boolean(sdrConfigRows[0]?.enabled),
+        sdrEnabled: Boolean(sdrRow?.enabled),
         totalOperators: operatorsRows.length,
         flowScaleOperatorsCount: flowOperators.length,
-        flowScaleByArea: flowOperators.map((fo: any) => ({
-          operatorId: fo.operatorId,
-          name: fo.name,
-          area: fo.area,
-          funnels: fo.funnels || [],
-          isInFlow: fo.isInFlow !== false,
-          onLeave: Boolean(fo.onLeave),
-          compensationBalance: Number(fo.compensation || 0),
-          activeChatsNow: activeMap.get(fo.operatorId) || 0,
-        })),
+        flowScaleByArea: flowOperators.map((fo: any) => {
+          const opId = fo.id || fo.operatorId;
+          return {
+            operatorId: opId,
+            name: fo.name,
+            area: fo.area,
+            funnels: fo.funnels || [],
+            isInFlow: fo.isParticipating !== undefined ? Boolean(fo.isParticipating) : fo.isInFlow !== false,
+            onLeave: Boolean(fo.isOnLeave ?? fo.onLeave),
+            compensationBalance: Number(fo.compensation || 0),
+            activeChatsNow: activeMap.get(String(opId)) || 0,
+          };
+        }),
         sectors: sectorsRows.map((s: any) => {
           const validIds = Array.isArray(s.operator_ids)
             ? Array.from(
