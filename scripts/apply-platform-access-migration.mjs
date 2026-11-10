@@ -455,8 +455,8 @@ if (!databaseUrl) {
       console.log(`[platform migration] ${tecfagSdrBackfillName} já aplicada anteriormente.`);
     }
 
-    // 7. Migração Completa RD Station CRM -> Tecfag Chat (17.504 Negociações, 6.438 Empresas, 15.371 Contatos, 2.761 Tarefas e 4.812 Notas — 10/11/2026)
-    const tecfagFullRdCrmMigrationName = "seed_tecfag_full_rd_crm_migration_2026_11_10_v1";
+    // 7. Migração Completa RD Station CRM -> Tecfag Chat (21.323 Negociações incluindo FUNIL SDR e FUNIL CWR, 6.877 Empresas, 18.315 Contatos, 3.090 Tarefas e 6.100 Notas — 10/11/2026)
+    const tecfagFullRdCrmMigrationName = "seed_tecfag_full_rd_crm_migration_2026_11_10_v2";
     const [appliedTecfagFullRdCrm] = await sql`
       SELECT name FROM app_deploy_migrations WHERE name = ${tecfagFullRdCrmMigrationName}
     `;

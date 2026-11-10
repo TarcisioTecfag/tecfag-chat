@@ -150,12 +150,29 @@ export async function runTecfagFullRdCrmMigration(sql) {
 
     const pipelineIdRemap = new Map();
 
-    // Ensure the 4 main pipelines exist
+    // Ensure the main pipelines exist (including FUNIL SDR and FUNIL CWR)
     for (const p of payload.pipelines || []) {
       if (p.id === "pipe-tecfag-testes") continue;
       let existing =
         dbPipelines.find((dp) => dp.id === p.id) ||
         dbPipelines.find((dp) => normKey(dp.name) === normKey(p.name));
+      if (!existing && p.id === "pipe-tecfag-cwr") {
+        existing = dbPipelines.find((dp) => {
+          const nk = normKey(dp.name);
+          return (
+            dp.id === "pipe-1793994432208-hydey" ||
+            nk === "funil cwr" ||
+            nk === "cwr" ||
+            nk.includes("cwr")
+          );
+        });
+      }
+      if (!existing && p.id === "pipe-tecfag-sdr") {
+        existing = dbPipelines.find((dp) => {
+          const nk = normKey(dp.name);
+          return nk === "funil sdr" || nk === "sdr" || nk.includes("sdr");
+        });
+      }
       if (!existing) {
         const [created] = await tx`
           INSERT INTO crm_pipelines (
@@ -192,7 +209,7 @@ export async function runTecfagFullRdCrmMigration(sql) {
         INSERT INTO crm_pipelines (
           id, tenant_id, name, order_index, is_default, color, cooling_days, created_at, updated_at
         ) VALUES (
-          'pipe-tecfag-testes', ${tenantId}, 'FUNIL TESTES', 8, false, '#64748b', 10, NOW(), NOW()
+          'pipe-tecfag-testes', ${tenantId}, 'FUNIL TESTES', 9, false, '#64748b', 10, NOW(), NOW()
         )
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
         RETURNING id, name, order_index
@@ -207,20 +224,107 @@ export async function runTecfagFullRdCrmMigration(sql) {
       SELECT id, pipeline_id, name, order_index
       FROM crm_stages
       WHERE tenant_id = ${tenantId}
+      ORDER BY order_index ASC, id ASC
     `;
     const stageIdRemap = new Map();
+
+    const matchCwrStage = (pipeStages, s) => {
+      for (const ds of pipeStages) {
+        const nk = normKey(ds.name);
+        if (s.id === "stg-tf-cwr-contatar" && nk === "contatar") return ds;
+        if (s.id === "stg-tf-cwr-contatando" && nk === "contatando") return ds;
+        if (
+          s.id === "stg-tf-cwr-pre-qualificando" &&
+          nk.includes("pre") &&
+          nk.includes("qualific")
+        ) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-qualificando" &&
+          !nk.includes("pre") &&
+          nk.includes("qualific")
+        ) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-agendando-mapeamento" &&
+          nk.includes("agendando") &&
+          nk.includes("mapeamento")
+        ) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-mapeamento-agendado" &&
+          !nk.includes("agendando") &&
+          nk.includes("mapeamento")
+        ) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-agendando-proposta" &&
+          nk.includes("agendando") &&
+          nk.includes("proposta")
+        ) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-proposta-agendada" &&
+          !nk.includes("agendando") &&
+          nk.includes("proposta")
+        ) {
+          return ds;
+        }
+        if (s.id === "stg-tf-cwr-acompanhando" && nk.includes("acompanhando")) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-conferindo-documentos" &&
+          (nk.includes("documento") || nk.includes("conferindo"))
+        ) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-aguardando-assinatura" &&
+          (nk.includes("assinatura") || nk.includes("pagamento"))
+        ) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-aguardando-faturamento" &&
+          nk.includes("faturamento")
+        ) {
+          return ds;
+        }
+        if (
+          s.id === "stg-tf-cwr-venda-concluida" &&
+          (nk.includes("venda") ||
+            nk.includes("concluid") ||
+            nk.includes("fechamento"))
+        ) {
+          return ds;
+        }
+      }
+      return (
+        pipeStages.find(
+          (ds) => Number(ds.order_index) === Number(s.order_index),
+        ) || null
+      );
+    };
 
     for (const s of payload.stages || []) {
       if (s.id === "stg-tf-testes-anteriores") continue;
       const targetPipeId =
         pipelineIdRemap.get(s.pipeline_id) || s.pipeline_id;
+      const pipeStages = dbStages.filter(
+        (ds) => ds.pipeline_id === targetPipeId,
+      );
       let existingStage =
         dbStages.find((ds) => ds.id === s.id) ||
-        dbStages.find(
-          (ds) =>
-            ds.pipeline_id === targetPipeId &&
-            normKey(ds.name) === normKey(s.name),
-        );
+        pipeStages.find((ds) => normKey(ds.name) === normKey(s.name));
+      if (!existingStage && s.pipeline_id === "pipe-tecfag-cwr") {
+        existingStage = matchCwrStage(pipeStages, s);
+      }
       if (!existingStage) {
         const [createdStg] = await tx`
           INSERT INTO crm_stages (
@@ -604,11 +708,11 @@ export async function runTecfagFullRdCrmMigration(sql) {
         ON CONFLICT (id) DO UPDATE SET
           title = EXCLUDED.title,
           account_id = COALESCE(EXCLUDED.account_id, crm_deals.account_id),
-          pipeline_id = EXCLUDED.pipeline_id,
-          stage_id = EXCLUDED.stage_id,
-          status = EXCLUDED.status,
-          value = EXCLUDED.value,
-          operator_id = EXCLUDED.operator_id,
+          pipeline_id = CASE WHEN crm_deals.updated_at >= '2026-11-10 12:00:00+00'::timestamptz THEN crm_deals.pipeline_id ELSE EXCLUDED.pipeline_id END,
+          stage_id = CASE WHEN crm_deals.updated_at >= '2026-11-10 12:00:00+00'::timestamptz THEN crm_deals.stage_id ELSE EXCLUDED.stage_id END,
+          status = CASE WHEN crm_deals.updated_at >= '2026-11-10 12:00:00+00'::timestamptz THEN crm_deals.status ELSE EXCLUDED.status END,
+          value = CASE WHEN crm_deals.updated_at >= '2026-11-10 12:00:00+00'::timestamptz THEN crm_deals.value ELSE EXCLUDED.value END,
+          operator_id = CASE WHEN crm_deals.updated_at >= '2026-11-10 12:00:00+00'::timestamptz THEN crm_deals.operator_id ELSE EXCLUDED.operator_id END,
           source = COALESCE(EXCLUDED.source, crm_deals.source),
           campaign = COALESCE(EXCLUDED.campaign, crm_deals.campaign),
           rating = EXCLUDED.rating,
@@ -617,8 +721,8 @@ export async function runTecfagFullRdCrmMigration(sql) {
           rd_deal_id = COALESCE(EXCLUDED.rd_deal_id, crm_deals.rd_deal_id),
           rd_deal_url = COALESCE(EXCLUDED.rd_deal_url, crm_deals.rd_deal_url),
           custom_fields = EXCLUDED.custom_fields,
-          closed_at = EXCLUDED.closed_at,
-          updated_at = EXCLUDED.updated_at
+          closed_at = COALESCE(crm_deals.closed_at, EXCLUDED.closed_at),
+          updated_at = CASE WHEN crm_deals.updated_at >= '2026-11-10 12:00:00+00'::timestamptz THEN crm_deals.updated_at ELSE EXCLUDED.updated_at END
       `;
     }
 

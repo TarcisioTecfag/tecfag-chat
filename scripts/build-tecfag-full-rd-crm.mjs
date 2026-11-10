@@ -4,22 +4,37 @@ import zlib from "node:zlib";
 import XLSX from "xlsx";
 
 const CSV_DIR = "C:/Users/TEC FAG/Downloads/Negociações e tarefas";
+const EXTRA_CSV_DIR = "C:/Users/TEC FAG/Downloads/Nova pasta (66)";
 const DEAL_FILES = [
   {
+    dir: CSV_DIR,
     file: "673b397d6c7532001f2b0508_deal_export_2026-11-10_07_28.csv",
     defaultPipeId: "pipe-tecfag-maquinas-2-0",
   },
   {
+    dir: CSV_DIR,
     file: "673b397d6c7532001f2b0508_deal_export_2026-11-10_07_28 (1).csv",
     defaultPipeId: "pipe-tecfag-personnalite",
   },
   {
+    dir: CSV_DIR,
     file: "673b397d6c7532001f2b0508_deal_export_2026-11-10_07_30 (1).csv",
     defaultPipeId: "pipe-tecfag-externo-2-0",
   },
   {
+    dir: CSV_DIR,
     file: "673b397d6c7532001f2b0508_deal_export_2026-11-10_07_30.csv",
     defaultPipeId: "pipe-tecfag-projetos",
+  },
+  {
+    dir: EXTRA_CSV_DIR,
+    file: "673b397d6c7532001f2b0508_deal_export_2026-11-10_11_21.csv",
+    defaultPipeId: "pipe-tecfag-cwr",
+  },
+  {
+    dir: EXTRA_CSV_DIR,
+    file: "673b397d6c7532001f2b0508_deal_export_2026-11-10_11_22.csv",
+    defaultPipeId: "pipe-tecfag-sdr",
   },
 ];
 const TASK_FILE = "673b397d6c7532001f2b0508_task_export_2026-11-10_07_33.csv";
@@ -488,6 +503,38 @@ const PIPELINE_STAGE_MAP = {
       [normKey("VISITA CONSULTIVA")]: "stg-tf-ext-visita-consultiva",
     },
   },
+  "pipe-tecfag-sdr": {
+    defaultStageId: "stg-tf-sdr-em-triagem",
+    stages: {
+      [normKey("PARA TRIAR")]: "stg-tf-sdr-para-triar",
+      [normKey("EM TRIAGEM")]: "stg-tf-sdr-em-triagem",
+      [normKey("PARA ANÁLISE")]: "stg-tf-sdr-para-analise",
+      [normKey("SEM RESPOSTA")]: "stg-tf-sdr-sem-resposta",
+      [normKey("ATIVOS")]: "stg-tf-sdr-ativos",
+      [normKey("DESQUALIFICADO")]: "stg-tf-sdr-desqualificado",
+      [normKey("REQUALIFICAÇÃO")]: "stg-tf-sdr-requalificacao",
+      [normKey("TECFAG CRM")]: "stg-tf-sdr-tecfag-crm",
+    },
+  },
+  "pipe-tecfag-cwr": {
+    defaultStageId: "stg-tf-cwr-contatar",
+    stages: {
+      [normKey("Contatar")]: "stg-tf-cwr-contatar",
+      [normKey("Contatando")]: "stg-tf-cwr-contatando",
+      [normKey("Pré-qualificando")]: "stg-tf-cwr-pre-qualificando",
+      [normKey("Qualificando")]: "stg-tf-cwr-qualificando",
+      [normKey("Agendando reunião de mapeamento")]: "stg-tf-cwr-agendando-mapeamento",
+      [normKey("Reunião de mapeamento agendada")]: "stg-tf-cwr-mapeamento-agendado",
+      [normKey("Mapeamento agendado")]: "stg-tf-cwr-mapeamento-agendado",
+      [normKey("Agendando apresentação de proposta")]: "stg-tf-cwr-agendando-proposta",
+      [normKey("Apresentação de proposta agendada")]: "stg-tf-cwr-proposta-agendada",
+      [normKey("Acompanhando")]: "stg-tf-cwr-acompanhando",
+      [normKey("Conferindo documentos")]: "stg-tf-cwr-conferindo-documentos",
+      [normKey("Aguardando assinatura/pagamento")]: "stg-tf-cwr-aguardando-assinatura",
+      [normKey("Aguardando faturamento")]: "stg-tf-cwr-aguardando-faturamento",
+      [normKey("Venda concluída")]: "stg-tf-cwr-venda-concluida",
+    },
+  },
 };
 
 function resolvePipelineId(rawFunnelName, fallbackPipeId) {
@@ -498,6 +545,8 @@ function resolvePipelineId(rawFunnelName, fallbackPipeId) {
   }
   if (k.includes("projeto")) return "pipe-tecfag-projetos";
   if (k.includes("externo")) return "pipe-tecfag-externo-2-0";
+  if (k.includes("sdr")) return "pipe-tecfag-sdr";
+  if (k.includes("esforco") || k.includes("cwr")) return "pipe-tecfag-cwr";
   return fallbackPipeId;
 }
 
@@ -720,22 +769,52 @@ const fullSeed = JSON.parse(
   zlib.gunzipSync(fs.readFileSync(FULL_SEED_PATH)).toString("utf8"),
 );
 
-// Keep only the 4 relevant pipelines + FUNIL TESTES
+// Keep the relevant pipelines + FUNIL SDR + FUNIL CWR + FUNIL TESTES
 const RELEVANT_PIPE_IDS = new Set([
   "pipe-tecfag-maquinas-2-0",
   "pipe-tecfag-personnalite",
   "pipe-tecfag-projetos",
   "pipe-tecfag-externo-2-0",
+  "pipe-tecfag-sdr",
+  "pipe-tecfag-cwr",
   "pipe-tecfag-testes",
 ]);
+
+const CWR_STAGE_DEFS = [
+  { id: "stg-tf-cwr-contatar", name: "CONTATAR", order_index: 0, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-contatando", name: "CONTATANDO", order_index: 1, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-pre-qualificando", name: "PRÉ-QUALIFICANDO", order_index: 2, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-qualificando", name: "QUALIFICANDO", order_index: 3, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-agendando-mapeamento", name: "AGENDANDO REUNIÃO DE MAPEAMENTO", order_index: 4, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-mapeamento-agendado", name: "MAPEAMENTO AGENDADO", order_index: 5, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-agendando-proposta", name: "AGENDANDO APRESENTAÇÃO DE PROPOSTA", order_index: 6, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-proposta-agendada", name: "APRESENTAÇÃO DE PROPOSTA AGENDADA", order_index: 7, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-acompanhando", name: "ACOMPANHANDO", order_index: 8, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-conferindo-documentos", name: "CONFERINDO DOCUMENTOS", order_index: 9, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-aguardando-assinatura", name: "AGUARDANDO ASSINATURA/PAGAMENTO", order_index: 10, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-aguardando-faturamento", name: "AGUARDANDO FATURAMENTO", order_index: 11, is_win_stage: false, is_loss_stage: false },
+  { id: "stg-tf-cwr-venda-concluida", name: "VENDA CONCLUIDA", order_index: 12, is_win_stage: true, is_loss_stage: false },
+];
 
 const pipelines = [
   ...fullSeed.pipelines.filter((p) => RELEVANT_PIPE_IDS.has(p.id)),
   {
+    id: "pipe-tecfag-cwr",
+    tenant_id: "tecfag",
+    name: "FUNIL CWR",
+    order_index: 8,
+    is_default: false,
+    color: "#0ea5e9",
+    cooling_days: 10,
+    rd_pipeline_id: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
     id: "pipe-tecfag-testes",
     tenant_id: "tecfag",
     name: "FUNIL TESTES",
-    order_index: 8,
+    order_index: 9,
     is_default: false,
     color: "#64748b",
     cooling_days: 10,
@@ -747,6 +826,28 @@ const pipelines = [
 
 const stages = [
   ...fullSeed.stages.filter((s) => RELEVANT_PIPE_IDS.has(s.pipeline_id)),
+  {
+    id: "stg-tf-sdr-tecfag-crm",
+    tenant_id: "tecfag",
+    pipeline_id: "pipe-tecfag-sdr",
+    name: "TECFAG CRM",
+    order_index: 7,
+    is_win_stage: false,
+    is_loss_stage: false,
+    required_fields: [],
+    rd_stage_id: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  ...CWR_STAGE_DEFS.map((st) => ({
+    ...st,
+    tenant_id: "tecfag",
+    pipeline_id: "pipe-tecfag-cwr",
+    required_fields: [],
+    rd_stage_id: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })),
   {
     id: "stg-tf-testes-anteriores",
     tenant_id: "tecfag",
@@ -973,7 +1074,7 @@ let totalDealRows = 0;
 let legacyDealsToViniciusTestes = 0;
 
 for (const df of DEAL_FILES) {
-  const filePath = path.join(CSV_DIR, df.file);
+  const filePath = path.join(df.dir || CSV_DIR, df.file);
   const rows = readRdCsv(filePath);
   totalDealRows += rows.length;
 
