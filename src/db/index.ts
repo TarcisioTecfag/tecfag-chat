@@ -416,6 +416,17 @@ export async function verifyDatabaseCompatibility(): Promise<void> {
       ALTER TABLE operators ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE crm_deal_activities ADD COLUMN IF NOT EXISTS assigned_to_operator_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
       ALTER TABLE crm_deal_activities ADD COLUMN IF NOT EXISTS edit_history JSONB NOT NULL DEFAULT '[]'::jsonb;
+      CREATE TABLE IF NOT EXISTS crm_deal_file_chunks (
+        id TEXT PRIMARY KEY,
+        file_id TEXT NOT NULL REFERENCES crm_deal_files(id) ON DELETE CASCADE,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        chunk_index INTEGER NOT NULL,
+        chunk_base64 TEXT NOT NULL,
+        byte_length INTEGER NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_deal_file_chunks_file_idx ON crm_deal_file_chunks(file_id, chunk_index);
+      CREATE INDEX IF NOT EXISTS idx_crm_deal_file_chunks_tenant_file ON crm_deal_file_chunks(tenant_id, file_id);
     `);
     console.log("[db] ✓ Compatibilidade do schema verificada com sucesso.");
   } catch (e: any) {

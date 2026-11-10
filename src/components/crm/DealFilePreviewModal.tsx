@@ -16,8 +16,8 @@ import {
   RotateCw,
   Loader2,
   AlertCircle,
-  Eye,
 } from "lucide-react";
+import { toast } from "sonner";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import { AudioWithSpeed } from "@/components/ui/audio-with-speed";
 
@@ -49,6 +49,75 @@ export function formatBytes(bytes: number, decimals = 1): string {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
+export function stripDownloadParamFromFileUrl(rawUrl: string): string {
+  if (!rawUrl) return "";
+  return rawUrl
+    .replace(/([?&])download=1(&|$)/, (_m, sep, tail) => (tail === "&" ? sep : ""))
+    .replace(/[?&]$/, "");
+}
+
+export function ensureDownloadParamOnFileUrl(rawUrl: string): string {
+  if (!rawUrl) return "";
+  if (!rawUrl.includes("/api/crm/deals/") || !rawUrl.includes("/files")) {
+    return rawUrl;
+  }
+  if (/[?&]download=1(?:&|$)/.test(rawUrl)) return rawUrl;
+  return `${rawUrl}${rawUrl.includes("?") ? "&" : "?"}download=1`;
+}
+
+/**
+ * Realiza checagem prévia leve (HEAD) autenticada antes de disparar o download nativo do navegador.
+ * Evita abrir abas de erro JSON (404/401) ou falhar silenciosamente em vídeos e anexos grandes.
+ */
+export async function downloadDealFileSafely(rawUrl: string, fileName: string): Promise<boolean> {
+  const targetUrl = ensureDownloadParamOnFileUrl(rawUrl);
+  if (!targetUrl) return false;
+
+  try {
+    if (targetUrl.startsWith("/") || targetUrl.startsWith(window.location.origin)) {
+      let checkRes = await fetch(targetUrl, {
+        method: "HEAD",
+        credentials: "include",
+      });
+
+      if (checkRes.status === 405) {
+        checkRes = await fetch(targetUrl, {
+          method: "GET",
+          headers: { Range: "bytes=0-0" },
+          credentials: "include",
+        });
+      }
+
+      if (!checkRes.ok) {
+        if (checkRes.status === 404) {
+          toast.error(
+            `O arquivo "${fileName}" foi anexado antes da ativação do armazenamento permanente no banco e não está mais disponível no container. Reenvie o arquivo para restaurá-lo.`
+          );
+        } else if (checkRes.status === 401) {
+          toast.error("Sua sessão expirou. Recarregue a página e tente baixar novamente.");
+        } else if (checkRes.status === 403) {
+          toast.error("Você não tem permissão para baixar este arquivo.");
+        } else {
+          toast.error(`Não foi possível baixar "${fileName}" (código ${checkRes.status}).`);
+        }
+        return false;
+      }
+    }
+
+    const anchor = document.createElement("a");
+    anchor.href = targetUrl;
+    anchor.download = fileName || "arquivo";
+    anchor.rel = "noopener noreferrer";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return true;
+  } catch {
+    toast.error(`Falha de conexão ao tentar baixar "${fileName}".`);
+    return false;
+  }
 }
 
 export type FileCategory =
@@ -195,6 +264,8 @@ export function DealFilePreviewModal({
   const [loadingText, setLoadingText] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [mediaLoadError, setMediaLoadError] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     setZoom(1);
@@ -202,6 +273,8 @@ export function DealFilePreviewModal({
     setTextContent(null);
     setConfirmDelete(false);
     setIsDeleting(false);
+    setMediaLoadError(false);
+    setIsDownloading(false);
 
     if (isOpen && file) {
       const cat = getFileCategory(file.fileName, file.mimeType);
@@ -209,7 +282,7 @@ export function DealFilePreviewModal({
       if (cat === "text" || ext === "csv") {
         setLoadingText(true);
         const targetUrl = file.url || `/api/crm/deals/${file.dealId}/files/${file.id}`;
-        fetch(targetUrl)
+        fetch(targetUrl, { credentials: "include" })
           .then((res) => (res.ok ? res.text() : Promise.reject("Falha ao carregar")))
           .then((text) => setTextContent(text.slice(0, 50000))) // Limite de 50KB para preview rápido
           .catch(() => setTextContent(null))
@@ -231,13 +304,27 @@ export function DealFilePreviewModal({
 
   if (!isOpen || !file) return null;
 
-  const fileUrl = file.url || `/api/crm/deals/${file.dealId}/files/${file.id}`;
-  const downloadUrl =
-    file.downloadUrl || `/api/crm/deals/${file.dealId}/files/${file.id}?download=1`;
+  const fileUrl = stripDownloadParamFromFileUrl(
+    file.url || `/api/crm/deals/${file.dealId}/files/${file.id}`
+  );
+  const downloadUrl = ensureDownloadParamOnFileUrl(
+    file.downloadUrl || `/api/crm/deals/${file.dealId}/files/${file.id}?download=1`
+  );
   const category = getFileCategory(file.fileName, file.mimeType);
   const badge = getCategoryBadge(category, file.fileName);
   const BadgeIcon = badge.icon;
   const ext = (file.fileName.split(".").pop() || "").toLowerCase();
+
+  const handleSafeDownload = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      await downloadDealFileSafely(downloadUrl, file.fileName);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!onDelete) return;
@@ -250,6 +337,23 @@ export function DealFilePreviewModal({
       setConfirmDelete(false);
     }
   };
+
+  const renderMissingBinaryNotice = () => (
+    <div className="w-full max-w-md p-6 rounded-2xl bg-card border border-border shadow-lg flex flex-col items-center gap-3 text-center">
+      <div className="h-14 w-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center">
+        <AlertCircle className="h-7 w-7" />
+      </div>
+      <div>
+        <h4 className="text-sm font-bold text-foreground">{file.fileName}</h4>
+        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+          Este arquivo foi anexado antes da ativação do armazenamento permanente em banco de dados e seu conteúdo temporário foi limpo em um deploy anterior.
+        </p>
+      </div>
+      <p className="text-[11px] text-muted-foreground/80">
+        Reenvie o arquivo na negociação ou edite a anotação para gravá-lo de forma definitiva.
+      </p>
+    </div>
+  );
 
   return (
     <div
@@ -305,7 +409,7 @@ export function DealFilePreviewModal({
           {/* Ações do Topo */}
           <div className="flex items-center gap-1.5 shrink-0">
             {/* Controles de Imagem (Zoom/Rotação) */}
-            {category === "image" && (
+            {category === "image" && !mediaLoadError && (
               <div className="hidden sm:flex items-center gap-1 mr-2 bg-muted/60 rounded-lg p-0.5 border border-border">
                 <SystemTooltip content="Zoom Out (-25%)">
                   <button
@@ -355,14 +459,19 @@ export function DealFilePreviewModal({
 
             {/* Baixar */}
             <SystemTooltip content="Baixar para seu computador">
-              <a
-                href={downloadUrl}
-                download={file.fileName}
-                className="h-8 px-3 rounded-lg bg-primary hover:bg-primary/90 text-xs font-bold text-primary-foreground flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+              <button
+                type="button"
+                disabled={isDownloading}
+                onClick={handleSafeDownload}
+                className="h-8 px-3 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-60 text-xs font-bold text-primary-foreground flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
               >
-                <Download className="h-3.5 w-3.5" />
+                {isDownloading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
                 <span>Baixar</span>
-              </a>
+              </button>
             </SystemTooltip>
 
             {/* Excluir */}
@@ -418,33 +527,43 @@ export function DealFilePreviewModal({
         <div className="relative flex-1 min-h-[350px] max-h-[calc(92vh-64px)] overflow-auto bg-muted/20 flex items-center justify-center p-4">
           {/* 1. IMAGEM */}
           {category === "image" && (
-            <div className="flex items-center justify-center w-full h-full min-h-[300px] overflow-hidden">
-              <img
-                src={fileUrl}
-                alt={file.fileName}
-                style={{
-                  transform: `scale(${zoom}) rotate(${rotation}deg)`,
-                  transition: "transform 0.15s ease",
-                }}
-                className="max-h-[72vh] max-w-full object-contain rounded-lg shadow-md cursor-grab active:cursor-grabbing"
-              />
-            </div>
+            mediaLoadError ? (
+              renderMissingBinaryNotice()
+            ) : (
+              <div className="flex items-center justify-center w-full h-full min-h-[300px] overflow-hidden">
+                <img
+                  src={fileUrl}
+                  alt={file.fileName}
+                  onError={() => setMediaLoadError(true)}
+                  style={{
+                    transform: `scale(${zoom}) rotate(${rotation}deg)`,
+                    transition: "transform 0.15s ease",
+                  }}
+                  className="max-h-[72vh] max-w-full object-contain rounded-lg shadow-md cursor-grab active:cursor-grabbing"
+                />
+              </div>
+            )
           )}
 
           {/* 2. VÍDEO */}
           {category === "video" && (
-            <div className="w-full max-w-4xl flex flex-col items-center justify-center">
-              <video
-                src={fileUrl}
-                controls
-                playsInline
-                autoPlay={false}
-                preload="metadata"
-                className="max-h-[70vh] w-full rounded-xl bg-black shadow-lg"
-              >
-                Seu navegador não suporta a tag de vídeo HTML5.
-              </video>
-            </div>
+            mediaLoadError ? (
+              renderMissingBinaryNotice()
+            ) : (
+              <div className="w-full max-w-4xl flex flex-col items-center justify-center">
+                <video
+                  src={fileUrl}
+                  controls
+                  playsInline
+                  autoPlay={false}
+                  preload="metadata"
+                  onError={() => setMediaLoadError(true)}
+                  className="max-h-[70vh] w-full rounded-xl bg-black shadow-lg"
+                >
+                  Seu navegador não suporta a tag de vídeo HTML5.
+                </video>
+              </div>
+            )
           )}
 
           {/* 3. ÁUDIO */}
@@ -468,7 +587,7 @@ export function DealFilePreviewModal({
             <div className="w-full h-full min-h-[500px]">
               <iframe
                 src={`${fileUrl}#toolbar=1&navpanes=0`}
-                title={file.fileName}
+                aria-label={file.fileName}
                 className="w-full h-[74vh] rounded-xl border border-border bg-white"
               />
             </div>
@@ -493,12 +612,13 @@ export function DealFilePreviewModal({
                   <div className="flex flex-col items-center justify-center h-48 text-muted-foreground gap-2">
                     <AlertCircle className="h-6 w-6 text-amber-500" />
                     <span>Não foi possível gerar a prévia textual direta.</span>
-                    <a
-                      href={downloadUrl}
-                      className="text-primary hover:underline font-semibold"
+                    <button
+                      type="button"
+                      onClick={handleSafeDownload}
+                      className="text-primary hover:underline font-semibold cursor-pointer"
                     >
                       Baixar arquivo para visualizar
-                    </a>
+                    </button>
                   </div>
                 )}
               </div>
@@ -530,14 +650,15 @@ export function DealFilePreviewModal({
                   <ExternalLink className="h-3.5 w-3.5" />
                   <span>Abrir no Navegador</span>
                 </a>
-                <a
-                  href={downloadUrl}
-                  download={file.fileName}
-                  className="flex-1 h-9 rounded-xl bg-primary hover:bg-primary/90 text-xs font-bold text-primary-foreground flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                <button
+                  type="button"
+                  disabled={isDownloading}
+                  onClick={handleSafeDownload}
+                  className="flex-1 h-9 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-60 text-xs font-bold text-primary-foreground flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Baixar Planilha</span>
-                </a>
+                </button>
               </div>
             </div>
           )}
@@ -567,14 +688,15 @@ export function DealFilePreviewModal({
                   <ExternalLink className="h-3.5 w-3.5" />
                   <span>Ver em Nova Guia</span>
                 </a>
-                <a
-                  href={downloadUrl}
-                  download={file.fileName}
-                  className="flex-1 h-9 rounded-xl bg-primary hover:bg-primary/90 text-xs font-bold text-primary-foreground flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                <button
+                  type="button"
+                  disabled={isDownloading}
+                  onClick={handleSafeDownload}
+                  className="flex-1 h-9 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-60 text-xs font-bold text-primary-foreground flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Baixar Documento</span>
-                </a>
+                </button>
               </div>
             </div>
           )}
@@ -595,14 +717,15 @@ export function DealFilePreviewModal({
                 Pacote com múltiplos itens compactados. Faça o download para descompactar os arquivos no seu computador.
               </p>
               <div className="flex items-center gap-2 mt-2 w-full">
-                <a
-                  href={downloadUrl}
-                  download={file.fileName}
-                  className="w-full h-9 rounded-xl bg-primary hover:bg-primary/90 text-xs font-bold text-primary-foreground flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                <button
+                  type="button"
+                  disabled={isDownloading}
+                  onClick={handleSafeDownload}
+                  className="w-full h-9 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-60 text-xs font-bold text-primary-foreground flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Baixar Arquivo Compactado</span>
-                </a>
+                </button>
               </div>
             </div>
           )}
@@ -620,14 +743,15 @@ export function DealFilePreviewModal({
                 </p>
               </div>
               <div className="flex items-center gap-2 mt-2 w-full">
-                <a
-                  href={downloadUrl}
-                  download={file.fileName}
-                  className="w-full h-9 rounded-xl bg-primary hover:bg-primary/90 text-xs font-bold text-primary-foreground flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                <button
+                  type="button"
+                  disabled={isDownloading}
+                  onClick={handleSafeDownload}
+                  className="w-full h-9 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-60 text-xs font-bold text-primary-foreground flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Baixar Arquivo</span>
-                </a>
+                </button>
               </div>
             </div>
           )}

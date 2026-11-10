@@ -57,6 +57,7 @@ import {
   ChevronDown,
   ChevronUp,
   Search,
+  ImageIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -86,6 +87,8 @@ import {
   getFileCategory,
   getCategoryBadge,
   formatBytes,
+  downloadDealFileSafely,
+  stripDownloadParamFromFileUrl,
 } from "./DealFilePreviewModal";
 import {
   Select,
@@ -183,6 +186,132 @@ export function normalizeMultilineMarkdown(rawText: string): string {
   return text;
 }
 
+function NoteInlineImage({ src, alt }: { src: string; alt?: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    const fallbackName = (alt || "Imagem da anotação").trim();
+    return (
+      <div className="my-1.5 flex items-center gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs max-w-md">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-500">
+          <ImageIcon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-bold text-foreground">{fallbackName}</p>
+          <p className="text-[10px] text-muted-foreground leading-snug">
+            Imagem enviada antes da persistência permanente — edite a anotação (lápis) para reenviá-la
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="my-1.5 inline-block max-w-full overflow-hidden rounded-lg border border-border bg-muted/20 hover:border-primary/50 transition-colors"
+    >
+      <img
+        src={src}
+        alt={alt || "Imagem da anotação"}
+        onError={() => setFailed(true)}
+        className="max-h-64 max-w-full object-contain rounded-lg block"
+        loading="lazy"
+      />
+    </a>
+  );
+}
+
+function NoteInlineAttachmentCard({
+  href,
+  displayFileName,
+  displaySize,
+}: {
+  href: string;
+  displayFileName: string;
+  displaySize: string | null;
+}) {
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [mediaFailed, setMediaFailed] = useState(false);
+
+  const cat = getFileCategory(displayFileName, "");
+  const badge = getCategoryBadge(cat, displayFileName);
+  const BadgeIcon = badge.icon;
+  const inlineMediaUrl = stripDownloadParamFromFileUrl(href);
+
+  const handleDownloadClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const ok = await downloadDealFileSafely(href, displayFileName);
+      if (!ok) {
+        setMediaFailed(true);
+      }
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  return (
+    <div className="my-1.5 max-w-md space-y-1.5">
+      {cat === "video" && !mediaFailed && inlineMediaUrl && (
+        <div className="overflow-hidden rounded-xl border border-border bg-black/90 shadow-2xs">
+          <video
+            controls
+            playsInline
+            preload="metadata"
+            src={inlineMediaUrl}
+            onError={() => setMediaFailed(true)}
+            className="max-h-64 w-full object-contain block"
+          />
+        </div>
+      )}
+
+      {cat === "audio" && !mediaFailed && inlineMediaUrl && (
+        <div className="rounded-xl border border-border bg-card p-2.5 shadow-2xs">
+          <AudioWithSpeed src={inlineMediaUrl} className="w-full" audioClassName="h-8 flex-1 min-w-0" />
+        </div>
+      )}
+
+      <button
+        type="button"
+        disabled={isDownloading}
+        onClick={handleDownloadClick}
+        className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-left text-xs shadow-2xs transition-colors max-w-sm group cursor-pointer ${
+          mediaFailed
+            ? "border-amber-500/25 bg-amber-500/[0.06] hover:bg-amber-500/10"
+            : "border-border bg-card hover:border-primary/50 hover:bg-muted/30"
+        }`}
+      >
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${badge.color}`}>
+          <BadgeIcon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-bold text-foreground group-hover:text-primary transition-colors">
+            {displayFileName}
+          </p>
+          <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">
+            {badge.label}
+            {displaySize ? ` • ${displaySize}` : ""}
+            {mediaFailed ? " • REENVIAR NA NOTA" : ""}
+          </p>
+        </div>
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+          {isDownloading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+        </div>
+      </button>
+    </div>
+  );
+}
+
 export function renderInlineMarkdown(text: string, depth = 0): React.ReactNode {
   if (!text) return "";
   if (depth > 4) return text;
@@ -205,22 +334,7 @@ export function renderInlineMarkdown(text: string, depth = 0): React.ReactNode {
         cleanUrl.startsWith("/")
           ? cleanUrl
           : `https://${cleanUrl}`;
-      return (
-        <a
-          key={index}
-          href={src}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="my-1.5 inline-block max-w-full overflow-hidden rounded-lg border border-border bg-muted/20 hover:border-primary/50 transition-colors"
-        >
-          <img
-            src={src}
-            alt={alt || "Imagem da anotação"}
-            className="max-h-64 max-w-full object-contain rounded-lg block"
-            loading="lazy"
-          />
-        </a>
-      );
+      return <NoteInlineImage key={index} src={src} alt={alt} />;
     }
 
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
@@ -236,40 +350,20 @@ export function renderInlineMarkdown(text: string, depth = 0): React.ReactNode {
           : `https://${cleanUrl}`;
 
       const isAttachmentLink =
-        label.trim().startsWith("📎") || cleanUrl.includes("/api/crm/deals/") && cleanUrl.includes("/files/");
+        label.trim().startsWith("📎") || (cleanUrl.includes("/api/crm/deals/") && cleanUrl.includes("/files/"));
       if (isAttachmentLink) {
         const cleanLabel = label.replace(/^📎\s*/, "").trim();
         const sizeMatch = cleanLabel.match(/^(.*?)\s*\(([^)]+)\)$/);
         const displayFileName = sizeMatch ? sizeMatch[1].trim() : cleanLabel;
         const displaySize = sizeMatch ? sizeMatch[2].trim() : null;
-        const cat = getFileCategory(displayFileName, "");
-        const badge = getCategoryBadge(cat, displayFileName);
-        const BadgeIcon = badge.icon;
 
         return (
-          <a
+          <NoteInlineAttachmentCard
             key={index}
             href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            download={displayFileName}
-            className="my-1.5 flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2 text-xs shadow-2xs hover:border-primary/50 hover:bg-muted/30 transition-colors max-w-sm no-underline group"
-          >
-            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${badge.color}`}>
-              <BadgeIcon className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-bold text-foreground group-hover:text-primary transition-colors">
-                {displayFileName}
-              </p>
-              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">
-                {badge.label}{displaySize ? ` • ${displaySize}` : ""}
-              </p>
-            </div>
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-              <Download className="h-3.5 w-3.5" />
-            </div>
-          </a>
+            displayFileName={displayFileName}
+            displaySize={displaySize}
+          />
         );
       }
 
@@ -899,7 +993,7 @@ export function DealDetailModal({
   const [previewFile, setPreviewFile] = useState<DealFileItem | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [filesCategoryFilter, setFilesCategoryFilter] = useState<
-    "all" | "image" | "spreadsheet" | "pdf" | "document" | "archive" | "other"
+    "all" | "image" | "video" | "spreadsheet" | "pdf" | "document" | "archive" | "other"
   >("all");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -6547,6 +6641,7 @@ export function DealDetailModal({
                         const normalizeGroup = (f: any) => {
                           const cat = getFileCategory(f.fileName || "", f.mimeType || "");
                           if (cat === "image") return "image";
+                          if (cat === "video" || cat === "audio") return "video";
                           if (cat === "spreadsheet") return "spreadsheet";
                           if (cat === "pdf") return "pdf";
                           if (cat === "document" || cat === "text") return "document";
@@ -6556,6 +6651,7 @@ export function DealDetailModal({
                         const counts: Record<string, number> = {
                           all: allFiles.length,
                           image: 0,
+                          video: 0,
                           spreadsheet: 0,
                           pdf: 0,
                           document: 0,
@@ -6570,6 +6666,7 @@ export function DealDetailModal({
                         const filterTabs = [
                           { key: "all", label: "Todos" },
                           { key: "image", label: "Fotos & Imagens" },
+                          { key: "video", label: "Vídeos & Áudios" },
                           { key: "spreadsheet", label: "Planilhas" },
                           { key: "pdf", label: "PDFs" },
                           { key: "document", label: "Word & Docs" },
@@ -6694,14 +6791,16 @@ export function DealDetailModal({
                                         </SystemTooltip>
 
                                         <SystemTooltip content="Baixar para seu computador">
-                                          <a
-                                            href={downloadUrl}
-                                            download={file.fileName}
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              void downloadDealFileSafely(downloadUrl, file.fileName);
+                                            }}
                                             className="h-8 px-2.5 rounded-lg border border-border bg-muted/30 text-xs font-semibold text-foreground hover:bg-muted transition-colors flex items-center gap-1.5 cursor-pointer"
                                           >
                                             <Download className="h-3.5 w-3.5" />
                                             <span className="hidden sm:inline">Baixar</span>
-                                          </a>
+                                          </button>
                                         </SystemTooltip>
 
                                         <SystemTooltip content="Excluir arquivo permanentemente">

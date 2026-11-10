@@ -1,54 +1,27 @@
 import { requireCrmDealAccess } from "../../../../../lib/access-control/crm-record-access";
 import { createFileRoute } from "@tanstack/react-router";
-import fs from "fs";
-import path from "path";
 import { requireSession } from "../../../../../lib/auth-session";
 import { requireCrmPermission } from "../../../../../lib/rbac";
 import { crmService, handleCrmError } from "../../../../../lib/crm/crm-service";
 import { recordCrmAction } from "../../../../../lib/crm/action-history";
+import {
+  buildDealFileHttpResponse,
+  buildDefaultDealFileCachePath,
+  resolveDealFileMimeType,
+  writeDealFileLocalCache,
+} from "../../../../../lib/crm/deal-file-storage";
 import { db } from "../../../../../db";
-import { crmDeals, crmDealFiles } from "../../../../../db/schema";
+import { crmDeals } from "../../../../../db/schema";
 import { eq, and } from "drizzle-orm";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, Range",
+  "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges, Content-Disposition",
 };
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
-
-function serveDiskFile(file: any, isDownload: boolean) {
-  let diskPath = file.storagePath;
-  if (diskPath && !path.isAbsolute(diskPath)) {
-    diskPath = path.resolve(process.cwd(), diskPath);
-  }
-
-  if (!diskPath || !fs.existsSync(diskPath)) {
-    return new Response(
-      JSON.stringify({ error: "Arquivo físico não encontrado no servidor.", code: "FILE_NOT_FOUND" }),
-      { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-
-  const stats = fs.statSync(diskPath);
-  const fileBuffer = fs.readFileSync(diskPath);
-  const disposition = isDownload ? "attachment" : "inline";
-  const safeAsciiName = file.fileName.replace(/[^\x20-\x7E]/g, "_");
-  const encodedUtf8Name = encodeURIComponent(file.fileName);
-
-  return new Response(fileBuffer, {
-    status: 200,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": file.mimeType || "application/octet-stream",
-      "Content-Length": stats.size.toString(),
-      "Content-Disposition": `${disposition}; filename="${safeAsciiName}"; filename*=UTF-8''${encodedUtf8Name}`,
-      "Cache-Control": "private, max-age=86400",
-      "Accept-Ranges": "bytes",
-    },
-  });
-}
 
 export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
   server: {
@@ -56,8 +29,50 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
 
       /**
+       * HEAD /api/crm/deals/:dealId/files?fileId=...
+       * Verifica disponibilidade e tamanho do arquivo sem transferir o binário completo.
+       */
+      HEAD: async ({ request, params }) => {
+        try {
+          const auth = await requireSession(request);
+          if ("response" in auth) return auth.response;
+          const { session } = auth;
+          const tenantId = session.tenantId;
+          const recordDenied = await requireCrmDealAccess(session, (params as { dealId: string }).dealId);
+          if (recordDenied) return recordDenied;
+
+          const permError = requireCrmPermission(session, "canViewCrm");
+          if (permError) return permError;
+
+          const { dealId } = params as { dealId: string };
+          const url = new URL(request.url);
+          const requestedFileId = url.searchParams.get("fileId");
+          if (!requestedFileId) {
+            return new Response(null, { status: 200, headers: corsHeaders });
+          }
+
+          const file = await crmService.getDealFileById(tenantId, dealId, requestedFileId);
+          if (!file) {
+            return new Response(null, { status: 404, headers: corsHeaders });
+          }
+
+          const isDownload = url.searchParams.get("download") === "1";
+          return await buildDealFileHttpResponse({
+            request,
+            tenantId,
+            file,
+            isDownload,
+            corsHeaders,
+            headOnly: true,
+          });
+        } catch (error) {
+          return handleCrmError(error, corsHeaders);
+        }
+      },
+
+      /**
        * GET /api/crm/deals/:dealId/files
-       * Se ?fileId=... for passado, transmite o arquivo binário diretamente.
+       * Se ?fileId=... for passado, transmite o arquivo binário diretamente (com suporte a HTTP Range e autocura via PostgreSQL).
        * Caso contrário, lista todos os arquivos da negociação com URLs de visualização e download.
        */
       GET: async ({ request, params }) => {
@@ -100,7 +115,13 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
               );
             }
             const isDownload = url.searchParams.get("download") === "1";
-            return serveDiskFile(file, isDownload);
+            return await buildDealFileHttpResponse({
+              request,
+              tenantId,
+              file,
+              isDownload,
+              corsHeaders,
+            });
           }
 
           const files = await crmService.getDealFiles(tenantId, dealId);
@@ -121,8 +142,9 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
 
       /**
        * POST /api/crm/deals/:dealId/files
-       * Suporta multipart/form-data com upload direto de arquivos de até 100MB da máquina local,
-       * ou JSON com metadados para retrocompatibilidade.
+       * Suporta multipart/form-data com upload direto de arquivos de até 100MB da máquina local
+       * (persistidos de forma durável em blocos no PostgreSQL + cache em disco local),
+       * ou JSON com metadados/base64 para retrocompatibilidade.
        */
       POST: async ({ request, params }) => {
         try {
@@ -178,11 +200,6 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
               );
             }
 
-            const uploadDir = path.join(process.cwd(), "uploads", "crm", tenantId, dealId);
-            if (!fs.existsSync(uploadDir)) {
-              fs.mkdirSync(uploadDir, { recursive: true });
-            }
-
             const uploadedResults = [];
             for (const f of filesToProcess) {
               if (f.size > MAX_FILE_SIZE) {
@@ -196,20 +213,30 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
               }
 
               const fileId = `dfile-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-              const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-              const diskPath = path.join(uploadDir, `${fileId}_${safeName}`);
               const buffer = Buffer.from(await f.arrayBuffer());
-              await fs.promises.writeFile(diskPath, buffer);
+              const resolvedMime = resolveDealFileMimeType(f.name, f.type);
+              const preferredCachePath = buildDefaultDealFileCachePath(tenantId, dealId, fileId, f.name);
+              const diskPath = await writeDealFileLocalCache(
+                tenantId,
+                dealId,
+                fileId,
+                f.name,
+                buffer,
+                preferredCachePath
+              );
 
               const saved = await crmService.uploadDealFile(tenantId, dealId, session.operator.id, {
+                id: fileId,
                 fileName: f.name,
-                fileSize: f.size,
-                mimeType: f.type || "application/octet-stream",
+                fileSize: buffer.length,
+                mimeType: resolvedMime,
                 storagePath: diskPath,
                 conversationId: (formData.get("conversationId") as string) || null,
+                contentBuffer: buffer,
                 metadata: {
                   originalName: f.name,
                   diskPath,
+                  persistedInDb: true,
                   uploadedFrom: "desktop_upload",
                 },
               });
@@ -251,10 +278,13 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
           const file = await crmService.uploadDealFile(tenantId, dealId, session.operator.id, {
             fileName: body.fileName,
             fileSize: body.fileSize,
-            mimeType: body.mimeType || "application/octet-stream",
-            storagePath: body.storagePath || `/crm-uploads/${dealId}/${Date.now()}_${body.fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`,
+            mimeType: resolveDealFileMimeType(body.fileName, body.mimeType),
+            storagePath:
+              body.storagePath ||
+              `/crm-uploads/${dealId}/${Date.now()}_${body.fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`,
             conversationId: body.conversationId || null,
             metadata: body.metadata || {},
+            base64Data: typeof body.base64Data === "string" ? body.base64Data : null,
           });
 
           return new Response(
@@ -305,9 +335,15 @@ export const Route = createFileRoute("/api/crm/deals/$dealId/files")({
           }
 
           await crmService.deleteDealFile(tenantId, dealId, fileId, session.operator.id);
-          await recordCrmAction({ tenantId, operatorId: session.operator.id, operatorName: session.operator.name,
-            action: "delete_deal_file", entityType: "deal_file", itemCount: 1,
-            details: { dealId, fileId } });
+          await recordCrmAction({
+            tenantId,
+            operatorId: session.operator.id,
+            operatorName: session.operator.name,
+            action: "delete_deal_file",
+            entityType: "deal_file",
+            itemCount: 1,
+            details: { dealId, fileId },
+          });
 
           return new Response(JSON.stringify({ success: true, message: "Arquivo excluído com sucesso." }), {
             status: 200,

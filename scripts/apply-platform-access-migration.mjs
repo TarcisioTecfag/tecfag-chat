@@ -257,6 +257,13 @@ const migrations = [
       import.meta.url,
     ),
   },
+  {
+    name: "0058_crm_deal_file_chunks",
+    url: new URL(
+      "../src/db/migrations/0058_crm_deal_file_chunks.sql",
+      import.meta.url,
+    ),
+  },
 ];
 const databaseUrl = process.env.DATABASE_URL;
 

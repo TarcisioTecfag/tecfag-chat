@@ -40,6 +40,11 @@ import {
 } from "../../db/schema";
 import { getDealContext } from "./conversation-deal-context";
 import { getContactPhonesMap, type ContactPhoneItem } from "./contact-phones";
+import {
+  buildDefaultDealFileCachePath,
+  persistDealFileBinaryChunks,
+  resolveDealFileMimeType,
+} from "./deal-file-storage";
 import type {
   CrmAccount,
   CrmPipeline,
@@ -7982,12 +7987,15 @@ export class CrmService {
     dealId: string,
     operatorId: string | null,
     data: {
+      id?: string;
       fileName: string;
       fileSize: number;
       mimeType: string;
       storagePath: string;
       conversationId?: string | null;
       metadata?: Record<string, any>;
+      contentBuffer?: Buffer | null;
+      base64Data?: string | null;
     }
   ): Promise<CrmDealFile> {
     return await db.transaction(async (tx) => {
@@ -8021,8 +8029,12 @@ export class CrmService {
         }
       }
 
-      const id = `dfile-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+      const id =
+        data.id && data.id.trim().length > 0
+          ? data.id.trim()
+          : `dfile-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
       const now = new Date();
+      const normalizedMimeType = resolveDealFileMimeType(data.fileName, data.mimeType);
 
       const [newFile] = await tx
         .insert(crmDealFiles)
@@ -8034,12 +8046,23 @@ export class CrmService {
           uploadedByOperatorId: operatorId,
           fileName: data.fileName.trim(),
           fileSize: data.fileSize,
-          mimeType: data.mimeType || "application/octet-stream",
+          mimeType: normalizedMimeType,
           storagePath: data.storagePath,
           metadata: data.metadata || {},
           createdAt: now,
         })
         .returning();
+
+      const binaryBuffer =
+        data.contentBuffer && data.contentBuffer.length > 0
+          ? data.contentBuffer
+          : typeof data.base64Data === "string" && data.base64Data.trim().length > 0
+            ? Buffer.from(data.base64Data.trim(), "base64")
+            : null;
+
+      if (binaryBuffer && binaryBuffer.length > 0) {
+        await persistDealFileBinaryChunks(tx, tenantId, id, binaryBuffer);
+      }
 
       // Registra evento de auditoria
       await tx.insert(crmDealEvents).values({
@@ -8052,7 +8075,7 @@ export class CrmService {
           fileId: id,
           fileName: data.fileName,
           fileSize: data.fileSize,
-          mimeType: data.mimeType,
+          mimeType: normalizedMimeType,
           conversationId: data.conversationId || null,
         },
         createdAt: now,
@@ -8181,12 +8204,17 @@ export class CrmService {
         .where(and(eq(crmDealFiles.id, fileId), eq(crmDealFiles.tenantId, tenantId)));
 
       // Tenta remover o arquivo físico no disco se existir
-      try {
-        if (file.storagePath && fs.existsSync(file.storagePath)) {
-          fs.unlinkSync(file.storagePath);
+      const pathsToClean = new Set<string>();
+      if (file.storagePath) pathsToClean.add(file.storagePath);
+      pathsToClean.add(buildDefaultDealFileCachePath(tenantId, dealId, fileId, file.fileName));
+      for (const candidatePath of pathsToClean) {
+        try {
+          if (candidatePath && fs.existsSync(candidatePath)) {
+            fs.unlinkSync(candidatePath);
+          }
+        } catch (err) {
+          console.warn(`[CRM Files] Não foi possível remover arquivo físico no disco: ${candidatePath}`, err);
         }
-      } catch (err) {
-        console.warn(`[CRM Files] Não foi possível remover arquivo físico no disco: ${file.storagePath}`, err);
       }
 
       await tx.insert(crmDealEvents).values({

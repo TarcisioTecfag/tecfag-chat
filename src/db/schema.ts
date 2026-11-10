@@ -1194,6 +1194,19 @@ export const crmDealFiles = pgTable("crm_deal_files", {
   tenantConvIdx: index("idx_crm_deal_files_tenant_conv").on(table.tenantId, table.conversationId),
 }));
 
+export const crmDealFileChunks = pgTable("crm_deal_file_chunks", {
+  id: text("id").primaryKey(),
+  fileId: text("file_id").references(() => crmDealFiles.id, { onDelete: "cascade" }).notNull(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  chunkBase64: text("chunk_base64").notNull(),
+  byteLength: integer("byte_length").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  fileIdxUniq: uniqueIndex("idx_crm_deal_file_chunks_file_idx").on(table.fileId, table.chunkIndex),
+  tenantFileIdx: index("idx_crm_deal_file_chunks_tenant_file").on(table.tenantId, table.fileId),
+}));
+
 // ─── 14.15. QUESTIONÁRIOS E BRIEFINGS DA NEGOCIAÇÃO ─────────────────────────
 export const crmDealQuestionnaires = pgTable("crm_deal_questionnaires", {
   id: text("id").primaryKey(),
@@ -1820,6 +1833,8 @@ export type CrmProduct               = typeof crmProducts.$inferSelect;
 export type CrmDealProduct           = typeof crmDealProducts.$inferSelect;
 export type CrmProposal              = typeof crmProposals.$inferSelect;
 export type CrmDealFile              = typeof crmDealFiles.$inferSelect;
+export type CrmDealFileChunk         = typeof crmDealFileChunks.$inferSelect;
+export type NewCrmDealFileChunk      = typeof crmDealFileChunks.$inferInsert;
 export type CrmDealQuestionnaire     = typeof crmDealQuestionnaires.$inferSelect;
 export type CrmDealEmail             = typeof crmDealEmails.$inferSelect;
 
