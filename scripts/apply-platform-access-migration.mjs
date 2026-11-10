@@ -454,6 +454,30 @@ if (!databaseUrl) {
     } else {
       console.log(`[platform migration] ${tecfagSdrBackfillName} já aplicada anteriormente.`);
     }
+
+    // 7. Migração Completa RD Station CRM -> Tecfag Chat (17.504 Negociações, 6.438 Empresas, 15.371 Contatos, 2.761 Tarefas e 4.812 Notas — 10/11/2026)
+    const tecfagFullRdCrmMigrationName = "seed_tecfag_full_rd_crm_migration_2026_11_10_v1";
+    const [appliedTecfagFullRdCrm] = await sql`
+      SELECT name FROM app_deploy_migrations WHERE name = ${tecfagFullRdCrmMigrationName}
+    `;
+    if (!appliedTecfagFullRdCrm) {
+      console.log(`[platform migration] Iniciando execução única de ${tecfagFullRdCrmMigrationName}...`);
+      const { runTecfagFullRdCrmMigration } = await import(
+        "./import-tecfag-full-rd-crm.mjs"
+      );
+      const summary = await runTecfagFullRdCrmMigration(sql);
+      await sql`
+        INSERT INTO app_deploy_migrations (name)
+        VALUES (${tecfagFullRdCrmMigrationName})
+        ON CONFLICT (name) DO NOTHING
+      `;
+      console.log(
+        `[platform migration] ${tecfagFullRdCrmMigrationName} concluída com sucesso:`,
+        summary,
+      );
+    } else {
+      console.log(`[platform migration] ${tecfagFullRdCrmMigrationName} já aplicada anteriormente.`);
+    }
   } catch (error) {
     console.error(
       "[platform migration] Falha crítica ao aplicar migrações estruturais DDL:",
