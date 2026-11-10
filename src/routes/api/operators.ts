@@ -10,6 +10,7 @@ import {
   crmDeals,
   contacts,
   crmDealActivities,
+  sectors,
 } from "../../db/schema.js";
 import { eq, and, or, ne, sql } from "drizzle-orm";
 import {
@@ -157,6 +158,28 @@ export const Route = createFileRoute("/api/operators")({
             .select()
             .from(operators)
             .where(eq(operators.tenantId, tenantId));
+
+          const desyncedAdminIds = list
+            .filter((op) => op.groupId === "group-admin" && op.role !== "admin")
+            .map((op) => op.id);
+          if (desyncedAdminIds.length > 0) {
+            for (const op of list) {
+              if (op.groupId === "group-admin" && op.role !== "admin") {
+                op.role = "admin";
+              }
+            }
+            void db
+              .update(operators)
+              .set({ role: "admin" })
+              .where(
+                and(
+                  eq(operators.tenantId, tenantId),
+                  eq(operators.groupId, "group-admin"),
+                  ne(operators.role, "admin")
+                )
+              )
+              .catch(() => {});
+          }
 
           const wizardMap = await computeTenantOperatorsOnboardingMap(tenantId, list);
 
@@ -684,6 +707,24 @@ export const Route = createFileRoute("/api/operators")({
           await db
             .delete(operators)
             .where(and(eq(operators.id, id), eq(operators.tenantId, tenantId)));
+
+          // Remover o ID do operador excluído de todos os setores do tenant
+          const tenantSectors = await db
+            .select()
+            .from(sectors)
+            .where(eq(sectors.tenantId, tenantId));
+          for (const sec of tenantSectors) {
+            const rawIds = Array.isArray(sec.operatorIds) ? sec.operatorIds : [];
+            if (rawIds.includes(id)) {
+              await db
+                .update(sectors)
+                .set({ operatorIds: rawIds.filter((opId) => opId !== id) })
+                .where(and(eq(sectors.id, sec.id), eq(sectors.tenantId, tenantId)));
+            }
+          }
+
+          SessionManager.getInstance().notifyPublic(tenantId, { type: "operators_updated" });
+          SessionManager.getInstance().notifyPublic(tenantId, { type: "sectors_updated" });
 
           // Registrar na auditoria do CRM
           await recordCrmAction({

@@ -70,6 +70,7 @@ export const Route = createFileRoute("/api/auth/session")({
               accessGroup: {
                 id: session.accessGroup.id,
                 name: session.accessGroup.name,
+                allowedChannels: session.accessGroup.allowedChannels ?? ["whatsapp", "livechat"],
               },
               channelConfig: publicChannel,
             }),

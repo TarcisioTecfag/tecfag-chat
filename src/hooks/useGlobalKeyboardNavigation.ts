@@ -59,7 +59,7 @@ export function getAccessibleModulesList({
   }
 
   const decorativeItems: ViewId[] = [
-    ...(tenant === "tecfag" && sessionRole === "admin"
+    ...(tenant === "tecfag" && (sessionRole === "admin" || canAccessView("commercialManagement"))
       ? (["commercialManagement"] as ViewId[])
       : []),
     "valentina",

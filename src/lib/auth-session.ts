@@ -44,12 +44,13 @@ export interface AuthSessionContext {
  */
 export function sanitizeOperator(op: any): SanitizedOperator {
   const todayBrt = getBrtDateKey();
+  const effectiveRole = op.groupId === "group-admin" ? "admin" : op.role;
   return {
     id: op.id,
     tenantId: op.tenantId,
     name: op.name,
     email: op.email,
-    role: op.role,
+    role: effectiveRole,
     avatar: op.avatar ?? null,
     status: op.status ?? "disponivel",
     groupId: op.groupId ?? null,
@@ -178,6 +179,15 @@ export async function getAuthSessionByToken(token: string): Promise<AuthSessionC
   });
 
   if (!operatorRow) return null;
+
+  if (operatorRow.groupId === "group-admin" && operatorRow.role !== "admin") {
+    operatorRow.role = "admin";
+    void db
+      .update(operators)
+      .set({ role: "admin" })
+      .where(and(eq(operators.id, operatorRow.id), eq(operators.tenantId, sessionRow.tenantId)))
+      .catch(() => {});
+  }
 
   // As duas leituras dependem do operador, mas são independentes entre si.
   const [availableTenants, groupRow] = await Promise.all([

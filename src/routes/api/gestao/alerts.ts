@@ -235,7 +235,7 @@ export const Route = createFileRoute("/api/gestao/alerts")({
               contactPhone: contacts.phone,
               contactEmail: contacts.email,
               contactAvatar: contacts.avatar,
-              walletOperatorId: contacts.operatorId,
+              walletOperatorId: contacts.walletOperatorId,
               crmCardUrl: contacts.rdCrmDealLink,
               accountName: crmAccounts.name,
               accountTradeName: crmAccounts.tradeName,

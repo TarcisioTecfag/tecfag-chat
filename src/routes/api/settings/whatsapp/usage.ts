@@ -11,7 +11,11 @@ export const Route = createFileRoute("/api/settings/whatsapp/usage")({
         const auth = await requireSession(request);
         if ("response" in auth) return auth.response;
         const { session } = auth;
-        if (session.operator.role !== "admin") {
+        const canAccessUsage =
+          session.operator.role === "admin" ||
+          Boolean(session.permissions?.views?.analytics && session.permissions?.analytics?.canAccessCosts) ||
+          Boolean(session.permissions?.views?.settings && session.permissions?.settings?.canManageWhatsapp);
+        if (!canAccessUsage) {
           return Response.json({ error: "Permissão insuficiente.", code: "FORBIDDEN" }, { status: 403 });
         }
 

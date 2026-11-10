@@ -1413,7 +1413,7 @@ export const Route = createFileRoute("/api/gestao/crm-analytics")({
             }
           >();
 
-          const crmAvatarResolver = buildConsultantAvatarResolver([allOperators]);
+          const crmAvatarResolver = buildConsultantAvatarResolver([rawOperators]);
 
           for (const d of scopedDeals) {
             const opId = d.operatorId || "unassigned";

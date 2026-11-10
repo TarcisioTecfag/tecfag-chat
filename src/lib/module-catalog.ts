@@ -180,7 +180,11 @@ export function isModuleAuthorized(viewId: ViewId, ctx: ModuleAccessContext): bo
     return ctx.tenant === "tecfag" && Boolean(ctx.isCommercialConsultant) && ctx.canAccessView("commercialHome");
   }
   if (viewId === "commercialManagement") {
-    return ctx.tenant === "tecfag" && ctx.sessionRole === "admin" && ctx.canAccessView("commercialManagement");
+    return (
+      ctx.tenant === "tecfag" &&
+      (ctx.sessionRole === "admin" || ctx.canAccessView("commercialManagement")) &&
+      ctx.canAccessView("commercialManagement")
+    );
   }
   if (viewId === "commercialBi") {
     if (ctx.tenant !== "tecfag") return false;
