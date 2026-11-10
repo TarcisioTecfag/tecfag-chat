@@ -764,6 +764,11 @@ export function DealDetailModal({
     return map;
   }, [propOperatorsMap, operators]);
 
+  const taskModalOperators = React.useMemo(
+    () => Array.from(operatorsMap.entries()).map(([id, name]) => ({ id, name })),
+    [operatorsMap],
+  );
+
   const initialCachedDeal = getCachedDealDetailSync(dealId)?.deal || null;
   const dealPreview = getDealPreviewSync(dealId);
   const [loading, setLoading] = useState(() => !initialCachedDeal);
@@ -3849,7 +3854,10 @@ export function DealDetailModal({
                       {upcomingTasks.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => setIsCreateTaskModalOpen(true)}
+                          onClick={() => {
+                            setEditingDealTask(null);
+                            setIsCreateTaskModalOpen(true);
+                          }}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
                         >
                           <Plus className="h-3.5 w-3.5" />
@@ -3980,7 +3988,10 @@ export function DealDetailModal({
                         </div>
                         <button
                           type="button"
-                          onClick={() => setIsCreateTaskModalOpen(true)}
+                          onClick={() => {
+                            setEditingDealTask(null);
+                            setIsCreateTaskModalOpen(true);
+                          }}
                           className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0"
                         >
                           <Plus className="h-3.5 w-3.5" />
@@ -4238,7 +4249,10 @@ export function DealDetailModal({
 
                             <button
                               type="button"
-                              onClick={() => setIsCreateTaskModalOpen(true)}
+                              onClick={() => {
+                                setEditingDealTask(null);
+                                setIsCreateTaskModalOpen(true);
+                              }}
                               className="flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                             >
                               <Plus className="h-3.5 w-3.5" />
@@ -7022,7 +7036,7 @@ export function DealDetailModal({
         dealTitle={deal?.title}
         accountId={deal?.accountId || deal?.account?.id}
         accountName={deal?.account?.name}
-        operators={Array.from(operatorsMap.entries()).map(([id, name]) => ({ id, name }))}
+        operators={taskModalOperators}
         currentOperatorId={
           deal?.operatorId ||
           (deal as any)?.ownerId ||

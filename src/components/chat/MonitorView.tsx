@@ -9701,6 +9701,11 @@ function GlobalTasksTab({
     return Array.from(map.values());
   }, [operatorsCatalog, tasks]);
 
+  const taskModalOperators = useMemo(
+    () => uniqueOperatorsList.map((op) => ({ id: op.id, name: op.name })),
+    [uniqueOperatorsList],
+  );
+
   // ─── Filtragem Global Base (respeitada por TODAS as visões e calendário) ─
   const filteredBaseTasks = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -11016,7 +11021,7 @@ function GlobalTasksTab({
         }}
         onTaskCreated={fetchTasks}
         onCreated={fetchTasks}
-        operators={uniqueOperatorsList.map((op) => ({ id: op.id, name: op.name }))}
+        operators={taskModalOperators}
         editingTask={editingTaskData}
       />
     </div>

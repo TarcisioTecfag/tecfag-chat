@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
 import {
   Dialog,
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/sheet";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -74,6 +75,13 @@ import type { BlockingDealItem } from "@/lib/crm/deal-associations";
 import { DealCardData } from "./DealCard";
 import { CRM_TASK_TYPES, CrmTaskType } from "./CreateTaskModal";
 import { DEAL_STATUS_OPTIONS } from "./deal-status-config";
+import {
+  formatBrDateFromDate,
+  maskBrDateInput,
+  maskTimeInput,
+  parseBrDateInput,
+  parseTimeInput,
+} from "@/lib/date-time-input";
 
 export interface BulkActionsSuiteProps {
   selectedIds: Set<string>;
@@ -154,9 +162,15 @@ export function BulkActionsSuite({
   const [taskType, setTaskType] = useState<CrmTaskType>("task");
   const [taskTypeOpen, setTaskTypeOpen] = useState(false);
   const [taskScheduledDate, setTaskScheduledDate] = useState<Date>(new Date());
+  const [taskDateInput, setTaskDateInput] = useState<string>(() => formatBrDateFromDate(new Date()));
+  const [isTaskDateInvalid, setIsTaskDateInvalid] = useState(false);
   const [taskScheduledTime, setTaskScheduledTime] = useState("10:00");
+  const [taskTimeInput, setTaskTimeInput] = useState("10:00");
+  const [isTaskTimeInvalid, setIsTaskTimeInvalid] = useState(false);
   const [isTaskCalendarOpen, setIsTaskCalendarOpen] = useState(false);
   const [isTaskTimeOpen, setIsTaskTimeOpen] = useState(false);
+  const taskDateAnchorRef = useRef<HTMLDivElement>(null);
+  const taskTimeAnchorRef = useRef<HTMLDivElement>(null);
   const [taskCalendarMonth, setTaskCalendarMonth] = useState(new Date().getMonth());
   const [taskCalendarYear, setTaskCalendarYear] = useState(new Date().getFullYear());
   const [taskOperatorId, setTaskOperatorId] = useState<string>("");
@@ -372,7 +386,71 @@ export function BulkActionsSuite({
 
     const newDate = new Date(targetYear, targetMonth, day);
     setTaskScheduledDate(newDate);
+    setTaskCalendarMonth(newDate.getMonth());
+    setTaskCalendarYear(newDate.getFullYear());
+    setTaskDateInput(formatBrDateFromDate(newDate));
+    setIsTaskDateInvalid(false);
     setIsTaskCalendarOpen(false);
+  };
+
+  const handleTaskDateInputChange = (raw: string) => {
+    const masked = maskBrDateInput(raw, taskDateInput);
+    setTaskDateInput(masked);
+    const parsed = parseBrDateInput(masked, { allowTwoDigitYear: false });
+    if (parsed) {
+      setTaskScheduledDate(parsed);
+      setTaskCalendarMonth(parsed.getMonth());
+      setTaskCalendarYear(parsed.getFullYear());
+      setIsTaskDateInvalid(false);
+    } else {
+      setIsTaskDateInvalid(masked.length === 10);
+    }
+  };
+
+  const handleTaskDateInputBlur = () => {
+    if (!taskDateInput.trim()) {
+      setTaskDateInput(formatBrDateFromDate(taskScheduledDate));
+      setIsTaskDateInvalid(false);
+      return;
+    }
+    const parsed = parseBrDateInput(taskDateInput, { allowTwoDigitYear: true });
+    if (parsed) {
+      setTaskScheduledDate(parsed);
+      setTaskCalendarMonth(parsed.getMonth());
+      setTaskCalendarYear(parsed.getFullYear());
+      setTaskDateInput(formatBrDateFromDate(parsed));
+      setIsTaskDateInvalid(false);
+    } else {
+      setIsTaskDateInvalid(true);
+    }
+  };
+
+  const handleTaskTimeInputChange = (raw: string) => {
+    const masked = maskTimeInput(raw, taskTimeInput);
+    setTaskTimeInput(masked);
+    const parsed = parseTimeInput(masked, { allowShorthand: false });
+    if (parsed) {
+      setTaskScheduledTime(parsed);
+      setIsTaskTimeInvalid(false);
+    } else {
+      setIsTaskTimeInvalid(masked.length === 5);
+    }
+  };
+
+  const handleTaskTimeInputBlur = () => {
+    if (!taskTimeInput.trim()) {
+      setTaskTimeInput(taskScheduledTime || "10:00");
+      setIsTaskTimeInvalid(false);
+      return;
+    }
+    const parsed = parseTimeInput(taskTimeInput, { allowShorthand: true });
+    if (parsed) {
+      setTaskScheduledTime(parsed);
+      setTaskTimeInput(parsed);
+      setIsTaskTimeInvalid(false);
+    } else {
+      setIsTaskTimeInvalid(true);
+    }
   };
 
   const renderTaskCalendarDays = () => {
@@ -454,14 +532,35 @@ export function BulkActionsSuite({
       return;
     }
 
-    const [hoursStr, minsStr] = (taskScheduledTime || "10:00").split(":");
+    const validatedDate = parseBrDateInput(taskDateInput, { allowTwoDigitYear: true });
+    if (!validatedDate) {
+      setIsTaskDateInvalid(true);
+      toast.error("Data inválida. Digite no formato DD/MM/AAAA ou selecione no calendário.");
+      return;
+    }
+
+    const validatedTime = parseTimeInput(taskTimeInput, { allowShorthand: true });
+    if (!validatedTime) {
+      setIsTaskTimeInvalid(true);
+      toast.error("Horário inválido. Informe um horário entre 00:00 e 23:59.");
+      return;
+    }
+
+    setTaskScheduledDate(validatedDate);
+    setTaskDateInput(formatBrDateFromDate(validatedDate));
+    setIsTaskDateInvalid(false);
+    setTaskScheduledTime(validatedTime);
+    setTaskTimeInput(validatedTime);
+    setIsTaskTimeInvalid(false);
+
+    const [hoursStr, minsStr] = validatedTime.split(":");
     const hours = parseInt(hoursStr || "10", 10);
     const minutes = parseInt(minsStr || "0", 10);
 
     const dueDateTime = new Date(
-      taskScheduledDate.getFullYear(),
-      taskScheduledDate.getMonth(),
-      taskScheduledDate.getDate(),
+      validatedDate.getFullYear(),
+      validatedDate.getMonth(),
+      validatedDate.getDate(),
       hours,
       minutes
     );
@@ -2453,21 +2552,78 @@ export function BulkActionsSuite({
                   Data do agendamento <span className="text-rose-500">*</span>
                 </Label>
                 <Popover open={isTaskCalendarOpen} onOpenChange={setIsTaskCalendarOpen}>
-                  <SystemTooltip content="Selecionar data de agendamento da tarefa">
-                    <PopoverTrigger asChild>
-                      <div className="relative flex h-10 w-full items-center rounded-lg border border-input bg-background px-3 cursor-pointer hover:border-border transition-colors">
-                        <Calendar className="h-4 w-4 text-muted-foreground shrink-0 mr-2.5" />
-                        <span className="text-xs font-semibold text-foreground">
-                          {taskScheduledDate.toLocaleDateString("pt-BR", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                          })}
-                        </span>
-                      </div>
-                    </PopoverTrigger>
-                  </SystemTooltip>
-                  <PopoverContent className="w-[280px] p-3 rounded-2xl border border-border shadow-xl bg-card" align="start">
+                  <PopoverAnchor asChild>
+                    <div
+                      ref={taskDateAnchorRef}
+                      className={`relative flex h-10 w-full items-center rounded-lg border bg-background px-3 transition-colors ${
+                        isTaskDateInvalid
+                          ? "border-rose-500 ring-1 ring-rose-500/30"
+                          : "border-input hover:border-border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary"
+                      }`}
+                    >
+                      <SystemTooltip content="Abrir calendário">
+                        <button
+                          type="button"
+                          onClick={() => setIsTaskCalendarOpen((prev) => !prev)}
+                          className="mr-2.5 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors cursor-pointer shrink-0"
+                          aria-label="Abrir calendário"
+                        >
+                          <Calendar className="h-4 w-4" />
+                        </button>
+                      </SystemTooltip>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={taskDateInput}
+                        placeholder="DD/MM/AAAA"
+                        aria-label="Data do agendamento"
+                        onFocus={() => setIsTaskCalendarOpen(true)}
+                        onClick={() => setIsTaskCalendarOpen(true)}
+                        onChange={(e) => handleTaskDateInputChange(e.target.value)}
+                        onBlur={handleTaskDateInputBlur}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape" && isTaskCalendarOpen) {
+                            e.stopPropagation();
+                            setIsTaskCalendarOpen(false);
+                          } else if (e.key === "Enter" && isTaskCalendarOpen) {
+                            e.preventDefault();
+                            handleTaskDateInputBlur();
+                            setIsTaskCalendarOpen(false);
+                          } else if (e.key === "Tab") {
+                            setIsTaskCalendarOpen(false);
+                          }
+                        }}
+                        className="w-full bg-transparent text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none"
+                      />
+                      <SystemTooltip content={isTaskCalendarOpen ? "Fechar calendário" : "Selecionar no calendário"}>
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => setIsTaskCalendarOpen((prev) => !prev)}
+                          className="ml-1.5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+                          aria-label="Alternar calendário"
+                        >
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 opacity-60 transition-transform ${
+                              isTaskCalendarOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </SystemTooltip>
+                    </div>
+                  </PopoverAnchor>
+                  <PopoverContent
+                    className="w-[280px] p-3 rounded-2xl border border-border shadow-xl bg-card"
+                    align="start"
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    onCloseAutoFocus={(e) => e.preventDefault()}
+                    onInteractOutside={(e) => {
+                      if (taskDateAnchorRef.current?.contains(e.target as Node)) {
+                        e.preventDefault();
+                      }
+                    }}
+                  >
                     {/* Header do Mês e Navegação */}
                     <div className="flex items-center justify-between mb-3 px-1">
                       <SystemTooltip content="Mês anterior">
@@ -2508,6 +2664,11 @@ export function BulkActionsSuite({
                     </div>
                   </PopoverContent>
                 </Popover>
+                {isTaskDateInvalid && (
+                  <p className="text-[11px] font-medium text-rose-500">
+                    Informe uma data válida no formato DD/MM/AAAA.
+                  </p>
+                )}
               </div>
 
               {/* 6. Horário da tarefa */}
@@ -2516,21 +2677,78 @@ export function BulkActionsSuite({
                   Horário da tarefa <span className="text-rose-500">*</span>
                 </Label>
                 <Popover open={isTaskTimeOpen} onOpenChange={setIsTaskTimeOpen}>
-                  <SystemTooltip content="Horário definido para o agendamento da tarefa">
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:border-border cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <span>{taskScheduledTime || "10:00"}</span>
-                        </div>
-                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground opacity-60" />
-                      </button>
-                    </PopoverTrigger>
-                  </SystemTooltip>
-                  <PopoverContent className="w-[190px] p-2.5 rounded-xl shadow-xl border border-border bg-card" align="start">
+                  <PopoverAnchor asChild>
+                    <div
+                      ref={taskTimeAnchorRef}
+                      className={`relative flex h-10 w-full items-center rounded-lg border bg-background px-3 transition-colors ${
+                        isTaskTimeInvalid
+                          ? "border-rose-500 ring-1 ring-rose-500/30"
+                          : "border-input hover:border-border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary"
+                      }`}
+                    >
+                      <SystemTooltip content="Abrir seletor de horário">
+                        <button
+                          type="button"
+                          onClick={() => setIsTaskTimeOpen((prev) => !prev)}
+                          className="mr-2.5 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors cursor-pointer shrink-0"
+                          aria-label="Abrir seletor de horário"
+                        >
+                          <Clock className="h-4 w-4" />
+                        </button>
+                      </SystemTooltip>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={taskTimeInput}
+                        placeholder="HH:mm"
+                        aria-label="Horário da tarefa"
+                        onFocus={() => setIsTaskTimeOpen(true)}
+                        onClick={() => setIsTaskTimeOpen(true)}
+                        onChange={(e) => handleTaskTimeInputChange(e.target.value)}
+                        onBlur={handleTaskTimeInputBlur}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape" && isTaskTimeOpen) {
+                            e.stopPropagation();
+                            setIsTaskTimeOpen(false);
+                          } else if (e.key === "Enter" && isTaskTimeOpen) {
+                            e.preventDefault();
+                            handleTaskTimeInputBlur();
+                            setIsTaskTimeOpen(false);
+                          } else if (e.key === "Tab") {
+                            setIsTaskTimeOpen(false);
+                          }
+                        }}
+                        className="w-full bg-transparent text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none"
+                      />
+                      <SystemTooltip content={isTaskTimeOpen ? "Fechar lista de horários" : "Selecionar horário na lista"}>
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => setIsTaskTimeOpen((prev) => !prev)}
+                          className="ml-1.5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+                          aria-label="Alternar lista de horários"
+                        >
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 opacity-60 transition-transform ${
+                              isTaskTimeOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </SystemTooltip>
+                    </div>
+                  </PopoverAnchor>
+                  <PopoverContent
+                    className="w-[190px] p-2.5 rounded-xl shadow-xl border border-border bg-card"
+                    align="start"
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    onCloseAutoFocus={(e) => e.preventDefault()}
+                    onInteractOutside={(e) => {
+                      if (taskTimeAnchorRef.current?.contains(e.target as Node)) {
+                        e.preventDefault();
+                      }
+                    }}
+                  >
                     <div className="grid grid-cols-2 gap-2 text-center text-xs">
                       <div>
                         <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
@@ -2545,7 +2763,12 @@ export function BulkActionsSuite({
                               <button
                                 type="button"
                                 key={h}
-                                onClick={() => setTaskScheduledTime(`${h}:${currentMin}`)}
+                                onClick={() => {
+                                  const nextTime = `${h}:${currentMin}`;
+                                  setTaskScheduledTime(nextTime);
+                                  setTaskTimeInput(nextTime);
+                                  setIsTaskTimeInvalid(false);
+                                }}
                                 className={`w-full py-1 rounded-md text-xs transition-colors cursor-pointer ${
                                   isSelected
                                     ? "bg-primary text-primary-foreground font-bold shadow-xs"
@@ -2571,7 +2794,13 @@ export function BulkActionsSuite({
                               <button
                                 type="button"
                                 key={m}
-                                onClick={() => setTaskScheduledTime(`${currentHour}:${m}`)}
+                                onClick={() => {
+                                  const nextTime = `${currentHour}:${m}`;
+                                  setTaskScheduledTime(nextTime);
+                                  setTaskTimeInput(nextTime);
+                                  setIsTaskTimeInvalid(false);
+                                  setIsTaskTimeOpen(false);
+                                }}
                                 className={`w-full py-1 rounded-md text-xs transition-colors cursor-pointer ${
                                   isSelected
                                     ? "bg-primary text-primary-foreground font-bold shadow-xs"
@@ -2587,6 +2816,11 @@ export function BulkActionsSuite({
                     </div>
                   </PopoverContent>
                 </Popover>
+                {isTaskTimeInvalid && (
+                  <p className="text-[11px] font-medium text-rose-500">
+                    Informe um horário válido entre 00:00 e 23:59.
+                  </p>
+                )}
               </div>
             </div>
 

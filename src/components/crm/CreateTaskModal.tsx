@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Sheet,
   SheetContent,
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SystemTooltip } from "@/components/ui/tooltip";
 import {
   X,
@@ -30,6 +30,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTrainingSurface } from "@/hooks/useTrainingSurface";
+import {
+  formatBrDateFromDate,
+  maskBrDateInput,
+  maskTimeInput,
+  parseBrDateInput,
+  parseTimeInput,
+} from "@/lib/date-time-input";
 
 // Ícone SVG do WhatsApp
 function WhatsAppIcon({ className = "h-4 w-4" }: { className?: string }) {
@@ -166,7 +173,11 @@ export function CreateTaskModal({
   const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
   const [taskType, setTaskType] = useState<CrmTaskType>("task");
   const [scheduledDate, setScheduledDate] = useState<Date>(new Date());
+  const [dateInput, setDateInput] = useState<string>(() => formatBrDateFromDate(new Date()));
+  const [isDateInvalid, setIsDateInvalid] = useState(false);
   const [scheduledTime, setScheduledTime] = useState("10:00");
+  const [timeInput, setTimeInput] = useState("10:00");
+  const [isTimeInvalid, setIsTimeInvalid] = useState(false);
   const [markAsCompleted, setMarkAsCompleted] = useState(false);
 
   // Estados de controle de popovers
@@ -175,6 +186,11 @@ export function CreateTaskModal({
   const [isTypeOpen, setIsTypeOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isTimeOpen, setIsTimeOpen] = useState(false);
+
+  const dateAnchorRef = useRef<HTMLDivElement>(null);
+  const timeAnchorRef = useRef<HTMLDivElement>(null);
+  const initializedSessionKeyRef = useRef<string | null>(null);
+  const userTouchedOperatorsRef = useRef<boolean>(false);
 
   // Busca de Deals (quando não travado)
   const [dealQuery, setDealQuery] = useState("");
@@ -191,9 +207,33 @@ export function CreateTaskModal({
   // Trava o campo de negociação quando o modal foi aberto a partir de uma negociação específica ou em modo edição
   const isDealLocked = Boolean(initialDealId || editingTask?.dealId);
 
-  // Reset e inicialização ao abrir o drawer
+  // Chave estável da sessão do drawer: garante que re-renders externos (SSE, polling de 12s, arrays inline de operators)
+  // JAMAIS resetem Assunto, Descrição, Data ou Horário enquanto o usuário estiver preenchendo ou editando a tarefa.
+  const sessionKey = isOpen
+    ? editingTask
+      ? `edit:${editingTask.id}`
+      : `create:${initialDealId || "free"}`
+    : null;
+
+  // Reset e inicialização estritamente na abertura do drawer (ou troca real da tarefa/negociação alvo)
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !sessionKey) {
+      initializedSessionKeyRef.current = null;
+      userTouchedOperatorsRef.current = false;
+      setIsDealOpen(false);
+      setIsOperatorOpen(false);
+      setIsTypeOpen(false);
+      setIsCalendarOpen(false);
+      setIsTimeOpen(false);
+      return;
+    }
+
+    if (initializedSessionKeyRef.current === sessionKey) {
+      return;
+    }
+
+    initializedSessionKeyRef.current = sessionKey;
+    userTouchedOperatorsRef.current = false;
 
     if (editingTask) {
       setSelectedDealId(editingTask.dealId || null);
@@ -210,12 +250,17 @@ export function CreateTaskModal({
       const baseDate = editingTask.dueDate ? new Date(editingTask.dueDate) : new Date();
       const validDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
       setScheduledDate(validDate);
+      setDateInput(formatBrDateFromDate(validDate));
+      setIsDateInvalid(false);
       setCalendarMonth(validDate.getMonth());
       setCalendarYear(validDate.getFullYear());
 
       const hours = String(validDate.getHours()).padStart(2, "0");
       const minutes = String(validDate.getMinutes()).padStart(2, "0");
-      setScheduledTime(`${hours}:${minutes}`);
+      const formattedTime = `${hours}:${minutes}`;
+      setScheduledTime(formattedTime);
+      setTimeInput(formattedTime);
+      setIsTimeInvalid(false);
 
       if (Array.isArray(editingTask.assignedOperatorIds) && editingTask.assignedOperatorIds.length > 0) {
         setSelectedOperatorIds(editingTask.assignedOperatorIds.filter(Boolean));
@@ -246,13 +291,18 @@ export function CreateTaskModal({
     const now = new Date();
     const baseDate = defaultDate && !Number.isNaN(defaultDate.getTime()) ? new Date(defaultDate) : now;
     setScheduledDate(baseDate);
+    setDateInput(formatBrDateFromDate(baseDate));
+    setIsDateInvalid(false);
     setCalendarMonth(baseDate.getMonth());
     setCalendarYear(baseDate.getFullYear());
 
     // Hora atual formatada HH:mm
     const hours = String(now.getHours()).padStart(2, "0");
     const minutes = String(now.getMinutes()).padStart(2, "0");
-    setScheduledTime(`${hours}:${minutes}`);
+    const formattedTime = `${hours}:${minutes}`;
+    setScheduledTime(formattedTime);
+    setTimeInput(formattedTime);
+    setIsTimeInvalid(false);
 
     // Responsável padrão
     if (currentOperatorId) {
@@ -265,7 +315,19 @@ export function CreateTaskModal({
 
     setDealQuery("");
     setOperatorSearch("");
-  }, [isOpen, initialDealId, initialDealTitle, initialAccountId, initialAccountName, currentOperatorId, initialOperators, defaultDate, editingTask]);
+  }, [isOpen, sessionKey, editingTask, initialDealId, initialDealTitle, initialAccountName, currentOperatorId, initialOperators, defaultDate]);
+
+  // Se os operadores carregarem assincronamente após abrir o modal e nenhum responsável tiver sido definido ainda,
+  // preenche apenas o responsável padrão sem jamais tocar em Assunto, Descrição, Data ou Horário.
+  useEffect(() => {
+    if (!isOpen || editingTask || userTouchedOperatorsRef.current) return;
+    if (selectedOperatorIds.length > 0) return;
+    if (currentOperatorId) {
+      setSelectedOperatorIds([currentOperatorId]);
+    } else if (initialOperators.length > 0) {
+      setSelectedOperatorIds([initialOperators[0].id]);
+    }
+  }, [isOpen, editingTask, currentOperatorId, initialOperators, selectedOperatorIds.length]);
 
   // Se tem initialDealId, busca dados da negociação para exibir subtítulo e alocar o dono do lead como responsável padrão
   useEffect(() => {
@@ -283,7 +345,7 @@ export function CreateTaskModal({
           setSelectedDealTitle(data.deal.title);
         }
         const dealOwnerId = data.deal.operatorId || data.deal.ownerId;
-        if (!editingTask && dealOwnerId && !currentOperatorId) {
+        if (!editingTask && dealOwnerId && !currentOperatorId && !userTouchedOperatorsRef.current) {
           setSelectedOperatorIds([dealOwnerId]);
         }
       })
@@ -291,7 +353,7 @@ export function CreateTaskModal({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, initialDealId, initialAccountName, currentOperatorId, editingTask]);
+  }, [isOpen, initialDealId, initialAccountName, currentOperatorId, editingTask, selectedDealTitle]);
 
   // Busca de negociações quando destravado
   useEffect(() => {
@@ -341,16 +403,19 @@ export function CreateTaskModal({
 
   // Toggle responsável (multi-seleção com checkboxes)
   const toggleOperator = (opId: string) => {
+    userTouchedOperatorsRef.current = true;
     setSelectedOperatorIds((prev) =>
       prev.includes(opId) ? prev.filter((id) => id !== opId) : [...prev, opId]
     );
   };
 
   const removeOperator = (opId: string) => {
+    userTouchedOperatorsRef.current = true;
     setSelectedOperatorIds((prev) => prev.filter((id) => id !== opId));
   };
 
   const clearAllOperators = () => {
+    userTouchedOperatorsRef.current = true;
     setSelectedOperatorIds([]);
   };
 
@@ -366,15 +431,71 @@ export function CreateTaskModal({
   const currentTaskTypeObj = CRM_TASK_TYPES.find((t) => t.id === taskType) || CRM_TASK_TYPES[3];
   const CurrentTaskIcon = currentTaskTypeObj.icon;
 
-  // Formatação de data no padrão BR: DD/MM/YYYY
-  const formattedDate = `${String(scheduledDate.getDate()).padStart(2, "0")}/${String(
-    scheduledDate.getMonth() + 1
-  ).padStart(2, "0")}/${scheduledDate.getFullYear()}`;
-
   // Horário decomposto para o seletor visual
   const [currentHour, currentMin] = (scheduledTime || "10:00").split(":");
   const selectedHour = currentHour || "10";
   const selectedMin = currentMin || "00";
+
+  // Handlers de digitação via teclado para Data (DD/MM/AAAA) e Horário (HH:mm)
+  const handleDateInputChange = (raw: string) => {
+    const masked = maskBrDateInput(raw, dateInput);
+    setDateInput(masked);
+    const parsed = parseBrDateInput(masked, { allowTwoDigitYear: false });
+    if (parsed) {
+      setScheduledDate(parsed);
+      setCalendarMonth(parsed.getMonth());
+      setCalendarYear(parsed.getFullYear());
+      setIsDateInvalid(false);
+    } else {
+      setIsDateInvalid(masked.length === 10);
+    }
+  };
+
+  const handleDateInputBlur = () => {
+    if (!dateInput.trim()) {
+      setDateInput(formatBrDateFromDate(scheduledDate));
+      setIsDateInvalid(false);
+      return;
+    }
+    const parsed = parseBrDateInput(dateInput, { allowTwoDigitYear: true });
+    if (parsed) {
+      setScheduledDate(parsed);
+      setCalendarMonth(parsed.getMonth());
+      setCalendarYear(parsed.getFullYear());
+      setDateInput(formatBrDateFromDate(parsed));
+      setIsDateInvalid(false);
+    } else {
+      setIsDateInvalid(true);
+    }
+  };
+
+  const handleTimeInputChange = (raw: string) => {
+    const masked = maskTimeInput(raw, timeInput);
+    setTimeInput(masked);
+    const parsed = parseTimeInput(masked, { allowShorthand: false });
+    if (parsed) {
+      setScheduledTime(parsed);
+      setIsTimeInvalid(false);
+    } else {
+      setIsTimeInvalid(masked.length === 5);
+    }
+  };
+
+  const handleTimeInputBlur = () => {
+    if (!timeInput.trim()) {
+      setTimeInput(scheduledTime || "10:00");
+      setIsTimeInvalid(false);
+      return;
+    }
+    const parsed = parseTimeInput(timeInput, { allowShorthand: true });
+    if (parsed) {
+      setScheduledTime(parsed);
+      setTimeInput(parsed);
+      setIsTimeInvalid(false);
+    } else {
+      setIsTimeInvalid(true);
+    }
+  };
 
   // Funções do calendário customizado
   const prevMonth = () => {
@@ -409,6 +530,22 @@ export function CreateTaskModal({
 
     const newDate = new Date(targetYear, targetMonth, day);
     setScheduledDate(newDate);
+    setCalendarMonth(newDate.getMonth());
+    setCalendarYear(newDate.getFullYear());
+    setDateInput(formatBrDateFromDate(newDate));
+    setIsDateInvalid(false);
+    setIsCalendarOpen(false);
+  };
+
+  const handleQuickDateOffset = (daysOffset: number) => {
+    const target = new Date();
+    target.setHours(0, 0, 0, 0);
+    target.setDate(target.getDate() + daysOffset);
+    setScheduledDate(target);
+    setCalendarMonth(target.getMonth());
+    setCalendarYear(target.getFullYear());
+    setDateInput(formatBrDateFromDate(target));
+    setIsDateInvalid(false);
     setIsCalendarOpen(false);
   };
 
@@ -489,17 +626,38 @@ export function CreateTaskModal({
       return;
     }
 
+    const validatedDate = parseBrDateInput(dateInput, { allowTwoDigitYear: true });
+    if (!validatedDate) {
+      setIsDateInvalid(true);
+      toast.error("Data inválida. Digite no formato DD/MM/AAAA ou selecione no calendário.");
+      return;
+    }
+
+    const validatedTime = parseTimeInput(timeInput, { allowShorthand: true });
+    if (!validatedTime) {
+      setIsTimeInvalid(true);
+      toast.error("Horário inválido. Informe um horário entre 00:00 e 23:59.");
+      return;
+    }
+
+    setScheduledDate(validatedDate);
+    setDateInput(formatBrDateFromDate(validatedDate));
+    setIsDateInvalid(false);
+    setScheduledTime(validatedTime);
+    setTimeInput(validatedTime);
+    setIsTimeInvalid(false);
+
     setSaving(true);
     try {
       // Monta data e hora
-      const [hoursStr, minsStr] = (scheduledTime || "10:00").split(":");
+      const [hoursStr, minsStr] = validatedTime.split(":");
       const hours = parseInt(hoursStr || "10", 10);
       const minutes = parseInt(minsStr || "0", 10);
 
       const dueDateTime = new Date(
-        scheduledDate.getFullYear(),
-        scheduledDate.getMonth(),
-        scheduledDate.getDate(),
+        validatedDate.getFullYear(),
+        validatedDate.getMonth(),
+        validatedDate.getDate(),
         hours,
         minutes
       );
@@ -842,38 +1000,107 @@ export function CreateTaskModal({
               </Popover>
             </div>
 
-            {/* 7. Data do agendamento * (Popover Calendário na paleta vermelha) */}
+            {/* 7. Data do agendamento * (Digitável via teclado + Popover Calendário na paleta vermelha) */}
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-foreground">
                 Data do agendamento <span className="text-rose-500">*</span>
               </Label>
               <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-                <PopoverTrigger asChild>
-                  <div className="relative flex h-10 w-full items-center rounded-lg border border-input bg-background px-3 cursor-pointer hover:border-border transition-colors">
-                    <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0 mr-2.5" />
-                    <span className="text-xs font-semibold text-foreground">{formattedDate}</span>
+                <PopoverAnchor asChild>
+                  <div
+                    ref={dateAnchorRef}
+                    className={`relative flex h-10 w-full items-center rounded-lg border bg-background px-3 transition-colors ${
+                      isDateInvalid
+                        ? "border-rose-500 ring-1 ring-rose-500/30"
+                        : "border-input hover:border-border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary"
+                    }`}
+                  >
+                    <SystemTooltip content="Abrir calendário">
+                      <button
+                        type="button"
+                        onClick={() => setIsCalendarOpen((prev) => !prev)}
+                        className="mr-2.5 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors cursor-pointer shrink-0"
+                        aria-label="Abrir calendário"
+                      >
+                        <CalendarIcon className="h-4 w-4" />
+                      </button>
+                    </SystemTooltip>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={dateInput}
+                      placeholder="DD/MM/AAAA"
+                      aria-label="Data do agendamento"
+                      onFocus={() => setIsCalendarOpen(true)}
+                      onClick={() => setIsCalendarOpen(true)}
+                      onChange={(e) => handleDateInputChange(e.target.value)}
+                      onBlur={handleDateInputBlur}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape" && isCalendarOpen) {
+                          e.stopPropagation();
+                          setIsCalendarOpen(false);
+                        } else if (e.key === "Enter" && isCalendarOpen) {
+                          e.preventDefault();
+                          handleDateInputBlur();
+                          setIsCalendarOpen(false);
+                        } else if (e.key === "Tab") {
+                          setIsCalendarOpen(false);
+                        }
+                      }}
+                      className="w-full bg-transparent text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none"
+                    />
+                    <SystemTooltip content={isCalendarOpen ? "Fechar calendário" : "Selecionar no calendário"}>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => setIsCalendarOpen((prev) => !prev)}
+                        className="ml-1.5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+                        aria-label="Alternar calendário"
+                      >
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 opacity-60 transition-transform ${
+                            isCalendarOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                    </SystemTooltip>
                   </div>
-                </PopoverTrigger>
-                <PopoverContent className="w-[280px] p-3 rounded-2xl border border-border shadow-xl bg-card" align="start">
+                </PopoverAnchor>
+                <PopoverContent
+                  className="w-[280px] p-3 rounded-2xl border border-border shadow-xl bg-card"
+                  align="start"
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                  onCloseAutoFocus={(e) => e.preventDefault()}
+                  onInteractOutside={(e) => {
+                    if (dateAnchorRef.current?.contains(e.target as Node)) {
+                      e.preventDefault();
+                    }
+                  }}
+                >
                   {/* Header do Mês e Navegação */}
                   <div className="flex items-center justify-between mb-3 px-1">
-                    <button
-                      type="button"
-                      onClick={prevMonth}
-                      className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </button>
+                    <SystemTooltip content="Mês anterior">
+                      <button
+                        type="button"
+                        onClick={prevMonth}
+                        className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                    </SystemTooltip>
                     <span className="text-xs font-bold text-foreground">
                       {MONTH_NAMES_PT[calendarMonth]} {calendarYear}
                     </span>
-                    <button
-                      type="button"
-                      onClick={nextMonth}
-                      className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
+                    <SystemTooltip content="Próximo mês">
+                      <button
+                        type="button"
+                        onClick={nextMonth}
+                        className="h-7 w-7 flex items-center justify-center rounded-lg text-primary hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </SystemTooltip>
                   </div>
 
                   {/* Linha dos dias da semana */}
@@ -889,11 +1116,34 @@ export function CreateTaskModal({
                   <div className="grid grid-cols-7 gap-1 text-center">
                     {renderCalendarDays()}
                   </div>
+
+                  {/* Atalhos rápidos */}
+                  <div className="flex items-center justify-between pt-2 mt-2 border-t border-border/50 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickDateOffset(0)}
+                      className="font-semibold text-primary hover:underline cursor-pointer"
+                    >
+                      Hoje
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickDateOffset(1)}
+                      className="font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      Amanhã
+                    </button>
+                  </div>
                 </PopoverContent>
               </Popover>
+              {isDateInvalid && (
+                <p className="text-[11px] font-medium text-rose-500">
+                  Informe uma data válida no formato DD/MM/AAAA.
+                </p>
+              )}
             </div>
 
-            {/* 8. Horário da tarefa * (com Tooltip e Seletor customizado em harmonia com vermelho) */}
+            {/* 8. Horário da tarefa * (Digitável via teclado + Popover de Hora/Minuto) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-semibold text-foreground">
@@ -901,21 +1151,78 @@ export function CreateTaskModal({
                 </Label>
               </div>
               <Popover open={isTimeOpen} onOpenChange={setIsTimeOpen}>
-                <SystemTooltip content="Horário definido para o agendamento da tarefa">
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:border-border cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span>{scheduledTime || "10:00"}</span>
-                      </div>
-                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground opacity-60" />
-                    </button>
-                  </PopoverTrigger>
-                </SystemTooltip>
-                <PopoverContent className="w-[190px] p-2.5 rounded-xl shadow-xl border border-border bg-card" align="start">
+                <PopoverAnchor asChild>
+                  <div
+                    ref={timeAnchorRef}
+                    className={`relative flex h-10 w-full items-center rounded-lg border bg-background px-3 transition-colors ${
+                      isTimeInvalid
+                        ? "border-rose-500 ring-1 ring-rose-500/30"
+                        : "border-input hover:border-border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary"
+                    }`}
+                  >
+                    <SystemTooltip content="Abrir seletor de horário">
+                      <button
+                        type="button"
+                        onClick={() => setIsTimeOpen((prev) => !prev)}
+                        className="mr-2.5 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors cursor-pointer shrink-0"
+                        aria-label="Abrir seletor de horário"
+                      >
+                        <Clock className="h-4 w-4" />
+                      </button>
+                    </SystemTooltip>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={timeInput}
+                      placeholder="HH:mm"
+                      aria-label="Horário da tarefa"
+                      onFocus={() => setIsTimeOpen(true)}
+                      onClick={() => setIsTimeOpen(true)}
+                      onChange={(e) => handleTimeInputChange(e.target.value)}
+                      onBlur={handleTimeInputBlur}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape" && isTimeOpen) {
+                          e.stopPropagation();
+                          setIsTimeOpen(false);
+                        } else if (e.key === "Enter" && isTimeOpen) {
+                          e.preventDefault();
+                          handleTimeInputBlur();
+                          setIsTimeOpen(false);
+                        } else if (e.key === "Tab") {
+                          setIsTimeOpen(false);
+                        }
+                      }}
+                      className="w-full bg-transparent text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none"
+                    />
+                    <SystemTooltip content={isTimeOpen ? "Fechar lista de horários" : "Selecionar horário na lista"}>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => setIsTimeOpen((prev) => !prev)}
+                        className="ml-1.5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+                        aria-label="Alternar lista de horários"
+                      >
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 opacity-60 transition-transform ${
+                            isTimeOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                    </SystemTooltip>
+                  </div>
+                </PopoverAnchor>
+                <PopoverContent
+                  className="w-[190px] p-2.5 rounded-xl shadow-xl border border-border bg-card"
+                  align="start"
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                  onCloseAutoFocus={(e) => e.preventDefault()}
+                  onInteractOutside={(e) => {
+                    if (timeAnchorRef.current?.contains(e.target as Node)) {
+                      e.preventDefault();
+                    }
+                  }}
+                >
                   <div className="grid grid-cols-2 gap-2 text-center text-xs">
                     <div>
                       <div className="text-[10px] font-bold text-muted-foreground uppercase pb-1 border-b border-border/60 mb-1">
@@ -928,7 +1235,12 @@ export function CreateTaskModal({
                             <button
                               type="button"
                               key={h}
-                              onClick={() => setScheduledTime(`${h}:${selectedMin}`)}
+                              onClick={() => {
+                                const nextTime = `${h}:${selectedMin}`;
+                                setScheduledTime(nextTime);
+                                setTimeInput(nextTime);
+                                setIsTimeInvalid(false);
+                              }}
                               className={`w-full py-1 rounded-md text-xs transition-colors cursor-pointer ${
                                 isSelected
                                   ? "bg-primary text-primary-foreground font-bold shadow-xs"
@@ -953,7 +1265,10 @@ export function CreateTaskModal({
                               type="button"
                               key={m}
                               onClick={() => {
-                                setScheduledTime(`${selectedHour}:${m}`);
+                                const nextTime = `${selectedHour}:${m}`;
+                                setScheduledTime(nextTime);
+                                setTimeInput(nextTime);
+                                setIsTimeInvalid(false);
                                 setIsTimeOpen(false);
                               }}
                               className={`w-full py-1 rounded-md text-xs transition-colors cursor-pointer ${
@@ -971,6 +1286,11 @@ export function CreateTaskModal({
                   </div>
                 </PopoverContent>
               </Popover>
+              {isTimeInvalid && (
+                <p className="text-[11px] font-medium text-rose-500">
+                  Informe um horário válido entre 00:00 e 23:59.
+                </p>
+              )}
             </div>
 
             {/* 9. Checkbox: Marcar como concluída ao criar */}
